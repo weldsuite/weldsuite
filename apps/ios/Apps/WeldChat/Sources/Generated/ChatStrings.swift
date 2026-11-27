@@ -3,10 +3,960 @@
 import Foundation
 
 enum ChatStrings {
+    /// {count}d
+    static func activityDaysShort(count: Int) -> String { tr("activity.daysShort", count) }
+    /// Earlier this month
+    static var activityEarlierThisMonth: String { tr("activity.earlierThisMonth") }
+    /// Mentions, thread replies, and DMs will show up here.
+    static var activityEmptyHint: String { tr("activity.emptyHint") }
+    /// No activity yet
+    static var activityEmptyTitle: String { tr("activity.emptyTitle") }
+    /// {count}h
+    static func activityHoursShort(count: Int) -> String { tr("activity.hoursShort", count) }
+    /// Mark all as read
+    static var activityMarkAllRead: String { tr("activity.markAllRead") }
+    /// {count}m
+    static func activityMinutesShort(count: Int) -> String { tr("activity.minutesShort", count) }
+    /// now
+    static var activityNow: String { tr("activity.now") }
+    /// This week
+    static var activityThisWeek: String { tr("activity.thisWeek") }
     /// WeldChat
     static var appName: String { tr("appName") }
     /// Team communication for your workspace
     static var authSubtitle: String { tr("auth.subtitle") }
+    /// Accept
+    static var callAccept: String { tr("call.accept") }
+    /// {name} · {status}
+    static func callBarTitle(name: String, status: String) -> String { tr("call.barTitle", name, status) }
+    /// Calling {name}…
+    static func callCalling(name: String) -> String { tr("call.calling", name) }
+    /// Calling…
+    static var callCallingSomeone: String { tr("call.callingSomeone") }
+    /// Rings for WeldChat voice and video calls
+    static var callChannelDescription: String { tr("call.channelDescription") }
+    /// Incoming calls
+    static var callChannelName: String { tr("call.channelName") }
+    /// Connecting…
+    static var callConnecting: String { tr("call.connecting") }
+    /// Decline
+    static var callDecline: String { tr("call.decline") }
+    /// End call
+    static var callEndCall: String { tr("call.endCall") }
+    /// Incoming video call
+    static var callIncomingVideo: String { tr("call.incomingVideo") }
+    /// Incoming voice call
+    static var callIncomingVoice: String { tr("call.incomingVoice") }
+    /// Mute
+    static var callMute: String { tr("call.mute") }
+    /// Call in progress
+    static var callOngoingNotification: String { tr("call.ongoingNotification") }
+    /// Allow WeldChat to use the microphone (and the camera for video) in Settings to take part in calls.
+    static var callPermissionBody: String { tr("call.permissionBody") }
+    /// Microphone access needed
+    static var callPermissionTitle: String { tr("call.permissionTitle") }
+    /// Reconnecting…
+    static var callReconnecting: String { tr("call.reconnecting") }
+    /// Return to call
+    static var callReturnToCall: String { tr("call.returnToCall") }
+    /// Ringing
+    static var callRinging: String { tr("call.ringing") }
+    /// Speaker
+    static var callSpeaker: String { tr("call.speaker") }
+    /// This server has no call service to join the call with.
+    static var callUnjoinable: String { tr("call.unjoinable") }
+    /// Incoming call
+    static var callUnknownCaller: String { tr("call.unknownCaller") }
+    /// Unmute
+    static var callUnmute: String { tr("call.unmute") }
+    /// Call back
+    static var callsCallBack: String { tr("calls.callBack") }
+    /// Declined
+    static var callsDeclined: String { tr("calls.declined") }
+    /// Voice and video calls you make and receive will appear here.
+    static var callsEmptyHint: String { tr("calls.emptyHint") }
+    /// No calls yet
+    static var callsEmptyTitle: String { tr("calls.emptyTitle") }
+    /// Incoming
+    static var callsIncoming: String { tr("calls.incoming") }
+    /// Join
+    static var callsJoin: String { tr("calls.join") }
+    /// Missed
+    static var callsMissed: String { tr("calls.missed") }
+    /// No answer
+    static var callsNoAnswer: String { tr("calls.noAnswer") }
+    /// Ongoing
+    static var callsOngoing: String { tr("calls.ongoing") }
+    /// Ongoing video call
+    static var callsOngoingVideoCall: String { tr("calls.ongoingVideoCall") }
+    /// Ongoing voice call
+    static var callsOngoingVoiceCall: String { tr("calls.ongoingVoiceCall") }
+    /// Outgoing
+    static var callsOutgoing: String { tr("calls.outgoing") }
+    /// {count} participants
+    static func callsParticipantCount(_ count: Int) -> String { tr("calls.participantCount", count) }
+    /// Recent
+    static var callsRecent: String { tr("calls.recent") }
+    /// Unknown
+    static var callsUnknown: String { tr("calls.unknown") }
+    /// Video call
+    static var callsVideoCall: String { tr("calls.videoCall") }
+    /// Voice call
+    static var callsVoiceCall: String { tr("calls.voiceCall") }
+    /// Active now
+    static var channelActiveNow: String { tr("channel.activeNow") }
+    /// Agent
+    static var channelAgentBadge: String { tr("channel.agentBadge") }
+    /// {name} is working…
+    static func channelAgentWorking(name: String) -> String { tr("channel.agentWorking", name) }
+    /// AI is currently unavailable.
+    static var channelAiUnavailable: String { tr("channel.aiUnavailable") }
+    /// Already saved
+    static var channelAlreadySaved: String { tr("channel.alreadySaved") }
+    /// This conversation is archived
+    static var channelArchivedNotice: String { tr("channel.archivedNotice") }
+    /// Attachment
+    static var channelAttachment: String { tr("channel.attachment") }
+    /// Call ended
+    static var channelCallEnded: String { tr("channel.callEnded") }
+    /// Could not connect to the call. Please try again.
+    static var channelCallFailedBody: String { tr("channel.callFailedBody") }
+    /// Call failed
+    static var channelCallFailedTitle: String { tr("channel.callFailedTitle") }
+    /// a few seconds
+    static var channelCallFewSeconds: String { tr("channel.callFewSeconds") }
+    /// {count} hours
+    static func channelCallHours(_ count: Int) -> String { tr("channel.callHours", count) }
+    /// {duration} — {when}
+    static func channelCallLasted(duration: String, when: String) -> String { tr("channel.callLasted", duration, when) }
+    /// {count} minutes
+    static func channelCallMinutes(_ count: Int) -> String { tr("channel.callMinutes", count) }
+    /// Ongoing call
+    static var channelCallOngoing: String { tr("channel.callOngoing") }
+    /// Call started
+    static var channelCallStarted: String { tr("channel.callStarted") }
+    /// Cancel reply
+    static var channelCancelReply: String { tr("channel.cancelReply") }
+    /// Channel details
+    static var channelChannelDetails: String { tr("channel.channelDetails") }
+    /// Copied
+    static var channelCopied: String { tr("channel.copied") }
+    /// Create thread
+    static var channelCreateThread: String { tr("channel.createThread") }
+    /// Could not delete the message.
+    static var channelDeleteFailed: String { tr("channel.deleteFailed") }
+    /// Are you sure you want to delete this message? This cannot be undone.
+    static var channelDeleteMessageBody: String { tr("channel.deleteMessageBody") }
+    /// Delete message
+    static var channelDeleteMessageTitle: String { tr("channel.deleteMessageTitle") }
+    /// Dismiss
+    static var channelDismissThreadSuggestion: String { tr("channel.dismissThreadSuggestion") }
+    /// Conversation with {name}
+    static func channelDmConversation(name: String) -> String { tr("channel.dmConversation", name) }
+    /// Could not edit the message.
+    static var channelEditFailed: String { tr("channel.editFailed") }
+    /// (edited)
+    static var channelEdited: String { tr("channel.edited") }
+    /// Editing message
+    static var channelEditingMessage: String { tr("channel.editingMessage") }
+    /// Join
+    static var channelJoinCall: String { tr("channel.joinCall") }
+    /// Loading…
+    static var channelLoadingTitle: String { tr("channel.loadingTitle") }
+    /// Mention {name}
+    static func channelMentionAuthor(name: String) -> String { tr("channel.mentionAuthor", name) }
+    /// Missed call
+    static var channelMissedCall: String { tr("channel.missedCall") }
+    /// Notify others?
+    static var channelNotifyOthers: String { tr("channel.notifyOthers") }
+    /// Offline
+    static var channelOffline: String { tr("channel.offline") }
+    /// The original message is further back in the conversation.
+    static var channelOriginalFurtherBack: String { tr("channel.originalFurtherBack") }
+    /// Original message
+    static var channelOriginalMessage: String { tr("channel.originalMessage") }
+    /// 24 hours
+    static var channelPin24h: String { tr("channel.pin24h") }
+    /// 30 days
+    static var channelPin30d: String { tr("channel.pin30d") }
+    /// 7 days
+    static var channelPin7d: String { tr("channel.pin7d") }
+    /// Always
+    static var channelPinAlways: String { tr("channel.pinAlways") }
+    /// Could not pin the message.
+    static var channelPinFailed: String { tr("channel.pinFailed") }
+    /// Pin for how long?
+    static var channelPinForHowLong: String { tr("channel.pinForHowLong") }
+    /// You can pin up to 3 messages. Unpin one first.
+    static var channelPinLimit: String { tr("channel.pinLimit") }
+    /// {position} of {count}
+    static func channelPinPosition(position: String, count: Int) -> String { tr("channel.pinPosition", position, count) }
+    /// Pin silently
+    static var channelPinSilently: String { tr("channel.pinSilently") }
+    /// No one will be notified
+    static var channelPinSilentlyHint: String { tr("channel.pinSilentlyHint") }
+    /// Pin with alert
+    static var channelPinWithAlert: String { tr("channel.pinWithAlert") }
+    /// Members will be notified
+    static var channelPinWithAlertHint: String { tr("channel.pinWithAlertHint") }
+    /// Could not add the reaction.
+    static var channelReactionFailed: String { tr("channel.reactionFailed") }
+    /// {count} replies
+    static func channelReplyCount(_ count: Int) -> String { tr("channel.replyCount", count) }
+    /// Replying to {name}
+    static func channelReplyingTo(name: String) -> String { tr("channel.replyingTo", name) }
+    /// Could not save the message.
+    static var channelSaveMessageFailed: String { tr("channel.saveMessageFailed") }
+    /// Message saved
+    static var channelSavedForLater: String { tr("channel.savedForLater") }
+    /// Scroll to latest messages
+    static var channelScrollToLatest: String { tr("channel.scrollToLatest") }
+    /// Message failed to send.
+    static var channelSendFailed: String { tr("channel.sendFailed") }
+    /// Sending…
+    static var channelSending: String { tr("channel.sending") }
+    /// Someone
+    static var channelSomeone: String { tr("channel.someone") }
+    /// This is the start of the conversation.
+    static var channelStartOfConversation: String { tr("channel.startOfConversation") }
+    /// Start video call
+    static var channelStartVideoCall: String { tr("channel.startVideoCall") }
+    /// Start voice call
+    static var channelStartVoiceCall: String { tr("channel.startVoiceCall") }
+    /// Looks like a conversation. Continue it in a thread?
+    static var channelThreadSuggestion: String { tr("channel.threadSuggestion") }
+    /// {name} and {count} others are typing…
+    static func channelTypingMany(name: String, count: Int) -> String { tr("channel.typingMany", name, count) }
+    /// {name} is typing…
+    static func channelTypingOne(name: String) -> String { tr("channel.typingOne", name) }
+    /// {name} and {other} are typing…
+    static func channelTypingTwo(name: String, other: String) -> String { tr("channel.typingTwo", name, other) }
+    /// Unarchive
+    static var channelUnarchive: String { tr("channel.unarchive") }
+    /// Unpin
+    static var channelUnpin: String { tr("channel.unpin") }
+    /// It will be unpinned for everyone in this channel.
+    static var channelUnpinBody: String { tr("channel.unpinBody") }
+    /// Unpin message?
+    static var channelUnpinTitle: String { tr("channel.unpinTitle") }
+    /// Chart
+    static var channelVisualKindsChart: String { tr("channel.visualKinds.chart") }
+    /// Records
+    static var channelVisualKindsRecords: String { tr("channel.visualKinds.records") }
+    /// Figures
+    static var channelVisualKindsStats: String { tr("channel.visualKinds.stats") }
+    /// Table
+    static var channelVisualKindsTable: String { tr("channel.visualKinds.table") }
+    /// {kind} “{title}”: open it on the web to see it
+    static func channelVisualShown(kind: String, title: String) -> String { tr("channel.visualShown", kind, title) }
+    /// Welcome to #{name}
+    static func channelWelcome(name: String) -> String { tr("channel.welcome", name) }
+    /// You
+    static var channelYou: String { tr("channel.you") }
+    /// Actions
+    static var channelInfoActions: String { tr("channelInfo.actions") }
+    /// Delete channel
+    static var channelInfoDelete: String { tr("channelInfo.delete") }
+    /// This removes the channel for everyone. This cannot be undone.
+    static var channelInfoDeleteBody: String { tr("channelInfo.deleteBody") }
+    /// Could not delete the channel.
+    static var channelInfoDeleteFailed: String { tr("channelInfo.deleteFailed") }
+    /// Delete #{name}?
+    static func channelInfoDeleteTitle(name: String) -> String { tr("channelInfo.deleteTitle", name) }
+    /// Channel deleted
+    static var channelInfoDeleted: String { tr("channelInfo.deleted") }
+    /// Description
+    static var channelInfoDescription: String { tr("channelInfo.description") }
+    /// Leave channel
+    static var channelInfoLeave: String { tr("channelInfo.leave") }
+    /// You will stop receiving messages from this channel.
+    static var channelInfoLeaveBody: String { tr("channelInfo.leaveBody") }
+    /// Could not leave the channel.
+    static var channelInfoLeaveFailed: String { tr("channelInfo.leaveFailed") }
+    /// Leave #{name}?
+    static func channelInfoLeaveTitle(name: String) -> String { tr("channelInfo.leaveTitle", name) }
+    /// You left #{name}
+    static func channelInfoLeft(name: String) -> String { tr("channelInfo.left", name) }
+    /// Could not load this channel.
+    static var channelInfoLoadFailed: String { tr("channelInfo.loadFailed") }
+    /// {count} members
+    static func channelInfoMemberCount(_ count: Int) -> String { tr("channelInfo.memberCount", count) }
+    /// Members
+    static var channelInfoMembers: String { tr("channelInfo.members") }
+    /// No description yet
+    static var channelInfoNoDescription: String { tr("channelInfo.noDescription") }
+    /// Channel owners cannot leave. Transfer ownership first.
+    static var channelInfoOwnerCannotLeave: String { tr("channelInfo.ownerCannotLeave") }
+    /// Private channel
+    static var channelInfoPrivateChannel: String { tr("channelInfo.privateChannel") }
+    /// Public channel
+    static var channelInfoPublicChannel: String { tr("channelInfo.publicChannel") }
+    /// Rename channel
+    static var channelInfoRename: String { tr("channelInfo.rename") }
+    /// Could not rename the channel.
+    static var channelInfoRenameFailed: String { tr("channelInfo.renameFailed") }
+    /// Channel name
+    static var channelInfoRenameLabel: String { tr("channelInfo.renameLabel") }
+    /// channel-name
+    static var channelInfoRenamePlaceholder: String { tr("channelInfo.renamePlaceholder") }
+    /// A channel with that name already exists.
+    static var channelInfoRenameTaken: String { tr("channelInfo.renameTaken") }
+    /// Channel renamed
+    static var channelInfoRenamed: String { tr("channelInfo.renamed") }
+    /// Channel details
+    static var channelInfoTitle: String { tr("channelInfo.title") }
+    /// Back
+    static var commonBack: String { tr("common.back") }
+    /// More
+    static var commonMore: String { tr("common.more") }
+    /// Add attachment
+    static var composerAttach: String { tr("composer.attach") }
+    /// Attach
+    static var composerAttachTitle: String { tr("composer.attachTitle") }
+    /// Delete recording
+    static var composerDeleteRecording: String { tr("composer.deleteRecording") }
+    /// File
+    static var composerFile: String { tr("composer.file") }
+    /// Message #{name}
+    static func composerMessageChannel(name: String) -> String { tr("composer.messageChannel", name) }
+    /// Message...
+    static var composerMessageDm: String { tr("composer.messageDm") }
+    /// Allow WeldChat to use the microphone in Settings to record voice messages.
+    static var composerMicPermissionBody: String { tr("composer.micPermissionBody") }
+    /// Microphone access needed
+    static var composerMicPermissionTitle: String { tr("composer.micPermissionTitle") }
+    /// Open Settings
+    static var composerOpenSettings: String { tr("composer.openSettings") }
+    /// Pause
+    static var composerPause: String { tr("composer.pause") }
+    /// Photo Library
+    static var composerPhotoLibrary: String { tr("composer.photoLibrary") }
+    /// Play
+    static var composerPlay: String { tr("composer.play") }
+    /// {speed}×
+    static func composerPlaybackSpeed(speed: String) -> String { tr("composer.playbackSpeed", speed) }
+    /// Could not start recording.
+    static var composerRecordFailed: String { tr("composer.recordFailed") }
+    /// Record voice message
+    static var composerRecordVoice: String { tr("composer.recordVoice") }
+    /// Remove attachment
+    static var composerRemoveAttachment: String { tr("composer.removeAttachment") }
+    /// Send
+    static var composerSend: String { tr("composer.send") }
+    /// Voice message
+    static var composerVoiceMessage: String { tr("composer.voiceMessage") }
+    /// Could not send the voice message.
+    static var composerVoiceSendFailed: String { tr("composer.voiceSendFailed") }
+    /// Voice message too short
+    static var composerVoiceTooShort: String { tr("composer.voiceTooShort") }
+    /// Archive
+    static var conversationMenuArchive: String { tr("conversationMenu.archive") }
+    /// Channel details
+    static var conversationMenuChannelDetails: String { tr("conversationMenu.channelDetails") }
+    /// Copy link
+    static var conversationMenuCopyLink: String { tr("conversationMenu.copyLink") }
+    /// Delete conversation
+    static var conversationMenuDelete: String { tr("conversationMenu.delete") }
+    /// That did not work. Try again.
+    static var conversationMenuFailed: String { tr("conversationMenu.failed") }
+    /// Invite people
+    static var conversationMenuInvite: String { tr("conversationMenu.invite") }
+    /// Link copied
+    static var conversationMenuLinkCopied: String { tr("conversationMenu.linkCopied") }
+    /// Mark as read
+    static var conversationMenuMarkRead: String { tr("conversationMenu.markRead") }
+    /// Mute
+    static var conversationMenuMute: String { tr("conversationMenu.mute") }
+    /// Notifications
+    static var conversationMenuNotifications: String { tr("conversationMenu.notifications") }
+    /// All messages
+    static var conversationMenuNotifyAll: String { tr("conversationMenu.notifyAll") }
+    /// Only @mentions
+    static var conversationMenuNotifyMentions: String { tr("conversationMenu.notifyMentions") }
+    /// Nothing
+    static var conversationMenuNotifyNone: String { tr("conversationMenu.notifyNone") }
+    /// Pin
+    static var conversationMenuPin: String { tr("conversationMenu.pin") }
+    /// Unmute
+    static var conversationMenuUnmute: String { tr("conversationMenu.unmute") }
+    /// Unpin
+    static var conversationMenuUnpin: String { tr("conversationMenu.unpin") }
+    /// View profile
+    static var conversationMenuViewProfile: String { tr("conversationMenu.viewProfile") }
+    /// Archive
+    static var dmsArchive: String { tr("dms.archive") }
+    /// Group
+    static var dmsComposeGroup: String { tr("dms.composeGroup") }
+    /// Talk with several people
+    static var dmsComposeGroupHint: String { tr("dms.composeGroupHint") }
+    /// Start a conversation with someone
+    static var dmsEmptyHint: String { tr("dms.emptyHint") }
+    /// No messages yet
+    static var dmsEmptyTitle: String { tr("dms.emptyTitle") }
+    /// Direct message
+    static var dmsFallbackName: String { tr("dms.fallbackName") }
+    /// All
+    static var dmsFilterAll: String { tr("dms.filterAll") }
+    /// Favourites
+    static var dmsFilterFavourites: String { tr("dms.filterFavourites") }
+    /// Muted
+    static var dmsFilterMuted: String { tr("dms.filterMuted") }
+    /// Unread
+    static var dmsFilterUnread: String { tr("dms.filterUnread") }
+    /// Group
+    static var dmsGroupFallback: String { tr("dms.groupFallback") }
+    /// Mute
+    static var dmsMute: String { tr("dms.mute") }
+    /// New direct message
+    static var dmsNewDm: String { tr("dms.newDm") }
+    /// New group
+    static var dmsNewGroup: String { tr("dms.newGroup") }
+    /// No messages yet
+    static var dmsNoMessagesPreview: String { tr("dms.noMessagesPreview") }
+    /// No other members in this workspace
+    static var dmsNoOtherMembers: String { tr("dms.noOtherMembers") }
+    /// Pin
+    static var dmsPin: String { tr("dms.pin") }
+    /// Unknown
+    static var dmsUnknownMember: String { tr("dms.unknownMember") }
+    /// Unmute
+    static var dmsUnmute: String { tr("dms.unmute") }
+    /// Unpin
+    static var dmsUnpin: String { tr("dms.unpin") }
+    /// {count}d ago
+    static func draftsDaysAgo(count: Int) -> String { tr("drafts.daysAgo", count) }
+    /// Unfinished messages will show up here so you can pick up where you left off.
+    static var draftsEmptyHint: String { tr("drafts.emptyHint") }
+    /// No drafts
+    static var draftsEmptyTitle: String { tr("drafts.emptyTitle") }
+    /// {count}h ago
+    static func draftsHoursAgo(count: Int) -> String { tr("drafts.hoursAgo", count) }
+    /// just now
+    static var draftsJustNow: String { tr("drafts.justNow") }
+    /// {count}m ago
+    static func draftsMinutesAgo(count: Int) -> String { tr("drafts.minutesAgo", count) }
+    /// Drafts
+    static var draftsTitle: String { tr("drafts.title") }
+    /// {count} channels
+    static func homeChannelCount(_ count: Int) -> String { tr("home.channelCount", count) }
+    /// Channels
+    static var homeChannelsGroup: String { tr("home.channelsGroup") }
+    /// Category
+    static var homeComposeCategory: String { tr("home.composeCategory") }
+    /// Group your channels
+    static var homeComposeCategoryHint: String { tr("home.composeCategoryHint") }
+    /// Channel
+    static var homeComposeChannel: String { tr("home.composeChannel") }
+    /// Organize teams and work
+    static var homeComposeChannelHint: String { tr("home.composeChannelHint") }
+    /// Private message
+    static var homeComposeMessage: String { tr("home.composeMessage") }
+    /// Create channel
+    static var homeCreateChannel: String { tr("home.createChannel") }
+    /// A space for a team, project or topic.
+    static var homeCreateChannelHint: String { tr("home.createChannelHint") }
+    /// Drafts
+    static var homeDrafts: String { tr("home.drafts") }
+    /// Create a channel
+    static var homeEmptyCreateChannel: String { tr("home.emptyCreateChannel") }
+    /// Create a channel for your team, or start a direct message.
+    static var homeEmptyHint: String { tr("home.emptyHint") }
+    /// Start a direct message
+    static var homeEmptyStartDm: String { tr("home.emptyStartDm") }
+    /// No channels yet
+    static var homeEmptyTitle: String { tr("home.emptyTitle") }
+    /// {count} items
+    static func homeItemCount(_ count: Int) -> String { tr("home.itemCount", count) }
+    /// {count}+ items
+    static func homeItemCountCapped(count: Int) -> String { tr("home.itemCountCapped", count) }
+    /// {count} live
+    static func homeLiveCount(_ count: Int) -> String { tr("home.liveCount", count) }
+    /// New
+    static var homeNewItem: String { tr("home.newItem") }
+    /// Profile and settings
+    static var homeProfileAndSettings: String { tr("home.profileAndSettings") }
+    /// Saved
+    static var homeSaved: String { tr("home.saved") }
+    /// Section actions
+    static var homeSectionActions: String { tr("home.sectionActions") }
+    /// See all
+    static var homeSeeAll: String { tr("home.seeAll") }
+    /// Switch workspace
+    static var homeSwitchWorkspace: String { tr("home.switchWorkspace") }
+    /// Unread
+    static var homeUnreads: String { tr("home.unreads") }
+    /// Workspace
+    static var homeWorkspaceFallback: String { tr("home.workspaceFallback") }
+    /// Back to chat
+    static var inCallBackToChat: String { tr("inCall.backToChat") }
+    /// Flip camera
+    static var inCallFlipCamera: String { tr("inCall.flipCamera") }
+    /// Leave call
+    static var inCallLeaveCall: String { tr("inCall.leaveCall") }
+    /// Minimize call
+    static var inCallMinimize: String { tr("inCall.minimize") }
+    /// More options
+    static var inCallMoreOptions: String { tr("inCall.moreOptions") }
+    /// Turn off camera
+    static var inCallTurnOffCamera: String { tr("inCall.turnOffCamera") }
+    /// Turn off microphone
+    static var inCallTurnOffMic: String { tr("inCall.turnOffMic") }
+    /// Turn on camera
+    static var inCallTurnOnCamera: String { tr("inCall.turnOnCamera") }
+    /// Turn on microphone
+    static var inCallTurnOnMic: String { tr("inCall.turnOnMic") }
+    /// Video call
+    static var inCallVideoCall: String { tr("inCall.videoCall") }
+    /// Voice call
+    static var inCallVoiceCall: String { tr("inCall.voiceCall") }
+    /// Add
+    static var invitePeopleAdd: String { tr("invitePeople.add") }
+    /// Add ({count})
+    static func invitePeopleAddWithCount(count: Int) -> String { tr("invitePeople.addWithCount", count) }
+    /// {count} people added
+    static func invitePeopleAdded(_ count: Int) -> String { tr("invitePeople.added", count) }
+    /// Everyone is already in this channel
+    static var invitePeopleEveryoneIn: String { tr("invitePeople.everyoneIn") }
+    /// Could not add people to this channel.
+    static var invitePeopleFailed: String { tr("invitePeople.failed") }
+    /// No people match your search
+    static var invitePeopleNoMatch: String { tr("invitePeople.noMatch") }
+    /// Search people
+    static var invitePeopleSearch: String { tr("invitePeople.search") }
+    /// Invite people
+    static var invitePeopleTitle: String { tr("invitePeople.title") }
+    /// added
+    static var memberActivityActionsAdded: String { tr("member.activity.actions.added") }
+    /// archived
+    static var memberActivityActionsArchived: String { tr("member.activity.actions.archived") }
+    /// assigned
+    static var memberActivityActionsAssigned: String { tr("member.activity.actions.assigned") }
+    /// created
+    static var memberActivityActionsCreated: String { tr("member.activity.actions.created") }
+    /// deleted
+    static var memberActivityActionsDeleted: String { tr("member.activity.actions.deleted") }
+    /// escalated
+    static var memberActivityActionsEscalated: String { tr("member.activity.actions.escalated") }
+    /// changed the priority of
+    static var memberActivityActionsPriorityChanged: String { tr("member.activity.actions.priorityChanged") }
+    /// removed
+    static var memberActivityActionsRemoved: String { tr("member.activity.actions.removed") }
+    /// changed the status of
+    static var memberActivityActionsStatusChanged: String { tr("member.activity.actions.statusChanged") }
+    /// updated
+    static var memberActivityActionsUpdated: String { tr("member.activity.actions.updated") }
+    /// This member hasn't performed any recorded actions in the workspace.
+    static var memberActivityEmptyDescription: String { tr("member.activity.emptyDescription") }
+    /// No activity yet
+    static var memberActivityEmptyTitle: String { tr("member.activity.emptyTitle") }
+    /// {count}h ago
+    static func memberActivityHoursAgo(count: Int) -> String { tr("member.activity.hoursAgo", count) }
+    /// just now
+    static var memberActivityJustNow: String { tr("member.activity.justNow") }
+    /// Something went wrong while fetching this member's activity.
+    static var memberActivityLoadFailedDescription: String { tr("member.activity.loadFailedDescription") }
+    /// Couldn't load activity
+    static var memberActivityLoadFailedTitle: String { tr("member.activity.loadFailedTitle") }
+    /// {count} × {type}
+    static func memberActivityMany(count: Int, type: String) -> String { tr("member.activity.many", count, type) }
+    /// {count} min ago
+    static func memberActivityMinutesAgo(count: Int) -> String { tr("member.activity.minutesAgo", count) }
+    /// {who} {action} {what}
+    static func memberActivitySentence(who: String, action: String, what: String) -> String { tr("member.activity.sentence", who, action, what) }
+    /// {action} {what}
+    static func memberActivitySentenceNoName(action: String, what: String) -> String { tr("member.activity.sentenceNoName", action, what) }
+    /// {count} breaks
+    static func memberBreaks(_ count: Int) -> String { tr("member.breaks", count) }
+    /// Call
+    static var memberCall: String { tr("member.call") }
+    /// Channels & DMs
+    static var memberCommonChannels: String { tr("member.common.channels") }
+    /// CRM
+    static var memberCommonCrm: String { tr("member.common.crm") }
+    /// {status} · delegated
+    static func memberCommonDelegated(status: String) -> String { tr("member.common.delegated", status) }
+    /// No shared channels, projects, tasks, CRM records or tickets between you two.
+    static var memberCommonEmptyDescription: String { tr("member.common.emptyDescription") }
+    /// Nothing in common yet
+    static var memberCommonEmptyTitle: String { tr("member.common.emptyTitle") }
+    /// Helpdesk
+    static var memberCommonHelpdesk: String { tr("member.common.helpdesk") }
+    /// Something went wrong while loading what you have in common.
+    static var memberCommonLoadFailedDescription: String { tr("member.common.loadFailedDescription") }
+    /// Couldn't load shared items
+    static var memberCommonLoadFailedTitle: String { tr("member.common.loadFailedTitle") }
+    /// {count} members
+    static func memberCommonMemberCount(_ count: Int) -> String { tr("member.common.memberCount", count) }
+    /// Projects
+    static var memberCommonProjects: String { tr("member.common.projects") }
+    /// Tasks
+    static var memberCommonTasks: String { tr("member.common.tasks") }
+    /// You can't share anything with yourself — pick another team member.
+    static var memberCommonThatsYouDescription: String { tr("member.common.thatsYouDescription") }
+    /// That's you
+    static var memberCommonThatsYouTitle: String { tr("member.common.thatsYouTitle") }
+    /// Compose email
+    static var memberComposeEmail: String { tr("member.composeEmail") }
+    /// Email copied to clipboard
+    static var memberEmailCopied: String { tr("member.emailCopied") }
+    /// Team member
+    static var memberFallbackName: String { tr("member.fallbackName") }
+    /// Bio
+    static var memberFieldsBio: String { tr("member.fields.bio") }
+    /// Email
+    static var memberFieldsEmail: String { tr("member.fields.email") }
+    /// Hours / week
+    static var memberFieldsHoursPerWeek: String { tr("member.fields.hoursPerWeek") }
+    /// Location
+    static var memberFieldsLocation: String { tr("member.fields.location") }
+    /// Phone
+    static var memberFieldsPhone: String { tr("member.fields.phone") }
+    /// Pronouns
+    static var memberFieldsPronouns: String { tr("member.fields.pronouns") }
+    /// Role
+    static var memberFieldsRole: String { tr("member.fields.role") }
+    /// Timezone
+    static var memberFieldsTimezone: String { tr("member.fields.timezone") }
+    /// Title
+    static var memberFieldsTitle: String { tr("member.fields.title") }
+    /// {open} – {close}
+    static func memberHoursRange(open: String, close: String) -> String { tr("member.hoursRange", open, close) }
+    /// Links
+    static var memberLinks: String { tr("member.links") }
+    /// More actions
+    static var memberMoreActions: String { tr("member.moreActions") }
+    /// This person has left, or been removed from, the workspace.
+    static var memberNotFoundDescription: String { tr("member.notFoundDescription") }
+    /// No longer in this workspace
+    static var memberNotFoundTitle: String { tr("member.notFoundTitle") }
+    /// Not working
+    static var memberNotWorking: String { tr("member.notWorking") }
+    /// {length} / {max}
+    static func memberNoteLength(length: String, max: String) -> String { tr("member.noteLength", length, max) }
+    /// Could not load your note.
+    static var memberNoteLoadFailed: String { tr("member.noteLoadFailed") }
+    /// Add a note…
+    static var memberNotePlaceholder: String { tr("member.notePlaceholder") }
+    /// Failed to save note
+    static var memberNoteSaveFailed: String { tr("member.noteSaveFailed") }
+    /// Open chat
+    static var memberOpenChat: String { tr("member.openChat") }
+    /// Your private notes
+    static var memberPrivateNotes: String { tr("member.privateNotes") }
+    /// Something went wrong while loading this member's profile.
+    static var memberProfileLoadFailedDescription: String { tr("member.profileLoadFailedDescription") }
+    /// Couldn't load this profile
+    static var memberProfileLoadFailedTitle: String { tr("member.profileLoadFailedTitle") }
+    /// Failed to save profile
+    static var memberProfileSaveFailed: String { tr("member.profileSaveFailed") }
+    /// Admin
+    static var memberRolesAdmin: String { tr("member.roles.admin") }
+    /// Custom role
+    static var memberRolesCustom: String { tr("member.roles.custom") }
+    /// Member
+    static var memberRolesMember: String { tr("member.roles.member") }
+    /// Owner
+    static var memberRolesOwner: String { tr("member.roles.owner") }
+    /// Viewer
+    static var memberRolesViewer: String { tr("member.roles.viewer") }
+    /// Set {label}…
+    static func memberSetField(label: String) -> String { tr("member.setField", label) }
+    /// Failed to start call
+    static var memberStartCallFailed: String { tr("member.startCallFailed") }
+    /// Activity
+    static var memberTabsActivity: String { tr("member.tabs.activity") }
+    /// Common
+    static var memberTabsCommon: String { tr("member.tabs.common") }
+    /// Overview
+    static var memberTabsOverview: String { tr("member.tabs.overview") }
+    /// Video call
+    static var memberVideoCall: String { tr("member.videoCall") }
+    /// Friday
+    static var memberWeekdaysFriday: String { tr("member.weekdays.friday") }
+    /// Monday
+    static var memberWeekdaysMonday: String { tr("member.weekdays.monday") }
+    /// Saturday
+    static var memberWeekdaysSaturday: String { tr("member.weekdays.saturday") }
+    /// Sunday
+    static var memberWeekdaysSunday: String { tr("member.weekdays.sunday") }
+    /// Thursday
+    static var memberWeekdaysThursday: String { tr("member.weekdays.thursday") }
+    /// Tuesday
+    static var memberWeekdaysTuesday: String { tr("member.weekdays.tuesday") }
+    /// Wednesday
+    static var memberWeekdaysWednesday: String { tr("member.weekdays.wednesday") }
+    /// Working hours
+    static var memberWorkingHours: String { tr("member.workingHours") }
+    /// Copy Text
+    static var messageActionsCopyText: String { tr("messageActions.copyText") }
+    /// Delete
+    static var messageActionsDelete: String { tr("messageActions.delete") }
+    /// Edit Message
+    static var messageActionsEdit: String { tr("messageActions.edit") }
+    /// More reactions
+    static var messageActionsMoreReactions: String { tr("messageActions.moreReactions") }
+    /// Pin Message
+    static var messageActionsPin: String { tr("messageActions.pin") }
+    /// React with emoji
+    static var messageActionsReactWithEmoji: String { tr("messageActions.reactWithEmoji") }
+    /// Reply
+    static var messageActionsReply: String { tr("messageActions.reply") }
+    /// Reply in Thread
+    static var messageActionsReplyInThread: String { tr("messageActions.replyInThread") }
+    /// Save Message
+    static var messageActionsSave: String { tr("messageActions.save") }
+    /// Unpin
+    static var messageActionsUnpin: String { tr("messageActions.unpin") }
+    /// Create
+    static var newCategoryCreate: String { tr("newCategory.create") }
+    /// Could not create the category.
+    static var newCategoryFailed: String { tr("newCategory.failed") }
+    /// Categories group your channels on Home.
+    static var newCategoryHint: String { tr("newCategory.hint") }
+    /// Name
+    static var newCategoryNameLabel: String { tr("newCategory.nameLabel") }
+    /// e.g. Projects
+    static var newCategoryNamePlaceholder: String { tr("newCategory.namePlaceholder") }
+    /// New category
+    static var newCategoryTitle: String { tr("newCategory.title") }
+    /// Where the channel shows on your Home.
+    static var newChannelCategoryHint: String { tr("newChannel.categoryHint") }
+    /// Category
+    static var newChannelCategoryLabel: String { tr("newChannel.categoryLabel") }
+    /// Create
+    static var newChannelCreate: String { tr("newChannel.create") }
+    /// Could not create the channel.
+    static var newChannelCreateFailed: String { tr("newChannel.createFailed") }
+    /// Create ({count})
+    static func newChannelCreateWithCount(count: Int) -> String { tr("newChannel.createWithCount", count) }
+    /// Channels are where conversations happen around a topic. Use a name that is easy to find and understand.
+    static var newChannelNameHint: String { tr("newChannel.nameHint") }
+    /// Name
+    static var newChannelNameLabel: String { tr("newChannel.nameLabel") }
+    /// e.g. plan-budget
+    static var newChannelNamePlaceholder: String { tr("newChannel.namePlaceholder") }
+    /// A channel with that name already exists.
+    static var newChannelNameTaken: String { tr("newChannel.nameTaken") }
+    /// Next
+    static var newChannelNext: String { tr("newChannel.next") }
+    /// None
+    static var newChannelNoCategory: String { tr("newChannel.noCategory") }
+    /// No people found
+    static var newChannelNoPeople: String { tr("newChannel.noPeople") }
+    /// Only the people you add can see #{name}. You can add more later.
+    static func newChannelPeopleHint(name: String) -> String { tr("newChannel.peopleHint", name) }
+    /// Search people
+    static var newChannelPeopleSearch: String { tr("newChannel.peopleSearch") }
+    /// Add people
+    static var newChannelPeopleTitle: String { tr("newChannel.peopleTitle") }
+    /// Only specific people can view and join this channel.
+    static var newChannelPrivateHint: String { tr("newChannel.privateHint") }
+    /// Private
+    static var newChannelPrivateTitle: String { tr("newChannel.privateTitle") }
+    /// Anyone in {workspace} can view and join this channel.
+    static func newChannelPublicHint(workspace: String) -> String { tr("newChannel.publicHint", workspace) }
+    /// Public
+    static var newChannelPublicTitle: String { tr("newChannel.publicTitle") }
+    /// {count} left
+    static func newChannelRemaining(count: Int) -> String { tr("newChannel.remaining", count) }
+    /// New channel
+    static var newChannelTitle: String { tr("newChannel.title") }
+    /// Visibility
+    static var newChannelVisibilityLabel: String { tr("newChannel.visibilityLabel") }
+    /// Channels
+    static var newMessageChannels: String { tr("newMessage.channels") }
+    /// Write a message
+    static var newMessageMessagePlaceholder: String { tr("newMessage.messagePlaceholder") }
+    /// No people or channels match "{query}"
+    static func newMessageNoResults(query: String) -> String { tr("newMessage.noResults", query) }
+    /// People
+    static var newMessagePeople: String { tr("newMessage.people") }
+    /// Recent
+    static var newMessageRecent: String { tr("newMessage.recent") }
+    /// Remove {name}
+    static func newMessageRemoveRecipient(name: String) -> String { tr("newMessage.removeRecipient", name) }
+    /// Could not send the message.
+    static var newMessageSendFailed: String { tr("newMessage.sendFailed") }
+    /// Start
+    static var newMessageStart: String { tr("newMessage.start") }
+    /// Start ({count})
+    static func newMessageStartWithCount(count: Int) -> String { tr("newMessage.startWithCount", count) }
+    /// New message
+    static var newMessageTitle: String { tr("newMessage.title") }
+    /// To:
+    static var newMessageTo: String { tr("newMessage.to") }
+    /// #channel or @someone
+    static var newMessageToPlaceholder: String { tr("newMessage.toPlaceholder") }
+    /// Email
+    static var profileEmail: String { tr("profile.email") }
+    /// Manage your account on the web
+    static var profileManageOnWeb: String { tr("profile.manageOnWeb") }
+    /// Name
+    static var profileName: String { tr("profile.name") }
+    /// Personal info
+    static var profilePersonalInfo: String { tr("profile.personalInfo") }
+    /// Profile
+    static var profileTitle: String { tr("profile.title") }
+    /// Your profile
+    static var profileYourProfile: String { tr("profile.yourProfile") }
+    /// All record chats
+    static var recordChatsAllTypes: String { tr("recordChats.allTypes") }
+    /// Install {app} on this device to open the record there.
+    static func recordChatsAppMissingBody(app: String) -> String { tr("recordChats.appMissingBody", app) }
+    /// {app} is not installed
+    static func recordChatsAppMissingTitle(app: String) -> String { tr("recordChats.appMissingTitle", app) }
+    /// Choose a record type
+    static var recordChatsChooseType: String { tr("recordChats.chooseType") }
+    /// No record chats yet.
+    static var recordChatsEmptyAll: String { tr("recordChats.emptyAll") }
+    /// You follow no record chats yet. Post in a chat on a company, person, task, project or domain, or follow one under All.
+    static var recordChatsEmptyFollowing: String { tr("recordChats.emptyFollowing") }
+    /// No unread mentions.
+    static var recordChatsEmptyMentions: String { tr("recordChats.emptyMentions") }
+    /// No record chats match "{query}".
+    static func recordChatsEmptySearch(query: String) -> String { tr("recordChats.emptySearch", query) }
+    /// You are all caught up.
+    static var recordChatsEmptyUnread: String { tr("recordChats.emptyUnread") }
+    /// All
+    static var recordChatsFiltersAll: String { tr("recordChats.filters.all") }
+    /// Following
+    static var recordChatsFiltersFollowing: String { tr("recordChats.filters.following") }
+    /// Mentions
+    static var recordChatsFiltersMentions: String { tr("recordChats.filters.mentions") }
+    /// Unread
+    static var recordChatsFiltersUnread: String { tr("recordChats.filters.unread") }
+    /// Follow
+    static var recordChatsFollow: String { tr("recordChats.follow") }
+    /// Could not follow this chat.
+    static var recordChatsFollowFailed: String { tr("recordChats.followFailed") }
+    /// Following
+    static var recordChatsFollowing: String { tr("recordChats.following") }
+    /// Boards
+    static var recordChatsGroupsBoard: String { tr("recordChats.groups.board") }
+    /// Companies
+    static var recordChatsGroupsCompany: String { tr("recordChats.groups.company") }
+    /// Documents
+    static var recordChatsGroupsDoc: String { tr("recordChats.groups.doc") }
+    /// Domains
+    static var recordChatsGroupsDomain: String { tr("recordChats.groups.domain") }
+    /// People
+    static var recordChatsGroupsPerson: String { tr("recordChats.groups.person") }
+    /// Projects
+    static var recordChatsGroupsProject: String { tr("recordChats.groups.project") }
+    /// Spreadsheets
+    static var recordChatsGroupsSheet: String { tr("recordChats.groups.sheet") }
+    /// Tasks
+    static var recordChatsGroupsTask: String { tr("recordChats.groups.task") }
+    /// Could not load record chats.
+    static var recordChatsLoadFailed: String { tr("recordChats.loadFailed") }
+    /// Message {name}
+    static func recordChatsMessagePlaceholder(name: String) -> String { tr("recordChats.messagePlaceholder", name) }
+    /// Mute
+    static var recordChatsMute: String { tr("recordChats.mute") }
+    /// Could not change notifications for this chat.
+    static var recordChatsMuteFailed: String { tr("recordChats.muteFailed") }
+    /// No messages yet
+    static var recordChatsNoMessages: String { tr("recordChats.noMessages") }
+    /// This record cannot be opened in {app}.
+    static func recordChatsOpenFailed(app: String) -> String { tr("recordChats.openFailed", app) }
+    /// Open in {app}
+    static func recordChatsOpenIn(app: String) -> String { tr("recordChats.openIn", app) }
+    /// Search record chats
+    static var recordChatsSearchPlaceholder: String { tr("recordChats.searchPlaceholder") }
+    /// Show all ({count})
+    static func recordChatsShowAll(count: Int) -> String { tr("recordChats.showAll", count) }
+    /// Record chats
+    static var recordChatsTitle: String { tr("recordChats.title") }
+    /// {type} · {preview}
+    static func recordChatsTypeAndPreview(type: String, preview: String) -> String { tr("recordChats.typeAndPreview", type, preview) }
+    /// Board
+    static var recordChatsTypesBoard: String { tr("recordChats.types.board") }
+    /// Company
+    static var recordChatsTypesCompany: String { tr("recordChats.types.company") }
+    /// Document
+    static var recordChatsTypesDoc: String { tr("recordChats.types.doc") }
+    /// Domain
+    static var recordChatsTypesDomain: String { tr("recordChats.types.domain") }
+    /// Person
+    static var recordChatsTypesPerson: String { tr("recordChats.types.person") }
+    /// Project
+    static var recordChatsTypesProject: String { tr("recordChats.types.project") }
+    /// Spreadsheet
+    static var recordChatsTypesSheet: String { tr("recordChats.types.sheet") }
+    /// Task
+    static var recordChatsTypesTask: String { tr("recordChats.types.task") }
+    /// Unfollow
+    static var recordChatsUnfollow: String { tr("recordChats.unfollow") }
+    /// Could not unfollow this chat.
+    static var recordChatsUnfollowFailed: String { tr("recordChats.unfollowFailed") }
+    /// Unmute
+    static var recordChatsUnmute: String { tr("recordChats.unmute") }
+    /// Chat about {name}
+    static func recordChatsWelcome(name: String) -> String { tr("recordChats.welcome", name) }
+    /// Long-press a message and tap Save Message to keep it here for easy access.
+    static var savedEmptyHint: String { tr("saved.emptyHint") }
+    /// Nothing saved yet
+    static var savedEmptyTitle: String { tr("saved.emptyTitle") }
+    /// Remove
+    static var savedRemove: String { tr("saved.remove") }
+    /// Saved
+    static var savedTitle: String { tr("saved.title") }
+    /// (message unavailable)
+    static var savedUnavailable: String { tr("saved.unavailable") }
+    /// Unknown
+    static var savedUnknownAuthor: String { tr("saved.unknownAuthor") }
+    /// Unknown channel
+    static var savedUnknownChannel: String { tr("saved.unknownChannel") }
+    /// Clear all
+    static var searchClearAll: String { tr("search.clearAll") }
+    /// Find messages, people, files, and more
+    static var searchIdleHint: String { tr("search.idleHint") }
+    /// Search your workspace
+    static var searchIdleTitle: String { tr("search.idleTitle") }
+    /// No people found
+    static var searchNoPeople: String { tr("search.noPeople") }
+    /// No results found
+    static var searchNoResults: String { tr("search.noResults") }
+    /// Try a different search term
+    static var searchNoResultsHint: String { tr("search.noResultsHint") }
+    /// Search
+    static var searchPlaceholder: String { tr("search.placeholder") }
+    /// Recent searches
+    static var searchRecentSearches: String { tr("search.recentSearches") }
+    /// Remove {term}
+    static func searchRemoveRecent(term: String) -> String { tr("search.removeRecent", term) }
+    /// All
+    static var searchTabsAll: String { tr("search.tabs.all") }
+    /// Audio
+    static var searchTabsAudio: String { tr("search.tabs.audio") }
+    /// Documents
+    static var searchTabsDocs: String { tr("search.tabs.docs") }
+    /// GIFs
+    static var searchTabsGifs: String { tr("search.tabs.gifs") }
+    /// Links
+    static var searchTabsLinks: String { tr("search.tabs.links") }
+    /// People
+    static var searchTabsPeople: String { tr("search.tabs.people") }
+    /// Photos
+    static var searchTabsPhotos: String { tr("search.tabs.photos") }
+    /// Videos
+    static var searchTabsVideos: String { tr("search.tabs.videos") }
+    /// Unknown
+    static var searchUnknownChannel: String { tr("search.unknownChannel") }
+    /// Activity
+    static var tabsActivity: String { tr("tabs.activity") }
+    /// Calls
+    static var tabsCalls: String { tr("tabs.calls") }
+    /// Direct messages
+    static var tabsDirectMessages: String { tr("tabs.directMessages") }
+    /// Home
+    static var tabsHome: String { tr("tabs.home") }
+    /// Reply failed to send
+    static var threadReplyFailed: String { tr("thread.replyFailed") }
+    /// Reply...
+    static var threadReplyPlaceholder: String { tr("thread.replyPlaceholder") }
+    /// Thread
+    static var threadTitle: String { tr("thread.title") }
 
     private static func tr(_ key: String, _ args: CVarArg...) -> String {
         let format = NSLocalizedString(key, bundle: Bundle.main, comment: "")

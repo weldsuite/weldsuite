@@ -1,0 +1,43 @@
+appId: ${APP_ID || "com.weldsuite.weldchat.dev"}
+name: Home, tabs and settings load
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- assertVisible:
+    id: home-tile-saved
+- assertVisible:
+    id: home-tile-drafts
+- tapOn:
+    id: tab-dms
+- assertVisible:
+    id: dms-search
+- tapOn:
+    id: tab-activity
+- assertVisible:
+    id: activity-mark-all-read
+    optional: true
+# The Calls tab only exists where the server has a video provider
+# (`chat-calls`). Its list renders whether the account has calls or not:
+# rows are calls-row-<id>, ongoing calls calls-ongoing-<id>, the empty state
+# calls-empty.
+- runFlow:
+    when:
+      visible:
+        id: tab-calls
+    commands:
+      - tapOn:
+          id: tab-calls
+      - extendedWaitUntil:
+          visible:
+            id: calls-list
+          timeout: 15000
+- tapOn:
+    id: tab-home
+- assertVisible:
+    id: home-tile-saved
+# Settings: the app's own row, then the shared settings.
+- openLink: weldchat://settings
+- extendedWaitUntil:
+    visible:
+      id: settings-profile
+    timeout: 15000

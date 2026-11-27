@@ -4,8 +4,12 @@ import WeldUI
 
 @main
 struct WeldChatApp: App {
-    @UIApplicationDelegateAdaptor(WeldAppDelegate.self) private var delegate
+    /// PushKit and CallKit for the call ring (ADR CHAT-005), on top of the core's push delegate.
+    @UIApplicationDelegateAdaptor(WeldChatAppDelegate.self) private var delegate
     @State private var env: AppEnvironment
+    @State private var store: ChatStore
+    @State private var calls: CallManager
+    @State private var navigator = ChatNavigator()
     @State private var toaster = Toaster()
     @AppStorage(AppAppearance.storageKey(app: "weldchat")) private var appearance = AppAppearance.system
     @Environment(\.scenePhase) private var scenePhase
@@ -13,7 +17,7 @@ struct WeldChatApp: App {
     init() {
         let info = Bundle.main.infoDictionary ?? [:]
         let server = (info["WeldEUServerURL"] as? String).flatMap(URL.init(string:)) ?? URL(string: "https://app.weldsuite.eu")!
-        _env = State(initialValue: AppEnvironment(
+        let env = AppEnvironment(
             app: AppIdentity(
                 code: "weldchat",
                 name: ChatStrings.appName,
@@ -27,7 +31,10 @@ struct WeldChatApp: App {
             lockRequired: false,
             optionalLock: true,
             usesPush: true
-        ))
+        )
+        _env = State(initialValue: env)
+        _store = State(initialValue: ChatStore(env: env))
+        _calls = State(initialValue: CallManager(env: env))
     }
 
     var body: some Scene {
@@ -36,8 +43,19 @@ struct WeldChatApp: App {
                 env: env,
                 branding: AppBranding(name: ChatStrings.appName, subtitle: ChatStrings.authSubtitle, logo: "Logo")
             ) { person, workspace, workspaces in
-                ContentView(env: env, person: person, workspace: workspace, workspaces: workspaces, appearance: $appearance)
+                ContentView(
+                    env: env,
+                    store: store,
+                    calls: calls,
+                    navigator: navigator,
+                    person: person,
+                    workspace: workspace,
+                    workspaces: workspaces,
+                    appearance: $appearance
+                )
             }
+            .environment(calls)
+            .environment(navigator)
             .tint(Tokens.Brand.weldchat)
             .preferredColorScheme(appearance.colorScheme)
             .toastOverlay(toaster)

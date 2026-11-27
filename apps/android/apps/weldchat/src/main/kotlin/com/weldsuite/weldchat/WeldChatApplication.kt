@@ -2,6 +2,8 @@ package com.weldsuite.weldchat
 
 import android.app.Application
 import android.app.NotificationManager
+import com.weldsuite.weldchat.calls.CallManager
+import com.weldsuite.weldchat.calls.CallRinging
 import org.weldsuite.core.AppEnvironment
 import org.weldsuite.core.AppIdentity
 import org.weldsuite.push.FcmOptions
@@ -14,6 +16,14 @@ class WeldChatApplication : Application() {
         private set
 
     lateinit var appearance: AppearancePreference
+        private set
+
+    /** Home's and the DM list's shared lists, and every chat endpoint. */
+    lateinit var store: ChatStore
+        private set
+
+    /** The call ring and the calls (ADR CHAT-005, CHAT-008). */
+    lateinit var calls: CallManager
         private set
 
     override fun onCreate() {
@@ -34,6 +44,7 @@ class WeldChatApplication : Application() {
             usesPush = true,
         )
         appearance = AppearancePreference(this, "weldchat")
+        store = ChatStore(env, ChatRepository(env) { dmTexts() })
         WeldPush.init(
             context = this,
             env = env,
@@ -44,5 +55,14 @@ class WeldChatApplication : Application() {
                 PushChannel("chat", getString(R.string.weldchat_app_name), NotificationManager.IMPORTANCE_HIGH),
             ),
         )
+        calls = CallManager(this, env)
+        CallRinging.install(this, env)
     }
+
+    /** The names a DM falls back to, in the app's current language. */
+    private fun dmTexts() = DmTexts(
+        unknownMember = getString(R.string.weldchat_dms_unknown_member),
+        groupFallback = getString(R.string.weldchat_dms_group_fallback),
+        fallbackName = getString(R.string.weldchat_dms_fallback_name),
+    )
 }

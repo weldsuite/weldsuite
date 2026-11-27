@@ -88,6 +88,12 @@ dependencies {
     implementation(libs.navigation.compose)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.process)
+    // Calls on LiveKit (ADR CHAT-008). Its audio routing (Twilio's
+    // audioswitch) is published on JitPack only, which this build doesn't
+    // use: the app routes call audio itself (calls/CallAudio.kt).
+    implementation(libs.livekit.android) {
+        exclude(group = "com.github.davidliu", module = "audioswitch")
+    }
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     testImplementation(libs.junit)

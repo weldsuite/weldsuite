@@ -7,18 +7,1151 @@ info:
     source of truth: change both together, and see "Changing the contract"
     in apps/mobile-shared/README.md for what apps already on phones can read.
 
-    Checked against the server in rust/modules/chat/tests/openapi_contract.rs.
+    Checked against the server in rust/modules/chat/tests/openapi_contract.rs
+    (chat), rust/modules/core-team/tests/openapi_contract_weldchat.rs (team
+    members and their profiles) and
+    rust/modules/core-platform/tests/openapi_contract_weldchat.rs
+    (notifications).
 
     Every request carries `Authorization: Bearer <WeldID access token>` and
-    names its workspace in `X-Weld-Workspace`.
+    names its workspace in `X-Weld-Workspace`, except `declineRing`, whose
+    ring token is the credential.
+
+    Not described here, because the checker reads JSON bodies only: the
+    attachment upload, `POST /api/chat-messages/upload` (multipart, `file`
+    and `channelId`), answering 201 with `{ data: { id, fileName, fileSize,
+    mimeType, url } }`. The apps send it themselves.
+
+    Timestamps are ISO 8601 strings (no `format`, parsed with `WeldDate`).
+    Objects that can be `null` are named schemas marked `nullable` and are
+    never `required`: the Swift client reads optionality from `required`.
 servers:
   - url: https://app.weldsuite.eu
-paths: {}
+paths:
+  # ── Channels ──────────────────────────────────────────────────────────────
+  /api/channels:
+    get:
+      operationId: listChannels
+      summary: Channels the caller can see, newest first, with the caller's read state.
+      parameters:
+        - name: types
+          in: query
+          description: Comma-separated channel types (`public,private`).
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The channels.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createChannel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateChannelInput'
+      responses:
+        '201':
+          description: The new channel.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/channels/{channelId}:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      operationId: getChannel
+      summary: The channel with its members.
+      responses:
+        '200':
+          description: The channel.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: updateChannel
+      summary: Rename a channel (owners and admins).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateChannelInput'
+      responses:
+        '200':
+          description: The channel.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteChannel
+      responses:
+        '204':
+          description: Deleted.
+        default:
+          $ref: '#/components/responses/Error'
+  /api/channels/{channelId}/members:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      operationId: listChannelMembers
+      summary: The channel's people and agents.
+      responses:
+        '200':
+          description: The members.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelMemberList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: addChannelMembers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddMembersInput'
+      responses:
+        '201':
+          description: Who was added.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddMembersResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/channels/{channelId}/members/leave:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    post:
+      operationId: leaveChannel
+      responses:
+        '200':
+          description: Left.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveChannelResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/channels/{channelId}/read:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    post:
+      operationId: markChannelRead
+      summary: Read up to the newest message.
+      responses:
+        '200':
+          description: The new read marker.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkReadResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/channel-members:
+    get:
+      operationId: listChannelMemberships
+      summary: Membership rows of a channel; with `userId`, the caller's own.
+      parameters:
+        - name: channelId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The rows.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/channel-members/{membershipId}:
+    parameters:
+      - name: membershipId
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      operationId: updateChannelMembership
+      summary: Mute or the notification level, on the caller's own row.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMembershipInput'
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  # ── Messages ──────────────────────────────────────────────────────────────
+  /api/chat-messages:
+    get:
+      operationId: listMessages
+      summary: Top-level messages of a channel, or a thread's replies; newest first.
+      parameters:
+        - name: channelId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: parentId
+          in: query
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: The messages.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMessageInput'
+      responses:
+        '201':
+          description: Sent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-messages/{messageId}:
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+    get:
+      operationId: getMessage
+      responses:
+        '200':
+          description: The message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: updateMessage
+      summary: Edit the text of your own message.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMessageInput'
+      responses:
+        '200':
+          description: Edited.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteMessage
+      responses:
+        '204':
+          description: Deleted.
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-messages/{messageId}/reactions:
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+    post:
+      operationId: addReaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReactionInput'
+      responses:
+        '200':
+          description: The message's reactions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-messages/{messageId}/reactions/{emoji}:
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+      - name: emoji
+        in: path
+        required: true
+        description: The emoji, percent-encoded.
+        schema:
+          type: string
+    delete:
+      operationId: removeReaction
+      responses:
+        '200':
+          description: The message's reactions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-messages/{messageId}/pin:
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+    post:
+      operationId: pinMessage
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PinInput'
+      responses:
+        '200':
+          description: Pinned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: unpinMessage
+      responses:
+        '200':
+          description: Unpinned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  # ── Direct messages ───────────────────────────────────────────────────────
+  /api/chat-dm:
+    get:
+      operationId: listDms
+      summary: The caller's DMs, latest activity first.
+      responses:
+        '200':
+          description: The DMs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DmList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createDm
+      summary: The DM with exactly these people (and the caller), made when there is none.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDmInput'
+      responses:
+        '200':
+          description: The existing DM.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DmResponse'
+        '201':
+          description: A new DM.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DmResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-dm/{channelId}:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    delete:
+      operationId: leaveDm
+      responses:
+        '204':
+          description: Left.
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-dm/{channelId}/archive:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    patch:
+      operationId: archiveDm
+      responses:
+        '200':
+          description: Archived.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArchiveDmResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-dm/{channelId}/unarchive:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    patch:
+      operationId: unarchiveDm
+      responses:
+        '200':
+          description: Unarchived.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArchiveDmResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-dm/{channelId}/pin:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    patch:
+      operationId: pinDm
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PinDmInput'
+      responses:
+        '200':
+          description: Pinned or unpinned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PinDmResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  # ── Sections, search, drafts, saved, status ───────────────────────────────
+  /api/chat-sections:
+    get:
+      operationId: listSections
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: The sections.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SectionList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createSection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSectionInput'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-search:
+    get:
+      operationId: searchMessages
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+      responses:
+        '200':
+          description: Matching messages, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-drafts:
+    get:
+      operationId: listDrafts
+      parameters:
+        - name: channelId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The caller's drafts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createDraft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DraftInput'
+      responses:
+        '200':
+          description: The draft was empty, so the channel's draft was removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftWriteResponse'
+        '201':
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftWriteResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-drafts/{draftId}:
+    parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      operationId: updateDraft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DraftInput'
+      responses:
+        '200':
+          description: Saved, or removed when it became empty.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftWriteResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteDraft
+      responses:
+        '204':
+          description: Deleted.
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-bookmarks:
+    get:
+      operationId: listBookmarks
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: The caller's saved messages, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookmarkList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createBookmark
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBookmarkInput'
+      responses:
+        '200':
+          description: Already saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookmarkWriteResponse'
+        '201':
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookmarkWriteResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-bookmarks/{bookmarkId}:
+    parameters:
+      - name: bookmarkId
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      operationId: deleteBookmark
+      responses:
+        '204':
+          description: Removed.
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-status:
+    get:
+      operationId: listMemberStatuses
+      summary: Everyone's chosen status and live presence.
+      responses:
+        '200':
+          description: The statuses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberStatusList'
+        default:
+          $ref: '#/components/responses/Error'
+  # ── Record chats ──────────────────────────────────────────────────────────
+  /api/chat-entity-channels:
+    get:
+      operationId: listRecordChats
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: filter
+          in: query
+          description: '`following` (the default), `unread`, `mentions` or `all`. A string, not an enum, so the Kotlin client sends it as written.'
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Record chats, most recent activity first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordChatList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-entity-channels/summary:
+    get:
+      operationId: getRecordChatSummary
+      responses:
+        '200':
+          description: Per record type, followed, unread and mentions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordChatSummaryList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-entity-channels/{entityType}/{entityId}/follow:
+    parameters:
+      - $ref: '#/components/parameters/EntityType'
+      - $ref: '#/components/parameters/EntityId'
+    post:
+      operationId: followRecordChat
+      responses:
+        '200':
+          description: Following; the chat is made when nobody wrote in it yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FollowResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: unfollowRecordChat
+      responses:
+        '204':
+          description: No longer following.
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-entity-channels/{entityType}/{entityId}/detail:
+    parameters:
+      - $ref: '#/components/parameters/EntityType'
+      - $ref: '#/components/parameters/EntityId'
+    get:
+      operationId: getRecordDetail
+      summary: The record's own fields (a task's project), for opening it in its app.
+      responses:
+        '200':
+          description: The fields, or null.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordDetailResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  # ── Calls ─────────────────────────────────────────────────────────────────
+  /api/chat-calls/active:
+    get:
+      operationId: listActiveCalls
+      summary: Ringing and live calls in the caller's channels.
+      responses:
+        '200':
+          description: The calls.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActiveCallList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-calls/active/{channelId}:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      operationId: getActiveCallInChannel
+      responses:
+        '200':
+          description: The channel's live call, or null.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaybeCallResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-calls/history:
+    get:
+      operationId: listCallHistory
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The caller's calls, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CallHistoryList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-calls/start-and-join:
+    post:
+      operationId: startAndJoinCall
+      summary: Start a call in a channel and join it; joins the one already running there.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartCallInput'
+      responses:
+        '200':
+          description: Joined the call already running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StartedCallResponse'
+        '201':
+          description: Started and joined.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StartedCallResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-calls/{callId}:
+    parameters:
+      - $ref: '#/components/parameters/CallId'
+    get:
+      operationId: getCall
+      responses:
+        '200':
+          description: The call.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaybeCallResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-calls/{callId}/join:
+    parameters:
+      - $ref: '#/components/parameters/CallId'
+    post:
+      operationId: joinCall
+      responses:
+        '200':
+          description: The video provider's join token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinedCallResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-calls/{callId}/leave:
+    parameters:
+      - $ref: '#/components/parameters/CallId'
+    post:
+      operationId: leaveCall
+      responses:
+        '200':
+          description: Left.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-calls/{callId}/decline:
+    parameters:
+      - $ref: '#/components/parameters/CallId'
+    post:
+      operationId: declineCall
+      responses:
+        '200':
+          description: Declined.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /public/chat-calls/decline:
+    post:
+      operationId: declineRing
+      summary: Decline a ring from the phone's call screen, with the ring's signed token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeclineRingInput'
+      responses:
+        '200':
+          description: Declined, or it already stopped ringing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeclineRingResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  # ── Team members (core-team) ──────────────────────────────────────────────
+  /api/team-members:
+    get:
+      operationId: listTeamMembers
+      summary: The workspace's members, guests included with `memberType=all`.
+      parameters:
+        - name: memberType
+          in: query
+          description: '`INTERNAL` (the default), `EXTERNAL_GUEST`, `EMPLOYEE` or `all`. A string, not an enum, so the Kotlin client sends it as written.'
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: The members.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamMemberList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/team-members/user/{userId}/profile:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      operationId: getMemberProfile
+      responses:
+        '200':
+          description: The member's profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberProfileResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: updateMemberProfile
+      summary: Change a profile field (yourself, or an admin).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMemberProfileInput'
+      responses:
+        '200':
+          description: The profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberProfileResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/team-members/user/{userId}/common:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      operationId: getMemberCommon
+      summary: What the caller and the member share.
+      responses:
+        '200':
+          description: Shared channels, projects, tasks, CRM records and tickets.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommonConceptsResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/team-members/user/{userId}/activity:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      operationId: listMemberActivity
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: What the member did, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberActivityList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/team-members/user/{userId}/notes:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      operationId: getMemberNote
+      summary: The caller's private note about the member, or null.
+      responses:
+        '200':
+          description: The note.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberNoteResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: saveMemberNote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveMemberNoteInput'
+      responses:
+        '200':
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberNoteResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  # ── Notifications (core-platform) ─────────────────────────────────────────
+  /api/notifications:
+    get:
+      operationId: listNotifications
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: The caller's notifications, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/notifications/unread-count:
+    get:
+      operationId: getUnreadNotificationCount
+      responses:
+        '200':
+          description: How many are unread.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CountResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/notifications/{notificationId}/read:
+    parameters:
+      - name: notificationId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: markNotificationRead
+      responses:
+        '200':
+          description: The notification.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/notifications/read-all:
+    post:
+      operationId: markAllNotificationsRead
+      responses:
+        '200':
+          description: How many were marked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdatedResponse'
+        default:
+          $ref: '#/components/responses/Error'
 components:
   securitySchemes:
     bearer:
       type: http
       scheme: bearer
+  parameters:
+    ChannelId:
+      name: channelId
+      in: path
+      required: true
+      schema:
+        type: string
+    MessageId:
+      name: messageId
+      in: path
+      required: true
+      schema:
+        type: string
+    CallId:
+      name: callId
+      in: path
+      required: true
+      schema:
+        type: string
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+    EntityType:
+      name: entityType
+      in: path
+      required: true
+      description: The record type (`company`, `person`, `task`, `project`, `domain`, `sheet`, `doc`, `board`).
+      schema:
+        type: string
+    EntityId:
+      name: entityId
+      in: path
+      required: true
+      schema:
+        type: string
   responses:
     Error:
       description: An error.
@@ -40,5 +1173,1528 @@ components:
           type: string
         message:
           type: string
+    Pagination:
+      type: object
+      required: [totalCount, hasMore]
+      properties:
+        totalCount:
+          type: integer
+        hasMore:
+          type: boolean
+        cursor:
+          type: string
+          nullable: true
+    IdResult:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+    IdResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/IdResult'
+    OkResult:
+      type: object
+      properties:
+        ok:
+          type: boolean
+    OkResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/OkResult'
+    Reactions:
+      type: object
+      nullable: true
+      description: Emoji to the ids of who reacted with it.
+      additionalProperties:
+        type: array
+        items:
+          type: string
+    # ── Channels ────────────────────────────────────────────────────────────
+    ChannelMetadata:
+      type: object
+      nullable: true
+      properties:
+        pinnedBy:
+          type: array
+          description: A DM's pins, by user id.
+          items:
+            type: string
+    Channel:
+      type: object
+      description: |
+        A channel row. The list adds the caller's read state (`isMuted`,
+        `lastReadAt`, `unreadMentionCount`); the detail adds `isMuted` and
+        `members`.
+      required: [id, name, type, createdAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        type:
+          type: string
+          description: '`public`, `private`, `dm` or `entity` (a record chat).'
+        description:
+          type: string
+          nullable: true
+        topic:
+          type: string
+          nullable: true
+        isArchived:
+          type: boolean
+        threadsEnabled:
+          type: boolean
+        memberCount:
+          type: integer
+        lastMessageAt:
+          type: string
+          nullable: true
+        lastMessagePreview:
+          type: string
+          nullable: true
+        sectionId:
+          type: string
+          nullable: true
+        entityType:
+          type: string
+          nullable: true
+        entityId:
+          type: string
+          nullable: true
+        entityDisplayName:
+          type: string
+          nullable: true
+        metadata:
+          $ref: '#/components/schemas/ChannelMetadata'
+        createdAt:
+          type: string
+        isMuted:
+          type: boolean
+        lastReadAt:
+          type: string
+          nullable: true
+        unreadMentionCount:
+          type: integer
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelMember'
+    ChannelMember:
+      type: object
+      required: [id, userId]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        memberType:
+          type: string
+          description: '`user` or `agent`.'
+        role:
+          type: string
+          description: '`owner`, `admin` or `member`.'
+        isMuted:
+          type: boolean
+        notificationPreference:
+          type: string
+        name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        picture:
+          type: string
+          nullable: true
+        agentIcon:
+          type: string
+          nullable: true
+    ChannelList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Channel'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    ChannelResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Channel'
+    ChannelMemberList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelMember'
+    CreateChannelInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        type:
+          type: string
+          enum: [public, private]
+        sectionId:
+          type: string
+        memberIds:
+          type: array
+          items:
+            type: string
+    UpdateChannelInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+    AddMembersInput:
+      type: object
+      required: [userIds]
+      properties:
+        userIds:
+          type: array
+          minItems: 1
+          items:
+            type: string
+    AddMembersResult:
+      type: object
+      required: [channelId, addedCount]
+      properties:
+        channelId:
+          type: string
+        addedCount:
+          type: integer
+    AddMembersResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/AddMembersResult'
+    LeaveChannelResult:
+      type: object
+      required: [channelId]
+      properties:
+        channelId:
+          type: string
+        left:
+          type: boolean
+    LeaveChannelResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/LeaveChannelResult'
+    MarkReadResult:
+      type: object
+      required: [channelId]
+      properties:
+        channelId:
+          type: string
+        lastReadAt:
+          type: string
+          nullable: true
+        lastReadMessageId:
+          type: string
+          nullable: true
+    MarkReadResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MarkReadResult'
+    Membership:
+      type: object
+      required: [id, channelId, userId]
+      properties:
+        id:
+          type: string
+        channelId:
+          type: string
+        userId:
+          type: string
+        isMuted:
+          type: boolean
+        notificationPreference:
+          type: string
+          description: '`all`, `mentions` or `none`.'
+    MembershipList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Membership'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    UpdateMembershipInput:
+      type: object
+      properties:
+        isMuted:
+          type: boolean
+        notificationPreference:
+          type: string
+          enum: [all, mentions, none]
+    # ── Messages ────────────────────────────────────────────────────────────
+    Attachment:
+      type: object
+      description: A file sent with a message, as the upload answered it.
+      properties:
+        id:
+          type: string
+          nullable: true
+        fileName:
+          type: string
+          nullable: true
+        fileSize:
+          type: number
+          format: double
+          nullable: true
+        mimeType:
+          type: string
+          nullable: true
+        url:
+          type: string
+          nullable: true
+    ReplyReference:
+      type: object
+      description: The quoted message of an inline reply (`metadata.replyTo`), built by the server.
+      required: [messageId]
+      properties:
+        messageId:
+          type: string
+        rootId:
+          type: string
+          nullable: true
+        depth:
+          type: number
+          format: double
+          nullable: true
+        authorId:
+          type: string
+          nullable: true
+        authorName:
+          type: string
+          nullable: true
+        authorAvatar:
+          type: string
+          nullable: true
+        content:
+          type: string
+          nullable: true
+        hasAttachments:
+          type: boolean
+          nullable: true
+    AgentVisual:
+      type: object
+      description: A chart, figures, table or records an agent attached; drawn on the web only.
+      properties:
+        type:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+    MessageMetadata:
+      type: object
+      nullable: true
+      properties:
+        replyTo:
+          $ref: '#/components/schemas/ReplyReference'
+        visuals:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/AgentVisual'
+    Message:
+      type: object
+      required: [id, channelId, authorId, authorName, content, type, createdAt]
+      properties:
+        id:
+          type: string
+        channelId:
+          type: string
+        authorId:
+          type: string
+        authorName:
+          type: string
+        authorAvatar:
+          type: string
+          nullable: true
+          description: A URL; an agent's emoji icon when `authorType` is `agent`.
+        authorType:
+          type: string
+        content:
+          type: string
+        type:
+          type: string
+          description: '`text`, `system`, …'
+        parentId:
+          type: string
+          nullable: true
+        threadReplyCount:
+          type: integer
+        isEdited:
+          type: boolean
+        editedAt:
+          type: string
+          nullable: true
+        isPinned:
+          type: boolean
+        hasAttachments:
+          type: boolean
+        attachments:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/Attachment'
+        reactions:
+          $ref: '#/components/schemas/Reactions'
+        metadata:
+          $ref: '#/components/schemas/MessageMetadata'
+        createdAt:
+          type: string
+    MessageList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    MessageResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Message'
+    AttachmentInput:
+      type: object
+      required: [url]
+      properties:
+        id:
+          type: string
+        fileName:
+          type: string
+        fileSize:
+          type: number
+          format: double
+        mimeType:
+          type: string
+        url:
+          type: string
+    CreateMessageInput:
+      type: object
+      required: [channelId]
+      properties:
+        channelId:
+          type: string
+        body:
+          type: string
+        parentId:
+          type: string
+        replyToId:
+          type: string
+        replyMention:
+          type: boolean
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttachmentInput'
+    UpdateMessageInput:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+    ReactionInput:
+      type: object
+      required: [emoji]
+      properties:
+        emoji:
+          type: string
+          minLength: 1
+    ReactionResult:
+      type: object
+      required: [messageId, channelId]
+      properties:
+        messageId:
+          type: string
+        channelId:
+          type: string
+        reactions:
+          $ref: '#/components/schemas/Reactions'
+    ReactionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ReactionResult'
+    PinInput:
+      type: object
+      properties:
+        expiresAt:
+          type: string
+          description: When the pin goes; none pins for good.
+        notify:
+          type: boolean
+          description: Post the "pinned a message" notice in the channel.
+    PinResult:
+      type: object
+      required: [messageId, channelId, isPinned]
+      properties:
+        messageId:
+          type: string
+        channelId:
+          type: string
+        isPinned:
+          type: boolean
+        pinnedAt:
+          type: string
+          nullable: true
+        pinExpiresAt:
+          type: string
+          nullable: true
+    PinResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/PinResult'
+    # ── Direct messages ─────────────────────────────────────────────────────
+    DmMember:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: string
+        name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        picture:
+          type: string
+          nullable: true
+        lastReadAt:
+          type: string
+          nullable: true
+    DmChannel:
+      type: object
+      required: [id, name, type]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        isArchived:
+          type: boolean
+        lastMessageAt:
+          type: string
+          nullable: true
+        lastMessagePreview:
+          type: string
+          nullable: true
+        metadata:
+          $ref: '#/components/schemas/ChannelMetadata'
+        isMuted:
+          type: boolean
+        lastReadAt:
+          type: string
+          nullable: true
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/DmMember'
+        otherMembers:
+          type: array
+          items:
+            $ref: '#/components/schemas/DmMember'
+    DmList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DmChannel'
+    DmResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/DmChannel'
+    CreateDmInput:
+      type: object
+      required: [userIds]
+      properties:
+        userIds:
+          type: array
+          minItems: 1
+          items:
+            type: string
+    ArchiveDmResult:
+      type: object
+      required: [id, isArchived]
+      properties:
+        id:
+          type: string
+        isArchived:
+          type: boolean
+    ArchiveDmResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ArchiveDmResult'
+    PinDmInput:
+      type: object
+      required: [isPinned]
+      properties:
+        isPinned:
+          type: boolean
+    PinDmResult:
+      type: object
+      required: [id, isPinned]
+      properties:
+        id:
+          type: string
+        isPinned:
+          type: boolean
+    PinDmResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/PinDmResult'
+    # ── Sections, search, drafts, saved, status ─────────────────────────────
+    Section:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        position:
+          type: integer
+    SectionList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Section'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    CreateSectionInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+    SearchChannel:
+      type: object
+      nullable: true
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+        type:
+          type: string
+    SearchHit:
+      type: object
+      required: [id, channelId, createdAt]
+      properties:
+        id:
+          type: string
+        channelId:
+          type: string
+        authorId:
+          type: string
+        authorName:
+          type: string
+        authorAvatar:
+          type: string
+          nullable: true
+        content:
+          type: string
+        hasAttachments:
+          type: boolean
+        attachments:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/Attachment'
+        createdAt:
+          type: string
+        channel:
+          $ref: '#/components/schemas/SearchChannel'
+    SearchResult:
+      type: object
+      required: [messages, total]
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchHit'
+        total:
+          type: integer
+    SearchResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/SearchResult'
+    Draft:
+      type: object
+      required: [id, content, updatedAt]
+      properties:
+        id:
+          type: string
+        channelId:
+          type: string
+          nullable: true
+        content:
+          type: string
+        updatedAt:
+          type: string
+        createdAt:
+          type: string
+    DraftList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Draft'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    DraftInput:
+      type: object
+      properties:
+        workspaceId:
+          type: string
+        channelId:
+          type: string
+          minLength: 1
+        content:
+          type: string
+    DraftWriteResult:
+      type: object
+      description: '`{ id }` when saved; `deleted: true` (and the removed id, or null) when it was empty.'
+      properties:
+        id:
+          type: string
+          nullable: true
+        deleted:
+          type: boolean
+    DraftWriteResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/DraftWriteResult'
+    Bookmark:
+      type: object
+      required: [id, messageId, channelId, createdAt]
+      properties:
+        id:
+          type: string
+        messageId:
+          type: string
+        channelId:
+          type: string
+        note:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        messageContent:
+          type: string
+          nullable: true
+        messageAuthorName:
+          type: string
+          nullable: true
+        messageAuthorAvatar:
+          type: string
+          nullable: true
+        messageCreatedAt:
+          type: string
+          nullable: true
+        channelName:
+          type: string
+          nullable: true
+        channelType:
+          type: string
+          nullable: true
+    BookmarkList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Bookmark'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    CreateBookmarkInput:
+      type: object
+      required: [messageId, channelId]
+      properties:
+        messageId:
+          type: string
+          minLength: 1
+        channelId:
+          type: string
+          minLength: 1
+    BookmarkWriteResult:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+        alreadyExists:
+          type: boolean
+    BookmarkWriteResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/BookmarkWriteResult'
+    MemberStatus:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: string
+        status:
+          type: string
+          nullable: true
+          description: '`online`, `busy`, `away`, `dnd` or `offline`.'
+        statusText:
+          type: string
+          nullable: true
+        statusEmoji:
+          type: string
+          nullable: true
+    MemberStatusList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MemberStatus'
+    # ── Record chats ────────────────────────────────────────────────────────
+    RecordChat:
+      type: object
+      description: A chat on a business record (`type` `entity`) with the caller's own state on it.
+      required: [id, name, entityType, entityId, isFollowing, isMuted, unreadMentionCount]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        entityType:
+          type: string
+        entityId:
+          type: string
+        entityDisplayName:
+          type: string
+          nullable: true
+        lastMessageAt:
+          type: string
+          nullable: true
+        lastMessagePreview:
+          type: string
+          nullable: true
+        isFollowing:
+          type: boolean
+        isMuted:
+          type: boolean
+        lastReadAt:
+          type: string
+          nullable: true
+        unreadMentionCount:
+          type: integer
+    RecordChatList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecordChat'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    RecordChatSummary:
+      type: object
+      required: [type, followed, unread, mentions]
+      properties:
+        type:
+          type: string
+        label:
+          type: string
+        followed:
+          type: integer
+        unread:
+          type: integer
+        mentions:
+          type: integer
+    RecordChatSummaryList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecordChatSummary'
+    FollowResult:
+      type: object
+      required: [channel, following]
+      properties:
+        channel:
+          $ref: '#/components/schemas/Channel'
+        following:
+          type: boolean
+        createdChannel:
+          type: boolean
+    FollowResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/FollowResult'
+    RecordDetail:
+      type: object
+      nullable: true
+      description: The record's fields; only what the apps read is listed.
+      properties:
+        projectId:
+          type: string
+          nullable: true
+    RecordDetailResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/RecordDetail'
+    # ── Calls ───────────────────────────────────────────────────────────────
+    CallParticipant:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: string
+        userName:
+          type: string
+          nullable: true
+        userAvatar:
+          type: string
+          nullable: true
+        joinedAt:
+          type: string
+          nullable: true
+        leftAt:
+          type: string
+          nullable: true
+    Call:
+      type: object
+      nullable: true
+      required: [id, channelId, callType, status]
+      properties:
+        id:
+          type: string
+        channelId:
+          type: string
+        callType:
+          type: string
+          description: '`voice` or `video`.'
+        status:
+          type: string
+          description: '`ringing`, `active`, `ended`, `declined` or `missed`.'
+        initiatorId:
+          type: string
+        initiatorName:
+          type: string
+        participants:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/CallParticipant'
+    MaybeCallResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/Call'
+    ActiveCall:
+      type: object
+      required: [channelId, callId, callType, status, participantCount]
+      properties:
+        channelId:
+          type: string
+        callId:
+          type: string
+        callType:
+          type: string
+        status:
+          type: string
+        participantCount:
+          type: integer
+        initiatorId:
+          type: string
+          nullable: true
+        initiatorName:
+          type: string
+          nullable: true
+        channelType:
+          type: string
+          nullable: true
+    ActiveCallList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActiveCall'
+    CallPerson:
+      type: object
+      nullable: true
+      required: [userId]
+      properties:
+        userId:
+          type: string
+        name:
+          type: string
+          nullable: true
+        avatar:
+          type: string
+          nullable: true
+    CallHistoryItem:
+      type: object
+      required: [id, channelId, callType, status, direction, outcome, createdAt]
+      properties:
+        id:
+          type: string
+        channelId:
+          type: string
+        channelType:
+          type: string
+          nullable: true
+        channelName:
+          type: string
+          nullable: true
+        callType:
+          type: string
+        status:
+          type: string
+        direction:
+          type: string
+          description: '`incoming` or `outgoing`.'
+        outcome:
+          type: string
+          description: '`ongoing`, `answered`, `missed` or `declined`.'
+        initiatorId:
+          type: string
+        initiatorName:
+          type: string
+        counterpart:
+          $ref: '#/components/schemas/CallPerson'
+        otherMembers:
+          type: array
+          items:
+            $ref: '#/components/schemas/CallPerson'
+        duration:
+          type: integer
+          nullable: true
+          description: Seconds, once the call ended.
+        createdAt:
+          type: string
+    CallHistoryList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CallHistoryItem'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    StartCallInput:
+      type: object
+      required: [channelId]
+      properties:
+        channelId:
+          type: string
+        callType:
+          type: string
+          enum: [voice, video]
+    StartedCall:
+      type: object
+      required: [callId, authToken]
+      properties:
+        callId:
+          type: string
+        authToken:
+          type: string
+          description: The join token of the server's video provider (LiveKit on the Kubernetes editions).
+        callType:
+          type: string
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/CallParticipant'
+    StartedCallResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/StartedCall'
+    JoinedCall:
+      type: object
+      required: [callId, channelId, callType, authToken]
+      properties:
+        callId:
+          type: string
+        channelId:
+          type: string
+        callType:
+          type: string
+        authToken:
+          type: string
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/CallParticipant'
+    JoinedCallResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/JoinedCall'
+    DeclineRingInput:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    DeclineRingResult:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        declined:
+          type: boolean
+    DeclineRingResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/DeclineRingResult'
+    # ── Team members ────────────────────────────────────────────────────────
+    TeamMember:
+      type: object
+      description: A workspace member. `email` only reaches admins and the member themselves.
+      required: [id, userId, role, status, memberType]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        picture:
+          type: string
+          nullable: true
+        role:
+          type: string
+        status:
+          type: string
+        memberType:
+          type: string
+    TeamMemberList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamMember'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    ProfileLink:
+      type: object
+      properties:
+        label:
+          type: string
+        url:
+          type: string
+    TimeBreak:
+      type: object
+      properties:
+        start:
+          type: string
+        end:
+          type: string
+    DayHours:
+      type: object
+      nullable: true
+      properties:
+        isOpen:
+          type: boolean
+        openTime:
+          type: string
+          nullable: true
+        closeTime:
+          type: string
+          nullable: true
+        breaks:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/TimeBreak'
+    WorkingHours:
+      type: object
+      nullable: true
+      properties:
+        monday:
+          $ref: '#/components/schemas/DayHours'
+        tuesday:
+          $ref: '#/components/schemas/DayHours'
+        wednesday:
+          $ref: '#/components/schemas/DayHours'
+        thursday:
+          $ref: '#/components/schemas/DayHours'
+        friday:
+          $ref: '#/components/schemas/DayHours'
+        saturday:
+          $ref: '#/components/schemas/DayHours'
+        sunday:
+          $ref: '#/components/schemas/DayHours'
+    MemberProfile:
+      type: object
+      required: [id, userId, role, status, timezone, canEdit]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        picture:
+          type: string
+          nullable: true
+        role:
+          type: string
+        status:
+          type: string
+        title:
+          type: string
+          nullable: true
+        bio:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        location:
+          type: string
+          nullable: true
+        pronouns:
+          type: string
+          nullable: true
+        links:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/ProfileLink'
+        hoursPerWeek:
+          type: string
+          nullable: true
+        workingHours:
+          $ref: '#/components/schemas/WorkingHours'
+        timezone:
+          type: string
+        canEdit:
+          type: boolean
+    MemberProfileResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MemberProfile'
+    UpdateMemberProfileInput:
+      type: object
+      description: The fields to change; an empty string clears a text field.
+      properties:
+        title:
+          type: string
+        bio:
+          type: string
+        phone:
+          type: string
+        location:
+          type: string
+        pronouns:
+          type: string
+        hoursPerWeek:
+          type: number
+          format: double
+    CommonChannel:
+      type: object
+      required: [id, name, type]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        memberCount:
+          type: integer
+    CommonProject:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+    CommonTask:
+      type: object
+      required: [id, title]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+          nullable: true
+        projectId:
+          type: string
+          nullable: true
+        role:
+          type: string
+          description: '`shared_assignee`, `shared_watcher` or `delegated`.'
+    CommonCrmRecord:
+      type: object
+      required: [id, kind, name]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          nullable: true
+    CommonHelpdeskItem:
+      type: object
+      required: [id, kind, subject]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        subject:
+          type: string
+        status:
+          type: string
+          nullable: true
+    CommonConcepts:
+      type: object
+      required: [channels, projects, tasks, crm, helpdesk]
+      properties:
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommonChannel'
+        projects:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommonProject'
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommonTask'
+        crm:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommonCrmRecord'
+        helpdesk:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommonHelpdeskItem'
+    CommonConceptsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/CommonConcepts'
+    MemberActivityItem:
+      type: object
+      required: [id, action, entityType, entityId, description, createdAt]
+      properties:
+        id:
+          type: string
+        action:
+          type: string
+        entityType:
+          type: string
+        entityId:
+          type: string
+        description:
+          type: string
+        createdAt:
+          type: string
+    MemberActivityList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MemberActivityItem'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    MemberNote:
+      type: object
+      nullable: true
+      properties:
+        id:
+          type: string
+        body:
+          type: string
+    MemberNoteResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/MemberNote'
+    SaveMemberNoteInput:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          maxLength: 1500
+    # ── Notifications ───────────────────────────────────────────────────────
+    Notification:
+      type: object
+      required: [id, title, category, notificationType, isRead, createdAt]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+          nullable: true
+        category:
+          type: string
+        notificationType:
+          type: string
+        entityType:
+          type: string
+          nullable: true
+        entityId:
+          type: string
+          nullable: true
+        actionUrl:
+          type: string
+          nullable: true
+        isRead:
+          type: boolean
+        createdAt:
+          type: string
+        actorName:
+          type: string
+          nullable: true
+        actorAvatar:
+          type: string
+          nullable: true
+    NotificationList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    NotificationResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Notification'
+    CountResult:
+      type: object
+      required: [count]
+      properties:
+        count:
+          type: integer
+    CountResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/CountResult'
+    UpdatedResult:
+      type: object
+      properties:
+        updated:
+          type: integer
+    UpdatedResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/UpdatedResult'
 security:
   - bearer: []
