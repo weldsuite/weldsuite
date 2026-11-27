@@ -20,6 +20,8 @@ export interface CopyButtonProps {
 
 type CopyState = 'idle' | 'copied' | 'failed';
 
+const ICONS: Record<CopyState, typeof Copy> = { idle: Copy, copied: Check, failed: X };
+
 /**
  * An icon button that copies `value` with the Async Clipboard API. The
  * confirmation bubble is a sibling `role="status"` live region (a button's
@@ -58,7 +60,7 @@ export function CopyButton({ value, label, copiedLabel, failedLabel, className, 
     }
   };
 
-  const Icon = state === 'copied' ? Check : state === 'failed' ? X : Copy;
+  const Icon = ICONS[state];
 
   return (
     <span className={cn('relative inline-flex', className)}>

@@ -78,11 +78,12 @@ export function DomainsSection({ canManage }: Readonly<{ canManage: boolean }>) 
     );
   }
   if (config.error || !config.data || (available && domains.error)) {
+    const retry = config.error || !config.data ? config.refetch : domains.refetch;
     return (
       <Section title={td.title} description={td.description}>
         <ErrorState
           message={td.loadFailed}
-          onRetry={() => void (config.error || !config.data ? config.refetch() : domains.refetch())}
+          onRetry={() => void retry()}
           retryLabel={t.common.actions.retry}
         />
       </Section>
