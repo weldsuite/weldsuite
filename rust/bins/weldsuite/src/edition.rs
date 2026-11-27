@@ -684,7 +684,7 @@ mod tests {
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 13
+            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 14
         );
         // Self-hosted: the operator decides about services outside the EU.
         assert!(

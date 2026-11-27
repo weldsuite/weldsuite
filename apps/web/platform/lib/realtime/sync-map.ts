@@ -531,6 +531,8 @@ export const platformSyncMap: EntitySyncMap = {
   mail_account: inv(['mail', 'accounts']),
   mail_attachment: inv(['mail', 'attachments']),
   mail_domain: inv(['mail', 'domains']),
+  // A source marked in a domain's DMARC reports (ADR MAIL-015): its summary.
+  mail_dmarc_source: inv(['mail', 'domains']),
   mail_draft: inv(['mail', 'drafts']),
   mail_folder: inv(['mail']),
   mail_label: inv(['mail', 'labels']),
