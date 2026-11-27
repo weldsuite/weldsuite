@@ -4,10 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/app/weldbooks/sales-tax/setup/test-support';
 
 const suppliers = vi.hoisted(() => ({
-  data: { data: [{ id: 'prt_2', name: 'Paper Co', role: 'supplier', kind: 'company', email: 'hi@paper.test' }] },
+  data: { rows: [{ id: 'prt_2', name: 'Paper Co', role: 'supplier', kind: 'company', email: 'hi@paper.test' }] },
   isLoading: false,
+  hasNextPage: false,
+  isFetchingNextPage: false,
+  fetchNextPage: vi.fn(),
 }));
-vi.mock('@/hooks/queries/use-weldbooks-1099-queries', () => ({ useSupplierContacts: () => suppliers }));
+vi.mock('@/hooks/queries/use-weldbooks-1099-queries', () => ({ useInfiniteSupplierContacts: () => suppliers }));
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => vi.fn() }));
 vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
   useJurisdictionLabels: () => ({

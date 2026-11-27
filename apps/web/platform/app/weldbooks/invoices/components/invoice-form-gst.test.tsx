@@ -33,6 +33,7 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useUpdateInvoice: () => ({ mutateAsync: env.updateMutate }),
   useAccountingCustomer: () => ({ data: { data: { id: 'cus_1', name: 'Mumbai Traders', paymentTermsDays: 30, billingAddress: null, shippingAddress: null } } }),
   useAccountingCustomers: () => ({ data: { data: [{ id: 'cus_1', name: 'Mumbai Traders' }] } }),
+  useAccountingContactSearch: () => async () => [{ id: 'cus_1', name: 'Mumbai Traders' }],
   useAccountingTaxRates: () => ({ data: { data: [{ id: 'tax_18', name: 'GST 18%', rate: '18', type: 'both' }] } }),
   useDimensionValues: () => ({ data: [] }),
 }));

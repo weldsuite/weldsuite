@@ -332,7 +332,7 @@ export const navigation = {
         invoices: 'Facturen',
         creditNotes: 'Creditnota\'s',
         recurring: 'Terugkerend',
-        bills: 'Rekeningen',
+        bills: 'Inkoopfacturen',
         documents: 'Documenten',
         bankAccounts: 'Bankrekeningen',
         transactions: 'Transacties',

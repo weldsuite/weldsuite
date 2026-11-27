@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAccountingCustomers } from '@/hooks/queries/use-accounting-queries';
+import { useInfiniteAccountingCustomers } from '@/hooks/queries/use-accounting-queries';
 import { Users } from 'lucide-react';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { RowAvatar, RowChip, RowText, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
@@ -8,7 +8,13 @@ import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel
 import type { ContactKind, ContactPerson } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
-import { contactEmail, contactKindFilter, contactKindIcon, readKindFilter } from './components/contact-list-cells';
+import {
+  contactEmail,
+  contactKindFilter,
+  contactKindIcon,
+  contactRoleLabel,
+  readKindFilter,
+} from './components/contact-list-cells';
 import { QuickAddContactDialog } from './components/quick-add-contact-dialog';
 
 interface CustomerRow {
@@ -59,14 +65,14 @@ export default function AccountingCustomersPage() {
     | 'both'
     | undefined;
 
-  const { data, isLoading } = useAccountingCustomers({
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteAccountingCustomers({
     search,
     role: roleFilter ?? 'customer',
     kind: readKindFilter(filters),
     archived: archivedFilter,
   });
 
-  const customers = (data?.data ?? []) as CustomerRow[];
+  const customers = (data?.rows ?? []) as CustomerRow[];
 
   const columns: ColumnDef<CustomerRow>[] = [
     {
@@ -96,9 +102,7 @@ export default function AccountingCustomersPage() {
       width: 'shrink-0 w-[170px]',
       render: (c) =>
         c.role ? (
-          <StatusChip tone={c.role === 'both' ? 'indigo' : 'blue'}>
-            <span className="capitalize">{c.role === 'both' ? labels.customerAndSupplier : c.role}</span>
-          </StatusChip>
+          <StatusChip tone={c.role === 'both' ? 'indigo' : 'blue'}>{contactRoleLabel(c.role, t.accounting.contacts.roles, labels)}</StatusChip>
         ) : (
           <RowText />
         ),
@@ -116,6 +120,9 @@ export default function AccountingCustomersPage() {
       <WeldbooksEntityList<CustomerRow>
         items={customers}
         isLoading={isLoading}
+        hasMore={hasNextPage}
+        isLoadingMore={isFetchingNextPage}
+        onLoadMore={() => void fetchNextPage()}
         columns={columns}
         onRowClick={(c) => openPanel({ type: 'weldbooks_contact', id: c.id })}
         getRowLabel={(c) => c.name}

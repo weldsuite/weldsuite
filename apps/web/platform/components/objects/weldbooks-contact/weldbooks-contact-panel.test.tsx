@@ -74,9 +74,22 @@ import {
 const tx = en.weldbooksUs.salesTax.setup.exemptions;
 const tc = en.accounting.contacts;
 
-function serve(contact: Record<string, unknown>, certificates: unknown[] = []) {
+const noBalance = { receivable: { totalOutstanding: '0', totalOverdue: '0' }, payable: { totalOutstanding: '0', totalOverdue: '0' } };
+
+function page<T>(rows: T[]) {
+  return { data: rows, pagination: { page: 1, pageSize: 50, totalCount: rows.length, totalPages: 1, hasMore: false } };
+}
+
+function serve(
+  contact: Record<string, unknown>,
+  certificates: unknown[] = [],
+  documents: { balance?: unknown; invoices?: unknown[]; bills?: unknown[] } = {},
+) {
   api.get.mockImplementation(async (path: string) => {
     if (path.startsWith('/exemption-certificates')) return { data: certificates };
+    if (path.endsWith('/balance')) return { data: documents.balance ?? noBalance };
+    if (path.startsWith('/invoices')) return page(documents.invoices ?? []);
+    if (path.startsWith('/bills')) return page(documents.bills ?? []);
     if (path.startsWith('/accounting-contacts/')) return { data: contact };
     return { data: [] };
   });
@@ -86,9 +99,9 @@ const customer = { id: 'prt_1', name: 'Acme Corp', role: 'customer', email: 'ap@
 
 const onClose = vi.fn();
 
-function renderPanel() {
+function renderPanel(mode: 'panel' | 'fullscreen' = 'fullscreen') {
   return renderWithProviders(
-    <WeldbooksContactPanel id="prt_1" isOpen onClose={onClose} mode="fullscreen" onModeChange={vi.fn()} />,
+    <WeldbooksContactPanel id="prt_1" isOpen onClose={onClose} mode={mode} onModeChange={vi.fn()} />,
   );
 }
 
@@ -408,5 +421,167 @@ describe('WeldBooks contact panel: delete and archive', () => {
     expect(await screen.findByRole('menuitem', { name: en.sweep.entities.copyLink })).toBeInTheDocument();
     expect(screen.queryByTestId('contact-delete')).not.toBeInTheDocument();
     expect(screen.queryByTestId('contact-archive')).not.toBeInTheDocument();
+  });
+});
+
+describe('WeldBooks contact panel: connected documents', () => {
+  const cn = en.accounting.contacts.connected;
+  const supplier = { ...customer, role: 'supplier' };
+  const both = { ...customer, role: 'both' };
+  const invoice = {
+    id: 'inv_7',
+    invoiceNumber: 'INV-0007',
+    type: 'standard',
+    status: 'sent',
+    issueDate: '2026-10-01',
+    total: '120.00',
+    currency: 'USD',
+  };
+  const bill = {
+    id: 'bill_3',
+    billNumber: 'B-0003',
+    type: 'bill',
+    status: 'approved',
+    issueDate: '2026-09-15',
+    total: '80.00',
+    currency: 'USD',
+  };
+
+  async function tabNames() {
+    // The tabs depend on the contact's role: wait until it is loaded.
+    await screen.findByText('ap@acme.test');
+    const tablist = await screen.findByRole('tablist');
+    return within(tablist)
+      .getAllByRole('tab')
+      .map((tab) => tab.textContent);
+  }
+
+  it('shows Invoices for a customer, and no Bills tab', async () => {
+    jurisdiction.salesTax = false;
+    serve(customer);
+    renderPanel();
+    expect(await tabNames()).toEqual([en.sweep.entities.detailsTab, cn.tabInvoices, en.sweep.entities.auditLogTab]);
+  });
+
+  it('shows Bills for a supplier, and no Invoices tab', async () => {
+    serve(supplier);
+    renderPanel();
+    expect(await tabNames()).toEqual([en.sweep.entities.detailsTab, cn.tabBills, en.sweep.entities.auditLogTab]);
+  });
+
+  it('shows both for a contact that is a customer and a supplier', async () => {
+    jurisdiction.salesTax = false;
+    serve(both);
+    renderPanel();
+    expect(await tabNames()).toEqual([
+      en.sweep.entities.detailsTab,
+      cn.tabInvoices,
+      cn.tabBills,
+      en.sweep.entities.auditLogTab,
+    ]);
+  });
+
+  it('keeps the History tab in the side panel, not only in fullscreen', async () => {
+    const user = userEvent.setup();
+    serve(customer);
+    renderPanel('panel');
+
+    await user.click(await screen.findByRole('tab', { name: en.sweep.entities.auditLogTab }));
+    expect(screen.getByTestId('audit-panel')).toHaveTextContent('accounting_contact:prt_1');
+  });
+
+  it('lists the contact\'s invoices, asked by contact, and opens one as a stacked panel', async () => {
+    const user = userEvent.setup();
+    serve(customer, [], { invoices: [invoice] });
+    renderPanel();
+
+    await user.click(await screen.findByRole('tab', { name: cn.tabInvoices }));
+    await user.click(await screen.findByRole('button', { name: 'INV-0007' }));
+
+    expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/^\/invoices\?.*contactId=prt_1/));
+    expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/^\/invoices\?.*pageSize=50/));
+    expect(panel.open).toHaveBeenCalledWith({ type: 'invoice', id: 'inv_7', stack: true });
+  });
+
+  it('lists the contact\'s bills and opens one as a stacked panel', async () => {
+    const user = userEvent.setup();
+    serve(supplier, [], { bills: [bill] });
+    renderPanel();
+
+    await user.click(await screen.findByRole('tab', { name: cn.tabBills }));
+    await user.click(await screen.findByRole('button', { name: 'B-0003' }));
+
+    expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/^\/bills\?.*contactId=prt_1/));
+    expect(panel.open).toHaveBeenCalledWith({ type: 'bill', id: 'bill_3', stack: true });
+  });
+
+  it('says so when the contact has no invoices yet', async () => {
+    const user = userEvent.setup();
+    serve(customer);
+    renderPanel();
+
+    await user.click(await screen.findByRole('tab', { name: cn.tabInvoices }));
+    expect(await screen.findByText(cn.noInvoices)).toBeInTheDocument();
+  });
+
+  it('shows what is to receive and overdue for a customer', async () => {
+    serve(customer, [], {
+      balance: {
+        receivable: { totalOutstanding: '1200.00', totalOverdue: '300.00' },
+        payable: { totalOutstanding: '0', totalOverdue: '0' },
+      },
+    });
+    renderPanel();
+
+    expect(await screen.findByText(cn.toReceive)).toBeInTheDocument();
+    expect(await screen.findByText('$1200.00')).toBeInTheDocument();
+    expect(screen.getByText(cn.overdue)).toBeInTheDocument();
+    expect(screen.getByText('$300.00')).toBeInTheDocument();
+    expect(screen.queryByText(cn.toPay)).not.toBeInTheDocument();
+  });
+
+  it('shows what is to pay for a supplier', async () => {
+    serve(supplier, [], {
+      balance: {
+        receivable: { totalOutstanding: '0', totalOverdue: '0' },
+        payable: { totalOutstanding: '80.00', totalOverdue: '0' },
+      },
+    });
+    renderPanel();
+
+    expect(await screen.findByText(cn.toPay)).toBeInTheDocument();
+    expect(await screen.findByText('$80.00')).toBeInTheDocument();
+    expect(screen.queryByText(cn.toReceive)).not.toBeInTheDocument();
+  });
+
+  it('starts a new invoice with this customer picked', async () => {
+    permissions.allowed.add('invoices:create');
+    serve(customer);
+    renderPanel();
+
+    expect(await screen.findByRole('link', { name: cn.newInvoice })).toHaveAttribute(
+      'href',
+      '/weldbooks/invoices/add?contactId=prt_1',
+    );
+    expect(screen.queryByRole('link', { name: cn.newBill })).not.toBeInTheDocument();
+  });
+
+  it('starts a new bill with this supplier picked', async () => {
+    permissions.allowed.add('bills:create');
+    serve(supplier);
+    renderPanel();
+
+    expect(await screen.findByRole('link', { name: cn.newBill })).toHaveAttribute(
+      'href',
+      '/weldbooks/bills/add?contactId=prt_1',
+    );
+  });
+
+  it('offers no new invoice without the permission to create one', async () => {
+    serve(customer);
+    renderPanel();
+
+    await screen.findByText('ap@acme.test');
+    expect(screen.queryByRole('link', { name: cn.newInvoice })).not.toBeInTheDocument();
   });
 });

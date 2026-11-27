@@ -276,7 +276,7 @@ describe('InvoicePanel', () => {
 
       expect(screen.queryByRole('button', { name: 'Finalize' })).not.toBeInTheDocument();
       await user.click(screen.getByRole('button', { name: 'More actions' }));
-      expect(await screen.findByRole('menuitem', { name: 'Send' })).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: 'Mark as sent' })).toBeInTheDocument();
       expect(screen.getByRole('menuitem', { name: 'Record payment' })).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
     });
@@ -284,20 +284,20 @@ describe('InvoicePanel', () => {
     it('shows Send and Record payment as buttons on a finalized invoice, next to the menu', () => {
       env.invoice = invoice({ status: 'finalized' });
       renderPanel();
-      expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Mark as sent' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Record payment' })).toBeInTheDocument();
     });
 
     it('shows no Send or Record payment button on a draft or a settled invoice', () => {
       env.invoice = invoice({ status: 'draft', taxBreakdown: [], taxTotal: '0.00' });
       const { unmount } = renderPanel();
-      expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Mark as sent' })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Record payment' })).not.toBeInTheDocument();
       unmount();
 
       env.invoice = invoice({ status: 'paid', balanceDue: '0.00', amountPaid: '108.25' });
       renderPanel();
-      expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Mark as sent' })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Record payment' })).not.toBeInTheDocument();
     });
 
@@ -357,7 +357,7 @@ describe('InvoicePanel', () => {
       env.invoice = invoice({ status: 'sent' });
       renderPanel();
       await user.click(screen.getByRole('button', { name: 'More actions' }));
-      expect(await screen.findByRole('menuitem', { name: 'Send' })).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: 'Mark as sent' })).toBeInTheDocument();
       expect(screen.queryByRole('menuitem', { name: 'Discard draft' })).not.toBeInTheDocument();
     });
 
@@ -366,7 +366,7 @@ describe('InvoicePanel', () => {
       env.invoice = invoice({ status: 'sent' });
       renderPanel();
       await user.click(screen.getByRole('button', { name: 'More actions' }));
-      expect(await screen.findByRole('menuitem', { name: 'Send' })).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: 'Mark as sent' })).toBeInTheDocument();
     });
 
     it('asks before finalizing, and does nothing when the user keeps the draft', async () => {

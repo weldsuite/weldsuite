@@ -42,7 +42,18 @@ export interface AutocompleteProps {
   filterOption?: (option: AutocompleteOption, search: string) => boolean
   onSearch?: (query: string) => Promise<AutocompleteOption[]>
   debounceMs?: number
+  /**
+   * Characters needed before `onSearch` is called; `0` also runs it for an empty search, so the
+   * list shows the first results as soon as it opens.
+   */
   minSearchLength?: number
+  /**
+   * The option `value` stands for when it is not among the listed ones (a server-searched list
+   * only holds a page of them), so the trigger can always show the chosen one.
+   */
+  selectedOption?: AutocompleteOption
+  /** Empty-list text while `onSearch` is running. */
+  searchingText?: string
   /** Shown in the trigger while `loading`. */
   loadingText?: string
   /** Id of the trigger, so a `<label htmlFor>` names it. */
@@ -69,6 +80,8 @@ export function Autocomplete({
   onSearch,
   debounceMs = 300,
   minSearchLength = 2,
+  selectedOption: selectedOptionProp,
+  searchingText = "Searching...",
   loadingText = "Loading...",
   id,
   "aria-label": ariaLabel,
@@ -96,9 +109,10 @@ export function Autocomplete({
     () => {
       // Check both activeOptions and static options for the selected value
       return activeOptions.find((option) => option.value === value) ||
-             options.find((option) => option.value === value)
+             options.find((option) => option.value === value) ||
+             (selectedOptionProp && selectedOptionProp.value === value ? selectedOptionProp : undefined)
     },
-    [activeOptions, options, value]
+    [activeOptions, options, value, selectedOptionProp]
   )
 
   // Fetch options when search changes (only if onSearch is provided)
@@ -110,8 +124,8 @@ export function Autocomplete({
       clearTimeout(debounceTimerRef.current)
     }
 
-    // If search is empty or below minimum length, clear fetched options
-    if (!search || search.length < minSearchLength) {
+    // If search is below minimum length, clear fetched options
+    if (search.length < minSearchLength) {
       setFetchedOptions([])
       setIsFetching(false)
       return
@@ -120,20 +134,22 @@ export function Autocomplete({
     // Set loading state
     setIsFetching(true)
 
-    // Debounce the search
+    // Debounce the search; an answer to an earlier search is dropped.
+    let cancelled = false
     debounceTimerRef.current = setTimeout(async () => {
       try {
         const results = await onSearch(search)
-        setFetchedOptions(results)
+        if (!cancelled) setFetchedOptions(results)
       } catch (error) {
         console.error("Error fetching autocomplete options:", error)
-        setFetchedOptions([])
+        if (!cancelled) setFetchedOptions([])
       } finally {
-        setIsFetching(false)
+        if (!cancelled) setIsFetching(false)
       }
     }, debounceMs)
 
     return () => {
+      cancelled = true
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current)
       }
@@ -202,7 +218,7 @@ export function Autocomplete({
   // Determine the empty message based on state
   const getEmptyMessage = () => {
     if (isFetching) {
-      return "Searching..."
+      return searchingText
     }
     if (onSearch && search.length > 0 && search.length < minSearchLength) {
       return `Type at least ${minSearchLength} characters to search`
@@ -264,6 +280,7 @@ export function Autocomplete({
         <Command shouldFilter={false} className="w-full">
           <CommandInput
             placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder}
             value={search}
             onValueChange={setSearch}
           />

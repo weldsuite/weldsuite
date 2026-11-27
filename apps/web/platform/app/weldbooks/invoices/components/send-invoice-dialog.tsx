@@ -15,9 +15,12 @@ import { useEntityInvoiceDetails } from '@/lib/weldbooks/use-entity-invoice-deta
 import { EntityInvoiceDetailsNotice } from './entity-invoice-details';
 import { useDescribeError } from './sales-tax-error-notice';
 
+/**
+ * "Mark as sent": WeldBooks does not e-mail invoices yet (both backends only set the status and
+ * `sentAt`), so the dialog says that instead of promising an email.
+ */
 interface SendInvoiceDialogProps {
   invoiceId: string;
-  contactEmail: string | null;
   /** A draft is finalized (posted) by the server before it is sent. */
   isDraft?: boolean;
   open: boolean;
@@ -32,7 +35,6 @@ interface SendInvoiceDialogProps {
 
 export function SendInvoiceDialog({
   invoiceId,
-  contactEmail,
   isDraft = false,
   open,
   onOpenChange,
@@ -79,11 +81,8 @@ export function SendInvoiceDialog({
         <DialogHeader>
           <DialogTitle>{ts.title}</DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          {contactEmail
-            ? ts.sendToEmail.replace('{email}', contactEmail)
-            : ts.noEmailFound}
-        </p>
+        {/* Nothing is e-mailed yet: the action only marks the invoice as sent, and the dialog says so. */}
+        <p className="text-sm text-muted-foreground">{ts.notEmailed}</p>
         {isDraft && <p className="text-sm text-muted-foreground">{ts.draftWillFinalize}</p>}
         {isDraft && (
           <EntityInvoiceDetailsNotice

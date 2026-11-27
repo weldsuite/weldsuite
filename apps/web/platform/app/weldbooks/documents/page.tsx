@@ -159,6 +159,12 @@ const ACCEPTED_TYPES = 'application/pdf,.pdf,image/jpeg,image/jpg,image/png,imag
 /** How long the "Done" line of a finished upload stays above the list. */
 const UPLOAD_DONE_VISIBLE_MS = 4000;
 
+/** The translated name of a document's type or source; a code the dictionary lacks is shown as plain words. */
+function documentCodeLabel(code: string | null | undefined, labels: Record<string, string>): string {
+  if (!code) return '';
+  return labels[code] ?? code.replaceAll('_', ' ');
+}
+
 /** PDFs and the image formats OCR reads. Some systems hand over a PDF with no type. */
 function isScannableFile(file: File): boolean {
   if (file.type === 'application/pdf' || /^image\/(jpe?g|png|webp)$/.test(file.type)) return true;
@@ -427,13 +433,13 @@ export default function DocumentInboxPage() {
       id: 'type',
       header: td.colType,
       width: 'w-[120px]',
-      render: (doc) => <RowText className="capitalize">{doc.type?.replace('_', ' ')}</RowText>,
+      render: (doc) => <RowText>{documentCodeLabel(doc.type, td.typeLabels)}</RowText>,
     },
     {
       id: 'source',
       header: td.colSource,
       width: 'w-[100px]',
-      render: (doc) => <RowText className="capitalize">{doc.source}</RowText>,
+      render: (doc) => <RowText>{documentCodeLabel(doc.source, td.sourceLabels)}</RowText>,
     },
     {
       id: 'vendor',

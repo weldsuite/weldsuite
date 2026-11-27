@@ -396,6 +396,26 @@ export interface Account {
   form1099Box?: string | null;
 }
 
+/** One posted journal line of an account (`GET /gl-accounts/:id/transactions`); the API gives no running balance. */
+export interface AccountTransaction {
+  id: string;
+  journalEntryId: string;
+  description: string | null;
+  debit: string | null;
+  credit: string | null;
+  contactId: string | null;
+  entryNumber: string | null;
+  entryDate: string;
+  entryDescription: string | null;
+  sourceType: string | null;
+}
+
+/** What a contact owes us (`receivable`) and what we owe them (`payable`), in the entity's base currency. */
+export interface ContactBalance {
+  receivable: { totalOutstanding: string; totalOverdue: string };
+  payable: { totalOutstanding: string; totalOverdue: string };
+}
+
 export interface TaxRate {
   id: string;
   name: string;
@@ -905,6 +925,9 @@ export const accountingApi = {
   getTaxLines: (year?: number) =>
     weldbooksApi.get<ApiResponse<TaxLineCatalog>>(`/gl-accounts/tax-lines${buildQuery({ year })}`),
   getAccount: (id: string) => weldbooksApi.get<ApiResponse<Account>>(`/gl-accounts/${id}`),
+  /** The posted journal lines of an account, newest entry first. */
+  listAccountTransactions: (id: string, params?: { page?: number; pageSize?: number }) =>
+    weldbooksApi.get<PaginatedResponse<AccountTransaction>>(`/gl-accounts/${id}/transactions${buildQuery(params || {})}`),
   createAccount: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<Account>>('/gl-accounts', data),
   updateAccount: (id: string, data: Record<string, unknown>) => weldbooksApi.patch<ApiResponse<Account>>(`/gl-accounts/${id}`, data),
   deleteAccount: (id: string) => weldbooksApi.delete<ApiResponse<unknown>>(`/gl-accounts/${id}`),
@@ -939,7 +962,7 @@ export const accountingApi = {
   }) =>
     weldbooksApi.get<PaginatedResponse<Customer>>(`/accounting-contacts${buildQuery(params || {})}`),
   getCustomer: (id: string) => weldbooksApi.get<ApiResponse<Customer>>(`/accounting-contacts/${id}`),
-  getCustomerBalance: (id: string) => weldbooksApi.get<ApiResponse<unknown>>(`/accounting-contacts/${id}/balance`),
+  getCustomerBalance: (id: string) => weldbooksApi.get<ApiResponse<ContactBalance>>(`/accounting-contacts/${id}/balance`),
   createCustomer: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<Customer>>('/accounting-contacts', data),
   updateCustomer: (id: string, data: Record<string, unknown>) => weldbooksApi.patch<ApiResponse<Customer>>(`/accounting-contacts/${id}`, data),
   deleteCustomer: (id: string) => weldbooksApi.delete<ApiResponse<unknown>>(`/accounting-contacts/${id}`),
@@ -990,7 +1013,7 @@ export const accountingApi = {
   rejectBill: (id: string, reason: string) => weldbooksApi.patch<ApiResponse<Bill>>(`/bills/${id}/reject`, { reason }),
 
   // Journal Entries
-  listJournalEntries: (params?: { status?: string; sourceType?: string; from?: string; to?: string; page?: number; pageSize?: number }) =>
+  listJournalEntries: (params?: { status?: string; sourceType?: string; from?: string; to?: string; search?: string; page?: number; pageSize?: number }) =>
     weldbooksApi.get<PaginatedResponse<JournalEntry>>(`/journal-entries${buildQuery(params || {})}`),
   getJournalEntry: (id: string) => weldbooksApi.get<ApiResponse<JournalEntryDetail>>(`/journal-entries/${id}`),
   createJournalEntry: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<JournalEntry>>('/journal-entries', data),

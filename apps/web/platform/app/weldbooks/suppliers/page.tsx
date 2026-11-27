@@ -9,11 +9,17 @@ import {
   type ActiveFilter,
 } from '@/components/entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
-import { useSupplierContacts } from '@/hooks/queries/use-weldbooks-1099-queries';
+import { useInfiniteSupplierContacts } from '@/hooks/queries/use-weldbooks-1099-queries';
 import type { VendorTaxContact } from '@/lib/api/domains/weldbooks-1099';
 import { useI18n } from '@/lib/i18n/provider';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
-import { contactEmail, contactKindFilter, contactKindIcon, readKindFilter } from '../customers/components/contact-list-cells';
+import {
+  contactEmail,
+  contactKindFilter,
+  contactKindIcon,
+  contactRoleLabel,
+  readKindFilter,
+} from '../customers/components/contact-list-cells';
 import { QuickAddContactDialog } from '../customers/components/quick-add-contact-dialog';
 import { supplierTinStatus, type SupplierTinStatus } from './supplier-tax-status';
 
@@ -79,7 +85,7 @@ export default function AccountingSuppliersPage() {
   const form1099Filter = show1099 ? filters.find((f) => f.field === 'form1099' && f.value)?.value : undefined;
   const archivedFilter = filters.find((f) => f.field === 'archived' && f.value)?.value as 'include' | 'only' | undefined;
 
-  const { data, isLoading } = useSupplierContacts({
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteSupplierContacts({
     search,
     role: roleFilter ?? 'supplier',
     kind: readKindFilter(filters),
@@ -87,7 +93,7 @@ export default function AccountingSuppliersPage() {
     archived: archivedFilter,
   });
 
-  const allSuppliers = (data?.data ?? []) as SupplierRow[];
+  const allSuppliers = (data?.rows ?? []) as SupplierRow[];
   const suppliers =
     form1099Filter === 'missing_tin'
       ? allSuppliers.filter((s) => supplierTinStatus(s) === 'missing')
@@ -117,9 +123,7 @@ export default function AccountingSuppliersPage() {
       width: 'shrink-0 w-[170px]',
       render: (c) =>
         c.role ? (
-          <StatusChip tone={c.role === 'both' ? 'indigo' : 'purple'}>
-            <span className="capitalize">{c.role === 'both' ? labels.customerAndSupplier : c.role}</span>
-          </StatusChip>
+          <StatusChip tone={c.role === 'both' ? 'indigo' : 'purple'}>{contactRoleLabel(c.role, t.accounting.contacts.roles, labels)}</StatusChip>
         ) : (
           <RowText />
         ),
@@ -180,6 +184,9 @@ export default function AccountingSuppliersPage() {
       <WeldbooksEntityList<SupplierRow>
         items={suppliers}
         isLoading={isLoading}
+        hasMore={hasNextPage}
+        isLoadingMore={isFetchingNextPage}
+        onLoadMore={() => void fetchNextPage()}
         columns={columns}
         onRowClick={(s) => openPanel({ type: 'weldbooks_contact', id: s.id })}
         getRowLabel={(s) => s.name}

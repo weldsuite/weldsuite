@@ -40,3 +40,17 @@ export function readKindFilter(filters: readonly ActiveFilter[]): ContactKind | 
   const value = filters.find((f) => f.field === 'kind' && f.value)?.value;
   return value === 'company' || value === 'person' ? value : undefined;
 }
+
+/**
+ * A contact's role as a translated name: the customer, the supplier (a vendor in the US) or both,
+ * never the raw value.
+ */
+export function contactRoleLabel(
+  role: string,
+  roles: Record<string, string>,
+  labels: { supplier: string; customerAndSupplier: string },
+): string {
+  if (role === 'both') return labels.customerAndSupplier;
+  if (role === 'supplier') return labels.supplier;
+  return roles[role] ?? role;
+}

@@ -51,6 +51,7 @@ import { FORM_1099_ACCOUNT_BOXES, FORM_1099_OMIT, form1099BoxName } from '@/lib/
 import { NO_TAX_RATE } from '@/lib/weldbooks/document-tax';
 import { defaultTaxRateId, taxRateLabel, taxRatesFor } from '@/lib/weldbooks/tax-rate-options';
 import { isForeignCurrency } from '@/lib/weldbooks/currencies';
+import { ContactPicker } from '@/components/accounting/contact-picker';
 import { DocumentCurrencyFields } from '@/components/accounting/document-currency-fields';
 import { WELD_TAX_CODES } from '@/lib/weldbooks/tax-codes';
 import { DimensionSelects } from '@/app/weldbooks/invoices/components/dimension-selects';
@@ -169,6 +170,8 @@ interface BillFormProps {
   mode: 'add' | 'edit';
   bill?: BillDetail;
   prefill?: BillPrefill;
+  /** A new bill starts with this supplier picked (the contact panel's "New bill"). */
+  initialContactId?: string;
   onSubmit: (data: BillPayload) => void;
   isSubmitting?: boolean;
 }
@@ -271,7 +274,7 @@ function storedItemValues(item: StoredBillItem) {
   };
 }
 
-export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readonly<BillFormProps>) {
+export function BillForm({ mode, bill, prefill, initialContactId, onSubmit, isSubmitting }: Readonly<BillFormProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const { formatMoney, today: localToday, entity, entityCurrency } = useWeldbooksFormat();
@@ -290,7 +293,8 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
   const billFormSchema = useMemo(() => createBillFormSchema(st, brMessages), [st, brMessages]);
   // Brazil: NCM / CFOP and fiscal details per line, withholdings and the NF-e access key per bill.
   const br = features.brTaxReturn;
-  const { data: contactsData, isLoading: contactsLoading } = useAccountingCustomers({ role: 'supplier' });
+  // The picker searches the server as you type; this one row only tells whether there is any supplier at all.
+  const { data: contactsData, isLoading: contactsLoading } = useAccountingCustomers({ role: 'supplier', pageSize: 1 });
   const { data: taxRatesData } = useAccountingTaxRates();
   const { data: accountsData } = useAccountingAccounts({ type: 'expense' });
 
@@ -318,7 +322,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
   const form = useForm({
     resolver: zodResolver(billFormSchema),
     defaultValues: {
-      contactId: bill?.contactId ?? prefill?.matchedContactId ?? '',
+      contactId: bill?.contactId ?? prefill?.matchedContactId ?? initialContactId ?? '',
       issueDate: toCalendarDate(bill?.issueDate) ?? toCalendarDate(prefill?.issueDate) ?? today,
       dueDate: toCalendarDate(bill?.dueDate) ?? toCalendarDate(prefill?.dueDate) ?? defaultDue,
       externalReference: bill?.externalReference ?? prefill?.externalReference ?? '',
@@ -448,21 +452,15 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                 </Button>
               </div>
             ) : (
-              <Select
+              <ContactPicker
+                id="contactId"
+                role="supplier"
                 value={form.watch('contactId')}
-                onValueChange={(val) => form.setValue('contactId', val, { shouldValidate: true })}
-              >
-                <SelectTrigger id="contactId">
-                  <SelectValue placeholder={tb.selectSupplier} />
-                </SelectTrigger>
-                <SelectContent>
-                  {contacts.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onChange={(val) => form.setValue('contactId', val, { shouldValidate: true })}
+                placeholder={tb.selectSupplier}
+                searchPlaceholder={t.accounting.suppliersPage.searchPlaceholder}
+                invalid={Boolean(form.formState.errors.contactId)}
+              />
             )}
             {form.formState.errors.contactId && (
               <p className="text-sm text-destructive">{form.formState.errors.contactId.message}</p>

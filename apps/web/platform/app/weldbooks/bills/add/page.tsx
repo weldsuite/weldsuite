@@ -81,6 +81,7 @@ export default function AddBillPage() {
       <BillForm
         mode="add"
         prefill={prefill}
+        initialContactId={search.contactId}
         onSubmit={handleSubmit}
         isSubmitting={createBill.isPending}
       />

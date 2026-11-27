@@ -174,7 +174,6 @@ function InvoiceDialogs({
     <>
       <SendInvoiceDialog
         invoiceId={invoice.id}
-        contactEmail={invoice.contactEmail}
         isDraft={caps.isDraft}
         open={workflow.sendOpen}
         onOpenChange={workflow.setSendOpen}

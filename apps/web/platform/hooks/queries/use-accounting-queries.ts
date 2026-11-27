@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import {
   keepPreviousData,
   useInfiniteQuery,
@@ -374,6 +375,19 @@ export function useAccountingAccount(id: string) {
   });
 }
 
+/** The posted journal lines of an account (the ledger account panel's Transactions tab), a page at a time. */
+export function useInfiniteAccountingAccountTransactions(accountId: string, options: { enabled?: boolean } = {}) {
+  return useInfiniteQuery({
+    enabled: !!accountId && (options.enabled ?? true),
+    queryKey: [...accountingKeys.accounts.detail(accountId), 'transactions'] as const,
+    queryFn: ({ pageParam }) =>
+      accountingApi.listAccountTransactions(accountId, { page: pageParam, pageSize: LIST_PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: nextPageParam,
+    select: selectRows,
+  });
+}
+
 export function useCreateAccount() {
   const qc = useQueryClient();
   return useMutation({
@@ -462,6 +476,70 @@ export function useAccountingCustomers(filters?: {
   });
 }
 
+/** Rows per request of the infinite WeldBooks lists (the API allows up to 100). */
+export const LIST_PAGE_SIZE = 50;
+
+/**
+ * Paging of a page-numbered list (`{ data, pagination: { totalCount, hasMore } }`): the list
+ * asks for the next page (`fetchNextPage`) when it scrolls to the end.
+ */
+export function selectRows<T>(data: { pages: Array<{ data: T[]; pagination?: { totalCount?: number } }> }) {
+  return { rows: data.pages.flatMap((page) => page.data ?? []), totalCount: data.pages[0]?.pagination?.totalCount };
+}
+
+export function nextPageParam(lastPage: { pagination?: { hasMore?: boolean } }, _pages: unknown[], lastPageParam: number) {
+  return lastPage.pagination?.hasMore ? lastPageParam + 1 : undefined;
+}
+
+/** The customers or suppliers list, a page at a time; `search` runs on the server. */
+export function useInfiniteAccountingCustomers(filters?: {
+  role?: 'customer' | 'supplier' | 'both' | 'none';
+  kind?: 'company' | 'person';
+  search?: string;
+  archived?: 'only' | 'include';
+}) {
+  return useInfiniteQuery({
+    queryKey: [...accountingKeys.customers.list(filters), 'infinite'] as const,
+    queryFn: ({ pageParam }) => accountingApi.listCustomers({ ...filters, page: pageParam, pageSize: LIST_PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: nextPageParam,
+    select: selectRows,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Contacts shown at once by a contact picker; the rest is reached by typing. */
+const CONTACT_PICKER_PAGE_SIZE = 30;
+
+/**
+ * The search of a contact picker: the first contacts of a role matching what was typed, asked of
+ * the server (so every contact can be found, not just the first page). Stable between renders.
+ */
+export function useAccountingContactSearch(role: 'customer' | 'supplier') {
+  const qc = useQueryClient();
+  return useCallback(
+    async (search: string) => {
+      const filters = { role, search: search.trim() || undefined, pageSize: CONTACT_PICKER_PAGE_SIZE };
+      const res = await qc.fetchQuery({
+        queryKey: [...accountingKeys.customers.list(filters), 'picker'] as const,
+        queryFn: () => accountingApi.listCustomers(filters),
+        staleTime: 15_000,
+      });
+      return res.data ?? [];
+    },
+    [qc, role],
+  );
+}
+
+/** What the contact owes us and what we owe them (the contact panel's header figures). */
+export function useAccountingContactBalance(id: string) {
+  return useQuery({
+    queryKey: [...accountingKeys.customers.detail(id), 'balance'] as const,
+    queryFn: () => accountingApi.getCustomerBalance(id),
+    enabled: !!id,
+  });
+}
+
 export function useAccountingCustomer(id: string) {
   return useQuery({
     queryKey: accountingKeys.customers.detail(id),
@@ -538,23 +616,12 @@ export function useUpdateAccountingCustomer() {
 // Invoices
 // ============================================================================
 
-/** Rows per request of the infinite WeldBooks lists (the API allows up to 100). */
-const LIST_PAGE_SIZE = 50;
-
-/**
- * Paging of a page-numbered list (`{ data, pagination: { totalCount, hasMore } }`): the list
- * asks for the next page (`fetchNextPage`) when it scrolls to the end.
- */
-function selectRows<T>(data: { pages: Array<{ data: T[]; pagination?: { totalCount?: number } }> }) {
-  return { rows: data.pages.flatMap((page) => page.data ?? []), totalCount: data.pages[0]?.pagination?.totalCount };
-}
-
-function nextPageParam(lastPage: { pagination?: { hasMore?: boolean } }, _pages: unknown[], lastPageParam: number) {
-  return lastPage.pagination?.hasMore ? lastPageParam + 1 : undefined;
-}
-
-export function useInfiniteAccountingInvoices(filters?: { status?: string; type?: string; search?: string }) {
+export function useInfiniteAccountingInvoices(
+  filters?: { status?: string; type?: string; search?: string; contactId?: string },
+  options: { enabled?: boolean } = {},
+) {
   return useInfiniteQuery({
+    enabled: options.enabled ?? true,
     queryKey: [...accountingKeys.invoices.list(filters), 'infinite'] as const,
     queryFn: ({ pageParam }) => accountingApi.listInvoices({ ...filters, page: pageParam, pageSize: LIST_PAGE_SIZE }),
     initialPageParam: 1,
@@ -686,8 +753,12 @@ export function useCreatePayment() {
 // Bills
 // ============================================================================
 
-export function useInfiniteAccountingBills(filters?: { status?: string; search?: string }) {
+export function useInfiniteAccountingBills(
+  filters?: { status?: string; search?: string; contactId?: string },
+  options: { enabled?: boolean } = {},
+) {
   return useInfiniteQuery({
+    enabled: options.enabled ?? true,
     queryKey: [...accountingKeys.bills.list(filters), 'infinite'] as const,
     queryFn: ({ pageParam }) => accountingApi.listBills({ ...filters, page: pageParam, pageSize: LIST_PAGE_SIZE }),
     initialPageParam: 1,
@@ -770,6 +841,18 @@ export function useRejectBill() {
 // ============================================================================
 // Journal Entries
 // ============================================================================
+
+/** The journal, a page at a time; `search` runs on the server (number, reference, description). */
+export function useInfiniteAccountingJournalEntries(filters?: { status?: string; search?: string }) {
+  return useInfiniteQuery({
+    queryKey: [...accountingKeys.journalEntries.list(filters), 'infinite'] as const,
+    queryFn: ({ pageParam }) => accountingApi.listJournalEntries({ ...filters, page: pageParam, pageSize: LIST_PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: nextPageParam,
+    select: selectRows,
+    placeholderData: keepPreviousData,
+  });
+}
 
 export function useAccountingJournalEntries(filters?: { status?: string; page?: number; pageSize?: number }) {
   return useQuery({

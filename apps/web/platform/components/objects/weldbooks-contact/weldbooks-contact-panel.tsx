@@ -8,10 +8,11 @@
  * `/weldbooks/customers/:id` page, which now redirects to the customers list
  * with this panel open in fullscreen.
  *
- * Tabs: Details · Exemptions (US sales tax, customers only) · History.
+ * Tabs: Details · Invoices (customers) · Bills (suppliers) · Exemptions (US sales tax, customers
+ * only) · History. Under the title: what the contact owes and is owed, and "New invoice" / "New bill".
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Link } from '@tanstack/react-router';
 import {
@@ -31,6 +32,7 @@ import {
   Mail,
   MapPin,
   Phone,
+  Receipt,
   StickyNote,
   Tag,
   Trash2,
@@ -42,7 +44,6 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
-import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import {
   DropdownMenu,
@@ -51,13 +52,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import {
-  ObjectPanelTabs,
-  useObjectPanel,
-  useObjectPanelShell,
-  useObjectPanelTabConfig,
-  type ObjectPanelComponentProps,
-} from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelShell, type ObjectPanelComponentProps } from '@/components/object-panel';
+import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import { usePanelInitialTab } from '@/components/objects/_shared/use-panel-initial-tab';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { PropertyRow } from '@/components/objects/_shared/property-row';
@@ -68,6 +64,7 @@ import { formatPostalAddressLines } from '@/components/address/postal-address';
 import { countryName } from '@/components/address/countries';
 import { CustomerExemptionsTab } from '@/app/weldbooks/sales-tax/certificates/customer-exemptions-tab';
 import {
+  useAccountingContactBalance,
   useAccountingCustomer,
   useDeleteAccountingCustomer,
   useSetAccountingCustomerArchived,
@@ -82,9 +79,11 @@ import { cn } from '@/lib/utils';
 import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
 import { contactIdLabels } from '@/lib/weldbooks/contact-id-labels';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { ContactBillsTab, ContactInvoicesTab } from './weldbooks-contact-documents-tab';
 import {
+  contactDocumentTabs,
   getWeldbooksContactTabs,
-  type WeldbooksContactTab,
+  type WeldbooksContactTabId,
 } from './weldbooks-contact-tabs';
 
 const WELDBOOKS_CONTACT_PANEL_WIDTH = 480;
@@ -350,67 +349,66 @@ function ContactDialogs({ actions, t }: Readonly<{ actions: ContactActions; t: T
   );
 }
 
-// ─── Tab bar ───────────────────────────────────────────────────────────────
+// ─── Balance and shortcuts ─────────────────────────────────────────────────
 
-function ContactTabsBar({
-  tabs,
-  activeTab,
-  setActiveTab,
-  mode,
-}: Readonly<{
-  tabs: WeldbooksContactTab[];
-  activeTab: WeldbooksContactTab['id'];
-  setActiveTab: (id: WeldbooksContactTab['id']) => void;
-  mode: 'panel' | 'fullscreen';
-}>) {
-  const st = useTranslations();
-  const configEntries = useMemo(
-    () =>
-      tabs.map((tab) => ({
-        id: tab.id,
-        label: tab.label,
-        required: tab.required,
-        defaultVisible:
-          mode === 'panel' ? (tab.defaultVisibleInPanel ?? false) : (tab.defaultVisibleInFullscreen ?? false),
-      })),
-    [tabs, mode],
-  );
-
-  const { visibility, isVisible, toggle, resetToDefaults } = useObjectPanelTabConfig({
-    objectType: 'weldbooks_contact',
-    mode,
-    tabs: configEntries,
-  });
-
-  useEffect(() => {
-    if (isVisible(activeTab)) return;
-    const fallback = tabs.find((tab) => isVisible(tab.id));
-    if (fallback && fallback.id !== activeTab) setActiveTab(fallback.id);
-  }, [activeTab, isVisible, setActiveTab, tabs]);
-
-  const visibleTabs = useMemo(
-    () =>
-      tabs
-        .filter((tab) => isVisible(tab.id))
-        .map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, count: tab.count })),
-    [tabs, isVisible],
-  );
-
+function BalanceFigure({ label, value, alert }: Readonly<{ label: string; value: string; alert?: boolean }>) {
   return (
-    <div className="group/tabs-header relative">
-      <ObjectPanelTabs
-        tabs={visibleTabs}
-        activeTab={activeTab}
-        onChange={(id) => setActiveTab(id as WeldbooksContactTab['id'])}
-      />
-      <div className="absolute top-0 right-2 h-full flex items-center opacity-0 group-hover/tabs-header:opacity-100 focus-within:opacity-100 transition-opacity">
-        <DrawerFieldSettings
-          fields={configEntries}
-          fieldVisibility={visibility}
-          onToggle={toggle}
-          onReset={resetToDefaults}
-          label={st('sweep.entities.visibleTabs')}
-        />
+    <div className="min-w-0">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className={cn('truncate text-sm font-medium tabular-nums', alert && 'text-red-600 dark:text-red-400')}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * The strip under the title: to receive and overdue (customers), to pay (suppliers), and the
+ * shortcuts that start a new invoice or bill with this contact picked.
+ */
+function ContactSubheader({
+  contact,
+  canCreateInvoice,
+  canCreateBill,
+  t,
+}: Readonly<{ contact: Customer; canCreateInvoice: boolean; canCreateBill: boolean; t: Translations }>) {
+  const tc = t.accounting.contacts.connected;
+  const { formatMoney } = useCurrentEntityCurrency();
+  const balance = useAccountingContactBalance(contact.id).data?.data;
+  const { invoices: isCustomer, bills: isSupplier } = contactDocumentTabs(contact.role);
+  const overdue = Number(balance?.receivable.totalOverdue ?? 0);
+  const showInvoiceAction = isCustomer && canCreateInvoice && !contact.archivedAt;
+  const showBillAction = isSupplier && canCreateBill && !contact.archivedAt;
+  return (
+    <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 px-4 pb-3 pt-1">
+      {balance ? (
+        <dl className="flex flex-wrap gap-x-6 gap-y-1">
+          {isCustomer ? <BalanceFigure label={tc.toReceive} value={formatMoney(balance.receivable.totalOutstanding)} /> : null}
+          {isCustomer && overdue > 0 ? (
+            <BalanceFigure label={tc.overdue} value={formatMoney(balance.receivable.totalOverdue)} alert />
+          ) : null}
+          {isSupplier ? <BalanceFigure label={tc.toPay} value={formatMoney(balance.payable.totalOutstanding)} /> : null}
+        </dl>
+      ) : (
+        <span />
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {showInvoiceAction ? (
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/weldbooks/invoices/add" search={{ contactId: contact.id }}>
+              <Receipt className="mr-1 h-4 w-4" aria-hidden />
+              {tc.newInvoice}
+            </Link>
+          </Button>
+        ) : null}
+        {showBillAction ? (
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/weldbooks/bills/add" search={{ contactId: contact.id }}>
+              <FileText className="mr-1 h-4 w-4" aria-hidden />
+              {tc.newBill}
+            </Link>
+          </Button>
+        ) : null}
       </div>
     </div>
   );
@@ -890,19 +888,27 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
   // US entities: a customer can hold sales tax exemption certificates (a supplier buys from us, never from them).
   const showExemptions = Boolean(contact) && features.salesTax && contact?.role !== 'supplier';
 
+  // A customer has invoices, a supplier bills, a contact that is both has both.
+  const documentTabs = contactDocumentTabs(contact?.role);
+  const showDocumentTabs = Boolean(contact);
+
   const tabs = useMemo(
     () =>
       getWeldbooksContactTabs({
         details: st('sweep.entities.detailsTab'),
+        invoices: t.accounting.contacts.connected.tabInvoices,
+        bills: t.accounting.contacts.connected.tabBills,
         exemptions: t.weldbooksUs.salesTax.setup.exemptions.tabExemptions,
         history: st('sweep.entities.auditLogTab'),
+        showInvoices: showDocumentTabs && documentTabs.invoices,
+        showBills: showDocumentTabs && documentTabs.bills,
         showExemptions,
       }),
-    [st, t, showExemptions],
+    [st, t, showExemptions, showDocumentTabs, documentTabs.invoices, documentTabs.bills],
   );
 
   // A deep-linked tab that only appears once the record is loaded is applied when it does.
-  const [activeTab, setActiveTab] = usePanelInitialTab<WeldbooksContactTab['id']>(tabs, initialTab, 'overview');
+  const [activeTab, setActiveTab] = usePanelInitialTab<WeldbooksContactTabId>(tabs, initialTab, 'overview');
 
   return (
     <>
@@ -920,8 +926,24 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
             t={t}
           />
         }
+        subheader={
+          contact ? (
+            <ContactSubheader
+              contact={contact}
+              canCreateInvoice={can('invoices:create')}
+              canCreateBill={can('bills:create')}
+              t={t}
+            />
+          ) : null
+        }
         tabs={
-          <ContactTabsBar tabs={tabs} activeTab={activeTab} setActiveTab={setActiveTab} mode={mode} />
+          <ConfigurablePanelTabs
+            objectType="weldbooks_contact"
+            tabs={tabs}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            mode={mode}
+          />
         }
       >
         {!contactQuery.isLoading && contactQuery.isError && (
@@ -934,6 +956,8 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
         {contact && activeTab === 'overview' && (
           <WeldbooksContactDetailsTab contact={contact} canEdit={canEdit} t={t} />
         )}
+        {contact && activeTab === 'invoices' && <ContactInvoicesTab contactId={contact.id} />}
+        {contact && activeTab === 'bills' && <ContactBillsTab contactId={contact.id} />}
         {contact && activeTab === 'exemptions' && (
           <div className="p-4">
             <CustomerExemptionsTab

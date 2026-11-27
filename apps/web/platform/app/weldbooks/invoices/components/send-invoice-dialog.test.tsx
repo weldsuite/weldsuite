@@ -32,11 +32,10 @@ vi.mock('@/lib/weldbooks/use-entity-invoice-details', () => ({
 import { SendInvoiceDialog } from './send-invoice-dialog';
 import { renderWithProviders } from './test-utils';
 
-function renderDialog(props: { isDraft?: boolean; contactEmail?: string | null } = {}) {
+function renderDialog(props: { isDraft?: boolean } = {}) {
   return renderWithProviders(
     <SendInvoiceDialog
       invoiceId="inv_1"
-      contactEmail={props.contactEmail === undefined ? 'billing@globex.test' : props.contactEmail}
       isDraft={props.isDraft ?? true}
       open
       onOpenChange={vi.fn()}
@@ -52,15 +51,20 @@ describe('SendInvoiceDialog', () => {
     env.toast.error.mockReset();
   });
 
-  it('names the address it sends to and sends', async () => {
+  it('says nothing is e-mailed, and marks the invoice as sent', async () => {
     const user = userEvent.setup();
     env.send.mockImplementation((_id: string, options: MutateOptions) => options.onSuccess?.());
     renderDialog();
 
-    expect(screen.getByText('Send invoice to billing@globex.test?')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Send' }));
+    expect(
+      screen.getByText(
+        "WeldBooks doesn't e-mail invoices yet. Download the PDF and send it yourself; this marks the invoice as sent.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Send invoice to/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Mark as sent' }));
     expect(env.send).toHaveBeenCalledWith('inv_1', expect.any(Object));
-    expect(env.toast.success).toHaveBeenCalledWith('Invoice sent');
+    expect(env.toast.success).toHaveBeenCalledWith('Invoice marked as sent');
   });
 
   it('holds a draft back until the company details are filled in, and offers to add them', () => {
@@ -68,14 +72,14 @@ describe('SendInvoiceDialog', () => {
     renderDialog();
     expect(screen.getByTestId('entity-invoice-details-notice')).toHaveTextContent('IBAN');
     expect(screen.getByRole('button', { name: 'Add business details' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Mark as sent' })).toBeDisabled();
   });
 
   it('sends an invoice that is already finalized whatever the company details', () => {
     env.missing = ['iban'];
     renderDialog({ isDraft: false });
     expect(screen.queryByTestId('entity-invoice-details-notice')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Mark as sent' })).toBeEnabled();
   });
 
   it("names the details a server refusal lists in the user's language", async () => {
@@ -86,8 +90,8 @@ describe('SendInvoiceDialog', () => {
     env.send.mockImplementation((_id: string, options: MutateOptions) => options.onError?.(refusal));
     renderDialog();
 
-    await user.click(screen.getByRole('button', { name: 'Send' }));
-    expect(env.toast.error).toHaveBeenCalledWith('Could not send the invoice', {
+    await user.click(screen.getByRole('button', { name: 'Mark as sent' }));
+    expect(env.toast.error).toHaveBeenCalledWith('Could not mark the invoice as sent', {
       description: 'This invoice cannot be finalized or sent until your VAT number, IBAN are filled in.',
     });
   });
@@ -95,10 +99,9 @@ describe('SendInvoiceDialog', () => {
   it('shows any other failure as it is', async () => {
     const user = userEvent.setup();
     env.send.mockImplementation((_id: string, options: MutateOptions) => options.onError?.(new Error('Boom')));
-    renderDialog({ contactEmail: null });
+    renderDialog();
 
-    expect(screen.getByText(/No email address found for this contact/)).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Send' }));
-    expect(env.toast.error).toHaveBeenCalledWith('Could not send the invoice', { description: 'Boom' });
+    await user.click(screen.getByRole('button', { name: 'Mark as sent' }));
+    expect(env.toast.error).toHaveBeenCalledWith('Could not mark the invoice as sent', { description: 'Boom' });
   });
 });

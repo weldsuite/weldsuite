@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useAccountingJournalEntries } from '@/hooks/queries/use-accounting-queries';
+import { useInfiniteAccountingJournalEntries } from '@/hooks/queries/use-accounting-queries';
 import { TextAlignStart } from 'lucide-react';
 import { EmptyStateIllustration, type ActiveFilter, type ColumnDef, type FilterConfig, type GroupConfig } from '@/components/entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
@@ -16,6 +16,7 @@ import {
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { toCalendarDate } from '@/lib/weldbooks/format';
+import { journalSourceLabel } from '@/lib/weldbooks/journal-source';
 import { applyExclusions, pillValue } from '@/lib/weldbooks/list-filters';
 
 /** The statuses the Status filter offers. */
@@ -28,6 +29,7 @@ interface JournalEntryRow {
   reference: string | null;
   description: string | null;
   status: string;
+  sourceType: string | null;
   totalDebit: number | null;
   totalCredit: number | null;
 }
@@ -72,7 +74,12 @@ function buildMonthGroups(
 
 export default function JournalEntriesPage() {
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
-  const { data, isLoading } = useAccountingJournalEntries({ status: pillValue(activeFilters, 'status') });
+  const [search, setSearch] = useState('');
+  // The server filters on the status and searches number, reference and description, a page at a time.
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteAccountingJournalEntries({
+    status: pillValue(activeFilters, 'status'),
+    search,
+  });
   const navigate = useNavigate();
   // Each entry opens in the shared object panel (type 'journal_entry'), the
   // same panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
@@ -81,10 +88,11 @@ export default function JournalEntriesPage() {
   const { t } = useI18n();
   const tjp = t.accounting.journalPage;
   const statusLabels = t.accounting.statusLabels.journalEntry as Record<string, string>;
+  const sourceLabels = t.accounting.statusLabels.journalEntrySource as Record<string, string>;
   const { formatMoney: fmt, formatDate, formatMonth } = useWeldbooksFormat();
 
   // The server filters on an `is` status; an `is not` one narrows the rows it sent.
-  const entries = applyExclusions((data?.data ?? []) as unknown as JournalEntryRow[], activeFilters, { status: (e) => e.status });
+  const entries = applyExclusions((data?.rows ?? []) as unknown as JournalEntryRow[], activeFilters, { status: (e) => e.status });
   const filterConfigs: FilterConfig[] = [
     { field: 'status', label: tjp.colStatus, options: JOURNAL_STATUSES.map((value) => ({ value, label: statusLabels[value] ?? value })) },
   ];
@@ -126,6 +134,12 @@ export default function JournalEntriesPage() {
       render: (e) => <RowAmount>{fmt(e.totalCredit)}</RowAmount>,
     },
     {
+      id: 'source',
+      header: tjp.colSource,
+      width: 'hidden shrink-0 @6xl/list:flex w-[150px]',
+      render: (e) => <RowText>{journalSourceLabel(e.sourceType, sourceLabels)}</RowText>,
+    },
+    {
       id: 'status',
       header: tjp.colStatus,
       width: 'shrink-0 w-[110px]',
@@ -144,7 +158,12 @@ export default function JournalEntriesPage() {
       filters={filterConfigs}
       activeFilters={activeFilters}
       onFiltersChange={setActiveFilters}
-      searchFields={['reference', 'description']}
+      searchQuery={search}
+      onSearchChange={setSearch}
+      searchPlaceholder={tjp.searchPlaceholder}
+      hasMore={hasNextPage}
+      isLoadingMore={isFetchingNextPage}
+      onLoadMore={() => void fetchNextPage()}
       createButton={{
         label: tjp.newEntry,
         onClick: () => navigate({ to: '/weldbooks/journal/add' }),

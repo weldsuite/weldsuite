@@ -4,6 +4,8 @@ import PageComponent from '@/app/weldbooks/bills/add/page';
 
 const addBillSearchSchema = z.object({
   fromDocument: z.string().optional(),
+  /** The supplier the new bill starts with. */
+  contactId: z.string().optional(),
 });
 
 export const Route = createFileRoute('/weldbooks/bills/add/')({

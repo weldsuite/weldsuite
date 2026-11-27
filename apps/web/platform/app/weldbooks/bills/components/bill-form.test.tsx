@@ -34,6 +34,7 @@ vi.mock('@tanstack/react-router', async () => {
 vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useAccountingCustomer: () => ({ data: { data: { id: 'sup_1', name: 'Dell', billingAddress: null, paymentTermsDays: env.supplierTerms } } }),
   useAccountingCustomers: () => ({ data: { data: env.suppliers }, isLoading: false }),
+  useAccountingContactSearch: () => async () => env.suppliers,
   useBillDefaultExpenseAccount: () => ({ data: env.defaultAccount }),
   useAccountingTaxRates: () => ({ data: { data: env.taxRates } }),
   useAccountingAccounts: () => ({

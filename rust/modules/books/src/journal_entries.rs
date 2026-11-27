@@ -13,6 +13,7 @@ use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
 use sea_orm::sea_query::Expr;
+use sea_orm::sea_query::extension::postgres as pg;
 use sea_orm::{
     ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
     QuerySelect,
@@ -199,6 +200,20 @@ fn int_or(q: &Query, key: &str, fallback: i64) -> Option<i64> {
     parse_int(q.present(key).unwrap_or(&fallback.to_string()))
 }
 
+/// `%text%` for an `ILIKE`, with the characters `LIKE` reads as wildcards taken literally.
+fn like_pattern(text: &str) -> String {
+    let mut pattern = String::with_capacity(text.len() + 2);
+    pattern.push('%');
+    for c in text.chars() {
+        if matches!(c, '\\' | '%' | '_') {
+            pattern.push('\\');
+        }
+        pattern.push(c);
+    }
+    pattern.push('%');
+    pattern
+}
+
 async fn list_entries(caller: &Caller, q: &Query) -> Reply {
     let page = int_or(q, "page", 1).map(|n| n.max(1));
     let page_size = int_or(q, "pageSize", 25).map(|n| n.clamp(1, 100));
@@ -236,6 +251,25 @@ async fn list_entries(caller: &Caller, q: &Query) -> Reply {
     }
     if let Some(source) = q.present("sourceType") {
         filters = filters.add(Column::SourceType.eq(source));
+    }
+    // `search`: part of the entry number, the reference or the description.
+    if let Some(search) = q.present("search") {
+        let pattern = like_pattern(search);
+        filters = filters.add(
+            Condition::any()
+                .add(pg::PgExpr::ilike(
+                    Expr::col((journal_entries::Entity, Column::EntryNumber)),
+                    pattern.as_str(),
+                ))
+                .add(pg::PgExpr::ilike(
+                    Expr::col((journal_entries::Entity, Column::Reference)),
+                    pattern.as_str(),
+                ))
+                .add(pg::PgExpr::ilike(
+                    Expr::col((journal_entries::Entity, Column::Description)),
+                    pattern.as_str(),
+                )),
+        );
     }
     if let Some(from) = from {
         filters = filters.add(Column::Date.gte(from));
@@ -772,4 +806,21 @@ async fn remove(
     }
     .await;
     reply(result, "Failed to delete journal entry")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::like_pattern;
+
+    #[test]
+    fn a_search_is_the_text_between_two_wildcards() {
+        assert_eq!(like_pattern("rent"), "%rent%");
+    }
+
+    #[test]
+    fn like_wildcards_in_the_text_are_taken_literally() {
+        assert_eq!(like_pattern("100%"), "%100\\%%");
+        assert_eq!(like_pattern("R_1"), "%R\\_1%");
+        assert_eq!(like_pattern("a\\b"), "%a\\\\b%");
+    }
 }
