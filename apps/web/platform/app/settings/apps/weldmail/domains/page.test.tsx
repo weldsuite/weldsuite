@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { MailDomainRow } from '@weldsuite/app-api-client/domains/mail-domains';
+import type { DmarcSummary, MailDomainRow } from '@weldsuite/app-api-client/domains/mail-domains';
 import { en } from '@weldsuite/i18n/locales/en';
 import { setRuntimeConfig } from '@/lib/runtime-config';
 import MailDomainsSettingsPage from './page';
@@ -12,6 +12,14 @@ const state = vi.hoisted(() => ({
   remove: vi.fn(),
   update: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
+  dmarcAvailable: true,
+  dmarc: { data: undefined as unknown, isLoading: false, isError: false },
+  mark: vi.fn(),
+}));
+
+vi.mock('@/lib/edition', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/edition')>()),
+  isFeatureAvailable: (feature: string) => feature === 'mail-dmarc-reports' && state.dmarcAvailable,
 }));
 
 vi.mock('@/hooks/queries/use-app-settings-queries', () => ({
@@ -23,11 +31,15 @@ vi.mock('@/hooks/queries/use-mail-queries', () => ({
   useVerifyMailDomain: () => ({ mutateAsync: state.verify, isPending: false }),
   useDeleteMailDomain: () => ({ mutateAsync: state.remove, isPending: false }),
   useUpdateMailDomain: () => ({ mutateAsync: state.update, isPending: false }),
+  useMailDmarcSummary: () => state.dmarc,
+  useMarkDmarcSource: () => ({ mutateAsync: state.mark, isPending: false }),
 }));
 
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => true }));
 vi.mock('sonner', () => ({ toast: state.toast }));
-vi.mock('@weldsuite/ui/components/page-loader', () => ({ PageLoader: () => <div data-testid="page-loader" /> }));
+vi.mock('@weldsuite/ui/components/page-loader', () => ({
+  PageLoader: () => <div data-testid="page-loader" />,
+}));
 vi.mock('@/components/entity-list', () => ({
   EmptyStateIllustration: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
@@ -54,7 +66,14 @@ function domain(overrides: Partial<MailDomainRow> = {}): MailDomainRow {
         purpose: 'verification',
         verified: false,
       },
-      { type: 'MX', name: 'acme.nl', value: 'mx.weldsuite.eu', priority: 10, purpose: 'mx', verified: true },
+      {
+        type: 'MX',
+        name: 'acme.nl',
+        value: 'mx.weldsuite.eu',
+        priority: 10,
+        purpose: 'mx',
+        verified: true,
+      },
     ],
     verifiedAt: null,
     lastVerificationAttempt: null,
@@ -75,9 +94,76 @@ function domain(overrides: Partial<MailDomainRow> = {}): MailDomainRow {
   };
 }
 
+function summary(overrides: Partial<DmarcSummary> = {}): DmarcSummary {
+  return {
+    domainId: 'mdom_1',
+    domainName: 'acme.nl',
+    reportAddress: 'r-abc@dmarc.weldsuite.eu',
+    record: {
+      state: 'ok',
+      found: [],
+      policy: null,
+      reportsToWeldSuite: true,
+      suggested: null,
+    },
+    period: {
+      days: 30,
+      from: '2026-10-28T00:00:00.000Z',
+      to: '2026-11-27T00:00:00.000Z',
+    },
+    totals: {
+      messages: 200,
+      passed: 197,
+      dkimAligned: 197,
+      spfAligned: 0,
+      reports: 4,
+      authenticatedReports: 4,
+      lastReportAt: '2026-11-26T08:00:00.000Z',
+    },
+    sources: [],
+    reporters: [],
+    failures: [],
+    advice: {
+      current: 'none',
+      next: 'quarantine',
+      ready: false,
+      suggestedRecord: null,
+      blockers: [],
+    },
+    ...overrides,
+  };
+}
+
+function verifiedSettings() {
+  state.settings = {
+    data: {
+      accounts: [],
+      domains: [domain({ dnsStatus: 'verified' })],
+      usage: null,
+    },
+    isLoading: false,
+  };
+}
+
+function withSummary(data: DmarcSummary) {
+  state.dmarc = { data: { data }, isLoading: false, isError: false };
+}
+
 beforeEach(() => {
-  state.settings = { data: { accounts: [], domains: [domain()], usage: null }, isLoading: false };
-  for (const fn of [state.create, state.verify, state.remove, state.update, ...Object.values(state.toast)]) {
+  state.dmarcAvailable = true;
+  state.dmarc = { data: undefined, isLoading: false, isError: false };
+  state.mark.mockReset();
+  state.settings = {
+    data: { accounts: [], domains: [domain()], usage: null },
+    isLoading: false,
+  };
+  for (const fn of [
+    state.create,
+    state.verify,
+    state.remove,
+    state.update,
+    ...Object.values(state.toast),
+  ]) {
     fn.mockReset();
   }
 });
@@ -150,7 +236,11 @@ describe('MailDomainsSettingsPage on the Kubernetes editions', () => {
 
   it('hides the records of a verified domain until asked and offers catch-all', () => {
     state.settings = {
-      data: { accounts: [], domains: [domain({ dnsStatus: 'verified' })], usage: null },
+      data: {
+        accounts: [],
+        domains: [domain({ dnsStatus: 'verified' })],
+        usage: null,
+      },
       isLoading: false,
     };
     render(<MailDomainsSettingsPage />);
@@ -163,7 +253,10 @@ describe('MailDomainsSettingsPage on the Kubernetes editions', () => {
   });
 
   it('adds a domain, refusing a name that is not one', async () => {
-    state.settings = { data: { accounts: [], domains: [], usage: null }, isLoading: false };
+    state.settings = {
+      data: { accounts: [], domains: [], usage: null },
+      isLoading: false,
+    };
     state.create.mockResolvedValue({ data: domain() });
     render(<MailDomainsSettingsPage />);
     expect(screen.getByText(td.selfServedNoDomainsDescription)).toBeInTheDocument();
@@ -184,5 +277,192 @@ describe('MailDomainsSettingsPage on the Kubernetes editions', () => {
     fireEvent.click(screen.getByRole('button', { name: td.add }));
     await waitFor(() => expect(state.create).toHaveBeenCalledWith('acme.nl'));
     await waitFor(() => expect(state.toast.success).toHaveBeenCalledWith(td.messages.added));
+  });
+});
+
+describe('MailDomainsSettingsPage DMARC', () => {
+  beforeEach(() => setRuntimeConfig({ backend: 'rust' }));
+
+  type Dmarc = NonNullable<NonNullable<MailDomainRow['dnsRecords']>[number]['dmarc']>;
+  const withDmarcRecord = (dmarc: Dmarc) => {
+    state.settings = {
+      data: {
+        accounts: [],
+        domains: [
+          domain({
+            dnsRecords: [
+              {
+                type: 'TXT',
+                name: '_dmarc.acme.nl',
+                value: 'v=DMARC1; p=none; rua=mailto:r-abc@dmarc.weldsuite.eu',
+                purpose: 'dmarc',
+                verified: false,
+                dmarc,
+              },
+            ],
+          }),
+        ],
+        usage: null,
+      },
+      isLoading: false,
+    };
+  };
+
+  it('warns when the domain has more than one DMARC record', () => {
+    withDmarcRecord({
+      state: 'multiple',
+      found: ['v=DMARC1; p=none', 'v=DMARC1; p=reject'],
+      policy: null,
+      reportsToWeldSuite: false,
+    });
+    render(<MailDomainsSettingsPage />);
+    const row = screen.getByTestId('mail-domain-acme.nl');
+    expect(within(row).getByText(td.dmarcRecord.multiple)).toBeInTheDocument();
+    expect(within(row).getByText(td.dmarcRecord.neverSecond)).toBeInTheDocument();
+  });
+
+  it('flags an unusable record, and a record that lacks the WeldSuite address', () => {
+    withDmarcRecord({
+      state: 'invalid',
+      found: ['junk'],
+      policy: null,
+      reportsToWeldSuite: false,
+    });
+    const { unmount } = render(<MailDomainsSettingsPage />);
+    expect(screen.getByText(td.dmarcRecord.invalid)).toBeInTheDocument();
+    unmount();
+
+    withDmarcRecord({
+      state: 'ok',
+      found: ['v=DMARC1; p=none'],
+      policy: null,
+      reportsToWeldSuite: false,
+    });
+    render(<MailDomainsSettingsPage />);
+    expect(screen.getByText(td.dmarcRecord.notReporting)).toBeInTheDocument();
+    expect(screen.queryByText(td.dmarcRecord.multiple)).not.toBeInTheDocument();
+  });
+
+  it('hides the panel when the feature is unavailable', () => {
+    verifiedSettings();
+    state.dmarcAvailable = false;
+    render(<MailDomainsSettingsPage />);
+    expect(screen.queryByTestId('dmarc-panel-acme.nl')).not.toBeInTheDocument();
+  });
+
+  it('offers the panel for a verified domain only', () => {
+    const { unmount } = render(<MailDomainsSettingsPage />);
+    expect(screen.queryByTestId('dmarc-panel-acme.nl')).not.toBeInTheDocument();
+    unmount();
+    verifiedSettings();
+    render(<MailDomainsSettingsPage />);
+    expect(screen.getByTestId('dmarc-panel-acme.nl')).toBeInTheDocument();
+  });
+
+  it('lists the blockers as sentences, with permille as percent', () => {
+    verifiedSettings();
+    withSummary(
+      summary({
+        advice: {
+          current: 'none',
+          next: 'quarantine',
+          ready: false,
+          suggestedRecord: null,
+          blockers: [
+            { code: 'passRate', permille: 912, need: 980 },
+            { code: 'tooFewDays', have: 5, need: 14 },
+            {
+              code: 'failingSource',
+              key: 'name:crm.example',
+              name: 'crm.example',
+              sharePermille: 250,
+              passPermille: 100,
+            },
+          ],
+        },
+      }),
+    );
+    render(<MailDomainsSettingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: td.dmarc.title }));
+    expect(
+      screen.getByText('Only 91.2% of the mail passes DMARC; at least 98.0% is needed.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('The reports cover 5 of the 14 days that are needed.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/crm\.example sends 25\.0% of the mail but only 10\.0%/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(td.dmarc.spfNote)).toBeInTheDocument();
+  });
+
+  it('shows the suggested record when ready, and the empty state without reports', () => {
+    verifiedSettings();
+    const record = 'v=DMARC1; p=quarantine; rua=mailto:r-abc@dmarc.weldsuite.eu';
+    withSummary(
+      summary({
+        advice: {
+          current: 'none',
+          next: 'quarantine',
+          ready: true,
+          suggestedRecord: record,
+          blockers: [],
+        },
+      }),
+    );
+    const { unmount } = render(<MailDomainsSettingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: td.dmarc.title }));
+    expect(screen.getByText('Ready to move to quarantine')).toBeInTheDocument();
+    expect(screen.getByText(record)).toBeInTheDocument();
+    unmount();
+
+    withSummary(
+      summary({
+        totals: {
+          ...summary().totals,
+          reports: 0,
+          messages: 0,
+          passed: 0,
+          lastReportAt: null,
+        },
+      }),
+    );
+    render(<MailDomainsSettingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: td.dmarc.title }));
+    expect(screen.getByText(td.dmarc.emptyTitle)).toBeInTheDocument();
+    expect(screen.getByText(/r-abc@dmarc\.weldsuite\.eu/)).toBeInTheDocument();
+  });
+
+  it('marks a source as mine', async () => {
+    verifiedSettings();
+    state.mark.mockResolvedValue({
+      data: { key: 'name:crm.example', mark: 'mine' },
+    });
+    withSummary(
+      summary({
+        sources: [
+          {
+            key: 'name:crm.example',
+            kind: 'name',
+            name: 'crm.example',
+            ips: ['203.0.113.9'],
+            messages: 50,
+            passed: 5,
+            dkimAligned: 5,
+            spfAligned: 0,
+            mark: null,
+          },
+        ],
+      }),
+    );
+    render(<MailDomainsSettingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: td.dmarc.title }));
+    fireEvent.click(screen.getByRole('button', { name: td.dmarc.sources.mine }));
+    await waitFor(() =>
+      expect(state.mark).toHaveBeenCalledWith({
+        key: 'name:crm.example',
+        mark: 'mine',
+      }),
+    );
   });
 });

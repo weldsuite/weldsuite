@@ -48,6 +48,8 @@ import type {
   ListMailMessagesQuery,
   DataResponse,
   MailSubscription,
+  DmarcPeriodDays,
+  MarkDmarcSourceInput,
 } from '@weldsuite/app-api-client';
 
 // =============================================================================
@@ -851,6 +853,31 @@ export function useVerifyMailDomain() {
 
 export function useDeleteMailDomain() {
   return useMailDomainMutation((api, id: string) => api.delete(id));
+}
+
+/** The DMARC summary of a verified domain (`mail-dmarc-reports`; ADR MAIL-015). */
+export function useMailDmarcSummary(id: string, days: DmarcPeriodDays, enabled = true) {
+  const { mailDomains } = useAppApi();
+  return useQuery({
+    queryKey: mailKeys.dmarc(id, days),
+    queryFn: () => mailDomains.dmarcSummary(id, days),
+    enabled: enabled && !!id && isFeatureAvailable('mail-dmarc-reports'),
+  });
+}
+
+/** Mark a DMARC sending source as the domain's own, not its own, or clear the mark. */
+export function useMarkDmarcSource(id: string) {
+  const { mailDomains } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: MarkDmarcSourceInput) => {
+      assertFeature('mail-dmarc-reports');
+      return mailDomains.markDmarcSource(id, data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: mailKeys.dmarcAll(id) });
+    },
+  });
 }
 // =============================================================================
 // WeldMail (shared {slug}.weldmail.com addresses; `mail-free-addresses`)

@@ -159,6 +159,13 @@ pub async fn run(config: Config, shutdown: CancellationToken) -> Result<(), BoxE
     };
     let hostname = hostname(&config, &resolver, source_ip).await?;
     tracing::info!(%hostname, source = ?source_ip, pools = ?config.pools, resolver = %resolver.server(), "MTA starting");
+    if let Some(ip) = source_ip
+        && let Err(error) = store
+            .register_node(&ip.to_string(), &hostname, &config.pools)
+            .await
+    {
+        tracing::warn!(%error, "could not record this node for GET /v1/ips");
+    }
 
     let keys = config.base.keys.clone();
     let signers = Arc::new(Signers::new(store.clone(), keys.clone()));

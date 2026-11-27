@@ -265,6 +265,14 @@ settings, which weldsuite.env adds.
 - name: WELDMAIL_DOMAIN
   value: {{ . | quote }}
 {{- end }}
+{{- with .Values.config.mail.dmarcReportsAddress }}
+- name: MAIL_DMARC_REPORTS_ADDRESS
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.config.mail.dmarcOperatorDomains }}
+- name: MAIL_DMARC_OPERATOR_DOMAINS
+  value: {{ . | quote }}
+{{- end }}
 {{- if .Values.clerkJwks.enabled }}
 - name: CLERK_JWKS_FILE
   value: /etc/weldsuite/clerk/jwks.json

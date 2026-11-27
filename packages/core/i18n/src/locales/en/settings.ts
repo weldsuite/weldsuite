@@ -2505,6 +2505,101 @@ export const settings = {
           removeFailed: 'Failed to remove the domain',
           copied: 'Copied',
         },
+        dmarcRecord: {
+          multiple:
+            'You have more than one DMARC record. Receivers then ignore DMARC completely. Replace them with the one record below.',
+          invalid:
+            'The DMARC record on this domain can\'t be used. Replace it with the record below.',
+          notReporting:
+            'Your DMARC record doesn\'t send reports to WeldSuite yet. The record below already includes WeldSuite\'s address and keeps your policy: replace your current record with it.',
+          neverSecond:
+            'Never add a second DMARC record. A domain must have exactly one, so edit the existing record instead.',
+        },
+        dmarc: {
+          title: 'DMARC reports',
+          description:
+            'Receivers send a daily summary of the mail they saw from your domain and whether it passed DMARC. Use it to see who sends as your domain before you tighten the policy.',
+          privacy:
+            'Only aggregate reports are read. Nothing about the content of your messages is seen or stored.',
+          loadFailed: 'Failed to load the DMARC reports',
+          period: 'Period',
+          periodDays: 'Last {days} days',
+          passRate: 'Pass rate',
+          messageCount: '{count} messages',
+          lastReport: 'Last report',
+          noReportYet: 'No report yet',
+          emptyTitle: 'No reports yet',
+          emptyWithAddress:
+            'Receivers send reports once a day, after your DMARC record includes {address}. The first one usually arrives within a day or two.',
+          emptyNoAddress:
+            'Receivers send reports once a day, after your DMARC record includes WeldSuite\'s report address. The first one usually arrives within a day or two.',
+          spfNote:
+            'WeldSuite\'s own mail never aligns on SPF, because it uses its own return path. That is expected: DMARC passes on DKIM.',
+          sources: {
+            title: 'Sending sources',
+            description: 'Everything that sent mail as your domain, as the receivers saw it.',
+            source: 'Source',
+            messages: 'Messages',
+            passRate: 'Pass rate',
+            mark: 'Mark',
+            weldsuite: 'WeldSuite',
+            mine: 'Mine',
+            notMine: 'Not mine',
+            clear: 'Clear',
+            markedMine: 'Marked as yours',
+            markedNotMine: 'Marked as not yours',
+            markCleared: 'Mark cleared',
+            markFailed: 'Failed to save the mark',
+            markLabel: 'Mark {name}',
+          },
+          failures: {
+            title: 'Failing mail',
+            description: 'Mail that did not pass DMARC, grouped by source.',
+            source: 'Source',
+            from: 'From',
+            dkim: 'DKIM',
+            spf: 'SPF',
+            messages: 'Messages',
+            aligned: 'Aligned',
+            notAligned: 'Not aligned',
+            dkimDomains: 'DKIM: {domains}',
+            spfDomain: 'SPF: {domain}',
+          },
+          reporters: {
+            title: 'Reporting receivers',
+            reporter: 'Receiver',
+            reports: 'Reports',
+            messages: 'Messages',
+          },
+          advice: {
+            current: 'Current policy: {policy}',
+            noPolicy: 'No policy yet',
+            readyTitle: 'Ready to move to {policy}',
+            readyDescription:
+              'The reports show this domain is ready to move to {policy}. Replace your DMARC record with this one. Never add it as a second record.',
+            notReadyTitle: 'Not ready to tighten the policy yet',
+            suggestedRecord: 'Suggested record',
+            states: {
+              missing: 'missing',
+              multiple: 'present more than once',
+              invalid: 'invalid',
+              ok: 'fine',
+              unchecked: 'not checked yet',
+            },
+            blockers: {
+              recordProblem: 'Your DMARC record is {state}. Fix that first.',
+              noReports: 'No reports have arrived yet.',
+              tooFewDays: 'The reports cover {have} of the {need} days that are needed.',
+              tooFewReporters: 'Reports came from {have} receivers; at least {need} are needed.',
+              passRate: 'Only {percent}% of the mail passes DMARC; at least {need}% is needed.',
+              weldsuiteFailing:
+                'Only {percent}% of the mail sent through WeldSuite passes DMARC; at least {need}% is needed.',
+              failingSource:
+                '{name} sends {share}% of the mail but only {percent}% of it passes. Mark it as yours or not yours, or fix its DKIM.',
+              tooSoon: 'Wait a little longer: {days} of the {need} days that are needed have passed.',
+            },
+          },
+        },
       },
       accounts: {
         noAccounts: 'No email accounts',

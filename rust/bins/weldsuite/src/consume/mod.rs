@@ -61,6 +61,7 @@
 //! the same deadline.
 
 mod config;
+mod dmarc;
 mod panel_state;
 pub(crate) mod panel_writer;
 
@@ -313,15 +314,68 @@ fn mail_inbound_handler(
         );
     }
     let reach = reach_inbound(inbound, workspaces, &ctx, services.ai.clone());
+    let dmarc = dmarc_reports(inbound, workspaces, &ctx);
     let mail: Arc<dyn BatchHandler> = Arc::new(weldsuite_mail_inbound::MailInboundSubscriber::new(
         ctx,
         Arc::clone(&spool),
     ));
-    Ok(match reach {
-        Some(reach) => {
-            Arc::new(weldsuite_reach::inbound::ReachInboundRouter { reach, mail, spool })
-        }
+    let mail: Arc<dyn BatchHandler> = match reach {
+        Some(reach) => Arc::new(weldsuite_reach::inbound::ReachInboundRouter {
+            reach,
+            mail,
+            spool: Arc::clone(&spool),
+        }),
         None => mail,
+    };
+    Ok(match dmarc {
+        Some(dmarc) => Arc::new(weldsuite_mail_inbound::dmarc::DmarcReportRouter {
+            dmarc: Arc::new(dmarc),
+            mail,
+            spool,
+        }),
+        None => mail,
+    })
+}
+
+/// DMARC aggregate reports at `MAIL_DMARC_REPORTS_ADDRESS` (ADR MAIL-015),
+/// taken out of `mail.inbound` before any mailbox sees them.
+fn dmarc_reports(
+    inbound: &MailInboundConfig,
+    workspaces: &Arc<Workspaces>,
+    ctx: &weldsuite_mail_inbound::InboundContext,
+) -> Option<weldsuite_mail_inbound::dmarc::DmarcReports> {
+    use weldsuite_mail_inbound::dmarc::{NoAddresses, SendingAddresses};
+    let config = inbound.dmarc.as_ref()?;
+    let addresses: Arc<dyn SendingAddresses> = match (&config.mta_api, &ctx.http) {
+        (Some((url, secret)), Some(http)) => Arc::new(dmarc::MtaAddresses::new(
+            weldsuite_mail_domain::mta_domains::MtaDomainApi::new(
+                http.clone(),
+                url,
+                secret.clone(),
+            ),
+        )),
+        _ => Arc::new(NoAddresses),
+    };
+    tracing::info!(
+        address = %config.address,
+        operator_domains = ?config.operator_domains,
+        "mail-inbound: DMARC reports at the report address are filed, not delivered"
+    );
+    Some(weldsuite_mail_inbound::dmarc::DmarcReports {
+        address: config.address.clone(),
+        operator_domains: config.operator_domains.clone(),
+        master: workspaces.master().clone(),
+        tenants: Arc::new(weldsuite_mail_inbound::WorkspaceDbs(Arc::clone(workspaces))),
+        events: ctx.events.clone(),
+        notifier: weldsuite_notifications::Notifier {
+            realtime: ctx.realtime.clone(),
+            presence: None,
+            mail: None,
+            http: ctx.http.clone(),
+            apns: None,
+        },
+        addresses,
+        names: Arc::new(dmarc::ResolverNames::system()),
     })
 }
 

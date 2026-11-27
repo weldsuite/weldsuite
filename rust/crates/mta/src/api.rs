@@ -155,6 +155,23 @@ async fn queue(State(state): State<ApiState>, headers: HeaderMap) -> Response {
     }
 }
 
+/// `GET /v1/ips`: every mail node's sending address with its pools, so
+/// DMARC reports can tell WeldSuite's own mail from everyone else's
+/// (MAIL-015).
+async fn ips(State(state): State<ApiState>, headers: HeaderMap) -> Response {
+    guard!(state, headers);
+    match state.store.nodes().await {
+        Ok(nodes) => {
+            let data: Vec<_> = nodes
+                .into_iter()
+                .map(|(ip, hostname, pools)| json!({ "ip": ip, "hostname": hostname, "pools": pools }))
+                .collect();
+            Json(json!({ "data": data })).into_response()
+        }
+        Err(failure) => domain_failure(&DomainError::Store(failure)),
+    }
+}
+
 async fn healthz() -> &'static str {
     "ok"
 }
@@ -176,5 +193,6 @@ pub fn router(state: ApiState) -> Router {
             get(get_domain).delete(delete_domain),
         )
         .route("/v1/queue", get(queue))
+        .route("/v1/ips", get(ips))
         .with_state(state)
 }

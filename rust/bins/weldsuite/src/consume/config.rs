@@ -23,6 +23,7 @@
 //! | `NATS_MAIL_INBOUND_STREAM`, `NATS_MAIL_INBOUND_SUBJECT`, `NATS_MAIL_INBOUND_DLQ_STREAM` | the inbound mail stream (default `MAIL_INBOUND` on `mail.inbound`) and its dead letters (`MAIL_INBOUND_DLQ`, `mail-inbound-dlq.>`) |
 //! | `NATS_MAIL_SENDING_EVENTS_STREAM`, `NATS_MAIL_SENDING_EVENTS_SUBJECT`, `NATS_MAIL_SENDING_EVENTS_DLQ_STREAM` | the delivery events the MTA publishes (default `MAIL_SENDING_EVENTS` on `mail.sending-events`) and their dead letters (`MAIL_SENDING_EVENTS_DLQ`, `mail-sending-events-dlq`); the `mail-sending-events` subscriber runs by default when WeldMail is served by Rust (MAIL-011) |
 //! | `VALKEY_LEDGER_PREFIX` | with `VALKEY_URL`: the outbound ledgers' keys (default `weldsuite:outbound:`, as for `serve`), where delivery events count bounces and complaints; without Valkey they only reach the tenant databases |
+//! | `MAIL_DMARC_REPORTS_ADDRESS`, `MAIL_DMARC_OPERATOR_DOMAINS` | DMARC aggregate reports at the report address go to `weldsuite_mail_inbound::dmarc` instead of a mailbox (ADR MAIL-015); WeldSuite's own domains are counted for the operator. With `MTA_API_URL`/`MTA_API_SECRET`, rows from the MTA's addresses are tagged with their pool |
 //! | `REACH_SEND_QUEUE` | `nats`: the WeldReach send sweep publishes to NATS, and the `reach-send` subscriber runs by default (stream `REACH_SEND` on `reach.send`) |
 //! | `REACH_WARMUP_QUEUE` | `nats`: the WeldReach warmup dispatch publishes to NATS, and the `reach-warmup-send` and `reach-warmup-engage` subscribers run by default (stream `REACH_WARMUP` on `reach.warmup.send` / `reach.warmup.engage`; they need `WELDREACH_WARMUP_KEY`) |
 //! | `FEATURE_FLAGS`, `FEATURE_FLAGS_REFRESH_SECONDS` | as for `serve`: where `reach-send` reads the `weldreach-sending` kill switch, and the warmup subscribers `weldreach-warmup` |
@@ -157,6 +158,40 @@ pub(crate) struct MailInboundConfig {
     /// virus scanner for attachments (`weldsuite_mail_inbound::threats`).
     /// Unset: nothing is scanned.
     pub(crate) clamd: Option<ClamdConfig>,
+    /// The DMARC report receiver (ADR MAIL-015), when
+    /// `MAIL_DMARC_REPORTS_ADDRESS` is set.
+    pub(crate) dmarc: Option<DmarcConfig>,
+}
+
+/// DMARC aggregate reports at the install's report address (ADR MAIL-015).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DmarcConfig {
+    /// `MAIL_DMARC_REPORTS_ADDRESS`, lower-cased.
+    pub(crate) address: String,
+    /// `MAIL_DMARC_OPERATOR_DOMAINS`: WeldSuite's own sending domains
+    /// (comma-separated, subdomains included), counted for the operator.
+    pub(crate) operator_domains: Vec<String>,
+    /// `MTA_API_URL` and `MTA_API_SECRET`: the MTA's sending addresses
+    /// (`GET /v1/ips`), so WeldSuite's own mail is recognised.
+    pub(crate) mta_api: Option<(String, String)>,
+}
+
+impl DmarcConfig {
+    fn from_lookup(lookup: &impl Fn(&str) -> Option<String>) -> Option<Self> {
+        let address = crate::routes::mail_domains::dmarc_reports_address(lookup)?;
+        let operator_domains = lookup("MAIL_DMARC_OPERATOR_DOMAINS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|d| d.trim().trim_end_matches('.').to_ascii_lowercase())
+            .filter(|d| d.contains('.'))
+            .collect();
+        let set = |name: &str| lookup(name).filter(|v| !v.trim().is_empty());
+        Some(Self {
+            address,
+            operator_domains,
+            mta_api: set("MTA_API_URL").zip(set("MTA_API_SECRET")),
+        })
+    }
 }
 
 /// Where clamd listens and how long one scan may take.
@@ -242,6 +277,7 @@ impl MailInboundConfig {
                 .unwrap_or_else(|| "MAIL_INBOUND_DLQ".to_owned()),
             reach_domain: lookup("REACH_INBOUND_DOMAIN").filter(|d| !d.trim().is_empty()),
             clamd: ClamdConfig::from_lookup(lookup, problems),
+            dmarc: DmarcConfig::from_lookup(lookup),
             mail,
         })
     }
