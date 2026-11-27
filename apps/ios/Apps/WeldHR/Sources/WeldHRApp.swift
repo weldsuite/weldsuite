@@ -6,6 +6,7 @@ import WeldUI
 struct WeldHRApp: App {
     @UIApplicationDelegateAdaptor(WeldAppDelegate.self) private var delegate
     @State private var env: AppEnvironment
+    @State private var store: HRStore
     @State private var toaster = Toaster()
     @AppStorage(AppAppearance.storageKey(app: "weldhr")) private var appearance = AppAppearance.system
     @Environment(\.scenePhase) private var scenePhase
@@ -13,7 +14,7 @@ struct WeldHRApp: App {
     init() {
         let info = Bundle.main.infoDictionary ?? [:]
         let server = (info["WeldEUServerURL"] as? String).flatMap(URL.init(string:)) ?? URL(string: "https://app.weldsuite.eu")!
-        _env = State(initialValue: AppEnvironment(
+        let env = AppEnvironment(
             app: AppIdentity(
                 code: "weldhr",
                 name: HRStrings.appName,
@@ -27,7 +28,9 @@ struct WeldHRApp: App {
             lockRequired: false,
             optionalLock: true,
             usesPush: true
-        ))
+        )
+        _env = State(initialValue: env)
+        _store = State(initialValue: HRStore(env: env))
     }
 
     var body: some Scene {
@@ -36,7 +39,7 @@ struct WeldHRApp: App {
                 env: env,
                 branding: AppBranding(name: HRStrings.appName, subtitle: HRStrings.authSubtitle, logo: "Logo")
             ) { person, workspace, workspaces in
-                ContentView(env: env, person: person, workspace: workspace, workspaces: workspaces, appearance: $appearance)
+                ContentView(env: env, store: store, person: person, workspace: workspace, workspaces: workspaces, appearance: $appearance)
             }
             .tint(Tokens.Brand.weldhr)
             .preferredColorScheme(appearance.colorScheme)

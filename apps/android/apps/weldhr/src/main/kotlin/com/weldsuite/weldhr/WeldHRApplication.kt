@@ -1,6 +1,7 @@
 package com.weldsuite.weldhr
 
 import android.app.Application
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.weldsuite.core.AppEnvironment
 import org.weldsuite.core.AppIdentity
 import org.weldsuite.push.FcmOptions
@@ -13,6 +14,12 @@ class WeldHRApplication : Application() {
 
     lateinit var appearance: AppearancePreference
         private set
+
+    lateinit var repository: HrRepository
+        private set
+
+    /** A `weldhr://…` link the app was opened with, until the app has followed it. */
+    val pendingLink = MutableStateFlow<HrTarget?>(null)
 
     override fun onCreate() {
         super.onCreate()
@@ -32,6 +39,7 @@ class WeldHRApplication : Application() {
             usesPush = true,
         )
         appearance = AppearancePreference(this, "weldhr")
+        repository = HrRepository(env, env.scope)
         WeldPush.init(
             context = this,
             env = env,

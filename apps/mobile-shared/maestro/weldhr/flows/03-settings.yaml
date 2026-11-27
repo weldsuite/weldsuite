@@ -1,0 +1,35 @@
+appId: ${APP_ID || "com.weldsuite.weldhr.dev"}
+name: The profile has the member's links and the shared settings, and signs out
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+# The settings are on the profile page, opened from the workspace at the top of Home.
+- tapOn:
+    id: home-workspace
+- runFlow:
+    when:
+      visible:
+        id: profile-tasks
+    commands:
+      - tapOn:
+          id: profile-tasks
+      - assertVisible: "Onboarding tasks"
+      - back
+- scrollUntilVisible:
+    element:
+      id: appearance
+    direction: DOWN
+- assertVisible:
+    id: language
+- scrollUntilVisible:
+    element:
+      id: sign-out
+    direction: DOWN
+- tapOn:
+    id: sign-out
+- tapOn:
+    id: confirm-sign-out
+- extendedWaitUntil:
+    visible:
+      id: sign-in
+    timeout: 30000

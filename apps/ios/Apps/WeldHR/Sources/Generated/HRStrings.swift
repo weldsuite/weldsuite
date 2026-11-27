@@ -3,10 +3,860 @@
 import Foundation
 
 enum HRStrings {
+    /// New
+    static var a11yAdd: String { tr("a11y.add") }
+    /// Mark done
+    static var a11yMarkDone: String { tr("a11y.markDone") }
+    /// Mark not done
+    static var a11yMarkOpen: String { tr("a11y.markOpen") }
+    /// Absences
+    static var absenceAbsences: String { tr("absence.absences") }
+    /// Allowance
+    static var absenceAllowance: String { tr("absence.allowance") }
+    /// Time off balances
+    static var absenceBalances: String { tr("absence.balances") }
+    /// Leave
+    static var absenceLeave: String { tr("absence.leave") }
+    /// {days} leave
+    static func absenceLeaveDays(days: String) -> String { tr("absence.leaveDays", days) }
+    /// Left
+    static var absenceLeft: String { tr("absence.left") }
+    /// My absence
+    static var absenceMine: String { tr("absence.mine") }
+    /// No absence in {year}
+    static func absenceNoAbsence(year: String) -> String { tr("absence.noAbsence", year) }
+    /// No requests found
+    static var absenceNoResults: String { tr("absence.noResults") }
+    /// Try another name, date or type of leave.
+    static var absenceNoResultsDescription: String { tr("absence.noResultsDescription") }
+    /// Nobody is absent
+    static var absenceNobodyAbsent: String { tr("absence.nobodyAbsent") }
+    /// Approved leave and sick reports show up here
+    static var absenceNobodyAbsentDescription: String { tr("absence.nobodyAbsentDescription") }
+    /// Ongoing
+    static var absenceOngoing: String { tr("absence.ongoing") }
+    /// Requests
+    static var absenceOpenRequests: String { tr("absence.openRequests") }
+    /// Recovered
+    static var absenceRecovered: String { tr("absence.recovered") }
+    /// {amount} remaining
+    static func absenceRemaining(amount: String) -> String { tr("absence.remaining", amount) }
+    /// Report sick
+    static var absenceReportSick: String { tr("absence.reportSick") }
+    /// Requests
+    static var absenceRequests: String { tr("absence.requests") }
+    /// Reviewed
+    static var absenceReviewed: String { tr("absence.reviewed") }
+    /// Search requests
+    static var absenceSearch: String { tr("absence.search") }
+    /// Sick
+    static var absenceSick: String { tr("absence.sick") }
+    /// {days} sick
+    static func absenceSickDays(days: String) -> String { tr("absence.sickDays", days) }
+    /// Sick leave
+    static var absenceSickLeave: String { tr("absence.sickLeave") }
+    /// Taken
+    static var absenceTaken: String { tr("absence.taken") }
+    /// Waiting for approval
+    static var absenceWaiting: String { tr("absence.waiting") }
+    /// Message
+    static var announcementFormBody: String { tr("announcementForm.body") }
+    /// Write your announcement
+    static var announcementFormBodyPlaceholder: String { tr("announcementForm.bodyPlaceholder") }
+    /// Could not post this announcement.
+    static var announcementFormFailed: String { tr("announcementForm.failed") }
+    /// Send a push notification
+    static var announcementFormNotify: String { tr("announcementForm.notify") }
+    /// Everyone gets it once in the WeldHR app.
+    static var announcementFormNotifyHint: String { tr("announcementForm.notifyHint") }
+    /// Pin to the top
+    static var announcementFormPinned: String { tr("announcementForm.pinned") }
+    /// Pinned announcements stay above newer ones.
+    static var announcementFormPinnedHint: String { tr("announcementForm.pinnedHint") }
+    /// Post
+    static var announcementFormPost: String { tr("announcementForm.post") }
+    /// Announcement posted
+    static var announcementFormPosted: String { tr("announcementForm.posted") }
+    /// New announcement
+    static var announcementFormTitle: String { tr("announcementForm.title") }
+    /// Title
+    static var announcementFormTitleLabel: String { tr("announcementForm.titleLabel") }
+    /// What is this about?
+    static var announcementFormTitlePlaceholder: String { tr("announcementForm.titlePlaceholder") }
+    /// By {name}
+    static func announcementsBy(name: String) -> String { tr("announcements.by", name) }
+    /// {count}d
+    static func announcementsDaysAgo(count: Int) -> String { tr("announcements.daysAgo", count) }
+    /// Announcement
+    static var announcementsDetails: String { tr("announcements.details") }
+    /// No announcements
+    static var announcementsEmpty: String { tr("announcements.empty") }
+    /// News from HR and your managers shows up here.
+    static var announcementsEmptyDescription: String { tr("announcements.emptyDescription") }
+    /// {count}h
+    static func announcementsHoursAgo(count: Int) -> String { tr("announcements.hoursAgo", count) }
+    /// Just now
+    static var announcementsJustNow: String { tr("announcements.justNow") }
+    /// {count}m
+    static func announcementsMinutesAgo(count: Int) -> String { tr("announcements.minutesAgo", count) }
+    /// This announcement is no longer there
+    static var announcementsNotFound: String { tr("announcements.notFound") }
+    /// Pinned
+    static var announcementsPinned: String { tr("announcements.pinned") }
+    /// Announcements
+    static var announcementsTitle: String { tr("announcements.title") }
+    /// Unread
+    static var announcementsUnread: String { tr("announcements.unread") }
+    /// Yesterday
+    static var announcementsYesterday: String { tr("announcements.yesterday") }
     /// WeldHR
     static var appName: String { tr("appName") }
+    /// Absent
+    static var attendanceStatusAbsent: String { tr("attendanceStatus.absent") }
+    /// Excused
+    static var attendanceStatusExcused: String { tr("attendanceStatus.excused") }
+    /// Half day
+    static var attendanceStatusHalfDay: String { tr("attendanceStatus.half_day") }
+    /// Late
+    static var attendanceStatusLate: String { tr("attendanceStatus.late") }
+    /// Present
+    static var attendanceStatusPresent: String { tr("attendanceStatus.present") }
+    /// Remote
+    static var attendanceStatusRemote: String { tr("attendanceStatus.remote") }
     /// Your work life, in your pocket
     static var authSubtitle: String { tr("auth.subtitle") }
+    /// {count} days
+    static func balanceDays(_ count: Int) -> String { tr("balance.days", count) }
+    /// {days} days
+    static func balanceDaysFraction(days: String) -> String { tr("balance.daysFraction", days) }
+    /// {days} left
+    static func balanceLeft(days: String) -> String { tr("balance.left", days) }
+    /// of {days} days
+    static func balanceOfAllowance(days: String) -> String { tr("balance.ofAllowance", days) }
+    /// Pro-rated for this year
+    static var balanceProrated: String { tr("balance.prorated") }
+    /// No limit
+    static var balanceUnlimited: String { tr("balance.unlimited") }
+    /// Next
+    static var calendarNext: String { tr("calendar.next") }
+    /// Previous
+    static var calendarPrevious: String { tr("calendar.previous") }
+    /// Attendance
+    static var coachingCategoryAttendance: String { tr("coachingCategory.attendance") }
+    /// Behaviour
+    static var coachingCategoryBehavior: String { tr("coachingCategory.behavior") }
+    /// Development
+    static var coachingCategoryDevelopment: String { tr("coachingCategory.development") }
+    /// Performance
+    static var coachingCategoryPerformance: String { tr("coachingCategory.performance") }
+    /// Quality
+    static var coachingCategoryQuality: String { tr("coachingCategory.quality") }
+    /// Recognition
+    static var coachingCategoryRecognition: String { tr("coachingCategory.recognition") }
+    /// Apply
+    static var commonApply: String { tr("common.apply") }
+    /// Clear filters
+    static var commonClearFilters: String { tr("common.clearFilters") }
+    /// Clear search
+    static var commonClearSearch: String { tr("common.clearSearch") }
+    /// —
+    static var commonDash: String { tr("common.dash") }
+    /// Disable all
+    static var commonDisableAll: String { tr("common.disableAll") }
+    /// Enable all
+    static var commonEnableAll: String { tr("common.enableAll") }
+    /// Filter
+    static var commonFilter: String { tr("common.filter") }
+    /// {h}h {m}m
+    static func commonHm(h: String, m: String) -> String { tr("common.hm", h, m) }
+    /// Submit
+    static var commonSubmit: String { tr("common.submit") }
+    /// Total
+    static var commonTotal: String { tr("common.total") }
+    /// Accommodation
+    static var declarationCategoryAccommodation: String { tr("declarationCategory.accommodation") }
+    /// Equipment
+    static var declarationCategoryEquipment: String { tr("declarationCategory.equipment") }
+    /// Meals
+    static var declarationCategoryMeals: String { tr("declarationCategory.meals") }
+    /// Other
+    static var declarationCategoryOther: String { tr("declarationCategory.other") }
+    /// Training
+    static var declarationCategoryTraining: String { tr("declarationCategory.training") }
+    /// Travel
+    static var declarationCategoryTravel: String { tr("declarationCategory.travel") }
+    /// Approved
+    static var declarationStatusApproved: String { tr("declarationStatus.approved") }
+    /// Cancelled
+    static var declarationStatusCancelled: String { tr("declarationStatus.cancelled") }
+    /// Paid
+    static var declarationStatusPaid: String { tr("declarationStatus.paid") }
+    /// Awaiting approval
+    static var declarationStatusPending: String { tr("declarationStatus.pending") }
+    /// Declined
+    static var declarationStatusRejected: String { tr("declarationStatus.rejected") }
+    /// Call
+    static var directoryCall: String { tr("directory.call") }
+    /// Department
+    static var directoryDepartment: String { tr("directory.department") }
+    /// Email
+    static var directoryEmail: String { tr("directory.email") }
+    /// Email address
+    static var directoryEmailAddress: String { tr("directory.emailAddress") }
+    /// No one found
+    static var directoryEmpty: String { tr("directory.empty") }
+    /// Try another name or spelling.
+    static var directoryEmptyDescription: String { tr("directory.emptyDescription") }
+    /// Location
+    static var directoryLocation: String { tr("directory.location") }
+    /// Manager
+    static var directoryManager: String { tr("directory.manager") }
+    /// Direct reports
+    static var directoryReports: String { tr("directory.reports") }
+    /// Search by name, role or email
+    static var directorySearch: String { tr("directory.search") }
+    /// Started
+    static var directoryStartDate: String { tr("directory.startDate") }
+    /// Directory
+    static var directoryTitle: String { tr("directory.title") }
+    /// Active
+    static var employeeStatusActive: String { tr("employeeStatus.active") }
+    /// Leaving
+    static var employeeStatusOffboarding: String { tr("employeeStatus.offboarding") }
+    /// On leave
+    static var employeeStatusOnLeave: String { tr("employeeStatus.on_leave") }
+    /// Onboarding
+    static var employeeStatusOnboarding: String { tr("employeeStatus.onboarding") }
+    /// Left
+    static var employeeStatusTerminated: String { tr("employeeStatus.terminated") }
+    /// This expense is no longer there
+    static var expenseDetailNotFound: String { tr("expenseDetail.notFound") }
+    /// Note
+    static var expenseDetailNote: String { tr("expenseDetail.note") }
+    /// Paid out
+    static var expenseDetailPaid: String { tr("expenseDetail.paid") }
+    /// Reviewed
+    static var expenseDetailReviewed: String { tr("expenseDetail.reviewed") }
+    /// Submitted
+    static var expenseDetailSubmitted: String { tr("expenseDetail.submitted") }
+    /// Expense
+    static var expenseDetailTitle: String { tr("expenseDetail.title") }
+    /// Amount
+    static var expenseFormAmount: String { tr("expenseForm.amount") }
+    /// Enter an amount above zero.
+    static var expenseFormAmountInvalid: String { tr("expenseForm.amountInvalid") }
+    /// 0.00
+    static var expenseFormAmountPlaceholder: String { tr("expenseForm.amountPlaceholder") }
+    /// Allow camera access in Settings to photograph receipts.
+    static var expenseFormCameraDenied: String { tr("expenseForm.cameraDenied") }
+    /// Category
+    static var expenseFormCategory: String { tr("expenseForm.category") }
+    /// Choose photo
+    static var expenseFormChoosePhoto: String { tr("expenseForm.choosePhoto") }
+    /// Currency
+    static var expenseFormCurrency: String { tr("expenseForm.currency") }
+    /// Date
+    static var expenseFormDate: String { tr("expenseForm.date") }
+    /// What was it for?
+    static var expenseFormDescription: String { tr("expenseForm.description") }
+    /// Train to the client in Utrecht
+    static var expenseFormDescriptionPlaceholder: String { tr("expenseForm.descriptionPlaceholder") }
+    /// Say what the expense was for.
+    static var expenseFormDescriptionRequired: String { tr("expenseForm.descriptionRequired") }
+    /// This device has no camera. Choose a photo instead.
+    static var expenseFormNoCamera: String { tr("expenseForm.noCamera") }
+    /// Receipt
+    static var expenseFormReceipt: String { tr("expenseForm.receipt") }
+    /// The receipt is larger than 10 MB.
+    static var expenseFormReceiptSize: String { tr("expenseForm.receiptSize") }
+    /// Use a JPG, PNG or WebP photo, or a PDF.
+    static var expenseFormReceiptType: String { tr("expenseForm.receiptType") }
+    /// Remove
+    static var expenseFormRemoveReceipt: String { tr("expenseForm.removeReceipt") }
+    /// Expense submitted
+    static var expenseFormSent: String { tr("expenseForm.sent") }
+    /// Expense submitted, but the receipt did not upload. Hand it in to HR.
+    static var expenseFormSentNoReceipt: String { tr("expenseForm.sentNoReceipt") }
+    /// Take photo
+    static var expenseFormTakePhoto: String { tr("expenseForm.takePhoto") }
+    /// New expense
+    static var expenseFormTitle: String { tr("expenseForm.title") }
+    /// Awaiting approval
+    static var expensesAwaiting: String { tr("expenses.awaiting") }
+    /// Withdraw
+    static var expensesCancelConfirm: String { tr("expenses.cancelConfirm") }
+    /// Withdraw this expense?
+    static var expensesCancelTitle: String { tr("expenses.cancelTitle") }
+    /// Expense withdrawn
+    static var expensesCancelled: String { tr("expenses.cancelled") }
+    /// Declarations
+    static var expensesDeclarations: String { tr("expenses.declarations") }
+    /// Keep
+    static var expensesKeep: String { tr("expenses.keep") }
+    /// My expenses
+    static var expensesMine: String { tr("expenses.mine") }
+    /// New expense
+    static var expensesNewExpense: String { tr("expenses.newExpense") }
+    /// No expenses yet
+    static var expensesNoExpenses: String { tr("expenses.noExpenses") }
+    /// Snap a receipt and claim it back in seconds.
+    static var expensesNoExpensesDescription: String { tr("expenses.noExpensesDescription") }
+    /// No receipt attached
+    static var expensesNoReceipt: String { tr("expenses.noReceipt") }
+    /// No expenses found
+    static var expensesNoResults: String { tr("expenses.noResults") }
+    /// Try another word, amount or category.
+    static var expensesNoResultsDescription: String { tr("expenses.noResultsDescription") }
+    /// Could not open the receipt.
+    static var expensesReceiptFailed: String { tr("expenses.receiptFailed") }
+    /// Search expenses
+    static var expensesSearch: String { tr("expenses.search") }
+    /// Expenses
+    static var expensesTitle: String { tr("expenses.title") }
+    /// To approve
+    static var expensesToApprove: String { tr("expenses.toApprove") }
+    /// Approved, to be paid
+    static var expensesToBePaid: String { tr("expenses.toBePaid") }
+    /// Claiming expenses from the app is turned off. Ask HR how to claim them.
+    static var expensesTurnedOff: String { tr("expenses.turnedOff") }
+    /// View receipt
+    static var expensesViewReceipt: String { tr("expenses.viewReceipt") }
+    /// Add absence
+    static var homeAddAbsence: String { tr("home.addAbsence") }
+    /// Clock in
+    static var homeClockIn: String { tr("home.clockIn") }
+    /// Clock out
+    static var homeClockOut: String { tr("home.clockOut") }
+    /// Clocked in
+    static var homeClockedIn: String { tr("home.clockedIn") }
+    /// Clocked out
+    static var homeClockedOut: String { tr("home.clockedOut") }
+    /// I'm better
+    static var homeImBetter: String { tr("home.imBetter") }
+    /// End your sick report
+    static var homeImBetterHint: String { tr("home.imBetterHint") }
+    /// My absences {year}
+    static func homeMyAbsences(year: String) -> String { tr("home.myAbsences", year) }
+    /// My schedule
+    static var homeMySchedule: String { tr("home.mySchedule") }
+    /// New expense
+    static var homeNewExpense: String { tr("home.newExpense") }
+    /// Claim back costs with a receipt
+    static var homeNewExpenseHint: String { tr("home.newExpenseHint") }
+    /// You have no absences
+    static var homeNoAbsences: String { tr("home.noAbsences") }
+    /// No other shifts today
+    static var homeNoOtherShifts: String { tr("home.noOtherShifts") }
+    /// No shift planned
+    static var homeNoShiftToday: String { tr("home.noShiftToday") }
+    /// No shifts planned
+    static var homeNoShifts: String { tr("home.noShifts") }
+    /// {count} open shifts to sign up for
+    static func homeOpenShiftsToSignUp(_ count: Int) -> String { tr("home.openShiftsToSignUp", count) }
+    /// {count} open tasks
+    static func homeOpenTasks(_ count: Int) -> String { tr("home.openTasks", count) }
+    /// Take a photo of a receipt
+    static var homePhotoReceipt: String { tr("home.photoReceipt") }
+    /// Profile and settings
+    static var homeProfileAndSettings: String { tr("home.profileAndSettings") }
+    /// Report sick
+    static var homeReportSick: String { tr("home.reportSick") }
+    /// Let your manager know
+    static var homeReportSickHint: String { tr("home.reportSickHint") }
+    /// Request a shift
+    static var homeRequestShift: String { tr("home.requestShift") }
+    /// Ask to work an extra shift
+    static var homeRequestShiftHint: String { tr("home.requestShiftHint") }
+    /// Request time off
+    static var homeRequestTimeOff: String { tr("home.requestTimeOff") }
+    /// Since {time}
+    static func homeSince(time: String) -> String { tr("home.since", time) }
+    /// You clock out of this shift and straight in on the one you pick.
+    static var homeSwitchHint: String { tr("home.switchHint") }
+    /// Switch shift
+    static var homeSwitchShift: String { tr("home.switchShift") }
+    /// Switched shift
+    static var homeSwitched: String { tr("home.switched") }
+    /// {count} to read
+    static func homeToAcknowledge(_ count: Int) -> String { tr("home.toAcknowledge", count) }
+    /// To do
+    static var homeToDo: String { tr("home.toDo") }
+    /// {count} unread announcements
+    static func homeUnreadAnnouncements(_ count: Int) -> String { tr("home.unreadAnnouncements", count) }
+    /// Upload receipt
+    static var homeUploadReceipt: String { tr("home.uploadReceipt") }
+    /// Pick a photo of a receipt
+    static var homeUploadReceiptHint: String { tr("home.uploadReceiptHint") }
+    /// Balance {year}
+    static func leaveDetailBalance(year: String) -> String { tr("leaveDetail.balance", year) }
+    /// Cancel leave
+    static var leaveDetailCancel: String { tr("leaveDetail.cancel") }
+    /// Kind
+    static var leaveDetailKind: String { tr("leaveDetail.kind") }
+    /// Length
+    static var leaveDetailLength: String { tr("leaveDetail.length") }
+    /// This request is no longer there
+    static var leaveDetailNotFound: String { tr("leaveDetail.notFound") }
+    /// Note
+    static var leaveDetailNote: String { tr("leaveDetail.note") }
+    /// Paid leave
+    static var leaveDetailPaid: String { tr("leaveDetail.paid") }
+    /// Period
+    static var leaveDetailPeriod: String { tr("leaveDetail.period") }
+    /// Reason
+    static var leaveDetailReason: String { tr("leaveDetail.reason") }
+    /// Requested
+    static var leaveDetailRequested: String { tr("leaveDetail.requested") }
+    /// Reviewed
+    static var leaveDetailReviewed: String { tr("leaveDetail.reviewed") }
+    /// {date} by {name}
+    static func leaveDetailReviewedBy(date: String, name: String) -> String { tr("leaveDetail.reviewedBy", date, name) }
+    /// Unpaid leave
+    static var leaveDetailUnpaid: String { tr("leaveDetail.unpaid") }
+    /// Time off booked
+    static var leaveFormApproved: String { tr("leaveForm.approved") }
+    /// This type is approved right away.
+    static var leaveFormAutoApproved: String { tr("leaveForm.autoApproved") }
+    /// Choose a type of leave.
+    static var leaveFormChooseType: String { tr("leaveForm.chooseType") }
+    /// The end date is before the start date.
+    static var leaveFormEndBeforeStart: String { tr("leaveForm.endBeforeStart") }
+    /// About {count} working days
+    static func leaveFormEstimate(_ count: Int) -> String { tr("leaveForm.estimate", count) }
+    /// From
+    static var leaveFormFrom: String { tr("leaveForm.from") }
+    /// Your manager approves this request.
+    static var leaveFormNeedsApproval: String { tr("leaveForm.needsApproval") }
+    /// This is more than the {days} days you have left.
+    static func leaveFormOverAllowance(days: String) -> String { tr("leaveForm.overAllowance", days) }
+    /// This is more than the {days} days you have left, so it cannot be requested.
+    static func leaveFormOverAllowanceBlocked(days: String) -> String { tr("leaveForm.overAllowanceBlocked", days) }
+    /// Reason
+    static var leaveFormReason: String { tr("leaveForm.reason") }
+    /// Optional, for your manager
+    static var leaveFormReasonPlaceholder: String { tr("leaveForm.reasonPlaceholder") }
+    /// Request sent
+    static var leaveFormSent: String { tr("leaveForm.sent") }
+    /// Request time off
+    static var leaveFormTitle: String { tr("leaveForm.title") }
+    /// Until
+    static var leaveFormTo: String { tr("leaveForm.to") }
+    /// Type
+    static var leaveFormType: String { tr("leaveForm.type") }
+    /// Approved
+    static var leaveStatusApproved: String { tr("leaveStatus.approved") }
+    /// Cancelled
+    static var leaveStatusCancelled: String { tr("leaveStatus.cancelled") }
+    /// Pending
+    static var leaveStatusPending: String { tr("leaveStatus.pending") }
+    /// Declined
+    static var leaveStatusRejected: String { tr("leaveStatus.rejected") }
+    /// WeldHR checks that you are at work when you clock in or out. Allow location access in Settings, then try again.
+    static var locationDeniedMessage: String { tr("location.deniedMessage") }
+    /// Location access is off
+    static var locationDeniedTitle: String { tr("location.deniedTitle") }
+    /// Open Settings
+    static var locationOpenSettings: String { tr("location.openSettings") }
+    /// Location required to clock
+    static var locationRequired: String { tr("location.required") }
+    /// Could not find your location. Check that location services are on and try again.
+    static var locationUnavailable: String { tr("location.unavailable") }
+    /// Department
+    static var meDepartment: String { tr("me.department") }
+    /// Employee number
+    static var meEmployeeNumberLabel: String { tr("me.employeeNumberLabel") }
+    /// Manager
+    static var meManager: String { tr("me.manager") }
+    /// Reviews & coaching
+    static var meReviews: String { tr("me.reviews") }
+    /// Sick leave
+    static var meSickLeave: String { tr("me.sickLeave") }
+    /// Started
+    static var meStartDate: String { tr("me.startDate") }
+    /// Onboarding tasks
+    static var meTasks: String { tr("me.tasks") }
+    /// Team
+    static var meTeam: String { tr("me.team") }
+    /// Profile
+    static var meTitle: String { tr("me.title") }
+    /// Your account is not linked to an employee record. Ask HR to link it, then pull down to refresh.
+    static var notLinkedDescription: String { tr("notLinked.description") }
+    /// Your role does not include My HR. Ask a workspace admin if you think it should.
+    static var notLinkedNoAccessDescription: String { tr("notLinked.noAccessDescription") }
+    /// My HR is not available
+    static var notLinkedNoAccessTitle: String { tr("notLinked.noAccessTitle") }
+    /// No employee record yet
+    static var notLinkedTitle: String { tr("notLinked.title") }
+    /// Client
+    static var openShiftsClient: String { tr("openShifts.client") }
+    /// Declined
+    static var openShiftsDeclined: String { tr("openShifts.declined") }
+    /// Your sign-up was declined.
+    static var openShiftsDeclinedHint: String { tr("openShifts.declinedHint") }
+    /// Department
+    static var openShiftsDepartment: String { tr("openShifts.department") }
+    /// Open shift
+    static var openShiftsDetails: String { tr("openShifts.details") }
+    /// Full
+    static var openShiftsFull: String { tr("openShifts.full") }
+    /// All spots are taken.
+    static var openShiftsFullHint: String { tr("openShifts.fullHint") }
+    /// Keep
+    static var openShiftsKeep: String { tr("openShifts.keep") }
+    /// Manager's note
+    static var openShiftsManagerNote: String { tr("openShifts.managerNote") }
+    /// This shift is no longer open
+    static var openShiftsNotFound: String { tr("openShifts.notFound") }
+    /// Note
+    static var openShiftsNote: String { tr("openShifts.note") }
+    /// Optional, for your manager
+    static var openShiftsNotePlaceholder: String { tr("openShifts.notePlaceholder") }
+    /// Note: {note}
+    static func openShiftsReviewNote(note: String) -> String { tr("openShifts.reviewNote", note) }
+    /// Show all {count}
+    static func openShiftsShowAll(count: Int) -> String { tr("openShifts.showAll", count) }
+    /// Show less
+    static var openShiftsShowLess: String { tr("openShifts.showLess") }
+    /// Sign up
+    static var openShiftsSignUp: String { tr("openShifts.signUp") }
+    /// Your manager decides who gets the shift. Once approved, it is in your schedule.
+    static var openShiftsSignUpHint: String { tr("openShifts.signUpHint") }
+    /// You signed up
+    static var openShiftsSignedUp: String { tr("openShifts.signedUp") }
+    /// Spots
+    static var openShiftsSpots: String { tr("openShifts.spots") }
+    /// {count} spots left
+    static func openShiftsSpotsLeft(_ count: Int) -> String { tr("openShifts.spotsLeft", count) }
+    /// {left} of {total} left
+    static func openShiftsSpotsOf(left: String, total: String) -> String { tr("openShifts.spotsOf", left, total) }
+    /// Sign up
+    static var openShiftsSubmit: String { tr("openShifts.submit") }
+    /// Open shifts
+    static var openShiftsTitle: String { tr("openShifts.title") }
+    /// Waiting for approval
+    static var openShiftsWaiting: String { tr("openShifts.waiting") }
+    /// You signed up. Your manager has not decided yet.
+    static var openShiftsWaitingHint: String { tr("openShifts.waitingHint") }
+    /// Withdraw sign-up
+    static var openShiftsWithdraw: String { tr("openShifts.withdraw") }
+    /// Withdraw
+    static var openShiftsWithdrawConfirm: String { tr("openShifts.withdrawConfirm") }
+    /// You will no longer be in the running for {when}.
+    static func openShiftsWithdrawMessage(when: String) -> String { tr("openShifts.withdrawMessage", when) }
+    /// Withdraw your sign-up?
+    static var openShiftsWithdrawTitle: String { tr("openShifts.withdrawTitle") }
+    /// Sign-up withdrawn
+    static var openShiftsWithdrawn: String { tr("openShifts.withdrawn") }
+    /// Annual statements
+    static var payAnnualStatements: String { tr("pay.annualStatements") }
+    /// Earlier payslips
+    static var payEarlier: String { tr("pay.earlier") }
+    /// Gross {amount}
+    static func payGross(amount: String) -> String { tr("pay.gross", amount) }
+    /// Jaaropgaaf {year}
+    static func payJaaropgaaf(year: String) -> String { tr("pay.jaaropgaaf", year) }
+    /// Latest payslip
+    static var payLatest: String { tr("pay.latest") }
+    /// Net pay
+    static var payNetPay: String { tr("pay.netPay") }
+    /// New
+    static var payNew: String { tr("pay.new") }
+    /// No payslips yet
+    static var payNoPayslips: String { tr("pay.noPayslips") }
+    /// Your payslips appear here once payroll has run.
+    static var payNoPayslipsDescription: String { tr("pay.noPayslipsDescription") }
+    /// Payslips are not available in this workspace.
+    static var payNotEnabled: String { tr("pay.notEnabled") }
+    /// Could not open the document. Check your connection and try again.
+    static var payOpenFailed: String { tr("pay.openFailed") }
+    /// Paid on {date}
+    static func payPaidOn(date: String) -> String { tr("pay.paidOn", date) }
+    /// Payslips
+    static var payPayslips: String { tr("pay.payslips") }
+    /// W-2 {year}
+    static func payW2(year: String) -> String { tr("pay.w2", year) }
+    /// Mark as read
+    static var reviewsAcknowledge: String { tr("reviews.acknowledge") }
+    /// Mark as read
+    static var reviewsAcknowledgeTitle: String { tr("reviews.acknowledgeTitle") }
+    /// Read on {date}
+    static func reviewsAcknowledged(date: String) -> String { tr("reviews.acknowledged", date) }
+    /// Action items
+    static var reviewsActionItems: String { tr("reviews.actionItems") }
+    /// By {name}
+    static func reviewsBy(name: String) -> String { tr("reviews.by", name) }
+    /// Coaching
+    static var reviewsCoaching: String { tr("reviews.coaching") }
+    /// Add a comment for your manager (optional)
+    static var reviewsCommentPlaceholder: String { tr("reviews.commentPlaceholder") }
+    /// Marked as read
+    static var reviewsDone: String { tr("reviews.done") }
+    /// Evaluations
+    static var reviewsEvaluations: String { tr("reviews.evaluations") }
+    /// Follow-up {date}
+    static func reviewsFollowUp(date: String) -> String { tr("reviews.followUp", date) }
+    /// No coaching notes shared with you
+    static var reviewsNoCoaching: String { tr("reviews.noCoaching") }
+    /// No evaluations shared with you
+    static var reviewsNoEvaluations: String { tr("reviews.noEvaluations") }
+    /// Score {score}
+    static func reviewsScore(score: String) -> String { tr("reviews.score", score) }
+    /// Reviews & coaching
+    static var reviewsTitle: String { tr("reviews.title") }
+    /// Your comment
+    static var reviewsYourComment: String { tr("reviews.yourComment") }
+    /// {hours} off
+    static func scheduleHoursOff(hours: String) -> String { tr("schedule.hoursOff", hours) }
+    /// My week
+    static var scheduleMine: String { tr("schedule.mine") }
+    /// No shifts this week
+    static var scheduleNoShifts: String { tr("schedule.noShifts") }
+    /// Shifts planned for you show up here
+    static var scheduleNoShiftsDescription: String { tr("schedule.noShiftsDescription") }
+    /// Nobody is scheduled this week
+    static var scheduleNoTeamShifts: String { tr("schedule.noTeamShifts") }
+    /// Not clocked in
+    static var scheduleNotClockedIn: String { tr("schedule.notClockedIn") }
+    /// {hours} planned
+    static func schedulePlanned(hours: String) -> String { tr("schedule.planned", hours) }
+    /// Team
+    static var scheduleTeam: String { tr("schedule.team") }
+    /// Week {week}
+    static func scheduleWeek(week: String) -> String { tr("schedule.week", week) }
+    /// No shift
+    static var scheduleWithoutShift: String { tr("schedule.withoutShift") }
+    /// Worked {range}
+    static func scheduleWorked(range: String) -> String { tr("schedule.worked", range) }
+    /// {worked} of {planned}
+    static func scheduleWorkedOfPlanned(worked: String, planned: String) -> String { tr("schedule.workedOfPlanned", worked, planned) }
+    /// Breaks
+    static var shiftBreaks: String { tr("shift.breaks") }
+    /// Breaks are unpaid: they don't count towards the hours you are paid for.
+    static var shiftBreaksUnpaid: String { tr("shift.breaksUnpaid") }
+    /// Clocked out
+    static var shiftClockedOut: String { tr("shift.clockedOut") }
+    /// Shift
+    static var shiftDetails: String { tr("shift.details") }
+    /// Earned
+    static var shiftEarned: String { tr("shift.earned") }
+    /// Expected
+    static var shiftExpected: String { tr("shift.expected") }
+    /// Hourly rate
+    static var shiftHourlyRate: String { tr("shift.hourlyRate") }
+    /// Length
+    static var shiftLength: String { tr("shift.length") }
+    /// {minutes} min
+    static func shiftMinutes(minutes: String) -> String { tr("shift.minutes", minutes) }
+    /// No break
+    static var shiftNoBreak: String { tr("shift.noBreak") }
+    /// Not set up
+    static var shiftNoRate: String { tr("shift.noRate") }
+    /// This shift is no longer in your schedule
+    static var shiftNotFound: String { tr("shift.notFound") }
+    /// Note
+    static var shiftNotes: String { tr("shift.notes") }
+    /// Paid hours
+    static var shiftPaidHours: String { tr("shift.paidHours") }
+    /// Pay
+    static var shiftPay: String { tr("shift.pay") }
+    /// {amount} an hour
+    static func shiftPerHour(amount: String) -> String { tr("shift.perHour", amount) }
+    /// Planned
+    static var shiftPlanned: String { tr("shift.planned") }
+    /// Planned break
+    static var shiftPlannedBreak: String { tr("shift.plannedBreak") }
+    /// Break recorded
+    static var shiftRecordedBreak: String { tr("shift.recordedBreak") }
+    /// From an integration
+    static var shiftSourceApi: String { tr("shift.source.api") }
+    /// Imported
+    static var shiftSourceImport: String { tr("shift.source.import") }
+    /// Entered by HR
+    static var shiftSourceManual: String { tr("shift.source.manual") }
+    /// Clocked in the app
+    static var shiftSourcePortal: String { tr("shift.source.portal") }
+    /// Time
+    static var shiftTime: String { tr("shift.time") }
+    /// Unpaid
+    static var shiftUnpaid: String { tr("shift.unpaid") }
+    /// Work
+    static var shiftWork: String { tr("shift.work") }
+    /// Worked
+    static var shiftWorked: String { tr("shift.worked") }
+    /// Day
+    static var shiftRequestDay: String { tr("shiftRequest.day") }
+    /// Requested shift
+    static var shiftRequestDetails: String { tr("shiftRequest.details") }
+    /// From
+    static var shiftRequestFrom: String { tr("shiftRequest.from") }
+    /// Your manager approves or declines it. Once approved, the shift is in your schedule.
+    static var shiftRequestHint: String { tr("shiftRequest.hint") }
+    /// Pick a time that is still to come
+    static var shiftRequestInPast: String { tr("shiftRequest.inPast") }
+    /// Keep
+    static var shiftRequestKeep: String { tr("shiftRequest.keep") }
+    /// Ends the next day
+    static var shiftRequestNextDay: String { tr("shiftRequest.nextDay") }
+    /// This request is no longer there
+    static var shiftRequestNotFound: String { tr("shiftRequest.notFound") }
+    /// Note
+    static var shiftRequestNote: String { tr("shiftRequest.note") }
+    /// For your manager
+    static var shiftRequestNotePlaceholder: String { tr("shiftRequest.notePlaceholder") }
+    /// Requested
+    static var shiftRequestRequested: String { tr("shiftRequest.requested") }
+    /// Manager's note
+    static var shiftRequestReviewNote: String { tr("shiftRequest.reviewNote") }
+    /// Reviewed
+    static var shiftRequestReviewed: String { tr("shiftRequest.reviewed") }
+    /// {date} by {name}
+    static func shiftRequestReviewedBy(date: String, name: String) -> String { tr("shiftRequest.reviewedBy", date, name) }
+    /// Request sent
+    static var shiftRequestSent: String { tr("shiftRequest.sent") }
+    /// Approved
+    static var shiftRequestStatusApproved: String { tr("shiftRequest.status.approved") }
+    /// Withdrawn
+    static var shiftRequestStatusCancelled: String { tr("shiftRequest.status.cancelled") }
+    /// Waiting for approval
+    static var shiftRequestStatusPending: String { tr("shiftRequest.status.pending") }
+    /// Declined
+    static var shiftRequestStatusRejected: String { tr("shiftRequest.status.rejected") }
+    /// Request a shift
+    static var shiftRequestTitle: String { tr("shiftRequest.title") }
+    /// Until
+    static var shiftRequestTo: String { tr("shiftRequest.to") }
+    /// Withdraw request
+    static var shiftRequestWithdraw: String { tr("shiftRequest.withdraw") }
+    /// Withdraw
+    static var shiftRequestWithdrawConfirm: String { tr("shiftRequest.withdrawConfirm") }
+    /// Your request for {when} will be withdrawn.
+    static func shiftRequestWithdrawMessage(when: String) -> String { tr("shiftRequest.withdrawMessage", when) }
+    /// Withdraw this request?
+    static var shiftRequestWithdrawTitle: String { tr("shiftRequest.withdrawTitle") }
+    /// Request withdrawn
+    static var shiftRequestWithdrawn: String { tr("shiftRequest.withdrawn") }
+    /// Work
+    static var shiftRequestWork: String { tr("shiftRequest.work") }
+    /// E.g. cashier
+    static var shiftRequestWorkPlaceholder: String { tr("shiftRequest.workPlaceholder") }
+    /// First sick day
+    static var sickFirstDay: String { tr("sick.firstDay") }
+    /// That day
+    static var sickFirstDayLength: String { tr("sick.firstDayLength") }
+    /// Whole day
+    static var sickFullDay: String { tr("sick.fullDay") }
+    /// Half day
+    static var sickHalfDay: String { tr("sick.halfDay") }
+    /// Earlier reports
+    static var sickHistory: String { tr("sick.history") }
+    /// Last sick day
+    static var sickLastDay: String { tr("sick.lastDay") }
+    /// Note for HR
+    static var sickNote: String { tr("sick.note") }
+    /// Keep medical details to yourself: your employer may not ask for them.
+    static var sickNoteHint: String { tr("sick.noteHint") }
+    /// How to reach you, if that differs. No medical details.
+    static var sickNotePlaceholder: String { tr("sick.notePlaceholder") }
+    /// You are reported sick since {date}. Pick the last day you were ill.
+    static func sickRecoverHint(date: String) -> String { tr("sick.recoverHint", date) }
+    /// I'm better
+    static var sickRecoverSubmit: String { tr("sick.recoverSubmit") }
+    /// I'm better
+    static var sickRecoverTitle: String { tr("sick.recoverTitle") }
+    /// Welcome back!
+    static var sickRecovered: String { tr("sick.recovered") }
+    /// Get well soon. HR and your manager are informed.
+    static var sickReported: String { tr("sick.reported") }
+    /// Report sick
+    static var sickTitle: String { tr("sick.title") }
+    /// First day
+    static var sickDetailFirstDay: String { tr("sickDetail.firstDay") }
+    /// Last day
+    static var sickDetailLastDay: String { tr("sickDetail.lastDay") }
+    /// Length
+    static var sickDetailLength: String { tr("sickDetail.length") }
+    /// This sick report is no longer there
+    static var sickDetailNotFound: String { tr("sickDetail.notFound") }
+    /// Note
+    static var sickDetailNote: String { tr("sickDetail.note") }
+    /// Reported
+    static var sickDetailReported: String { tr("sickDetail.reported") }
+    /// Still sick
+    static var sickDetailStillSick: String { tr("sickDetail.stillSick") }
+    /// Absence
+    static var tabsAbsence: String { tr("tabs.absence") }
+    /// Announcements
+    static var tabsAnnouncements: String { tr("tabs.announcements") }
+    /// Expenses
+    static var tabsExpenses: String { tr("tabs.expenses") }
+    /// Home
+    static var tabsHome: String { tr("tabs.home") }
+    /// Schedule
+    static var tabsSchedule: String { tr("tabs.schedule") }
+    /// For {role}
+    static func tasksAssignedTo(role: String) -> String { tr("tasks.assignedTo", role) }
+    /// Checklist complete
+    static var tasksChecklistDone: String { tr("tasks.checklistDone") }
+    /// Due {date}
+    static func tasksDue(date: String) -> String { tr("tasks.due", date) }
+    /// No tasks for you
+    static var tasksEmpty: String { tr("tasks.empty") }
+    /// Tasks HR assigns to you while you start or leave show up here.
+    static var tasksEmptyDescription: String { tr("tasks.emptyDescription") }
+    /// you
+    static var tasksRolesEmployee: String { tr("tasks.roles.employee") }
+    /// HR
+    static var tasksRolesHr: String { tr("tasks.roles.hr") }
+    /// IT
+    static var tasksRolesIt: String { tr("tasks.roles.it") }
+    /// your manager
+    static var tasksRolesManager: String { tr("tasks.roles.manager") }
+    /// someone else
+    static var tasksRolesOther: String { tr("tasks.roles.other") }
+    /// Onboarding tasks
+    static var tasksTitle: String { tr("tasks.title") }
+    /// Approve
+    static var teamApprove: String { tr("team.approve") }
+    /// Approved
+    static var teamApproved: String { tr("team.approved") }
+    /// Nothing waiting for you
+    static var teamNothingToApprove: String { tr("team.nothingToApprove") }
+    /// New requests show up here as soon as they are sent.
+    static var teamNothingToApproveDescription: String { tr("team.nothingToApproveDescription") }
+    /// Decline
+    static var teamReject: String { tr("team.reject") }
+    /// Decline
+    static var teamRejectConfirm: String { tr("team.rejectConfirm") }
+    /// Reason
+    static var teamRejectNote: String { tr("team.rejectNote") }
+    /// Optional, shown to the employee
+    static var teamRejectNotePlaceholder: String { tr("team.rejectNotePlaceholder") }
+    /// Decline request
+    static var teamRejectTitle: String { tr("team.rejectTitle") }
+    /// Declined
+    static var teamRejected: String { tr("team.rejected") }
+    /// Cancel request
+    static var timeOffCancelConfirm: String { tr("timeOff.cancelConfirm") }
+    /// {type}, {dates}
+    static func timeOffCancelMessage(type: String, dates: String) -> String { tr("timeOff.cancelMessage", type, dates) }
+    /// Cancel this request?
+    static var timeOffCancelTitle: String { tr("timeOff.cancelTitle") }
+    /// Request cancelled
+    static var timeOffCancelled: String { tr("timeOff.cancelled") }
+    /// Keep
+    static var timeOffKeep: String { tr("timeOff.keep") }
+    /// Note: {note}
+    static func timeOffReviewNoteAnonymous(note: String) -> String { tr("timeOff.reviewNoteAnonymous", note) }
+    /// Requesting time off from the app is turned off. Ask HR to book it for you.
+    static var timeOffTurnedOff: String { tr("timeOff.turnedOff") }
+    /// Approved
+    static var timesheetApproved: String { tr("timesheet.approved") }
+    /// Clocked in
+    static var timesheetClockedIn: String { tr("timesheet.clockedIn") }
+    /// {minutes} min late
+    static func timesheetLate(minutes: String) -> String { tr("timesheet.late", minutes) }
+    /// Not approved yet
+    static var timesheetPendingApproval: String { tr("timesheet.pendingApproval") }
 
     private static func tr(_ key: String, _ args: CVarArg...) -> String {
         let format = NSLocalizedString(key, bundle: Bundle.main, comment: "")

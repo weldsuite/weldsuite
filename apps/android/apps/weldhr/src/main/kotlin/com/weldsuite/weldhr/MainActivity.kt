@@ -21,6 +21,7 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         WeldPush.handleIntent(intent)
+        handleLink(intent)
         val application = application as WeldHRApplication
         val branding = AppBranding(
             name = getString(R.string.weldhr_app_name),
@@ -31,7 +32,13 @@ class MainActivity : FragmentActivity() {
             val appearance by application.appearance.value.collectAsStateWithLifecycle()
             WeldTheme(brand = Tokens.Brand.weldhr, dark = appearance.isDark(isSystemInDarkTheme())) {
                 SessionGate(env = application.env, branding = branding) { ready ->
-                    WeldHRApp(env = application.env, session = ready, appearance = application.appearance)
+                    WeldHRApp(
+                        env = application.env,
+                        repository = application.repository,
+                        session = ready,
+                        appearance = application.appearance,
+                        pendingLink = application.pendingLink,
+                    )
                 }
             }
         }
@@ -40,5 +47,15 @@ class MainActivity : FragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         WeldPush.handleIntent(intent)
+        handleLink(intent)
+    }
+
+    /** `weldhr://announcement/<id>` and the like; AppAuth's `weldhr://sso-callback` never comes here. */
+    private fun handleLink(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme != "weldhr") return
+        val target = HrRoutes.forPath("${uri.host.orEmpty()}${uri.path.orEmpty()}") ?: return
+        (application as WeldHRApplication).pendingLink.value = target
+        intent.data = null
     }
 }

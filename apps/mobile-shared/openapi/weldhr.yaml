@@ -3,22 +3,716 @@ info:
   title: WeldHR API (native apps)
   version: 1.0.0
   description: |
-    What the native WeldHR apps call. Hand-written; the Rust server is the
-    source of truth: change both together, and see "Changing the contract"
-    in apps/mobile-shared/README.md for what apps already on phones can read.
+    What the native WeldHR apps call (`rust/modules/hr`, `/api/weldhr`):
+    My HR, the signed-in member's own employee record (`/me`), and the team
+    views a manager gets with the matching permission.
+
+    Hand-written; the Rust server is the source of truth: change both
+    together, and see "Changing the contract" in apps/mobile-shared/README.md
+    for what apps already on phones can read.
 
     Checked against the server in rust/modules/hr/tests/openapi_contract.rs.
 
     Every request carries `Authorization: Bearer <WeldID access token>` and
     names its workspace in `X-Weld-Workspace`.
+
+    Not in this file, because the checker reads JSON only: the receipt upload
+    (`POST /api/weldhr/me/declarations/{id}/receipt`, multipart `file`) and
+    the files the app opens (`GET …/receipt`, `GET /me/payslips/{id}/pdf`,
+    `GET /me/annual-statements/{year}?employerId=`). Nor
+    `GET /api/me/permissions`, which the server's own binary serves.
+
+    Statuses, categories and kinds are plain strings: the apps map the
+    values they know and show the rest as they come.
 servers:
   - url: https://app.weldsuite.eu
-paths: {}
+paths:
+  /api/weldhr/me:
+    get:
+      operationId: getMe
+      summary: The caller's employee record (null when none is linked) and what My HR lets them do.
+      responses:
+        '200':
+          description: The caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/overview:
+    get:
+      operationId: getMyOverview
+      summary: Home's figures. 404 without a linked employee record.
+      responses:
+        '200':
+          description: The overview.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverviewResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/attendance:
+    get:
+      operationId: getMyAttendance
+      summary: The caller's shifts, clocked hours and shift requests between two days (at most 92 apart).
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}-\d{2}$'
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}-\d{2}$'
+      responses:
+        '200':
+          description: The range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyAttendanceResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/clock:
+    post:
+      operationId: clockMe
+      summary: Clock in, out, or over to another shift. Sends the phone's position where the workspace requires being at a work location.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClockInput'
+      responses:
+        '200':
+          description: The record opened or closed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClockResultResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/leave:
+    get:
+      operationId: getMyLeave
+      summary: The leave types, this year's balances and the caller's requests.
+      responses:
+        '200':
+          description: Leave.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyLeaveResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: requestLeave
+      summary: Ask for time off. A type that needs no approval is approved at once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaveRequestInput'
+      responses:
+        '201':
+          description: The request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestRowResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/leave/{id}/cancel:
+    post:
+      operationId: cancelMyLeave
+      summary: Cancel a pending request, or approved leave that has not started.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: The cancelled request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestRowResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/shift-requests:
+    post:
+      operationId: requestShift
+      summary: Ask to work a shift; a manager approves or declines it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShiftRequestInput'
+      responses:
+        '201':
+          description: The request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyShiftRequestResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/shift-requests/{id}/cancel:
+    post:
+      operationId: cancelMyShiftRequest
+      summary: Withdraw a request or an open-shift sign-up that is still waiting.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: The withdrawn request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyShiftRequestResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/open-shifts:
+    get:
+      operationId: listMyOpenShifts
+      summary: Open shifts the caller can sign up for, and the ones they did.
+      responses:
+        '200':
+          description: The open shifts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyOpenShiftList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/open-shifts/{id}/sign-up:
+    post:
+      operationId: signUpForOpenShift
+      summary: Sign up for an open shift; a manager picks who gets it.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteInput'
+      responses:
+        '201':
+          description: The sign-up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyShiftRequestResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/announcements:
+    get:
+      operationId: listMyAnnouncements
+      summary: Announcements meant for the caller, pinned first, then the newest.
+      responses:
+        '200':
+          description: The announcements and how many are unread.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyAnnouncementsResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/announcements/{id}/read:
+    post:
+      operationId: markAnnouncementRead
+      summary: Mark an announcement read (once; reading it again keeps the first time).
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: When it was read.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnnouncementReadResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/absences:
+    get:
+      operationId: getMyAbsences
+      summary: The caller's open sick report and the earlier ones.
+      responses:
+        '200':
+          description: Sick reports.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyAbsencesResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: reportSick
+      summary: Report sick, from today or a few days back.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SickReportInput'
+      responses:
+        '201':
+          description: The report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AbsenceRowResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/absences/{id}/recover:
+    post:
+      operationId: reportRecovered
+      summary: Close the open sick report on its last sick day.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecoverInput'
+      responses:
+        '200':
+          description: The closed report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AbsenceRowResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/declarations:
+    get:
+      operationId: getMyDeclarations
+      summary: The caller's expense claims, and what is still open per currency.
+      responses:
+        '200':
+          description: The claims.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyDeclarationsResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createDeclaration
+      summary: File an expense claim. The receipt goes up afterwards, as multipart (not in this file).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeclarationInput'
+      responses:
+        '201':
+          description: The claim.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeclarationResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/declarations/{id}/cancel:
+    post:
+      operationId: cancelMyDeclaration
+      summary: Withdraw a claim that is still waiting for a decision.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: The withdrawn claim.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeclarationResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/tasks:
+    get:
+      operationId: listMyTasks
+      summary: Onboarding and offboarding tasks shown to the caller.
+      responses:
+        '200':
+          description: The tasks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyTaskList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/tasks/{id}/complete:
+    post:
+      operationId: completeMyTask
+      summary: Tick a task off, or with `undo=true` on again.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - name: undo
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Whether that completed the checklist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskCompletionResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/coaching:
+    get:
+      operationId: listMyCoaching
+      summary: Coaching notes shared with the caller.
+      responses:
+        '200':
+          description: The notes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyCoachingList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/coaching/{id}/acknowledge:
+    post:
+      operationId: acknowledgeCoaching
+      summary: Mark a coaching note read, with an optional comment.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcknowledgeInput'
+      responses:
+        '200':
+          description: Acknowledged.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcknowledgementResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/evaluations:
+    get:
+      operationId: listMyEvaluations
+      summary: Evaluations submitted for the caller.
+      responses:
+        '200':
+          description: The evaluations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyEvaluationList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/evaluations/{id}/acknowledge:
+    post:
+      operationId: acknowledgeEvaluation
+      summary: Mark an evaluation read, with an optional comment.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcknowledgeInput'
+      responses:
+        '200':
+          description: Acknowledged.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcknowledgementResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/payslips:
+    get:
+      operationId: listMyPayslips
+      summary: The caller's final payslips, newest first. 404 while payroll is off for the workspace.
+      responses:
+        '200':
+          description: The payslips.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayslipList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/me/annual-statements:
+    get:
+      operationId: listMyAnnualStatements
+      summary: The years and employers the caller has an annual statement for. 404 while payroll is off.
+      responses:
+        '200':
+          description: The statements.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnnualStatementList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/leave-requests:
+    get:
+      operationId: listLeaveRequests
+      summary: Everyone's leave requests (`leave:read`), by status and overlapping a range of days.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}-\d{2}$'
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}-\d{2}$'
+      responses:
+        '200':
+          description: The requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/leave-requests/{id}/review:
+    post:
+      operationId: reviewLeaveRequest
+      summary: Approve or decline a pending request (`leave:approve`).
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewInput'
+      responses:
+        '200':
+          description: The reviewed request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestRowResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/declarations:
+    get:
+      operationId: listDeclarations
+      summary: Everyone's expense claims (`declarations:read`), by status.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The claims.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeclarationList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/declarations/{id}/review:
+    post:
+      operationId: reviewDeclaration
+      summary: Approve or decline a pending claim (`declarations:approve`).
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewInput'
+      responses:
+        '200':
+          description: The reviewed claim.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeclarationResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/absences:
+    get:
+      operationId: listAbsences
+      summary: Everyone's sick reports (`absences:read`), newest first.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: A page of reports.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AbsenceList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/shifts:
+    get:
+      operationId: listShifts
+      summary: Everyone's shifts between two days (`attendance:read`).
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}-\d{2}$'
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}-\d{2}$'
+      responses:
+        '200':
+          description: The shifts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShiftList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/attendance:
+    get:
+      operationId: listAttendance
+      summary: Everyone's clocked hours between two days (`attendance:read`).
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}-\d{2}$'
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}-\d{2}$'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: A page of records.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/employees:
+    get:
+      operationId: listEmployees
+      summary: The employee directory (`employees:read`), public fields only.
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: A page of employees.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/employees/{id}:
+    get:
+      operationId: getEmployee
+      summary: One colleague's public card, with their direct reports.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: The employee.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeDetailResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldhr/announcements:
+    post:
+      operationId: createAnnouncement
+      summary: Post an announcement to every employee (`announcements:create`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnnouncementInput'
+      responses:
+        '201':
+          description: The announcement.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnnouncementResponse'
+        default:
+          $ref: '#/components/responses/Error'
 components:
   securitySchemes:
     bearer:
       type: http
       scheme: bearer
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
   responses:
     Error:
       description: An error.
@@ -40,5 +734,1402 @@ components:
           type: string
         message:
           type: string
+    Pagination:
+      type: object
+      required: [totalCount, hasMore, cursor]
+      properties:
+        totalCount:
+          type: integer
+        hasMore:
+          type: boolean
+        cursor:
+          type: string
+          nullable: true
+
+    # My HR -------------------------------------------------------------------
+    Features:
+      type: object
+      description: What My HR lets employees do (WeldHR settings, Self-service).
+      required: [selfClockIn, clockInRequiresLocation, leaveRequests, declarations]
+      properties:
+        selfClockIn:
+          type: boolean
+        clockInRequiresLocation:
+          type: boolean
+          description: Clocking needs the phone at a work location; send `location` with the clock call.
+        leaveRequests:
+          type: boolean
+        declarations:
+          type: boolean
+    ManagerRef:
+      type: object
+      required: [displayName, email]
+      properties:
+        displayName:
+          type: string
+        email:
+          type: string
+          nullable: true
+    Profile:
+      type: object
+      required: [id, displayName, email, status, employmentType]
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+        jobTitle:
+          type: string
+          nullable: true
+        employeeNumber:
+          type: string
+          nullable: true
+        status:
+          type: string
+          description: onboarding, active, on_leave, offboarding or terminated.
+        employmentType:
+          type: string
+        startDate:
+          type: string
+          nullable: true
+        location:
+          type: string
+          nullable: true
+        departmentName:
+          type: string
+          nullable: true
+        manager:
+          allOf:
+            - $ref: '#/components/schemas/ManagerRef'
+          nullable: true
+    Me:
+      type: object
+      required: [employee, features]
+      properties:
+        employee:
+          allOf:
+            - $ref: '#/components/schemas/Profile'
+          nullable: true
+          description: Null when the member is not linked to an (active) employee record.
+        features:
+          $ref: '#/components/schemas/Features'
+    MeResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Me'
+    ClockState:
+      type: object
+      required: [clockedIn, since, shiftId]
+      properties:
+        clockedIn:
+          type: boolean
+        since:
+          type: string
+          nullable: true
+        shiftId:
+          type: string
+          nullable: true
+          description: The shift the open record is on.
+    UpcomingShift:
+      type: object
+      required: [id, startsAt, endsAt, companyName]
+      properties:
+        id:
+          type: string
+        startsAt:
+          type: string
+        endsAt:
+          type: string
+        companyName:
+          type: string
+          nullable: true
+    Acknowledgements:
+      type: object
+      required: [coaching, evaluations]
+      properties:
+        coaching:
+          type: integer
+        evaluations:
+          type: integer
+    Overview:
+      type: object
+      required: [clock, upcomingShifts, openTasks, toAcknowledge, unreadAnnouncements, openShifts]
+      properties:
+        clock:
+          $ref: '#/components/schemas/ClockState'
+        upcomingShifts:
+          type: array
+          description: The caller's shifts today and the next 13 days.
+          items:
+            $ref: '#/components/schemas/UpcomingShift'
+        openTasks:
+          type: integer
+        toAcknowledge:
+          $ref: '#/components/schemas/Acknowledgements'
+        unreadAnnouncements:
+          type: integer
+        openShifts:
+          type: integer
+          description: Open shifts with a spot left that the caller has not signed up for.
+    OverviewResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Overview'
+    MyAttendanceRecord:
+      type: object
+      required: [id, date, clockIn, clockOut, breakMinutes, workedMinutes, lateMinutes, status, source, approved, companyName, shiftId, notes, hourlyRate, currency]
+      properties:
+        id:
+          type: string
+        date:
+          type: string
+        clockIn:
+          type: string
+          nullable: true
+        clockOut:
+          type: string
+          nullable: true
+        breakMinutes:
+          type: integer
+          nullable: true
+        workedMinutes:
+          type: integer
+          nullable: true
+        lateMinutes:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          description: present, late, absent, excused, remote or half_day.
+        source:
+          type: string
+          description: portal, manual, import or api.
+        approved:
+          type: boolean
+        companyName:
+          type: string
+          nullable: true
+        shiftId:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        hourlyRate:
+          type: number
+          format: double
+          nullable: true
+          description: What an hour paid on this day; null without pay set up.
+        currency:
+          type: string
+          nullable: true
+    MyShift:
+      type: object
+      required: [id, startsAt, endsAt, workType, breakStartsAt, breakEndsAt, companyName, notes, hourlyRate, currency]
+      properties:
+        id:
+          type: string
+        startsAt:
+          type: string
+        endsAt:
+          type: string
+        workType:
+          type: string
+          nullable: true
+        breakStartsAt:
+          type: string
+          nullable: true
+        breakEndsAt:
+          type: string
+          nullable: true
+        companyName:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        hourlyRate:
+          type: number
+          format: double
+          nullable: true
+        currency:
+          type: string
+          nullable: true
+    MyShiftRequest:
+      type: object
+      required: [id, openShiftId, startsAt, endsAt, workType, note, status, reviewedAt, reviewedByName, reviewNote, createdAt]
+      properties:
+        id:
+          type: string
+        openShiftId:
+          type: string
+          nullable: true
+        startsAt:
+          type: string
+        endsAt:
+          type: string
+        workType:
+          type: string
+          nullable: true
+        note:
+          type: string
+          nullable: true
+        status:
+          type: string
+          description: pending, approved, rejected or cancelled.
+        reviewedAt:
+          type: string
+          nullable: true
+        reviewedByName:
+          type: string
+          nullable: true
+        reviewNote:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+    MyShiftRequestResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MyShiftRequest'
+    MyAttendance:
+      type: object
+      required: [records, shifts, requests]
+      properties:
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyAttendanceRecord'
+        shifts:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyShift'
+        requests:
+          type: array
+          description: Shifts the caller asked for in the range, waiting or declined.
+          items:
+            $ref: '#/components/schemas/MyShiftRequest'
+    MyAttendanceResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MyAttendance'
+    ClockLocation:
+      type: object
+      required: [latitude, longitude]
+      properties:
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+        accuracy:
+          type: number
+          format: double
+          nullable: true
+          minimum: 0
+          maximum: 100000
+          description: Metres.
+    ClockInput:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          description: in, out or switch.
+        shiftId:
+          type: string
+          description: The shift to clock in on, or to switch to.
+        location:
+          $ref: '#/components/schemas/ClockLocation'
+    ClockResult:
+      type: object
+      required: [id, date, clockIn, clockOut, status]
+      properties:
+        id:
+          type: string
+        date:
+          type: string
+        clockIn:
+          type: string
+          nullable: true
+        clockOut:
+          type: string
+          nullable: true
+        status:
+          type: string
+        workedMinutes:
+          type: integer
+          nullable: true
+        lateMinutes:
+          type: integer
+          nullable: true
+    ClockResultResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ClockResult'
+    LeaveType:
+      type: object
+      required: [id, name, color, requiresApproval]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        color:
+          type: string
+          nullable: true
+        requiresApproval:
+          type: boolean
+    LeaveBalance:
+      type: object
+      required: [leaveTypeId, name, color, isPaid, overAllowance, allowance, prorated, used, pending, remaining]
+      properties:
+        leaveTypeId:
+          type: string
+        name:
+          type: string
+        color:
+          type: string
+          nullable: true
+        isPaid:
+          type: boolean
+        overAllowance:
+          type: string
+          description: allow (with a warning) or block.
+        allowance:
+          type: number
+          format: double
+          nullable: true
+          description: Days this year; null is no limit.
+        prorated:
+          type: boolean
+        used:
+          type: number
+          format: double
+        pending:
+          type: number
+          format: double
+        remaining:
+          type: number
+          format: double
+          nullable: true
+    MyLeaveRequest:
+      type: object
+      required: [id, leaveTypeId, leaveTypeName, leaveTypeColor, startDate, endDate, days, reason, status, reviewNote, reviewedAt, reviewedByName, createdAt]
+      properties:
+        id:
+          type: string
+        leaveTypeId:
+          type: string
+        leaveTypeName:
+          type: string
+          nullable: true
+        leaveTypeColor:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+        endDate:
+          type: string
+        days:
+          type: number
+          format: double
+        reason:
+          type: string
+          nullable: true
+        status:
+          type: string
+          description: pending, approved, rejected or cancelled.
+        reviewNote:
+          type: string
+          nullable: true
+        reviewedAt:
+          type: string
+          nullable: true
+        reviewedByName:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+    MyLeave:
+      type: object
+      required: [types, balances, requests]
+      properties:
+        types:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaveType'
+        balances:
+          type: array
+          description: This year's.
+          items:
+            $ref: '#/components/schemas/LeaveBalance'
+        requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyLeaveRequest'
+    MyLeaveResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MyLeave'
+    LeaveRequestInput:
+      type: object
+      required: [leaveTypeId, startDate, endDate]
+      properties:
+        leaveTypeId:
+          type: string
+        startDate:
+          type: string
+          pattern: '^\d{4}-\d{2}-\d{2}$'
+        endDate:
+          type: string
+          pattern: '^\d{4}-\d{2}-\d{2}$'
+        reason:
+          type: string
+          nullable: true
+          maxLength: 2000
+    LeaveRequestRow:
+      type: object
+      required: [id, status, startDate, endDate]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        startDate:
+          type: string
+        endDate:
+          type: string
+    LeaveRequestRowResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/LeaveRequestRow'
+    ShiftRequestInput:
+      type: object
+      required: [startsAt, endsAt]
+      properties:
+        startsAt:
+          type: string
+        endsAt:
+          type: string
+        workType:
+          type: string
+          nullable: true
+          maxLength: 100
+        note:
+          type: string
+          nullable: true
+          maxLength: 1000
+    NoteInput:
+      type: object
+      properties:
+        note:
+          type: string
+          nullable: true
+          maxLength: 1000
+    MyOpenShiftRequest:
+      type: object
+      required: [id, status, reviewNote]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          description: pending, approved, rejected or cancelled.
+        reviewNote:
+          type: string
+          nullable: true
+    MyOpenShift:
+      type: object
+      required: [id, startsAt, endsAt, workType, breakStartsAt, breakEndsAt, notes, companyName, departmentName, spots, spotsLeft, myRequest]
+      properties:
+        id:
+          type: string
+        startsAt:
+          type: string
+        endsAt:
+          type: string
+        workType:
+          type: string
+          nullable: true
+        breakStartsAt:
+          type: string
+          nullable: true
+        breakEndsAt:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        companyName:
+          type: string
+          nullable: true
+        departmentName:
+          type: string
+          nullable: true
+        spots:
+          type: integer
+        spotsLeft:
+          type: integer
+        myRequest:
+          allOf:
+            - $ref: '#/components/schemas/MyOpenShiftRequest'
+          nullable: true
+          description: The caller's latest sign-up; null when they have not signed up.
+    MyOpenShiftList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyOpenShift'
+    MyAnnouncement:
+      type: object
+      required: [id, title, body, pinned, publishedAt, createdByName, readAt]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+          description: Plain text; keep its line breaks.
+        pinned:
+          type: boolean
+        publishedAt:
+          type: string
+        createdByName:
+          type: string
+          nullable: true
+        readAt:
+          type: string
+          nullable: true
+          description: When the caller first opened it; null while unread.
+    MyAnnouncements:
+      type: object
+      required: [announcements, unread]
+      properties:
+        announcements:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyAnnouncement'
+        unread:
+          type: integer
+    MyAnnouncementsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MyAnnouncements'
+    AnnouncementRead:
+      type: object
+      required: [id, readAt]
+      properties:
+        id:
+          type: string
+        readAt:
+          type: string
+    AnnouncementReadResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/AnnouncementRead'
+    MyAbsence:
+      type: object
+      required: [id, startDate, endDate, firstDay, note, status, days, createdAt]
+      properties:
+        id:
+          type: string
+        startDate:
+          type: string
+        endDate:
+          type: string
+          nullable: true
+          description: The last sick day; null while still sick.
+        firstDay:
+          type: string
+          description: full or half.
+        note:
+          type: string
+          nullable: true
+        status:
+          type: string
+          description: ongoing or completed.
+        days:
+          type: number
+          format: double
+        createdAt:
+          type: string
+    MyAbsences:
+      type: object
+      required: [current, history]
+      properties:
+        current:
+          allOf:
+            - $ref: '#/components/schemas/MyAbsence'
+          nullable: true
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyAbsence'
+    MyAbsencesResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MyAbsences'
+    SickReportInput:
+      type: object
+      required: [startDate]
+      properties:
+        startDate:
+          type: string
+          pattern: '^\d{4}-\d{2}-\d{2}$'
+        firstDay:
+          type: string
+          description: full or half.
+        note:
+          type: string
+          nullable: true
+          maxLength: 1000
+    RecoverInput:
+      type: object
+      required: [endDate]
+      properties:
+        endDate:
+          type: string
+          pattern: '^\d{4}-\d{2}-\d{2}$'
+    AbsenceRow:
+      type: object
+      required: [id, startDate, endDate]
+      properties:
+        id:
+          type: string
+        startDate:
+          type: string
+        endDate:
+          type: string
+          nullable: true
+    AbsenceRowResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/AbsenceRow'
+    MyDeclaration:
+      type: object
+      required: [id, expenseDate, category, description, amount, currency, status, hasReceipt, receiptFileName, reviewNote, reviewedAt, paidAt, createdAt]
+      properties:
+        id:
+          type: string
+        expenseDate:
+          type: string
+        category:
+          type: string
+          description: travel, meals, accommodation, equipment, training or other.
+        description:
+          type: string
+        amount:
+          type: number
+          format: double
+          description: Major units.
+        currency:
+          type: string
+        status:
+          type: string
+          description: pending, approved, rejected, paid or cancelled.
+        hasReceipt:
+          type: boolean
+        receiptFileName:
+          type: string
+          nullable: true
+        reviewNote:
+          type: string
+          nullable: true
+        reviewedAt:
+          type: string
+          nullable: true
+        paidAt:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+    OpenAmount:
+      type: object
+      required: [currency, pending, approved]
+      properties:
+        currency:
+          type: string
+        pending:
+          type: number
+          format: double
+          description: Awaiting a decision.
+        approved:
+          type: number
+          format: double
+          description: Approved, not yet paid.
+    MyDeclarations:
+      type: object
+      required: [declarations, open]
+      properties:
+        declarations:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyDeclaration'
+        open:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpenAmount'
+    MyDeclarationsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MyDeclarations'
+    DeclarationInput:
+      type: object
+      required: [amount, currency, expenseDate, category, description]
+      properties:
+        amount:
+          type: number
+          format: double
+        currency:
+          type: string
+        expenseDate:
+          type: string
+          pattern: '^\d{4}-\d{2}-\d{2}$'
+        category:
+          type: string
+          description: travel, meals, accommodation, equipment, training or other.
+        description:
+          type: string
+          maxLength: 2000
+    Declaration:
+      type: object
+      required: [id, expenseDate, category, description, amount, currency, status, hasReceipt]
+      properties:
+        id:
+          type: string
+        expenseDate:
+          type: string
+        category:
+          type: string
+        description:
+          type: string
+        amount:
+          type: number
+          format: double
+        currency:
+          type: string
+        status:
+          type: string
+        hasReceipt:
+          type: boolean
+    DeclarationResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Declaration'
+    MyTask:
+      type: object
+      required: [id, title, description, dueDate, assigneeRole, completedAt, canComplete, checklistName, checklistKind]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        dueDate:
+          type: string
+          nullable: true
+        assigneeRole:
+          type: string
+          description: hr, manager, it, employee or other.
+        completedAt:
+          type: string
+          nullable: true
+        canComplete:
+          type: boolean
+        checklistName:
+          type: string
+        checklistKind:
+          type: string
+    MyTaskList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyTask'
+    TaskCompletion:
+      type: object
+      required: [ok, checklistCompleted]
+      properties:
+        ok:
+          type: boolean
+        checklistCompleted:
+          type: boolean
+    TaskCompletionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/TaskCompletion'
+    ActionItem:
+      type: object
+      required: [id, text, done]
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+        done:
+          type: boolean
+    MyCoachingLog:
+      type: object
+      required: [id, sessionDate, category, topic, notes, actionItems, followUpDate, status, coachName, acknowledgedAt, employeeComment]
+      properties:
+        id:
+          type: string
+        sessionDate:
+          type: string
+        category:
+          type: string
+          description: performance, quality, behavior, attendance, development or recognition.
+        topic:
+          type: string
+        notes:
+          type: string
+          nullable: true
+        actionItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActionItem'
+        followUpDate:
+          type: string
+          nullable: true
+        status:
+          type: string
+        coachName:
+          type: string
+          nullable: true
+        acknowledgedAt:
+          type: string
+          nullable: true
+        employeeComment:
+          type: string
+          nullable: true
+    MyCoachingList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyCoachingLog'
+    Criterion:
+      type: object
+      required: [id, label, maxScore]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        maxScore:
+          type: number
+          format: double
+    Score:
+      type: object
+      required: [criterionId, score]
+      properties:
+        criterionId:
+          type: string
+        score:
+          type: number
+          format: double
+          nullable: true
+    MyEvaluation:
+      type: object
+      required: [id, formName, periodStart, periodEnd, criteria, scores, overallScore, summary, status, evaluatorName, submittedAt, acknowledgedAt, employeeComment]
+      properties:
+        id:
+          type: string
+        formName:
+          type: string
+          nullable: true
+        periodStart:
+          type: string
+          nullable: true
+        periodEnd:
+          type: string
+          nullable: true
+        criteria:
+          type: array
+          items:
+            $ref: '#/components/schemas/Criterion'
+        scores:
+          type: array
+          items:
+            $ref: '#/components/schemas/Score'
+        overallScore:
+          type: number
+          format: double
+          nullable: true
+        summary:
+          type: string
+          nullable: true
+        status:
+          type: string
+        evaluatorName:
+          type: string
+          nullable: true
+        submittedAt:
+          type: string
+          nullable: true
+        acknowledgedAt:
+          type: string
+          nullable: true
+        employeeComment:
+          type: string
+          nullable: true
+    MyEvaluationList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyEvaluation'
+    AcknowledgeInput:
+      type: object
+      properties:
+        comment:
+          type: string
+          nullable: true
+          maxLength: 5000
+    Acknowledgement:
+      type: object
+      required: [id, acknowledgedAt, status]
+      properties:
+        id:
+          type: string
+        acknowledgedAt:
+          type: string
+          nullable: true
+        status:
+          type: string
+    AcknowledgementResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Acknowledgement'
+    Payslip:
+      type: object
+      required: [id, number, employerName, currency, periodStart, periodEnd, payDate, grossPay, netPay, viewedAt]
+      properties:
+        id:
+          type: string
+        number:
+          type: string
+          nullable: true
+        employerName:
+          type: string
+        currency:
+          type: string
+        periodStart:
+          type: string
+        periodEnd:
+          type: string
+        payDate:
+          type: string
+        grossPay:
+          type: string
+          description: A decimal string, two decimals.
+        netPay:
+          type: string
+          description: A decimal string, two decimals.
+        viewedAt:
+          type: string
+          nullable: true
+          description: When the employee first opened it; null shows it as new.
+    PayslipList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Payslip'
+    AnnualStatement:
+      type: object
+      required: [year, employerId, employerName, kind]
+      properties:
+        year:
+          type: integer
+        employerId:
+          type: string
+        employerName:
+          type: string
+        kind:
+          type: string
+          description: jaaropgaaf (NL) or w2 (US).
+    AnnualStatementList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnnualStatement'
+
+    # Team ----------------------------------------------------------------------
+    LeaveRequest:
+      type: object
+      required: [id, employeeId, employeeName, leaveTypeId, leaveTypeName, leaveTypeColor, startDate, endDate, days, reason, status]
+      properties:
+        id:
+          type: string
+        employeeId:
+          type: string
+        employeeName:
+          type: string
+        leaveTypeId:
+          type: string
+        leaveTypeName:
+          type: string
+          nullable: true
+        leaveTypeColor:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+        endDate:
+          type: string
+        days:
+          type: number
+          format: double
+        reason:
+          type: string
+          nullable: true
+        status:
+          type: string
+    LeaveRequestList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaveRequest'
+    ReviewInput:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          description: approved or rejected.
+        note:
+          type: string
+          nullable: true
+          maxLength: 2000
+    TeamDeclaration:
+      type: object
+      required: [id, employeeId, employeeName, expenseDate, category, description, amount, currency, status, hasReceipt]
+      properties:
+        id:
+          type: string
+        employeeId:
+          type: string
+        employeeName:
+          type: string
+        expenseDate:
+          type: string
+        category:
+          type: string
+        description:
+          type: string
+        amount:
+          type: number
+          format: double
+        currency:
+          type: string
+        status:
+          type: string
+        hasReceipt:
+          type: boolean
+    DeclarationList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamDeclaration'
+    TeamAbsence:
+      type: object
+      required: [id, employeeId, employeeName, startDate, endDate, firstDay, status, days]
+      properties:
+        id:
+          type: string
+        employeeId:
+          type: string
+        employeeName:
+          type: string
+        startDate:
+          type: string
+        endDate:
+          type: string
+          nullable: true
+        firstDay:
+          type: string
+        status:
+          type: string
+          description: ongoing or completed.
+        days:
+          type: number
+          format: double
+    AbsenceList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamAbsence'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    TeamShift:
+      type: object
+      required: [id, employeeId, employeeName, companyName, startsAt, endsAt, workType, breakStartsAt, breakEndsAt]
+      properties:
+        id:
+          type: string
+        employeeId:
+          type: string
+        employeeName:
+          type: string
+        companyName:
+          type: string
+          nullable: true
+        startsAt:
+          type: string
+        endsAt:
+          type: string
+        workType:
+          type: string
+          nullable: true
+        breakStartsAt:
+          type: string
+          nullable: true
+        breakEndsAt:
+          type: string
+          nullable: true
+    ShiftList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamShift'
+    TeamAttendanceRecord:
+      type: object
+      required: [id, employeeId, employeeName, companyName, shiftId, date, clockIn, clockOut, workedMinutes, status]
+      properties:
+        id:
+          type: string
+        employeeId:
+          type: string
+        employeeName:
+          type: string
+        companyName:
+          type: string
+          nullable: true
+        shiftId:
+          type: string
+          nullable: true
+        date:
+          type: string
+        clockIn:
+          type: string
+          nullable: true
+        clockOut:
+          type: string
+          nullable: true
+        workedMinutes:
+          type: integer
+          nullable: true
+        status:
+          type: string
+    AttendanceList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamAttendanceRecord'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    EmployeeListItem:
+      type: object
+      required: [id, displayName, email, avatarUrl, jobTitle, departmentName, status]
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+        email:
+          type: string
+        avatarUrl:
+          type: string
+          nullable: true
+        jobTitle:
+          type: string
+          nullable: true
+        departmentName:
+          type: string
+          nullable: true
+        status:
+          type: string
+    EmployeeList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmployeeListItem'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    DirectReport:
+      type: object
+      required: [id, displayName, jobTitle, avatarUrl]
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+        jobTitle:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+    EmployeeDetail:
+      type: object
+      required: [id, displayName, email, phone, avatarUrl, pronouns, jobTitle, departmentName, managerName, status, startDate, location, directReports]
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+        pronouns:
+          type: string
+          nullable: true
+        jobTitle:
+          type: string
+          nullable: true
+        departmentName:
+          type: string
+          nullable: true
+        managerName:
+          type: string
+          nullable: true
+        status:
+          type: string
+        startDate:
+          type: string
+          nullable: true
+        location:
+          type: string
+          nullable: true
+        directReports:
+          type: array
+          items:
+            $ref: '#/components/schemas/DirectReport'
+    EmployeeDetailResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/EmployeeDetail'
+    AnnouncementInput:
+      type: object
+      required: [title, body]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        body:
+          type: string
+          minLength: 1
+          maxLength: 20000
+        pinned:
+          type: boolean
+        notify:
+          type: boolean
+          description: Push it to every employee once.
+    Announcement:
+      type: object
+      required: [id, title]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+    AnnouncementResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Announcement'
 security:
   - bearer: []
