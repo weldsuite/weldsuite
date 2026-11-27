@@ -164,6 +164,10 @@ pub const TABLES: &[Table] = &[
     moves("form_abuse_reports", WORKSPACE),
     moves("form_invitation_registry", WORKSPACE_OR_ORG),
     moves("form_link_registry", WORKSPACE_OR_ORG),
+    stays(
+        "forms_custom_domains",
+        "WeldForms custom domains are EU and self-hosted only: Global has none",
+    ),
     moves("helpcenter_domain_registry", WORKSPACE),
     stays("iceberg_namespace_properties", LAKEHOUSE),
     stays("iceberg_tables", LAKEHOUSE),

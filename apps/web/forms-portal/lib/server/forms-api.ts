@@ -10,12 +10,15 @@
  */
 
 import type { PublicForm } from '@weldsuite/app-api-client/schemas/weldforms'
+import { requestHost } from '@/lib/host'
 import { backend, respondentCountry, respondentIp } from '@/lib/server/runtime'
 
 /** The header names of `FORMS_PORTAL_HEADERS` (schemas/weldforms.ts). Kept literal so no schema code is bundled for them. */
 const KEY_HEADER = 'X-Forms-Portal-Key'
 const IP_HEADER = 'X-Respondent-Ip'
 const COUNTRY_HEADER = 'X-Respondent-Country'
+/** The host the respondent is on: on a custom domain forms-api answers only its workspace's forms (Global ignores it). */
+const HOST_HEADER = 'X-Forms-Host'
 
 /** A JSON error in forms-api's shape, for when the portal itself cannot reach it. */
 export function errorResponse(status: number, code: string, message: string): Response {
@@ -43,6 +46,8 @@ export async function callFormsApi(request: Request, path: string, init: Forward
   if (ip) headers.set(IP_HEADER, ip)
   const country = respondentCountry(request)
   if (country) headers.set(COUNTRY_HEADER, country)
+  const host = requestHost(request)
+  if (host) headers.set(HOST_HEADER, host)
   const agent = request.headers.get('user-agent')
   if (agent) headers.set('User-Agent', agent.slice(0, 500))
   if (!headers.has('Accept')) headers.set('Accept', 'application/json')
@@ -77,4 +82,17 @@ export async function fetchPublicForm(request: Request, publicId: string, versio
   const body = (await res.json().catch(() => null)) as { data?: PublicForm } | null
   if (!body?.data) return { ok: false, status: 502, code: 'UPSTREAM_ERROR' }
   return { ok: true, form: body.data }
+}
+
+/**
+ * The form a custom domain shows at `/` (`GET /host`): its public id, or null
+ * when the host is the install's own portal, has no home form, or the
+ * backend has no such route (Global).
+ */
+export async function fetchHomeForm(request: Request): Promise<string | null> {
+  const res = await callFormsApi(request, '/host')
+  if (!res.ok) return null
+  const body = (await res.json().catch(() => null)) as { data?: { homeFormPublicId?: unknown } } | null
+  const id = body?.data?.homeFormPublicId
+  return typeof id === 'string' && id.length > 0 ? id : null
 }

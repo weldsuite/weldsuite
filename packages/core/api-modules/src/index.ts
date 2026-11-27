@@ -154,6 +154,8 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   // WeldBooks: matching bank transactions and documents either way round
   // (several documents per transaction, search, booking the difference).
   'books-bank-links',
+  // WeldForms on a workspace's own domains (`/api/forms/domains`, cert-manager).
+  'forms-custom-domains',
 ];
 
 const mod = (

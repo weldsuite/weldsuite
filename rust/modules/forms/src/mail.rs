@@ -116,12 +116,10 @@ fn origin(env: &Env, key: &str, fallback: &str) -> String {
     value.strip_suffix('/').map_or(value.clone(), str::to_owned)
 }
 
-/// `invitationUrl(env, publicId, token)`: `<portal>/i/<publicId>.<token>`.
-pub(crate) fn invitation_url(env: &Env, public_id: &str, token: &str) -> String {
-    format!(
-        "{}/i/{public_id}.{token}",
-        origin(env, "FORMS_PORTAL_URL", "https://forms.weldsuite.org")
-    )
+/// `invitationUrl(env, publicId, token)`: `<base>/i/<publicId>.<token>`, on
+/// the workspace's link base ([`crate::domains::base_of`]).
+pub(crate) fn invitation_url(base: &str, public_id: &str, token: &str) -> String {
+    format!("{}/i/{public_id}.{token}", base.trim_end_matches('/'))
 }
 
 /// `resultsUrl(env, clerkOrgId, formId, query)`.

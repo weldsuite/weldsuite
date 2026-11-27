@@ -27,4 +27,11 @@ export const FORMS_ENTITY_EVENTS = {
   form_integration: ['created', 'updated', 'deleted'],
   /** `sent` covers reminders and resends too (the payload says which). */
   form_invitation: ['sent', 'completed', 'revoked'],
+  /**
+   * A workspace's own host name for its form links (EU and self-hosted only).
+   * `updated`: made primary or its home form changed. `verified`: it went
+   * live (ownership, DNS and certificate). `failed`: the certificate could
+   * not be issued.
+   */
+  form_domain: ['created', 'updated', 'deleted', 'verified', 'failed'],
 } as const;

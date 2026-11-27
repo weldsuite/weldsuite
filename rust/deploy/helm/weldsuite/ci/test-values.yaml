@@ -118,6 +118,11 @@ formsPortal:
   enabled: true
   ingress:
     enabled: true
+  # Form links on workspaces' own host names: a third kind in the
+  # custom-domains policy, whose Ingresses route to the portal's Service.
+  customDomains:
+    enabled: true
+    cnameTarget: forms.example.org
 # WeldCommerce's online stores: the edge's port, the renderer (its HPA and
 # PDB), the wildcard Ingress and custom shop domains. STOREFRONT_RENDERER_SECRET
 # is left out of secret.values on purpose: it comes from the generated Secret.

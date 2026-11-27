@@ -39,6 +39,7 @@ mod cron;
 mod desk_http;
 mod doctor;
 mod edition;
+mod forms_domains;
 mod infra;
 mod mail_cli;
 mod migrate;

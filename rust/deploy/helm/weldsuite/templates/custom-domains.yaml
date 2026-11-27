@@ -6,8 +6,10 @@ panel-schedule and storefront-hosts jobs' sweeps) creates a cert-manager
 Certificate and an Ingress in the release's namespace, and deletes both with
 the domain. Two kinds share this: WeldPanel's collector domains
 (config.panel.customDomains: component panel-collector-domain, objects
-weldpanel-*) and WeldCommerce's shop domains (storefront.customDomains:
-component storefront-host, objects weldshop-*, routed to the edge's port).
+weldpanel-*), WeldCommerce's shop domains (storefront.customDomains:
+component storefront-host, objects weldshop-*, routed to the edge's port) and
+WeldForms' form domains (formsPortal.customDomains: component forms-domain,
+objects weldforms-*, routed to the forms portal's Service).
 Every object carries app.kubernetes.io/managed-by=weldsuite and its kind's
 component label (weldsuite.customDomains.profiles).
 */}}
@@ -58,7 +60,8 @@ subjects:
 # What the Role can't say: the server's service account creates and deletes
 # only Certificates and Ingresses carrying the labels of a kind of custom
 # domain that is on, Ingresses that route to the server's Service only (any
-# of its ports: the collector's on http, the shops' on storefront), and each
+# of its ports: the collector's on http, the shops' on storefront), or for
+# form domains to the forms portal's Service only, and each
 # kind's Certificates from that kind's issuer only. Anyone else's requests
 # are not matched.
 apiVersion: admissionregistration.k8s.io/v1
@@ -91,8 +94,12 @@ spec:
       message: "the server may only create and delete Certificates and Ingresses carrying the labels of its custom domains"
     - expression: {{ printf "request.operation != 'UPDATE' || (%s)" (include "weldsuite.customDomains.labelCheck" (dict "components" $components "object" "oldObject")) | quote }}
       message: "the server may not take over an object without the labels of its custom domains"
-    - expression: {{ printf "request.operation == 'DELETE' || request.resource.resource != 'ingresses' || (!has(object.spec.defaultBackend) && object.spec.rules.all(r, has(r.http) && r.http.paths.all(p, has(p.backend.service) && p.backend.service.name == '%s')))" (include "weldsuite.fullname" .) | quote }}
-      message: "the server's Ingresses route to its own Service only"
+    {{- $service := printf "'%s'" (include "weldsuite.fullname" .) }}
+    {{- if eq (include "weldsuite.formsDomains.enabled" .) "true" }}
+    {{- $service = printf "(object.metadata.labels['app.kubernetes.io/component'] == 'forms-domain' ? '%s' : '%s')" (include "weldsuite.formsPortal.fullname" .) (include "weldsuite.fullname" .) }}
+    {{- end }}
+    - expression: {{ printf "request.operation == 'DELETE' || request.resource.resource != 'ingresses' || (!has(object.spec.defaultBackend) && object.spec.rules.all(r, has(r.http) && r.http.paths.all(p, has(p.backend.service) && p.backend.service.name == %s)))" $service | quote }}
+      message: "the server's Ingresses route to its own Service only (form domains: to the forms portal's)"
     {{- /* One kind: its issuer (the first check holds the component). Several: each kind's own. */}}
     {{- $issuers := list }}
     {{- range $profiles }}

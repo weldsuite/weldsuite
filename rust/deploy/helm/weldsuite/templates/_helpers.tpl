@@ -237,6 +237,7 @@ settings, which weldsuite.env adds.
   value: {{ .Values.config.panel.eventsMaxAgeDays | quote }}
 {{- include "weldsuite.panelDomainsEnv" . }}
 {{- include "weldsuite.storefrontEnv" . }}
+{{- include "weldsuite.formsDomainsEnv" . }}
 {{- with .Values.config.jobs }}
 {{- $ingressUrl := include "weldsuite.restate.ingressUrl" $ }}
 {{- $adminUrl := include "weldsuite.restate.adminUrl" $ }}
@@ -615,7 +616,20 @@ names of any kind: the custom-domains Role, RoleBinding and admission policy
 (templates/custom-domains.yaml) and the service-account token.
 */}}
 {{- define "weldsuite.customDomains.enabled" -}}
-{{- if or (eq (include "weldsuite.panelDomains.enabled" .) "true") (eq (include "weldsuite.storefrontDomains.enabled" .) "true") }}true{{ end }}
+{{- if or (eq (include "weldsuite.panelDomains.enabled" .) "true") (eq (include "weldsuite.storefrontDomains.enabled" .) "true") (eq (include "weldsuite.formsDomains.enabled" .) "true") }}true{{ end }}
+{{- end }}
+
+{{- /*
+WeldForms' custom form domains (formsPortal.customDomains): "true" when the
+forms portal is on and its custom domains are, with a CNAME target
+(templates/forms-portal.yaml fails without one).
+*/}}
+{{- define "weldsuite.formsDomains.enabled" -}}
+{{- if .Values.formsPortal.enabled }}
+{{- with .Values.formsPortal.customDomains }}
+{{- if and .enabled .cnameTarget }}true{{ end }}
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{- /*
@@ -623,7 +637,8 @@ The kinds of custom domain that are on, as a JSON list of { component, issuer,
 issuerKind, admissionPolicy }: the component label the server's objects of
 that kind carry (keep in step with the profiles in Rust: LABELS in
 rust/modules/panel/src/monitor/cert_manager.rs, the storefront Profile in
-rust/bins/weldsuite/src/storefront.rs), and their issuer.
+rust/bins/weldsuite/src/storefront.rs, the forms Profile in
+rust/bins/weldsuite/src/forms_domains.rs), and their issuer.
 */}}
 {{- define "weldsuite.customDomains.profiles" -}}
 {{- $profiles := list }}
@@ -635,6 +650,11 @@ rust/bins/weldsuite/src/storefront.rs), and their issuer.
 {{- if eq (include "weldsuite.storefrontDomains.enabled" .) "true" }}
 {{- with .Values.storefront.customDomains }}
 {{- $profiles = append $profiles (dict "component" "storefront-host" "issuer" .issuerRef.name "issuerKind" .issuerRef.kind "admissionPolicy" (.admissionPolicy | default dict).enabled) }}
+{{- end }}
+{{- end }}
+{{- if eq (include "weldsuite.formsDomains.enabled" .) "true" }}
+{{- with .Values.formsPortal.customDomains }}
+{{- $profiles = append $profiles (dict "component" "forms-domain" "issuer" .issuerRef.name "issuerKind" .issuerRef.kind "admissionPolicy" (.admissionPolicy | default dict).enabled) }}
 {{- end }}
 {{- end }}
 {{- toJson $profiles }}
@@ -701,6 +721,45 @@ STOREFRONT_RENDERER_SECRET comes from the Secret.
 - name: STOREFRONT_DNS_RESOLVER
   value: {{ . | quote }}
 {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- /*
+formsPortal.customDomains as the FORMS_* settings every pod running the
+binary reads (rust/bins/weldsuite/src/forms_domains.rs): the server's routes
+and the forms-domains job both check domains. Each domain's Ingress routes
+to the forms portal's Service.
+*/}}
+{{- define "weldsuite.formsDomainsEnv" -}}
+{{- if eq (include "weldsuite.formsDomains.enabled" .) "true" }}
+{{- with .Values.formsPortal.customDomains }}
+- name: FORMS_CUSTOM_DOMAINS
+  value: "cert-manager"
+- name: FORMS_CNAME_TARGET
+  value: {{ .cnameTarget | quote }}
+{{- with .apexAddresses }}
+- name: FORMS_APEX_ADDRESSES
+  value: {{ join "," . | quote }}
+{{- end }}
+- name: FORMS_DOMAINS_NAMESPACE
+  value: {{ $.Release.Namespace | quote }}
+- name: FORMS_DOMAINS_SERVICE
+  value: {{ include "weldsuite.formsPortal.fullname" $ | quote }}
+- name: FORMS_DOMAINS_SERVICE_PORT
+  value: "http"
+{{- with (.ingressClassName | default $.Values.formsPortal.ingress.className | default $.Values.ingress.className) }}
+- name: FORMS_DOMAINS_INGRESS_CLASS
+  value: {{ . | quote }}
+{{- end }}
+- name: FORMS_DOMAINS_ISSUER
+  value: {{ .issuerRef.name | quote }}
+- name: FORMS_DOMAINS_ISSUER_KIND
+  value: {{ .issuerRef.kind | quote }}
+{{- with .dnsResolver }}
+- name: FORMS_DNS_RESOLVER
+  value: {{ . | quote }}
 {{- end }}
 {{- end }}
 {{- end }}
