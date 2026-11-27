@@ -41,6 +41,12 @@ spec:
             matchLabels:
               {{- include "weldsuite.formsPortal.selectorLabels" $ | nindent 14 }}
         {{- end }}
+        {{- if $.Values.payPortal.enabled }}
+        # The pay portal calls /public/weldbooks/documents/* (ADR BOOKS-014).
+        - podSelector:
+            matchLabels:
+              {{- include "weldsuite.payPortal.selectorLabels" $ | nindent 14 }}
+        {{- end }}
         {{- if $.Values.admin.enabled }}
         # The admin console calls /internal/outbound (ADR FE-018).
         - podSelector:
@@ -123,6 +129,28 @@ spec:
         - port: http
           protocol: TCP
       {{- with .Values.networkPolicy.formsPortalFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- if .Values.payPortal.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "weldsuite.payPortal.fullname" . }}
+  labels:
+    {{- include "weldsuite.payPortal.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "weldsuite.payPortal.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+        - port: http
+          protocol: TCP
+      {{- with .Values.networkPolicy.payPortalFrom }}
       from:
         {{- toYaml . | nindent 8 }}
       {{- end }}

@@ -945,6 +945,44 @@ formsPortal:
             pathType: Prefix
     tls: []
 
+# WeldBooks' public document page (ADR BOOKS-014): a Node container
+# (ghcr.io/weldsuite/weldsuite-pay-portal, `--target pay-portal` of
+# rust/Dockerfile) where customers open the link of an invoice or quote
+# e-mail, download the PDF, pay it (Mollie) and accept a quote. Its server
+# functions call this server's /public/weldbooks/documents/{token}. The link's
+# token is the only credential: no shared secret, nothing in the Secret. The
+# links the server e-mails point at the portal's public URL (https://pay.<domain>).
+payPortal:
+  enabled: false
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-pay-portal
+    # Defaults to the chart's appVersion.
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  # Where the portal calls the server; defaults to the server's Service.
+  backendUrl: ""
+  # The portal's own origin (https://pay.<domain>), where Mollie sends the
+  # customer back to. Empty: taken from the request's Host and
+  # X-Forwarded-Proto, which the ingress sets.
+  publicUrl: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 256Mi
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: pay.example.org
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
 # WeldCommerce's online stores (weldsuite-documentation/plans/weldcommerce-storefronts.md),
 # off by default. Every shop host goes to the storefront edge, a second
 # listener of this server (STOREFRONT_LISTEN on edgePort; the Service's port
@@ -1536,6 +1574,8 @@ networkPolicy:
   signPortalFrom: []
   # Who may call the forms portal (the ingress controller); empty allows any peer.
   formsPortalFrom: []
+  # Who may call the pay portal (the ingress controller); empty allows any peer.
+  payPortalFrom: []
   # Who may call the admin console (the ingress controller); empty allows any
   # peer. The console's own pods may always call the server.
   adminFrom: []

@@ -44,6 +44,10 @@ data:
   STOREFRONT_BASE_DOMAIN: ""
   STOREFRONT_CUSTOM_DOMAINS: "false"
   STOREFRONT_APEX_ADDRESSES: "[]"
+  # WeldBooks' public document page (apps/eu/values/weldsuite.yaml, payPortal):
+  # "true" once pay.${DOMAIN} points at the ingress load balancer and the
+  # server serves /public/weldbooks (ADR BOOKS-014).
+  PAY_PORTAL_ENABLED: "false"
   # Zitadel (auth.${DOMAIN}): the WeldSuite project's id (the tokens'
   # audience) and the platform's web application's client id (PKCE). Made in
   # Zitadel's console after its first start (README, step 7).

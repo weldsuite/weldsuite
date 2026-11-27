@@ -846,6 +846,24 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: weldsuite
 {{- end }}
 
+{{- define "weldsuite.payPortal.fullname" -}}
+{{- printf "%s-pay-portal" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "weldsuite.payPortal.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "weldsuite.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: pay-portal
+{{- end }}
+
+{{- define "weldsuite.payPortal.labels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+{{ include "weldsuite.payPortal.selectorLabels" . }}
+app.kubernetes.io/version: {{ .Values.payPortal.image.tag | default .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: weldsuite
+{{- end }}
+
 {{- define "weldsuite.admin.fullname" -}}
 {{- printf "%s-admin" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
@@ -1152,6 +1170,10 @@ app.kubernetes.io/part-of: weldsuite
 {{- /* Where the portal reaches the server: its Service, unless set. */ -}}
 {{- define "weldsuite.signPortal.backendUrl" -}}
 {{- default (printf "http://%s.%s.svc:%v" (include "weldsuite.fullname" .) .Release.Namespace .Values.service.port) .Values.signPortal.backendUrl }}
+{{- end }}
+
+{{- define "weldsuite.payPortal.backendUrl" -}}
+{{- default (printf "http://%s.%s.svc:%v" (include "weldsuite.fullname" .) .Release.Namespace .Values.service.port) .Values.payPortal.backendUrl }}
 {{- end }}
 
 {{- define "weldsuite.formsPortal.backendUrl" -}}

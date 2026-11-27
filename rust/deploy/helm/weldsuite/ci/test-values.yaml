@@ -103,6 +103,10 @@ networkPolicy:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: traefik
+  payPortalFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: traefik
   adminFrom:
     - namespaceSelector:
         matchLabels:
@@ -115,6 +119,10 @@ signPortal:
   ingress:
     enabled: true
 formsPortal:
+  enabled: true
+  ingress:
+    enabled: true
+payPortal:
   enabled: true
   ingress:
     enabled: true

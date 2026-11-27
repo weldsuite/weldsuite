@@ -1032,6 +1032,7 @@ flags, the app catalog's flags, workspaces and plans, which are still SQL.
 docker build -f rust/Dockerfile -t weldsuite:dev .                                       # from the repo root: the server and the platform SPA
 docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .     # the WeldSign signer portal (Node, ADR FE-017)
 docker build -f rust/Dockerfile --target collab-rooms -t weldsuite-collab-rooms:dev .   # WeldDocs', WeldSheets' and WeldBoard's rooms (Node, docs/collab-rooms.md)
+docker build -f rust/Dockerfile --target pay-portal -t weldsuite-pay-portal:dev .       # WeldBooks' public invoice and quote page (Node, ADR BOOKS-014)
 docker build -f rust/Dockerfile --target storefront -t weldsuite-storefront:dev .       # WeldCommerce's online store renderer (Node, ADR COM-015), behind the storefront edge
 docker build -t weldsuite-haraka:dev rust/deploy/haraka                                # the MX (MAIL-010)
 rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + Restate + the chart; a signed request through the pipeline, a job through Restate, the SPA, the portal, inbound mail over SMTP

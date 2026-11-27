@@ -48,6 +48,7 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | weldsuite | this repository | `app.<domain>` (the platform SPA and its API on one origin), `api.<domain>`, and `widget.<domain>` (WeldDesk's helpdesk widget, which sites embed), 2-6 replicas |
 | weldsuite sign portal | this repository | `sign.<domain>`, 2 replicas (Node; ADR FE-017) |
 | weldsuite forms portal | this repository | `forms.<domain>`, 2 replicas (Node; ADR FORMS-002) |
+| weldsuite pay portal (off) | this repository | `pay.<domain>`, 2 replicas (Node; ADR BOOKS-014): WeldBooks' public invoice and quote page, calls the server's `/public/weldbooks`. On with `PAY_PORTAL_ENABLED` once `pay.` resolves |
 | weldsuite storefront renderer (off) | this repository | WeldCommerce's online stores: the server's storefront edge takes every shop host (`*.<shop domain>`, merchants' own domains CNAMEd to `shops.<domain>`) and proxies builder shops to the renderer, 2 replicas (Node; ADR COM-015), reached only by the edge. On once the shop domain is picked (`STOREFRONT_ENABLED`, "DNS" below) |
 | LiveKit | chart 1.9.0 (livekit-server v1.13.10) | WeldMeet and WeldChat calls: one pod on each of two general workers, host network; `livekit.<domain>` and TURN at `turn.<domain>` ("Video" below) |
 | weldsuite MTA | this repository (`weldsuite mta`) | Outgoing mail from the mail nodes' own addresses, pools `system` and `customer`; bounce MX at `bounces.<domain>` ("Mail" below) |
@@ -234,7 +235,7 @@ a time.
 ## 5. DNS
 
 Create the records `tofu output dns_records` prints (A and AAAA for `app.`,
-`api.`, `mcp.`, `auth.`, `sign.`, `forms.`, `admin.`, `widget.`, `grafana.`, `livekit.`, `turn.`, `collect.`, `shops.`, and `mx.` with
+`api.`, `mcp.`, `auth.`, `sign.`, `forms.`, `pay.`, `admin.`, `widget.`, `grafana.`, `livekit.`, `turn.`, `collect.`, `shops.`, and `mx.` with
 `mx_node_port` → the ingress load balancer) at the DNS provider. cert-manager
 issues certificates once they resolve. `collect.` is what customers point
 WeldPanel's own collection domains at (ADR PANEL-014); turn them on with

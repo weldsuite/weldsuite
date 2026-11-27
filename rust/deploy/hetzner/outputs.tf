@@ -15,7 +15,7 @@ output "api_endpoint" {
 }
 
 output "ingress_ipv4" {
-  description = "Point the A records of app., api., auth., sign., forms., livekit. and turn.<domain> here."
+  description = "Point the A records of app., api., auth., sign., forms., pay., livekit. and turn.<domain> here."
   value       = hcloud_load_balancer.ingress.ipv4
 }
 
@@ -30,7 +30,7 @@ output "ingress_ipv6" {
 output "dns_records" {
   description = "The records to create at the EU DNS provider (README.md, step 5)."
   value = {
-    for name in concat(["app", "api", "mcp", "auth", "sign", "forms", "admin", "widget", "grafana", "livekit", "turn", "collect", "shops"], var.mx_node_port > 0 ? ["mx"] : []) : "${name}.${var.domain}" => {
+    for name in concat(["app", "api", "mcp", "auth", "sign", "forms", "pay", "admin", "widget", "grafana", "livekit", "turn", "collect", "shops"], var.mx_node_port > 0 ? ["mx"] : []) : "${name}.${var.domain}" => {
       A    = hcloud_load_balancer.ingress.ipv4
       AAAA = hcloud_load_balancer.ingress.ipv6
     }
