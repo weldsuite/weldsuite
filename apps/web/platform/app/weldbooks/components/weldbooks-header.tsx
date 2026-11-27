@@ -87,6 +87,7 @@ export function WeldbooksHeader({
     'tax-lines': th.taxLines,
     dimensions: th.dimensions,
     'received-nfe': t.navigation.moduleSidebar.weldbooks.receivedNfe,
+    'to-process': t.weldbooksConnected.todo.title,
     builder: th.builder,
     'invoice-templates': th.invoiceTemplates,
     callback: th.callback,

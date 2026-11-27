@@ -2,6 +2,8 @@ import type { ComponentType } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   Inbox,
+  ListChecks,
+  Upload,
   Radio,
   BarChart3,
   MonitorPlay,
@@ -631,86 +633,97 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
     appName: 'WeldBooks',
     appIcon: Calculator,
     appLogo: getAppLogoConfig('weldbooks'),
-    getMenuItems: (t) => [
-      {
-        group: t.navigation.moduleSidebar.groups.overview,
-        items: [
-          { title: t.navigation.moduleSidebar.weldbooks.dashboard, href: '/weldbooks', icon: LayoutDashboard },
-        ],
-      },
-      {
-        group: t.navigation.moduleSidebar.groups.sales,
-        items: [
-          { title: t.navigation.moduleSidebar.weldbooks.invoices, href: '/weldbooks/invoices', icon: ReceiptText },
-          { title: t.navigation.moduleSidebar.weldbooks.creditNotes, href: '/weldbooks/credit-notes', icon: Receipt },
-          { title: t.navigation.moduleSidebar.weldbooks.recurring, href: '/weldbooks/recurring', icon: RefreshCw },
-        ],
-      },
-      {
-        group: t.navigation.moduleSidebar.groups.purchases,
-        items: [
-          { title: t.navigation.moduleSidebar.weldbooks.bills, href: '/weldbooks/bills', icon: CreditCard },
-          { title: t.navigation.moduleSidebar.weldbooks.documents, href: '/weldbooks/documents', icon: FileSearch },
-          { title: t.navigation.moduleSidebar.weldbooks.receivedNfe, href: '/weldbooks/received-nfe', icon: FileInput },
-          { title: t.navigation.moduleSidebar.weldbooks.paymentRuns, href: '/weldbooks/payment-runs', icon: Banknote },
-        ],
-      },
-      {
-        group: t.navigation.moduleSidebar.groups.banking,
-        items: [
-          { title: t.navigation.moduleSidebar.weldbooks.bankAccounts, href: '/weldbooks/banking', icon: Landmark },
-          { title: t.navigation.moduleSidebar.weldbooks.transactions, href: '/weldbooks/banking/transactions', icon: ArrowLeftRight },
-          { title: t.navigation.moduleSidebar.weldbooks.reconciliation, href: '/weldbooks/banking/reconciliation', icon: Building2 },
-          { title: t.navigation.moduleSidebar.weldbooks.rules, href: '/weldbooks/banking/rules', icon: Wand2 },
-          { title: t.navigation.moduleSidebar.weldbooks.statementReconciliation, href: '/weldbooks/banking/statements', icon: ClipboardCheck },
-          { title: t.navigation.moduleSidebar.weldbooks.deposits, href: '/weldbooks/deposits', icon: Wallet },
-          { title: t.navigation.moduleSidebar.weldbooks.bankFeeds, href: '/weldbooks/banking/feeds', icon: Link2 },
-        ],
-      },
-      {
-        group: t.navigation.moduleSidebar.groups.accounting,
-        items: [
-          { title: t.navigation.moduleSidebar.weldbooks.chartOfAccounts, href: '/weldbooks/accounts', icon: WalletCards },
-          { title: t.navigation.moduleSidebar.weldbooks.journalEntries, href: '/weldbooks/journal', icon: TextAlignStart },
-          { title: t.navigation.moduleSidebar.weldbooks.vatReturns, href: '/weldbooks/vat', icon: Receipt },
-          { title: t.navigation.moduleSidebar.weldbooks.annualReports, href: '/weldbooks/annual-reports', icon: BookCheck },
-          { title: t.navigation.moduleSidebar.weldbooks.fixedAssets, href: '/weldbooks/fixed-assets', icon: SquareChartGantt },
-          { title: t.navigation.moduleSidebar.weldbooks.payroll, href: '/weldbooks/payroll', icon: HandCoins },
-          // Opening and closing periods is month-end work, not configuration.
-          { title: t.navigation.moduleSidebar.weldbooks.fiscalPeriods, href: '/weldbooks/fiscal-periods', icon: CalendarRange },
-        ],
-      },
-      {
-        group: t.navigation.moduleSidebar.groups.tax,
-        items: [
-          { title: t.navigation.moduleSidebar.weldbooks.salesTaxCenter, href: '/weldbooks/sales-tax', icon: Percent },
-          { title: t.navigation.moduleSidebar.weldbooks.exemptionCertificates, href: '/weldbooks/sales-tax/certificates', icon: ShieldCheck },
-          { title: t.navigation.moduleSidebar.weldbooks.nexus, href: '/weldbooks/sales-tax/nexus', icon: Radar },
-          { title: t.navigation.moduleSidebar.weldbooks.form1099, href: '/weldbooks/form-1099', icon: FileText },
-          { title: t.navigation.moduleSidebar.weldbooks.taxCalendar, href: '/weldbooks/tax-calendar', icon: CalendarClock },
-        ],
-      },
-      {
-        group: t.navigation.moduleSidebar.groups.contacts,
-        items: [
-          { title: t.navigation.moduleSidebar.weldbooks.customers, href: '/weldbooks/customers', icon: Users },
-          { title: t.navigation.moduleSidebar.weldbooks.suppliers, href: '/weldbooks/suppliers', icon: Truck },
-        ],
-      },
-      {
-        group: t.navigation.moduleSidebar.groups.reports,
-        items: [
-          { title: t.navigation.moduleSidebar.weldbooks.profitLoss, href: '/weldbooks/reports/profit-loss', icon: BarChart3 },
-          { title: t.navigation.moduleSidebar.weldbooks.balanceSheet, href: '/weldbooks/reports/balance-sheet', icon: BarChart3 },
-          { title: t.navigation.moduleSidebar.weldbooks.trialBalance, href: '/weldbooks/reports/trial-balance', icon: BarChart3 },
-          { title: t.navigation.moduleSidebar.weldbooks.agedReceivables, href: '/weldbooks/reports/aged-receivables', icon: BarChart3 },
-          { title: t.navigation.moduleSidebar.weldbooks.agedPayables, href: '/weldbooks/reports/aged-payables', icon: BarChart3 },
-          { title: t.navigation.moduleSidebar.weldbooks.taxWorksheet, href: '/weldbooks/reports/tax-worksheet', icon: FileSpreadsheet },
-        ],
-      },
-      // No settings here: dimensions, sales tax and payment runs are in
-      // Settings → Apps → WeldBooks, the entity's books in Settings → Entities.
-    ],
+    // The owner's menu first (plan "weldbooks-connected-ux"): what to do, then
+    // sales, purchases, the bank and contacts, reports, and the accountant's
+    // books. Quotes, unbilled time and pay bills join when they exist.
+    getMenuItems: (t) => {
+      const nav = t.navigation.moduleSidebar.weldbooks;
+      const groups = t.navigation.moduleSidebar.groups;
+      return [
+        {
+          // No heading: Overview and To process head the menu.
+          group: '',
+          items: [
+            { title: nav.overview, href: '/weldbooks', icon: LayoutDashboard },
+            // Only where the edition serves `/api/accounting-todo` (the route guard hides it elsewhere).
+            { title: nav.toProcess, href: '/weldbooks/to-process', icon: ListChecks },
+          ],
+        },
+        {
+          group: groups.sales,
+          items: [
+            // Credit notes are a filter of this list (`?show=credit_notes`).
+            { title: nav.invoices, href: '/weldbooks/invoices', icon: ReceiptText },
+            { title: nav.recurring, href: '/weldbooks/recurring', icon: RefreshCw },
+          ],
+        },
+        {
+          group: groups.purchases,
+          items: [
+            { title: nav.inbox, href: '/weldbooks/documents', icon: FileSearch },
+            { title: nav.billsAndReceipts, href: '/weldbooks/bills', icon: CreditCard },
+            { title: nav.receivedNfe, href: '/weldbooks/received-nfe', icon: FileInput },
+            { title: nav.paymentRuns, href: '/weldbooks/payment-runs', icon: Banknote },
+          ],
+        },
+        {
+          group: groups.bank,
+          items: [
+            { title: nav.transactions, href: '/weldbooks/banking/transactions', icon: ArrowLeftRight },
+            { title: nav.accountsShort, href: '/weldbooks/banking', icon: Landmark },
+            { title: nav.rules, href: '/weldbooks/banking/rules', icon: Wand2 },
+            { title: nav.reconciliation, href: '/weldbooks/banking/reconciliation', icon: Building2 },
+            { title: nav.importStatements, href: '/weldbooks/banking/import', icon: Upload },
+            { title: nav.statementReconciliation, href: '/weldbooks/banking/statements', icon: ClipboardCheck },
+            { title: nav.deposits, href: '/weldbooks/deposits', icon: Wallet },
+            { title: nav.bankFeeds, href: '/weldbooks/banking/feeds', icon: Link2 },
+          ],
+        },
+        {
+          // Customers and suppliers are one list with a role filter.
+          group: groups.contacts,
+          items: [{ title: nav.contacts, href: '/weldbooks/contacts', icon: Users }],
+        },
+        {
+          group: groups.reports,
+          items: [
+            { title: nav.profitLoss, href: '/weldbooks/reports/profit-loss', icon: BarChart3 },
+            { title: nav.balanceSheet, href: '/weldbooks/reports/balance-sheet', icon: BarChart3 },
+            { title: nav.vatReturns, href: '/weldbooks/vat', icon: Receipt },
+            { title: nav.agedReceivables, href: '/weldbooks/reports/aged-receivables', icon: BarChart3 },
+            { title: nav.agedPayables, href: '/weldbooks/reports/aged-payables', icon: BarChart3 },
+            { title: nav.cashFlow, href: '/weldbooks/reports/cash-flow', icon: BarChart3 },
+            { title: nav.generalLedger, href: '/weldbooks/reports/general-ledger', icon: BookOpen },
+            { title: nav.taxWorksheet, href: '/weldbooks/reports/tax-worksheet', icon: FileSpreadsheet },
+          ],
+        },
+        {
+          group: groups.accountant,
+          items: [
+            { title: nav.journalEntries, href: '/weldbooks/journal', icon: TextAlignStart },
+            { title: nav.chartOfAccounts, href: '/weldbooks/accounts', icon: WalletCards },
+            // Opening and closing periods is month-end work, not configuration.
+            { title: nav.fiscalPeriods, href: '/weldbooks/fiscal-periods', icon: CalendarRange },
+            { title: nav.trialBalance, href: '/weldbooks/reports/trial-balance', icon: BarChart3 },
+            { title: nav.annualReports, href: '/weldbooks/annual-reports', icon: BookCheck },
+            { title: nav.fixedAssets, href: '/weldbooks/fixed-assets', icon: SquareChartGantt },
+            { title: nav.payroll, href: '/weldbooks/payroll', icon: HandCoins },
+          ],
+        },
+        {
+          group: groups.tax,
+          items: [
+            { title: nav.salesTaxCenter, href: '/weldbooks/sales-tax', icon: Percent },
+            { title: nav.exemptionCertificates, href: '/weldbooks/sales-tax/certificates', icon: ShieldCheck },
+            { title: nav.nexus, href: '/weldbooks/sales-tax/nexus', icon: Radar },
+            { title: nav.form1099, href: '/weldbooks/form-1099', icon: FileText },
+            { title: nav.taxCalendar, href: '/weldbooks/tax-calendar', icon: CalendarClock },
+          ],
+        },
+        // No settings here: dimensions, sales tax and payment runs are in
+        // Settings → Apps → WeldBooks, the entity's books in Settings → Entities.
+      ];
+    },
   },
   agents: {
     appName: 'WeldAgent',

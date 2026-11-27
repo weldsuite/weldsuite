@@ -31,6 +31,7 @@ import { getAppLucideIcon } from '@/lib/apps/app-registry';
 import { isDesktop } from '@/lib/desktop';
 import { RESULT_TYPE_ICON, resultTypeLabel } from '@/lib/search/result-types';
 import { paletteRecordGroups, paletteRecordTarget } from '@/lib/search/palette-records';
+import { booksSearchTypes, mergeSearchGroups } from '@/lib/search/books-search-types';
 import { pushRecent } from '@/lib/search/recents';
 import { getRecentCommands, pushRecentCommand, type RecentCommand } from '@/lib/search/command-recents';
 import { useEntitySheet } from '@/components/entity-sheet';
@@ -179,7 +180,7 @@ export function CommandPalette() {
   }, []);
 
   const trimmed = query.trim();
-  const { data, isFetching, isPlaceholderData } = useGlobalSearch(query, {
+  const usual = useGlobalSearch(query, {
     enabled: open && trimmed.length >= 2,
     limit: 3,
   });
@@ -191,6 +192,15 @@ export function CommandPalette() {
     appType: app.appType,
   }));
   const installedCodes = new Set(installed.map((app) => app.appCode));
+  // Bank lines, contacts and inbox documents are searched only when a request names them.
+  const booksTypes = booksSearchTypes(installedCodes.has('weldbooks'));
+  const books = useGlobalSearch(query, {
+    enabled: open && trimmed.length >= 2 && booksTypes.length > 0,
+    limit: 3,
+    types: booksTypes,
+  });
+  const isFetching = usual.isFetching || books.isFetching;
+  const isPlaceholderData = usual.isPlaceholderData || books.isPlaceholderData;
   const appNames = new Map(installed.map((app) => [app.appCode, app.name]));
   appNames.set('agents', t.navigation.aiAgents);
   const currentApp = appFromPathname(stripWorkspacePrefix(pathname ?? '/'));
@@ -240,7 +250,7 @@ export function CommandPalette() {
   // Grouped by type in the API's order; a type this edition doesn't serve is left out.
   const recordGroups = !isPlaceholderData && trimmed.length >= 2
     ? paletteRecordGroups(
-        (data?.data ?? []).map((group) => ({ ...group, items: group.items.filter((item) => isHrefOffered(item.url)) })),
+        mergeSearchGroups(usual.data?.data, books.data?.data).map((group) => ({ ...group, items: group.items.filter((item) => isHrefOffered(item.url)) })),
       )
     : [];
   const hasRecords = recordGroups.length > 0;

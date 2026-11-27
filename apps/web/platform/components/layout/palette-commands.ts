@@ -43,6 +43,8 @@ import {
   History,
   Home,
   Keyboard,
+  Landmark,
+  ListChecks,
   LayoutTemplate,
   List,
   LogOut,
@@ -78,6 +80,7 @@ import {
   Table2,
   Target,
   Trash2,
+  Upload,
   UserPlus,
   Users,
   UsersRound,
@@ -377,6 +380,9 @@ export const CREATE_ACTIONS: readonly CreateAction[] = [
   { id: 'invoice', app: 'weldbooks', permissions: ['invoices:create'], title: (c) => c.invoice, keywords: 'invoice sales factuur verkoopfactuur', href: '/weldbooks/invoices/add', icon: FileText },
   { id: 'bill', app: 'weldbooks', permissions: ['bills:create'], title: (c) => c.bill, keywords: 'bill purchase invoice inkoopfactuur', href: '/weldbooks/bills/add', icon: Receipt },
   { id: 'journal-entry', app: 'weldbooks', permissions: ['journal:create'], title: (c) => c.journalEntry, keywords: 'journal entry booking memoriaal boeking', href: '/weldbooks/journal/add', icon: BookCheck },
+  // Contacts and inbox documents are the invoices permission's (`/api/accounting-contacts`, `/api/accounting-documents`).
+  { id: 'contact', app: 'weldbooks', permissions: ['invoices:create'], title: (c) => c.contact, keywords: 'contact customer supplier vendor klant leverancier relatie', href: withCreateIntent('/weldbooks/contacts'), icon: UserPlus },
+  { id: 'upload-document', app: 'weldbooks', permissions: ['invoices:create'], title: (c) => c.uploadDocument, keywords: 'upload document receipt inbox scan bon factuur uploaden inkoopfactuur', href: '/weldbooks/documents', icon: Upload },
   // Support, marketing and the rest
   { id: 'announcement', app: 'welddesk', permissions: ['articles:create'], title: (c) => c.announcement, keywords: 'announcement help center aankondiging', href: '/welddesk/help-center/announcements/new', icon: Megaphone },
   { id: 'social-post', app: 'social', permissions: ['posts:create'], title: (c) => c.socialPost, keywords: 'social post bericht', href: withCreateIntent('/social'), icon: Send },
@@ -446,6 +452,44 @@ export function createCommands(t: TranslationsType, access: CommandAccess): Pale
   });
 }
 
+/**
+ * WeldBooks' two shortcuts into the to-process work: the To process page and
+ * the bank lines waiting to be booked. Offered only where the edition serves the
+ * to-process counts (`books-todo`), and shown before typing inside WeldBooks.
+ */
+export function weldbooksTodoCommands(t: TranslationsType, access: CommandAccess): PaletteCommand[] {
+  if (!isFeatureAvailable('books-todo') || !access.installedCodes.has('weldbooks')) return [];
+  const copy = t.weldbooksConnected.palette;
+  const here = sameApp(access.currentApp, 'weldbooks');
+  const commands: PaletteCommand[] = [];
+  if (access.canSee('invoices:read', 'weldbooks')) {
+    commands.push({
+      id: 'action:weldbooks-to-process',
+      title: copy.toProcess,
+      subtitle: copy.toProcessHint,
+      keywords: `${copy.keywords} weldbooks`,
+      group: 'actions',
+      showWhenEmpty: here,
+      href: '/weldbooks/to-process',
+      icon: ListChecks,
+    });
+  }
+  if (access.canSee('banking:read', 'weldbooks')) {
+    commands.push({
+      id: 'action:weldbooks-process-bank-lines',
+      title: copy.processBankLines,
+      subtitle: copy.processBankLinesHint,
+      keywords: `${copy.bankLinesKeywords} weldbooks`,
+      group: 'actions',
+      showWhenEmpty: here,
+      // Phase 2 replaces the reconcile screen with the processing view.
+      href: '/weldbooks/banking/reconciliation',
+      icon: Landmark,
+    });
+  }
+  return commands;
+}
+
 export function actionCommands(
   t: TranslationsType,
   resolvedTheme: 'light' | 'dark',
@@ -483,7 +527,7 @@ export function actionCommands(
       icon: UserPlus,
     });
   }
-  if (access) commands.push(...createCommands(t, access));
+  if (access) commands.push(...createCommands(t, access), ...weldbooksTodoCommands(t, access));
 
   commands.push(
     {

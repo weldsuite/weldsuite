@@ -117,6 +117,8 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   ['/weldstash/replenishment', { modules: ['stash'], feature: 'stash-replenishment' }],
   // Carrier shipping (PostNL, DHL Parcel labels, tracking, returns) exists only on the Rust backend.
   ['/weldstash/shipments', { modules: ['stash'], feature: 'stash-shipping' }],
+  // WeldBooks' to-process list and counts (`/api/accounting-todo`) are built only in Rust.
+  ['/weldbooks/to-process', { modules: ['books'], feature: 'books-todo' }],
   // WeldPass's settings (the offline copy and its devices) exist only on the Rust backend (ADR PASS-010).
   ['/settings/apps/weldpass', { modules: ['pass'], feature: 'weldpass-offline' }],
 ];

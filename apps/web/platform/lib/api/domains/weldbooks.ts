@@ -828,6 +828,53 @@ interface CursorListResponse<T> {
   pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
 }
 
+/** What needs a person in the books, one entry per kind, most urgent first (`GET /accounting-todo`). */
+export const TODO_KINDS = [
+  'vat_return',
+  'bank_feeds',
+  'invoices_overdue',
+  'bills_due',
+  'bills_to_approve',
+  'documents',
+  'duplicates',
+  'bank_lines',
+  'unapplied_credit',
+] as const;
+
+export type TodoKind = (typeof TODO_KINDS)[number];
+
+export type TodoSeverity = 'info' | 'warning' | 'danger';
+
+/** The count behind one kind; `amount` is null for kinds that count things, not money. */
+export interface TodoKindSummary {
+  count: number;
+  amount: string | null;
+  currency?: string;
+  mixedCurrency?: boolean;
+}
+
+export interface TodoSummary {
+  total: number;
+  currency: string;
+  /** A kind the caller may not read is absent. */
+  kinds: Partial<Record<TodoKind, TodoKindSummary>>;
+}
+
+/** One thing to do. `title` and `subtitle` are data (counterparty, number); `hint` is a code to translate. */
+export interface TodoItem {
+  kind: TodoKind;
+  objectType: string;
+  objectId: string;
+  title: string | null;
+  subtitle: string | null;
+  amount: string | null;
+  currency: string | null;
+  date: string | null;
+  dueDate: string | null;
+  severity: TodoSeverity;
+  hint: string | null;
+}
+
 // ============================================================================
 // API Methods
 // ============================================================================
@@ -853,6 +900,11 @@ function getReport<T>(name: ReportName, query: ReportQuery = {}) {
 export const accountingApi = {
   // Dashboard
   getDashboard: () => weldbooksApi.get<ApiResponse<Dashboard>>('/accounting-dashboard'),
+
+  // To process (edition feature `books-todo`)
+  getTodoSummary: () => weldbooksApi.get<ApiResponse<TodoSummary>>('/accounting-todo/summary'),
+  listTodo: (params: { kind: TodoKind; cursor?: string | null; limit?: number }) =>
+    weldbooksApi.get<CursorListResponse<TodoItem>>(`/accounting-todo${buildQuery(params)}`),
 
   // Settings
   getSettings: () => weldbooksApi.get<ApiResponse<Settings>>('/accounting-settings'),

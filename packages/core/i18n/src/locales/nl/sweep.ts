@@ -976,6 +976,8 @@ export const sweep = {
         "invoice": "Factuur aanmaken",
         "bill": "Inkoopfactuur toevoegen",
         "journalEntry": "Memoriaalboeking aanmaken",
+        "contact": "Nieuw contact",
+        "uploadDocument": "Document uploaden",
         "employee": "Medewerker toevoegen",
         "registerDomain": "Domein registreren",
         "addDomain": "Domein toevoegen",

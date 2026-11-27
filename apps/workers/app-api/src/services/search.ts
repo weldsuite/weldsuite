@@ -212,11 +212,11 @@ export function buildResultUrl(type: SearchEntityType, id: string): string {
     // The WeldBooks types are searched by the Rust backend only (EU edition),
     // and only when asked for; the cases keep the type list complete.
     case 'bank_transaction':
-      return `/weldbooks/banking?stack=bank_transaction:${encodeURIComponent(id)}`;
+      return `/weldbooks/banking/transactions?stack=bank_transaction:${encodeURIComponent(id)}`;
     case 'accounting_contact':
-      return `/weldbooks/customers?stack=accounting_contact:${encodeURIComponent(id)}`;
+      return `/weldbooks/contacts?stack=weldbooks_contact:${encodeURIComponent(id)}`;
     case 'accounting_document':
-      return `/weldbooks/documents?stack=accounting_document:${encodeURIComponent(id)}`;
+      return `/weldbooks/documents?document=${encodeURIComponent(id)}`;
   }
 }
 

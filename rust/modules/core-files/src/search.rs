@@ -336,13 +336,15 @@ pub(crate) fn build_result_url_for(kind: SearchType, id: &str, commerce: bool) -
         SearchType::DataList => format!("/welddata/lists/{id}"),
         SearchType::PanelProject => format!("/weldpanel/projects/{id}"),
         SearchType::BankTransaction => {
-            format!("/weldbooks/banking?stack=bank_transaction:{encoded}")
+            format!("/weldbooks/banking/transactions?stack=bank_transaction:{encoded}")
         }
+        // The contact panel is `weldbooks_contact`, on the one Contacts list.
         SearchType::AccountingContact => {
-            format!("/weldbooks/customers?stack=accounting_contact:{encoded}")
+            format!("/weldbooks/contacts?stack=weldbooks_contact:{encoded}")
         }
+        // An inbox document opens as a dialog on the documents page.
         SearchType::AccountingDocument => {
-            format!("/weldbooks/documents?stack=accounting_document:{encoded}")
+            format!("/weldbooks/documents?document={encoded}")
         }
     }
 }
@@ -2739,7 +2741,7 @@ mod books_tests {
         assert_eq!(item["subtitle"], "2026-11-02 · 1234.50 · unreconciled");
         assert_eq!(
             item["url"],
-            format!("/weldbooks/banking?stack=bank_transaction:{id}").as_str()
+            format!("/weldbooks/banking/transactions?stack=bank_transaction:{id}").as_str()
         );
     }
 

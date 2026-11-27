@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useInfiniteAccountingInvoices } from '@/hooks/queries/use-accounting-queries';
 import { ReceiptText } from 'lucide-react';
 import { useRouter } from '@/lib/router';
-import { EmptyStateIllustration, type ActiveFilter, type ColumnDef, type FilterConfig, type GroupConfig } from '@/components/entity-list';
+import { EmptyStateIllustration, type ColumnDef, type FilterConfig, type GroupConfig } from '@/components/entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { ContactCell, RowAmount, RowDate, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
@@ -10,9 +10,16 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { applyExclusions, pillValue } from '@/lib/weldbooks/list-filters';
+import { INVOICE_VIEWS, isOpenInvoice, useFillFilteredList } from '@/lib/weldbooks/list-views';
+import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { useUrlPillFilters } from '@/lib/weldbooks/use-url-pill-filters';
 
 /** The statuses the Status filter offers, in the order an invoice moves through them. */
 const INVOICE_STATUSES = ['draft', 'finalized', 'sent', 'partial', 'overdue', 'paid', 'cancelled', 'uncollectible'] as const;
+
+/** The filters the address carries: `?status=overdue`, `?show=open`. */
+const URL_FILTER_FIELDS = ['status', 'show'] as const;
+const URL_FILTER_VALUES = { status: INVOICE_STATUSES, show: INVOICE_VIEWS };
 
 interface InvoiceRow {
   id: string;
@@ -29,15 +36,19 @@ interface InvoiceRow {
 
 export default function InvoicesPage() {
   const [search, setSearch] = useState('');
-  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
+  // The Status and Show filters live in the address, so a link from To process or the
+  // overview opens the list already filtered and the filter survives navigation.
+  const { activeFilters, onFiltersChange } = useUrlPillFilters(URL_FILTER_FIELDS, URL_FILTER_VALUES);
+  const show = pillValue(activeFilters, 'show');
   const router = useRouter();
   // A new invoice is written on its own page, next to a live preview of the PDF.
   const newInvoice = () => router.push('/weldbooks/invoices/add');
-  // Credit notes have a list of their own: `type=invoice` is every invoice that is not a credit note.
+  // `type=invoice` is every invoice that is not a credit note; Show → Credit notes lists those instead.
   const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteAccountingInvoices({
-    type: 'invoice',
+    type: show === 'credit_notes' ? 'credit_note' : 'invoice',
     search,
     status: pillValue(activeFilters, 'status'),
+    overdue: show === 'overdue' ? 'true' : undefined,
   });
   // Each invoice opens in the shared object panel (type 'invoice'), the same
   // panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
@@ -48,11 +59,33 @@ export default function InvoicesPage() {
   const { formatMoney, formatDate } = useWeldbooksFormat();
   const tip = t.accounting.invoicesPage;
   const tsl = t.accounting.statusLabels.invoice;
+  const tv = t.weldbooksConnected.listViews;
+  const { labels } = useJurisdictionLabels();
 
   // The server filters on an `is` status; an `is not` one narrows the rows it sent.
-  const invoices = applyExclusions((data?.rows ?? []) as unknown as InvoiceRow[], activeFilters, { status: (inv) => inv.status });
+  const loaded = applyExclusions((data?.rows ?? []) as unknown as InvoiceRow[], activeFilters, { status: (inv) => inv.status });
+  // Open and overdue leave out drafts, paid and cancelled invoices: the server has no such filter, so the
+  // rows loaded so far are narrowed and pages keep loading until the view has enough.
+  const narrowed = show === 'open' || show === 'overdue';
+  const invoices = narrowed ? loaded.filter(isOpenInvoice) : loaded;
+  useFillFilteredList({
+    active: narrowed,
+    shown: invoices.length,
+    hasMore: hasNextPage,
+    isLoadingMore: isFetchingNextPage,
+    loadMore: () => void fetchNextPage(),
+  });
   const filterConfigs: FilterConfig[] = [
     { field: 'status', label: tip.colStatus, options: INVOICE_STATUSES.map((value) => ({ value, label: tsl[value] })) },
+    {
+      field: 'show',
+      label: tv.filterLabel,
+      options: [
+        { value: 'open', label: tv.open },
+        { value: 'overdue', label: tv.overdue },
+        { value: 'credit_notes', label: labels.creditNotes },
+      ],
+    },
   ];
 
   // Group by lifecycle status, most-urgent first. The trailing "other" group is
@@ -126,7 +159,7 @@ export default function InvoicesPage() {
       getRowLabel={(inv) => inv.invoiceNumber ?? tip.colNumber}
       filters={filterConfigs}
       activeFilters={activeFilters}
-      onFiltersChange={setActiveFilters}
+      onFiltersChange={onFiltersChange}
       searchQuery={search}
       onSearchChange={setSearch}
       searchPlaceholder={tip.searchPlaceholder}

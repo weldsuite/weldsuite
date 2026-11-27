@@ -273,6 +273,8 @@ export const accounting = {
       noBankAccounts: 'Geen bankrekeningen geconfigureerd.',
       upcomingDue: 'Aankomende vervaldatums',
       noUpcomingInvoices: 'Geen aankomende facturen.',
+      dueThisWeek: 'Vervalt deze week',
+      noDueThisWeek: 'Er vervalt deze week niets.',
       recentPayments: 'Recente betalingen',
       noRecentPayments: 'Geen recente betalingen.',
       latestPayments: 'Laatste betalingen',

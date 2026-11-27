@@ -3,11 +3,11 @@
  * like "Your overview" (heading over a hairline), a metric picker with this
  * year's running total and last year's figure above the chart, then the
  * balances you act on (cash, receivables, payables, documents), each title
- * linking to its list.
+ * linking to its list: the receivables and payables tiles open the open
+ * invoices and bills, and the overdue figure opens the overdue invoices.
  */
 
 import { useMemo, useState } from 'react';
-import { Link, type LinkProps } from '@tanstack/react-router';
 import { ChevronDown } from 'lucide-react';
 import { ComparisonChart } from '@weldsuite/ui/components/comparison-chart';
 import {
@@ -19,6 +19,7 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import type { Dashboard } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
+import { Link } from '@/lib/router';
 import { dashboardTrend, yearToDateSeries, type Metric } from './dashboard-series';
 import { useChartFormat } from './use-chart-format';
 
@@ -130,7 +131,10 @@ function Balances({ dashboard }: Readonly<{ dashboard: Dashboard }>) {
     label: string;
     value: string;
     sub: string;
-    to: LinkProps['to'];
+    /** The list the tile opens, already filtered (`?show=`). */
+    href: string;
+    /** Where the muted line leads when it is a link of its own (the overdue figure). */
+    subHref?: string;
     warn?: boolean;
   }> = [
     {
@@ -138,7 +142,7 @@ function Balances({ dashboard }: Readonly<{ dashboard: Dashboard }>) {
       label: tc.cashBalance,
       value: formatMoney(cash),
       sub: plural(tc.accounts, accounts.length),
-      to: '/weldbooks/banking',
+      href: '/weldbooks/banking',
     },
     {
       key: 'receivables',
@@ -148,7 +152,8 @@ function Balances({ dashboard }: Readonly<{ dashboard: Dashboard }>) {
         overdue > 0
           ? tc.overdueAmount.replace('{amount}', formatMoney(overdue))
           : plural(tc.invoiceCount, receivables?.outstandingCount ?? 0),
-      to: '/weldbooks/invoices',
+      href: '/weldbooks/invoices?show=open',
+      subHref: overdue > 0 ? '/weldbooks/invoices?show=overdue' : undefined,
       warn: overdue > 0,
     },
     {
@@ -156,14 +161,14 @@ function Balances({ dashboard }: Readonly<{ dashboard: Dashboard }>) {
       label: tc.toPay,
       value: formatMoney(Number(payables?.outstanding ?? 0)),
       sub: plural(tc.billCount, payables?.outstandingCount ?? 0),
-      to: '/weldbooks/bills',
+      href: '/weldbooks/bills?show=open',
     },
     {
       key: 'documents',
       label: tc.documents,
       value: String(dashboard.pendingDocuments ?? 0),
       sub: tc.documentsWaiting,
-      to: '/weldbooks/documents',
+      href: '/weldbooks/documents',
     },
   ];
 
@@ -171,11 +176,19 @@ function Balances({ dashboard }: Readonly<{ dashboard: Dashboard }>) {
     <div className="grid gap-x-8 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
       {items.map((item) => (
         <div key={item.key} className="min-w-0 space-y-1">
-          <Link to={item.to} className="block w-fit text-sm font-medium hover:underline">
+          <Link href={item.href} className="block w-fit text-sm font-medium hover:underline">
             {item.label}
           </Link>
           <p className="text-xl tabular-nums">{item.value}</p>
-          <p className={`text-xs ${item.warn ? 'text-destructive' : 'text-muted-foreground'}`}>{item.sub}</p>
+          <p className={`text-xs ${item.warn ? 'text-destructive' : 'text-muted-foreground'}`}>
+            {item.subHref ? (
+              <Link href={item.subHref} className="hover:underline">
+                {item.sub}
+              </Link>
+            ) : (
+              item.sub
+            )}
+          </p>
         </div>
       ))}
     </div>

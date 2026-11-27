@@ -85,6 +85,18 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldstash/shipments')).toBe(false);
   });
 
+  it('hides the WeldBooks To process page where books-todo is missing, such as Global, and offers it on Rust', () => {
+    expect(routeRequirement('/weldbooks/to-process')).toEqual({ modules: ['books'], feature: 'books-todo' });
+    expect(routeRequirement('/weldbooks/to-process?stack=bill:bil_1')).toEqual({ modules: ['books'], feature: 'books-todo' });
+    // Global has no runtime config: GLOBAL_UNAVAILABLE_FEATURES lists the feature.
+    expect(isRouteOffered('/weldbooks/to-process')).toBe(false);
+    expect(isRouteOffered('/weldbooks/invoices')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
+    expect(isRouteOffered('/weldbooks/to-process')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: ['books-todo'] });
+    expect(isRouteOffered('/weldbooks/to-process')).toBe(false);
+  });
+
   it('hides WeldPass settings (the offline copy) on Global and offers them on Rust (ADR PASS-010)', () => {
     expect(routeRequirement('/settings/apps/weldpass')).toEqual({ modules: ['pass'], feature: 'weldpass-offline' });
     // Global has no runtime config: GLOBAL_UNAVAILABLE_FEATURES lists the feature.

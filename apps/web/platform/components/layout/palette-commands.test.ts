@@ -14,6 +14,7 @@ import {
   pagesForModule,
   settingsCommands,
   visibleCommands,
+  weldbooksTodoCommands,
   type PaletteCommand,
   type SidebarPage,
 } from './palette-commands';
@@ -218,6 +219,73 @@ describe('edition flags', () => {
       () => true,
     );
     expect(commands.map((command) => command.href)).toEqual(['/weldcalendar', '/weldcalendar/week']);
+  });
+});
+
+describe('WeldBooks commands', () => {
+  const books = { canSee: () => true, installedCodes: new Set(['weldbooks']), currentApp: 'weldbooks' };
+  afterEach(() => setRuntimeConfig(null));
+
+  it('offers New contact and Upload document, which start in the app that owns them', () => {
+    const commands = createCommands(en, books);
+    const contact = commands.find((command) => command.id === 'create:contact');
+    expect(contact).toMatchObject({ title: 'New contact', group: 'actions', showWhenEmpty: true });
+    // The Contacts list opens its quick-add popup from `?new=1`.
+    expect(contact?.href).toMatch(/^\/weldbooks\/contacts\?new=1$/);
+    expect(commands.find((command) => command.id === 'create:upload-document')).toMatchObject({
+      title: 'Upload document',
+      href: '/weldbooks/documents',
+    });
+  });
+
+  it('says them in Dutch and finds them by the Dutch words', () => {
+    const commands = createCommands(nl, books);
+    expect(commands.find((command) => command.id === 'create:contact')?.title).toBe('Nieuw contact');
+    expect(commands.find((command) => command.id === 'create:upload-document')?.title).toBe('Document uploaden');
+    expect(titles(visibleCommands(commands, 'leverancier'))).toContain('Nieuw contact');
+  });
+
+  it('leaves them out without the permission to create invoices', () => {
+    const ids = createCommands(en, { ...books, canSee: (permission) => permission !== 'invoices:create' }).map((c) => c.id);
+    expect(ids).not.toContain('create:contact');
+    expect(ids).not.toContain('create:upload-document');
+  });
+
+  it('offers To process and Process bank lines only where the edition serves the to-process counts', () => {
+    // Global has no runtime config: books-todo is in GLOBAL_UNAVAILABLE_FEATURES.
+    expect(weldbooksTodoCommands(en, books)).toEqual([]);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: ['books-todo'] });
+    expect(weldbooksTodoCommands(en, books)).toEqual([]);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
+    const commands = weldbooksTodoCommands(en, books);
+    expect(commands.map((command) => [command.title, command.href])).toEqual([
+      ['To process', '/weldbooks/to-process'],
+      ['Process bank lines', '/weldbooks/banking/reconciliation'],
+    ]);
+    // They also run through actionCommands, so the palette lists them.
+    expect(actionCommands(en, 'light', books).map((command) => command.id)).toEqual(
+      expect.arrayContaining(['action:weldbooks-to-process', 'action:weldbooks-process-bank-lines']),
+    );
+  });
+
+  it('shows them before typing only inside WeldBooks, and finds them anywhere by typing', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
+    const elsewhere = weldbooksTodoCommands(en, { ...books, currentApp: 'weldcrm' });
+    expect(elsewhere.every((command) => !command.showWhenEmpty)).toBe(true);
+    expect(titles(visibleCommands(elsewhere, 'bank lines'))).toEqual(['Process bank lines']);
+    expect(weldbooksTodoCommands(en, books).every((command) => command.showWhenEmpty)).toBe(true);
+  });
+
+  it('follows the member\'s permissions and the installed app', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
+    const bankingOnly = weldbooksTodoCommands(en, { ...books, canSee: (permission) => permission === 'banking:read' });
+    expect(bankingOnly.map((command) => command.id)).toEqual(['action:weldbooks-process-bank-lines']);
+    expect(weldbooksTodoCommands(en, { ...books, installedCodes: new Set(['weldcrm']) })).toEqual([]);
+  });
+
+  it('says them in Dutch', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
+    expect(titles(weldbooksTodoCommands(nl, books))).toEqual(['Te verwerken', 'Bankregels verwerken']);
   });
 });
 

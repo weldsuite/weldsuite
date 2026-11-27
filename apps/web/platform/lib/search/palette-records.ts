@@ -34,26 +34,30 @@ export function paletteRecordGroups(
 }
 
 /**
- * CRM companies and people come back under their legacy search types. They
- * open as object panels; the page link deep-links that panel.
+ * Records that open as object panels over the current page; the page link
+ * deep-links that panel. CRM companies and people come back under their legacy
+ * search types (`customer`, `contact`). WeldBooks bank lines and contacts open
+ * on the lists that show them (an inbox document opens its dialog on its page).
  */
-const CRM_PANEL: Partial<Record<string, { type: 'company' | 'person'; page: string }>> = {
+const PANEL_TARGETS: Partial<Record<string, { type: string; page: string }>> = {
   customer: { type: 'company', page: '/weldcrm/companies' },
   contact: { type: 'person', page: '/weldcrm/people' },
+  bank_transaction: { type: 'bank_transaction', page: '/weldbooks/banking/transactions' },
+  accounting_contact: { type: 'weldbooks_contact', page: '/weldbooks/contacts' },
 };
 
 export type PaletteRecordTarget =
-  | { kind: 'panel'; panel: { type: 'company' | 'person'; id: string }; href: string }
+  | { kind: 'panel'; panel: { type: string; id: string }; href: string }
   | { kind: 'sheet'; type: EntitySheetType; id: string; href: string }
   | { kind: 'page'; href: string };
 
 /**
- * Where a record opens: CRM companies and people in their object panel,
+ * Where a record opens: CRM companies, people, bank lines and WeldBooks contacts in their object panel,
  * types with an entity sheet in that sheet, everything else on its page.
  * `href` is always a page URL (for a new tab and for the recents list).
  */
 export function paletteRecordTarget(item: Pick<SearchResultItem, 'id' | 'type' | 'url'>): PaletteRecordTarget {
-  const panel = CRM_PANEL[item.type];
+  const panel = PANEL_TARGETS[item.type];
   if (panel) {
     return {
       kind: 'panel',

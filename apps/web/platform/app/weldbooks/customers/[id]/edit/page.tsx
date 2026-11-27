@@ -47,7 +47,8 @@ export default function EditContactPage() {
       <div className="flex items-center gap-4">
         <Button asChild variant="ghost" size="icon">
           <Link
-            to={contact.role === 'supplier' ? '/weldbooks/suppliers' : '/weldbooks/customers'}
+            to="/weldbooks/contacts"
+            search={{ role: contact.role === 'supplier' ? 'supplier' : 'customer' }}
             aria-label={contact.role === 'supplier' ? tc.backToSuppliers : tc.backToCustomers}
           >
             <ArrowLeft className="h-4 w-4" />

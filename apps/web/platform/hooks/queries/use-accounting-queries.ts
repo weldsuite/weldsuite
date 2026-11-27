@@ -617,7 +617,7 @@ export function useUpdateAccountingCustomer() {
 // ============================================================================
 
 export function useInfiniteAccountingInvoices(
-  filters?: { status?: string; type?: string; search?: string; contactId?: string },
+  filters?: { status?: string; type?: string; search?: string; contactId?: string; overdue?: string },
   options: { enabled?: boolean } = {},
 ) {
   return useInfiniteQuery({

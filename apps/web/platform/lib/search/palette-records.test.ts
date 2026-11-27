@@ -86,3 +86,39 @@ describe('record type labels', () => {
     expect(resultTypeLabel(en, 'hologram')).toBe('hologram');
   });
 });
+
+describe('paletteRecordTarget for WeldBooks records', () => {
+  it('opens a bank line in the bank transaction panel, deep-linked from the transactions list', () => {
+    expect(
+      paletteRecordTarget({ id: 'btx 1', type: 'bank_transaction', url: '/weldbooks/banking/transactions?stack=bank_transaction:btx%201' }),
+    ).toEqual({
+      kind: 'panel',
+      panel: { type: 'bank_transaction', id: 'btx 1' },
+      href: '/weldbooks/banking/transactions?stack=bank_transaction:btx%201',
+    });
+  });
+
+  it('opens a contact in the WeldBooks contact panel on the Contacts list, not the accounting_contact type', () => {
+    expect(paletteRecordTarget({ id: 'prt_1', type: 'accounting_contact', url: '/weldbooks/contacts?stack=weldbooks_contact:prt_1' })).toEqual({
+      kind: 'panel',
+      panel: { type: 'weldbooks_contact', id: 'prt_1' },
+      href: '/weldbooks/contacts?stack=weldbooks_contact:prt_1',
+    });
+  });
+
+  it('opens an inbox document on the documents page, which opens its dialog', () => {
+    expect(paletteRecordTarget({ id: 'doc_1', type: 'accounting_document', url: '/weldbooks/documents?document=doc_1' })).toEqual({
+      kind: 'page',
+      href: '/weldbooks/documents?document=doc_1',
+    });
+  });
+
+  it('groups the three types under their translated names, in English and Dutch', () => {
+    for (const type of ['bank_transaction', 'accounting_contact', 'accounting_document'] as const) {
+      expect(resultTypeLabel(en, type)).not.toBe(type);
+      expect(resultTypeLabel(nl, type)).not.toBe(type);
+      expect(RESULT_TYPE_ICON[type]).toBeDefined();
+      expect(SEARCH_ENTITY_TYPES).toContain(type);
+    }
+  });
+});

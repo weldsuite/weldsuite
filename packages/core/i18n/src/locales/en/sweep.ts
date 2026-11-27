@@ -976,6 +976,8 @@ export const sweep = {
         "invoice": "Create invoice",
         "bill": "Create bill",
         "journalEntry": "Create journal entry",
+        "contact": "New contact",
+        "uploadDocument": "Upload document",
         "employee": "Add employee",
         "registerDomain": "Register domain",
         "addDomain": "Add domain",

@@ -47,6 +47,8 @@ export const accounting = {
       noBankAccounts: 'No bank accounts configured.',
       upcomingDue: 'Upcoming due invoices',
       noUpcomingInvoices: 'No upcoming invoices.',
+      dueThisWeek: 'Due this week',
+      noDueThisWeek: 'Nothing falls due this week.',
       recentPayments: 'Recent payments',
       noRecentPayments: 'No recent payments.',
       latestPayments: 'Latest payments',

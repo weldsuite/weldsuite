@@ -18,6 +18,9 @@ const access = vi.hoisted(() => ({
 
 const route = vi.hoisted(() => ({ pathname: '/' }));
 
+/** What each `useGlobalSearch` call asked for: the opt-in WeldBooks types are searched by a request that names them. */
+const search = vi.hoisted(() => ({ calls: [] as Array<{ q: string; types?: string[]; enabled?: boolean }> }));
+
 const WELDCRM = {
   id: 'weldcrm',
   workspaceId: '',
@@ -28,6 +31,8 @@ const WELDCRM = {
   displayOrder: 0,
   appType: 'system' as const,
 };
+
+const WELDBOOKS = { ...WELDCRM, id: 'weldbooks', appCode: 'weldbooks', name: 'WeldBooks' };
 
 const installedState = vi.hoisted(() => ({
   apps: [] as Array<typeof WELDCRM>,
@@ -74,7 +79,34 @@ vi.mock('@/hooks/use-installed-apps', () => ({
 }));
 
 vi.mock('@/hooks/queries/use-global-search-queries', () => ({
-  useGlobalSearch: (q: string, opts?: { enabled?: boolean }) => ({
+  useGlobalSearch: (q: string, opts?: { enabled?: boolean; types?: string[] }) => {
+    search.calls.push({ q, types: opts?.types, enabled: opts?.enabled });
+    if (opts?.types?.includes('bank_transaction')) {
+      return {
+        data:
+          (opts.enabled ?? true) && q.trim().length >= 2
+            ? {
+                data: [
+                  {
+                    type: 'bank_transaction',
+                    items: [{ id: 'btx_1', type: 'bank_transaction', title: 'Paper Co', subtitle: '221.00', url: '/weldbooks/banking/transactions?stack=bank_transaction:btx_1' }],
+                  },
+                  {
+                    type: 'accounting_contact',
+                    items: [{ id: 'prt_1', type: 'accounting_contact', title: 'Paper Co BV', subtitle: null, url: '/weldbooks/contacts?stack=weldbooks_contact:prt_1' }],
+                  },
+                  {
+                    type: 'accounting_document',
+                    items: [{ id: 'doc_1', type: 'accounting_document', title: 'receipt.pdf', subtitle: null, url: '/weldbooks/documents?document=doc_1' }],
+                  },
+                ],
+              }
+            : undefined,
+        isFetching: false,
+        isPlaceholderData: false,
+      };
+    }
+    return {
     data:
       (opts?.enabled ?? true) && q.trim().length >= 2
         ? {
@@ -112,7 +144,8 @@ vi.mock('@/hooks/queries/use-global-search-queries', () => ({
         : undefined,
     isFetching: false,
     isPlaceholderData: false,
-  }),
+    };
+  },
 }));
 
 vi.mock('@/hooks/use-theme', () => ({
@@ -158,6 +191,7 @@ vi.mock('@/app/weldcrm/people/components/quick-add-person-dialog', () => ({
     ) : null,
 }));
 
+import { setRuntimeConfig } from '@/lib/runtime-config';
 import { CommandPalette, CommandPaletteTrigger, setCommandPaletteOpen } from './command-palette';
 
 function openWithShortcut() {
@@ -178,6 +212,8 @@ describe('CommandPalette', () => {
     installedState.apps = [{ ...WELDCRM }];
     setCommandPaletteOpen(false);
     window.localStorage.clear();
+    search.calls = [];
+    setRuntimeConfig(null);
   });
 
   it('opens a centered dialog of commands from Ctrl+K, not a record list', async () => {
@@ -259,6 +295,65 @@ describe('CommandPalette', () => {
 
     expect(push).toHaveBeenCalledWith('/weldsheets/sht_1');
     expect(openPanel).not.toHaveBeenCalled();
+  });
+
+  describe('WeldBooks records', () => {
+    const BOOKS_TYPES = ['bank_transaction', 'accounting_contact', 'accounting_document'];
+    const type = async (text: string) => {
+      const user = userEvent.setup();
+      render(<CommandPalette />);
+      openWithShortcut();
+      await user.type(await screen.findByTestId('cmdk-input'), text);
+      return user;
+    };
+
+    it('asks for bank lines, contacts and inbox documents where WeldBooks is installed and the edition serves them', async () => {
+      setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
+      installedState.apps = [{ ...WELDCRM }, { ...WELDBOOKS }];
+      await type('paper');
+      expect(search.calls.some((call) => call.enabled && call.types?.join() === BOOKS_TYPES.join())).toBe(true);
+      // The usual search still runs, without a list of types: the opt-in ones are an extra request.
+      expect(search.calls.some((call) => call.enabled && call.types === undefined)).toBe(true);
+    });
+
+    it('does not ask for them without WeldBooks, or on an edition without the to-process backend', async () => {
+      setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
+      installedState.apps = [{ ...WELDCRM }];
+      await type('paper');
+      expect(search.calls.filter((call) => call.enabled && call.types?.length)).toEqual([]);
+    });
+
+    it('does not ask for them on Global', async () => {
+      installedState.apps = [{ ...WELDCRM }, { ...WELDBOOKS }];
+      await type('paper');
+      expect(search.calls.filter((call) => call.enabled && call.types?.length)).toEqual([]);
+    });
+
+    it('opens a bank line in its panel, in place', async () => {
+      setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
+      installedState.apps = [{ ...WELDCRM }, { ...WELDBOOKS }];
+      const user = await type('paper');
+
+      expect(screen.getByText('Bank transactions')).toBeVisible();
+      await user.click(screen.getByText('Paper Co'));
+      expect(openPanel).toHaveBeenCalledWith({ type: 'bank_transaction', id: 'btx_1' });
+    });
+
+    it('opens a contact in the contact panel', async () => {
+      setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
+      installedState.apps = [{ ...WELDCRM }, { ...WELDBOOKS }];
+      const user = await type('paper');
+      await user.click(screen.getByText('Paper Co BV'));
+      expect(openPanel).toHaveBeenCalledWith({ type: 'weldbooks_contact', id: 'prt_1' });
+    });
+
+    it('opens an inbox document on the documents page, which opens its dialog', async () => {
+      setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
+      installedState.apps = [{ ...WELDCRM }, { ...WELDBOOKS }];
+      const user = await type('paper');
+      await user.click(screen.getByText('receipt.pdf'));
+      expect(push).toHaveBeenCalledWith('/weldbooks/documents?document=doc_1');
+    });
   });
 
   it('toggles the theme from the actions group', async () => {

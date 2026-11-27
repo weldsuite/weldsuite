@@ -1,21 +1,19 @@
 /**
- * The lists under the overview, side by side: the invoices falling due in the next 30 days and the
- * latest payments. Both are drawn with the invoices page's own row and column header (the WeldBooks
- * list row) in a bordered box. The first title opens the full invoice list; a due invoice opens
- * in the invoice panel, a payment in the panel of the invoice or bill it paid (a payment that
- * paid neither is not clickable).
+ * The lists under the overview, side by side: what is due this week (invoices and bills, see
+ * `DueThisWeek`) and the latest payments. Both are drawn with the lists' own row and column header
+ * (the WeldBooks list row) in a bordered box. A due invoice or bill opens in its panel, a payment
+ * in the panel of the invoice or bill it paid (a payment that paid neither is not clickable).
  */
 
-import { Link } from '@tanstack/react-router';
 import type { ColumnDef } from '@/components/entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { WeldbooksListHeader, WeldbooksListRow } from '@/components/accounting/weldbooks-entity-list';
-import { ContactCell, RowAmount, RowDate, RowText, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
+import { RowAmount, RowDate, RowText, StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import type { Dashboard } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { DueThisWeek } from './due-this-week';
 
-type DueInvoice = Dashboard['upcomingDue'][number];
 type RecentPayment = Dashboard['recentPayments'][number];
 
 /** The panel a payment opens: the invoice it was recorded on, else the bill; none for a payment on neither. */
@@ -28,42 +26,13 @@ export function paymentPanelTarget(payment: Pick<RecentPayment, 'invoiceId' | 'b
 export function ActivityLists({ dashboard }: Readonly<{ dashboard: Dashboard }>) {
   const { t } = useI18n();
   const td = t.accounting.dashboard;
-  const tip = t.accounting.invoicesPage;
   // An invoice or bill opens in the shared object panel over the dashboard.
   const { open: openPanel } = useObjectPanel();
   useObjectPanelUrlSync('/weldbooks/dashboard');
   const { formatMoney, formatDate } = useWeldbooksFormat();
-  const invoices = dashboard.upcomingDue ?? [];
   const payments = dashboard.recentPayments ?? [];
   const methodLabels = t.accounting.paymentMethods as Record<string, string>;
   const typeLabels = td.paymentTypes as Record<string, string>;
-
-  const dueColumns: ColumnDef<DueInvoice>[] = [
-    {
-      id: 'number',
-      header: tip.colNumber,
-      width: 'min-w-0 flex-1 gap-2',
-      render: (inv) => <RowTitle>{inv.invoiceNumber ?? '—'}</RowTitle>,
-    },
-    {
-      id: 'contact',
-      header: tip.colContact,
-      width: 'hidden shrink-0 @2xl/list:flex w-[160px]',
-      render: (inv) => <ContactCell name={inv.contactName} />,
-    },
-    {
-      id: 'dueDate',
-      header: tip.colDueDate,
-      width: 'w-[110px] shrink-0',
-      render: (inv) => <RowDate>{formatDate(inv.dueDate)}</RowDate>,
-    },
-    {
-      id: 'balanceDue',
-      header: td.table.amount,
-      width: 'w-[110px] shrink-0',
-      render: (inv) => <RowAmount>{formatMoney(Number(inv.balanceDue ?? 0))}</RowAmount>,
-    },
-  ];
 
   const paymentColumns: ColumnDef<RecentPayment>[] = [
     {
@@ -105,30 +74,7 @@ export function ActivityLists({ dashboard }: Readonly<{ dashboard: Dashboard }>)
   return (
     <div className="@container min-w-0">
       <div className="grid min-w-0 gap-6 @4xl:grid-cols-2">
-        <section className="min-w-0 space-y-3">
-          <h3 className="text-sm font-semibold">
-            <Link to="/weldbooks/invoices" className="hover:underline">
-              {td.charts.dueSoon}
-            </Link>
-          </h3>
-          {invoices.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{td.noUpcomingInvoices}</p>
-          ) : (
-            // A bordered box around the rows; its last row drops its own divider so the bottom edge is one line.
-            <div className="@container/list overflow-hidden rounded-lg border [&>*:last-child]:border-b-0">
-              <WeldbooksListHeader columns={dueColumns} />
-              {invoices.map((inv) => (
-                <WeldbooksListRow
-                  key={inv.id}
-                  item={inv}
-                  columns={dueColumns}
-                  getRowLabel={(i) => i.invoiceNumber ?? tip.colNumber}
-                  onRowClick={(i) => openPanel({ type: 'invoice', id: i.id })}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+        <DueThisWeek dashboard={dashboard} />
 
         <section className="min-w-0 space-y-3">
           <h3 className="text-sm font-semibold">{td.latestPayments}</h3>

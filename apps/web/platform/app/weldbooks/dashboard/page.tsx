@@ -6,6 +6,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { TodaySection } from './components/today-section';
 import { OverviewSection } from './components/overview-section';
 import { ActivityLists } from './components/activity-lists';
+import { TodoCallout } from './components/todo-callout';
 
 /**
  * The WeldBooks dashboard, laid out like Stripe's home: the "Today" block
@@ -29,6 +30,7 @@ export default function AccountingDashboardPage() {
   return (
     <PageColumn className="space-y-14 pt-16 pb-6">
       <UndepositedFundsCallout />
+      <TodoCallout />
       <TodaySection dashboard={dashboard} />
       <OverviewSection dashboard={dashboard} />
       <ActivityLists dashboard={dashboard} />

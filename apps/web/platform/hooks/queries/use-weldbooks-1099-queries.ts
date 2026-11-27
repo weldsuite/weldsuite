@@ -189,6 +189,39 @@ export function useInfiniteSupplierContacts(
   });
 }
 
+/**
+ * The one Contacts list, a page at a time: every contact, or only a role's (a
+ * customer or supplier list includes the contacts that are both). The rows
+ * carry the vendor tax fields, shown where the jurisdiction has 1099s.
+ */
+export function useInfiniteContacts(
+  options: {
+    search?: string;
+    role?: 'customer' | 'supplier' | 'both';
+    kind?: 'company' | 'person';
+    only1099?: boolean;
+    archived?: 'only' | 'include';
+  } = {},
+) {
+  return useInfiniteQuery({
+    queryKey: [...accountingKeys.customers.lists(), 'contacts', options, 'infinite'] as const,
+    queryFn: ({ pageParam }) =>
+      vendorTaxApi.listContacts({
+        role: options.role,
+        kind: options.kind,
+        search: options.search || undefined,
+        is1099Vendor: options.only1099 ? true : undefined,
+        archived: options.archived,
+        page: pageParam,
+        pageSize: LIST_PAGE_SIZE,
+      }),
+    initialPageParam: 1,
+    getNextPageParam: nextPageParam,
+    select: selectRows,
+    placeholderData: keepPreviousData,
+  });
+}
+
 // ============================================================================
 // TIN matching
 // ============================================================================

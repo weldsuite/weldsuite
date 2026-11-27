@@ -11,6 +11,7 @@ import { useWorkspaceId } from '@/contexts/workspace-context';
 import { accountingEntitiesQueryKey } from '@/hooks/use-current-entity-currency';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import { resetEntityScopedAccountingQueries } from '@/hooks/queries/use-accounting-queries';
+import { useInvalidateTodoWithAccounting } from '@/hooks/queries/use-weldbooks-todo-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { EntityPermissionScope } from '@/components/legal-entity/entity-permission-scope';
 
@@ -83,6 +84,8 @@ export function AccountingLayoutClient({ children }: Readonly<{ children: React.
   const tl = t.accounting.layout;
   const workspaceId = useWorkspaceId();
   useResetAccountingDataOnEntityChange();
+  // The to-process counts follow every change to the records they count.
+  useInvalidateTodoWithAccounting();
 
   const {
     data: entities,
