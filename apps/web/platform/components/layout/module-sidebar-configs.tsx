@@ -663,6 +663,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
             { title: nav.inbox, href: '/weldbooks/documents', icon: FileSearch },
             { title: nav.billsAndReceipts, href: '/weldbooks/bills', icon: CreditCard },
             { title: nav.receivedNfe, href: '/weldbooks/received-nfe', icon: FileInput },
+            // Only where the edition serves SEPA batches (`books-sepa-batches`; the route guard hides it elsewhere).
+            { title: nav.payBills, href: '/weldbooks/purchases/pay', icon: Send },
             { title: nav.paymentRuns, href: '/weldbooks/payment-runs', icon: Banknote },
           ],
         },

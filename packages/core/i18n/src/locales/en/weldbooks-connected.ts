@@ -55,6 +55,11 @@ export const weldbooksConnected = {
         title: 'Unapplied credit',
         action: 'View unapplied credit',
       },
+      missing_receipts: {
+        title: 'Missing receipts',
+        summary: { one: '1 expense without a receipt', other: '{count} expenses without a receipt' },
+        action: { one: 'Add the receipt', other: 'Add receipts' },
+      },
     },
     hints: {
       possible_match: 'Possible match found',
@@ -70,6 +75,7 @@ export const weldbooksConnected = {
       reauth_required: 'Reconnect needed',
       consent_expiring: 'Consent expires soon',
       unapplied_credit: 'Unapplied credit',
+      missing_receipt: 'No receipt yet',
     },
     severity: {
       info: 'For your information',
@@ -232,6 +238,7 @@ export const weldbooksConnected = {
       documents: 'Linked to the documents you picked.',
       documentsRounding: 'Linked to the documents. {amount} was booked to rounding.',
       receipt: 'Receipt attached.',
+      receiptBooked: 'Receipt booked and linked to the line.',
       undone: 'Undone. The line is back in To process.',
       undo: 'Undo',
       failed: 'That did not work.',

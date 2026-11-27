@@ -22,6 +22,7 @@ import { accountingApi, type AccountingEntity } from '@/lib/api/domains/weldbook
 import type { JurisdictionFeatures } from '@/lib/weldbooks/jurisdiction';
 import { useI18n } from '@/lib/i18n/provider';
 import { DifferencesCard } from './components/differences-card';
+import { EntityInboxCard } from './components/entity-inbox-card';
 import { LedgerCatchUpCard } from './components/ledger-catch-up-card';
 import { FiscalSettingsCard } from './components/fiscal-settings-card';
 import { useSelectWeldbooksEntity } from './entity-scope';
@@ -288,7 +289,8 @@ export function WeldbooksEntitySettings({
       {/* Rust only: the Global backend has no payment-difference settings. */}
       {isFeatureAvailable('books-bank-processing') && <DifferencesCard />}
 
-      <EmailInboxCard emailSettings={emailSettings} />
+      {/* Rust: an inbox address per entity, read when documents arrive. Global keeps the one registered scan inbox. */}
+      {isFeatureAvailable('books-receipts') ? <EntityInboxCard entityId={entity.id} /> : <EmailInboxCard emailSettings={emailSettings} />}
 
       <SeedDataCard />
 

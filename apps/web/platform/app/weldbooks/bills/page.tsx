@@ -12,6 +12,7 @@ import {
 } from '@/components/entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useI18n } from '@/lib/i18n/provider';
+import { PaymentPendingChip } from '@/components/accounting/payment-pending-chip';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { applyExclusions, pillValue } from '@/lib/weldbooks/list-filters';
 import { BILL_VIEWS, isBillDue, isOpenBill, useFillFilteredList } from '@/lib/weldbooks/list-views';
@@ -132,8 +133,13 @@ export default function BillsPage() {
       id: 'status',
       header: tbp.colStatus,
       // On a phone the number and the total get the row; the status shows from 512px of list width.
-      width: 'hidden shrink-0 @lg/list:flex w-[110px]',
-      render: (bill) => <StatusChip status={bill.status}>{tsl[bill.status] ?? bill.status}</StatusChip>,
+      width: 'hidden shrink-0 @lg/list:flex w-[220px]',
+      render: (bill) => (
+        <span className="flex flex-wrap items-center gap-1">
+          <StatusChip status={bill.status}>{tsl[bill.status] ?? bill.status}</StatusChip>
+          <PaymentPendingChip billId={bill.id} status={bill.status} />
+        </span>
+      ),
     },
   ];
 

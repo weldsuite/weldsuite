@@ -629,8 +629,10 @@ export function ProcessView() {
                   <ReceiptForm
                     key={selectedLine.id}
                     lineId={selectedLine.id}
+                    lineDate={selectedLine.date}
                     onBookNow={() => setMode('category')}
                     onClose={() => setMode(null)}
+                    onBooked={() => finish(selectedLine, tr.receiptBooked, 'documents')}
                   />
                 ) : null}
                 {!selectedDone && mode === 'transfer' ? (

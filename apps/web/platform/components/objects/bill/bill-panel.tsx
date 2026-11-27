@@ -35,6 +35,7 @@ import { useObjectPanelShell, type ObjectPanelComponentProps } from '@/component
 import { usePanelInitialTab } from '@/components/objects/_shared/use-panel-initial-tab';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { StatusChip } from '@/components/accounting/weldbooks-row-cells';
+import { PaymentPendingChip } from '@/components/accounting/payment-pending-chip';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import { useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
 import { useAccountingBill, useDeleteBill } from '@/hooks/queries/use-accounting-queries';
@@ -65,6 +66,7 @@ function BillTitle({
     <div className="flex min-w-0 items-center gap-2">
       <span className="relative top-px truncate text-[15px] font-medium text-foreground">{bill.billNumber ?? fallback}</span>
       <StatusChip status={chipStatus}>{statusLabels[chipStatus] ?? chipStatus}</StatusChip>
+      <PaymentPendingChip billId={bill.id} status={bill.status} />
     </div>
   );
 }

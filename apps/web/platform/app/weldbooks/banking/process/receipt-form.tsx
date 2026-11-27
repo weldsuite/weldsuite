@@ -1,8 +1,9 @@
 /**
- * "Add a receipt": pick an unlinked inbox document or upload a file, then link
- * it to the bank line. Linking books nothing (booking the receipt itself comes
- * with the bills of phase 3), so once it is attached the form offers
- * "Book it to a category" right away.
+ * "Add a receipt": pick an unlinked inbox document or upload a file. Where the
+ * edition books documents (`books-receipts`) that books it as a receipt paid
+ * with this bank line, from the scan and the supplier's history: one step, and
+ * the line is done. Elsewhere it only links the document to the line, so once
+ * it is attached the form offers "Book it to a category" right away.
  */
 
 import { useId, useMemo, useRef, useState } from 'react';
@@ -11,28 +12,48 @@ import { Button } from '@weldsuite/ui/components/button';
 import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
 import { SearchInput } from '@weldsuite/ui/components/search-input';
 import { Label } from '@weldsuite/ui/components/label';
-import { useAttachDocumentToBankLine, useUnlinkedInboxDocuments } from '@/hooks/queries/use-weldbooks-processing-queries';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  invalidateAfterProcessing,
+  useAttachDocumentToBankLine,
+  useUnlinkedInboxDocuments,
+} from '@/hooks/queries/use-weldbooks-processing-queries';
+import { isReceiptsAvailable, useBookDocument } from '@/hooks/queries/use-weldbooks-receipts-queries';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
+import { receiptsApi } from '@/lib/api/domains/weldbooks-receipts';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useI18n } from '@/lib/i18n/provider';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { receiptBookInput } from './receipt-booking';
 
 const ACCEPTED_TYPES = 'application/pdf,.pdf,image/jpeg,image/jpg,image/png,image/webp';
 
 export interface ReceiptFormProps {
   lineId: string;
+  /** The bank line's date: the receipt's date when the scan read none. */
+  lineDate?: string;
   onBookNow: () => void;
   onClose: () => void;
   /** Called once a document is linked (the queue and counts refresh). */
   onAttached?: (fileName: string) => void;
+  /** Called once the document is booked as a receipt and the line is done (`books-receipts`). */
+  onBooked?: (fileName: string) => void;
 }
 
 function messageOf(error: unknown): string | null {
   return error instanceof Error && error.message ? error.message : null;
 }
 
-export function ReceiptForm({ lineId, onBookNow, onClose, onAttached }: Readonly<ReceiptFormProps>) {
+export function ReceiptForm({ lineId, lineDate, onBookNow, onClose, onAttached, onBooked }: Readonly<ReceiptFormProps>) {
   const { t } = useI18n();
   const tr = t.weldbooksConnected.processing.receipt;
+  const trb = t.weldbooksReceipts.receiptBooking;
+  const books = isReceiptsAvailable();
+  const qc = useQueryClient();
+  const { today } = useWeldbooksFormat();
+  const bookDocument = useBookDocument();
+  const [booking, setBooking] = useState<string | null>(null);
   const ids = useId();
   const [search, setSearch] = useState('');
   const [attached, setAttached] = useState<string | null>(null);
@@ -63,6 +84,30 @@ export function ReceiptForm({ lineId, onBookNow, onClose, onAttached }: Readonly
     );
   };
 
+  /** Books the document as a receipt paid with this line, or says why it cannot be done in one step. */
+  const bookIt = async (documentId: string, fileName: string): Promise<boolean> => {
+    setProblem(null);
+    setBooking(documentId);
+    try {
+      const prefill = (await receiptsApi.getPrefill(documentId)).data;
+      const plan = receiptBookInput(prefill, lineId, lineDate ?? today());
+      if (!plan.ok) {
+        setProblem(plan.problem === 'noSupplier' ? trb.noSupplier : trb.noLines);
+        return false;
+      }
+      await bookDocument.mutateAsync({ id: documentId, input: plan.input });
+      invalidateAfterProcessing(qc);
+      setAttached(fileName);
+      onBooked?.(fileName);
+      return true;
+    } catch (error) {
+      setProblem(messageOf(error) ?? trb.failed);
+      return false;
+    } finally {
+      setBooking(null);
+    }
+  };
+
   const upload = async (file: File) => {
     setProblem(null);
     setUploading(true);
@@ -84,7 +129,13 @@ export function ReceiptForm({ lineId, onBookNow, onClose, onAttached }: Readonly
         setProblem(tr.uploadFailed);
         return;
       }
-      link(documentId, uploaded.fileName);
+      if (books) {
+        // The scan has to be read before the receipt can be booked from it.
+        if (isFeatureAvailable('books-ocr')) await accountingApi.processDocument(documentId);
+        await bookIt(documentId, uploaded.fileName);
+      } else {
+        link(documentId, uploaded.fileName);
+      }
     } catch (error) {
       setProblem(messageOf(error) ?? tr.uploadFailed);
     } finally {
@@ -97,13 +148,15 @@ export function ReceiptForm({ lineId, onBookNow, onClose, onAttached }: Readonly
       <div className="space-y-3 rounded-xl border border-emerald-300/60 bg-emerald-50/60 p-5 dark:border-emerald-900 dark:bg-emerald-950/30" role="status" data-testid="receipt-attached">
         <p className="flex items-center gap-2 text-sm font-medium text-emerald-900 dark:text-emerald-200">
           <CheckCircle2 className="h-4 w-4" aria-hidden />
-          {tr.attached}
+          {books ? trb.booked : tr.attached}
         </p>
-        <p className="text-xs text-muted-foreground">{tr.bookNowHint}</p>
+        {books ? null : <p className="text-xs text-muted-foreground">{tr.bookNowHint}</p>}
         <div className="flex items-center gap-2">
-          <Button type="button" onClick={onBookNow} data-testid="receipt-book-now">
-            {tr.bookNow}
-          </Button>
+          {books ? null : (
+            <Button type="button" onClick={onBookNow} data-testid="receipt-book-now">
+              {tr.bookNow}
+            </Button>
+          )}
           <Button type="button" variant="ghost" onClick={onClose}>
             {tr.close}
           </Button>
@@ -118,7 +171,7 @@ export function ReceiptForm({ lineId, onBookNow, onClose, onAttached }: Readonly
         <h3 id={`${ids}-title`} className="text-sm font-semibold">
           {tr.title}
         </h3>
-        <p className="text-xs text-muted-foreground">{tr.hint}</p>
+        <p className="text-xs text-muted-foreground">{books ? trb.hint : tr.hint}</p>
       </div>
 
       <div className="space-y-1">
@@ -149,12 +202,14 @@ export function ReceiptForm({ lineId, onBookNow, onClose, onAttached }: Readonly
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={attach.isPending}
-                onClick={() => link(doc.id, doc.fileName)}
-                aria-label={tr.attach.replace('{name}', doc.fileName)}
+                disabled={attach.isPending || booking !== null}
+                onClick={() => (books ? void bookIt(doc.id, doc.fileName) : link(doc.id, doc.fileName))}
+                aria-label={books ? `${trb.book}: ${doc.fileName}` : tr.attach.replace('{name}', doc.fileName)}
               >
-                {attach.isPending && attach.variables?.documentId === doc.id ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : null}
-                {tr.attachShort}
+                {(attach.isPending && attach.variables?.documentId === doc.id) || booking === doc.id ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden />
+                ) : null}
+                {books ? (booking === doc.id ? trb.booking : trb.book) : tr.attachShort}
               </Button>
             </li>
           ))}
@@ -176,9 +231,9 @@ export function ReceiptForm({ lineId, onBookNow, onClose, onAttached }: Readonly
             if (file) void upload(file);
           }}
         />
-        <Button type="button" variant="outline" size="sm" disabled={uploading} onClick={() => fileInput.current?.click()}>
+        <Button type="button" variant="outline" size="sm" disabled={uploading || booking !== null} onClick={() => fileInput.current?.click()}>
           {uploading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : <Upload className="h-4 w-4" />}
-          {uploading ? tr.uploading : tr.upload}
+          {uploading ? tr.uploading : books ? trb.uploadAndBook : tr.upload}
         </Button>
         <Button type="button" variant="ghost" size="sm" onClick={onClose}>
           {t.weldbooksConnected.processing.category.cancel}

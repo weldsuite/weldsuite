@@ -443,6 +443,7 @@ import { Route as WeldbooksReportsAgedReceivablesIndexRouteImport } from './rout
 import { Route as WeldbooksReportsAgedPayablesIndexRouteImport } from './routes/weldbooks/reports/aged-payables/index'
 import { Route as WeldbooksRecurringAddIndexRouteImport } from './routes/weldbooks/recurring/add/index'
 import { Route as WeldbooksRecurringIdIndexRouteImport } from './routes/weldbooks/recurring/$id/index'
+import { Route as WeldbooksPurchasesPayIndexRouteImport } from './routes/weldbooks/purchases/pay/index'
 import { Route as WeldbooksPayrollImportIndexRouteImport } from './routes/weldbooks/payroll/import/index'
 import { Route as WeldbooksPayrollConnectionsIndexRouteImport } from './routes/weldbooks/payroll/connections/index'
 import { Route as WeldbooksPayrollIdIndexRouteImport } from './routes/weldbooks/payroll/$id/index'
@@ -597,6 +598,7 @@ import { Route as WeldbooksInvoicesIdEditIndexRouteImport } from './routes/weldb
 import { Route as WeldbooksForm1099FilingsIdIndexRouteImport } from './routes/weldbooks/form-1099/filings/$id/index'
 import { Route as WeldbooksFixedAssetsIdEditIndexRouteImport } from './routes/weldbooks/fixed-assets/$id/edit/index'
 import { Route as WeldbooksEntitiesIdEditIndexRouteImport } from './routes/weldbooks/entities/$id/edit/index'
+import { Route as WeldbooksDocumentsIdReviewIndexRouteImport } from './routes/weldbooks/documents/$id/review/index'
 import { Route as WeldbooksCustomersIdEditIndexRouteImport } from './routes/weldbooks/customers/$id/edit/index'
 import { Route as WeldbooksBillsIdEditIndexRouteImport } from './routes/weldbooks/bills/$id/edit/index'
 import { Route as WeldbooksBankingStatementsIdIndexRouteImport } from './routes/weldbooks/banking/statements/$id/index'
@@ -2949,6 +2951,12 @@ const WeldbooksRecurringIdIndexRoute =
     path: '/recurring/$id/',
     getParentRoute: () => WeldbooksRouteRoute,
   } as any)
+const WeldbooksPurchasesPayIndexRoute =
+  WeldbooksPurchasesPayIndexRouteImport.update({
+    id: '/purchases/pay/',
+    path: '/purchases/pay/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
 const WeldbooksPayrollImportIndexRoute =
   WeldbooksPayrollImportIndexRouteImport.update({
     id: '/payroll/import/',
@@ -3865,6 +3873,12 @@ const WeldbooksEntitiesIdEditIndexRoute =
     path: '/entities/$id/edit/',
     getParentRoute: () => WeldbooksRouteRoute,
   } as any)
+const WeldbooksDocumentsIdReviewIndexRoute =
+  WeldbooksDocumentsIdReviewIndexRouteImport.update({
+    id: '/documents/$id/review/',
+    path: '/documents/$id/review/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
 const WeldbooksCustomersIdEditIndexRoute =
   WeldbooksCustomersIdEditIndexRouteImport.update({
     id: '/customers/$id/edit/',
@@ -4719,6 +4733,7 @@ export interface FileRoutesByFullPath {
   '/weldbooks/payroll/$id/': typeof WeldbooksPayrollIdIndexRoute
   '/weldbooks/payroll/connections/': typeof WeldbooksPayrollConnectionsIndexRoute
   '/weldbooks/payroll/import/': typeof WeldbooksPayrollImportIndexRoute
+  '/weldbooks/purchases/pay/': typeof WeldbooksPurchasesPayIndexRoute
   '/weldbooks/recurring/$id/': typeof WeldbooksRecurringIdIndexRoute
   '/weldbooks/recurring/add/': typeof WeldbooksRecurringAddIndexRoute
   '/weldbooks/reports/aged-payables/': typeof WeldbooksReportsAgedPayablesIndexRoute
@@ -4826,6 +4841,7 @@ export interface FileRoutesByFullPath {
   '/weldbooks/banking/statements/$id/': typeof WeldbooksBankingStatementsIdIndexRoute
   '/weldbooks/bills/$id/edit/': typeof WeldbooksBillsIdEditIndexRoute
   '/weldbooks/customers/$id/edit/': typeof WeldbooksCustomersIdEditIndexRoute
+  '/weldbooks/documents/$id/review/': typeof WeldbooksDocumentsIdReviewIndexRoute
   '/weldbooks/entities/$id/edit/': typeof WeldbooksEntitiesIdEditIndexRoute
   '/weldbooks/fixed-assets/$id/edit/': typeof WeldbooksFixedAssetsIdEditIndexRoute
   '/weldbooks/form-1099/filings/$id/': typeof WeldbooksForm1099FilingsIdIndexRoute
@@ -5315,6 +5331,7 @@ export interface FileRoutesByTo {
   '/weldbooks/payroll/$id': typeof WeldbooksPayrollIdIndexRoute
   '/weldbooks/payroll/connections': typeof WeldbooksPayrollConnectionsIndexRoute
   '/weldbooks/payroll/import': typeof WeldbooksPayrollImportIndexRoute
+  '/weldbooks/purchases/pay': typeof WeldbooksPurchasesPayIndexRoute
   '/weldbooks/recurring/$id': typeof WeldbooksRecurringIdIndexRoute
   '/weldbooks/recurring/add': typeof WeldbooksRecurringAddIndexRoute
   '/weldbooks/reports/aged-payables': typeof WeldbooksReportsAgedPayablesIndexRoute
@@ -5421,6 +5438,7 @@ export interface FileRoutesByTo {
   '/weldbooks/banking/statements/$id': typeof WeldbooksBankingStatementsIdIndexRoute
   '/weldbooks/bills/$id/edit': typeof WeldbooksBillsIdEditIndexRoute
   '/weldbooks/customers/$id/edit': typeof WeldbooksCustomersIdEditIndexRoute
+  '/weldbooks/documents/$id/review': typeof WeldbooksDocumentsIdReviewIndexRoute
   '/weldbooks/entities/$id/edit': typeof WeldbooksEntitiesIdEditIndexRoute
   '/weldbooks/fixed-assets/$id/edit': typeof WeldbooksFixedAssetsIdEditIndexRoute
   '/weldbooks/form-1099/filings/$id': typeof WeldbooksForm1099FilingsIdIndexRoute
@@ -5971,6 +5989,7 @@ export interface FileRoutesById {
   '/weldbooks/payroll/$id/': typeof WeldbooksPayrollIdIndexRoute
   '/weldbooks/payroll/connections/': typeof WeldbooksPayrollConnectionsIndexRoute
   '/weldbooks/payroll/import/': typeof WeldbooksPayrollImportIndexRoute
+  '/weldbooks/purchases/pay/': typeof WeldbooksPurchasesPayIndexRoute
   '/weldbooks/recurring/$id/': typeof WeldbooksRecurringIdIndexRoute
   '/weldbooks/recurring/add/': typeof WeldbooksRecurringAddIndexRoute
   '/weldbooks/reports/aged-payables/': typeof WeldbooksReportsAgedPayablesIndexRoute
@@ -6078,6 +6097,7 @@ export interface FileRoutesById {
   '/weldbooks/banking/statements/$id/': typeof WeldbooksBankingStatementsIdIndexRoute
   '/weldbooks/bills/$id/edit/': typeof WeldbooksBillsIdEditIndexRoute
   '/weldbooks/customers/$id/edit/': typeof WeldbooksCustomersIdEditIndexRoute
+  '/weldbooks/documents/$id/review/': typeof WeldbooksDocumentsIdReviewIndexRoute
   '/weldbooks/entities/$id/edit/': typeof WeldbooksEntitiesIdEditIndexRoute
   '/weldbooks/fixed-assets/$id/edit/': typeof WeldbooksFixedAssetsIdEditIndexRoute
   '/weldbooks/form-1099/filings/$id/': typeof WeldbooksForm1099FilingsIdIndexRoute
@@ -6629,6 +6649,7 @@ export interface FileRouteTypes {
     | '/weldbooks/payroll/$id/'
     | '/weldbooks/payroll/connections/'
     | '/weldbooks/payroll/import/'
+    | '/weldbooks/purchases/pay/'
     | '/weldbooks/recurring/$id/'
     | '/weldbooks/recurring/add/'
     | '/weldbooks/reports/aged-payables/'
@@ -6736,6 +6757,7 @@ export interface FileRouteTypes {
     | '/weldbooks/banking/statements/$id/'
     | '/weldbooks/bills/$id/edit/'
     | '/weldbooks/customers/$id/edit/'
+    | '/weldbooks/documents/$id/review/'
     | '/weldbooks/entities/$id/edit/'
     | '/weldbooks/fixed-assets/$id/edit/'
     | '/weldbooks/form-1099/filings/$id/'
@@ -7225,6 +7247,7 @@ export interface FileRouteTypes {
     | '/weldbooks/payroll/$id'
     | '/weldbooks/payroll/connections'
     | '/weldbooks/payroll/import'
+    | '/weldbooks/purchases/pay'
     | '/weldbooks/recurring/$id'
     | '/weldbooks/recurring/add'
     | '/weldbooks/reports/aged-payables'
@@ -7331,6 +7354,7 @@ export interface FileRouteTypes {
     | '/weldbooks/banking/statements/$id'
     | '/weldbooks/bills/$id/edit'
     | '/weldbooks/customers/$id/edit'
+    | '/weldbooks/documents/$id/review'
     | '/weldbooks/entities/$id/edit'
     | '/weldbooks/fixed-assets/$id/edit'
     | '/weldbooks/form-1099/filings/$id'
@@ -7880,6 +7904,7 @@ export interface FileRouteTypes {
     | '/weldbooks/payroll/$id/'
     | '/weldbooks/payroll/connections/'
     | '/weldbooks/payroll/import/'
+    | '/weldbooks/purchases/pay/'
     | '/weldbooks/recurring/$id/'
     | '/weldbooks/recurring/add/'
     | '/weldbooks/reports/aged-payables/'
@@ -7987,6 +8012,7 @@ export interface FileRouteTypes {
     | '/weldbooks/banking/statements/$id/'
     | '/weldbooks/bills/$id/edit/'
     | '/weldbooks/customers/$id/edit/'
+    | '/weldbooks/documents/$id/review/'
     | '/weldbooks/entities/$id/edit/'
     | '/weldbooks/fixed-assets/$id/edit/'
     | '/weldbooks/form-1099/filings/$id/'
@@ -11191,6 +11217,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldbooksRecurringIdIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
+    '/weldbooks/purchases/pay/': {
+      id: '/weldbooks/purchases/pay/'
+      path: '/purchases/pay'
+      fullPath: '/weldbooks/purchases/pay/'
+      preLoaderRoute: typeof WeldbooksPurchasesPayIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
     '/weldbooks/payroll/import/': {
       id: '/weldbooks/payroll/import/'
       path: '/payroll/import'
@@ -12269,6 +12302,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldbooksEntitiesIdEditIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
+    '/weldbooks/documents/$id/review/': {
+      id: '/weldbooks/documents/$id/review/'
+      path: '/documents/$id/review'
+      fullPath: '/weldbooks/documents/$id/review/'
+      preLoaderRoute: typeof WeldbooksDocumentsIdReviewIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
     '/weldbooks/customers/$id/edit/': {
       id: '/weldbooks/customers/$id/edit/'
       path: '/customers/$id/edit'
@@ -13144,6 +13184,7 @@ interface WeldbooksRouteRouteChildren {
   WeldbooksPayrollIdIndexRoute: typeof WeldbooksPayrollIdIndexRoute
   WeldbooksPayrollConnectionsIndexRoute: typeof WeldbooksPayrollConnectionsIndexRoute
   WeldbooksPayrollImportIndexRoute: typeof WeldbooksPayrollImportIndexRoute
+  WeldbooksPurchasesPayIndexRoute: typeof WeldbooksPurchasesPayIndexRoute
   WeldbooksRecurringIdIndexRoute: typeof WeldbooksRecurringIdIndexRoute
   WeldbooksRecurringAddIndexRoute: typeof WeldbooksRecurringAddIndexRoute
   WeldbooksReportsAgedPayablesIndexRoute: typeof WeldbooksReportsAgedPayablesIndexRoute
@@ -13165,6 +13206,7 @@ interface WeldbooksRouteRouteChildren {
   WeldbooksBankingStatementsIdIndexRoute: typeof WeldbooksBankingStatementsIdIndexRoute
   WeldbooksBillsIdEditIndexRoute: typeof WeldbooksBillsIdEditIndexRoute
   WeldbooksCustomersIdEditIndexRoute: typeof WeldbooksCustomersIdEditIndexRoute
+  WeldbooksDocumentsIdReviewIndexRoute: typeof WeldbooksDocumentsIdReviewIndexRoute
   WeldbooksEntitiesIdEditIndexRoute: typeof WeldbooksEntitiesIdEditIndexRoute
   WeldbooksFixedAssetsIdEditIndexRoute: typeof WeldbooksFixedAssetsIdEditIndexRoute
   WeldbooksForm1099FilingsIdIndexRoute: typeof WeldbooksForm1099FilingsIdIndexRoute
@@ -13249,6 +13291,7 @@ const WeldbooksRouteRouteChildren: WeldbooksRouteRouteChildren = {
   WeldbooksPayrollIdIndexRoute: WeldbooksPayrollIdIndexRoute,
   WeldbooksPayrollConnectionsIndexRoute: WeldbooksPayrollConnectionsIndexRoute,
   WeldbooksPayrollImportIndexRoute: WeldbooksPayrollImportIndexRoute,
+  WeldbooksPurchasesPayIndexRoute: WeldbooksPurchasesPayIndexRoute,
   WeldbooksRecurringIdIndexRoute: WeldbooksRecurringIdIndexRoute,
   WeldbooksRecurringAddIndexRoute: WeldbooksRecurringAddIndexRoute,
   WeldbooksReportsAgedPayablesIndexRoute:
@@ -13279,6 +13322,7 @@ const WeldbooksRouteRouteChildren: WeldbooksRouteRouteChildren = {
     WeldbooksBankingStatementsIdIndexRoute,
   WeldbooksBillsIdEditIndexRoute: WeldbooksBillsIdEditIndexRoute,
   WeldbooksCustomersIdEditIndexRoute: WeldbooksCustomersIdEditIndexRoute,
+  WeldbooksDocumentsIdReviewIndexRoute: WeldbooksDocumentsIdReviewIndexRoute,
   WeldbooksEntitiesIdEditIndexRoute: WeldbooksEntitiesIdEditIndexRoute,
   WeldbooksFixedAssetsIdEditIndexRoute: WeldbooksFixedAssetsIdEditIndexRoute,
   WeldbooksForm1099FilingsIdIndexRoute: WeldbooksForm1099FilingsIdIndexRoute,

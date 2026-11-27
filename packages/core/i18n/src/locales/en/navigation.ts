@@ -370,6 +370,7 @@ export const navigation = {
         receivedNfe: 'Received NF-e',
         taxCalendar: 'Tax Calendar',
         paymentRuns: 'Payment Runs',
+        payBills: 'Pay bills',
         deposits: 'Deposits',
         statementReconciliation: 'Statement Reconciliation',
         bankFeeds: 'Bank feeds',

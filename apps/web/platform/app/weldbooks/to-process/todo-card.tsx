@@ -26,7 +26,7 @@ import { Link, useRouter } from '@/lib/router';
 import { toPublicPath } from '@/lib/workspace-url-rewrite';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { cn } from '@/lib/utils';
-import { todoHintLabel, todoItemTarget, todoKindAction, todoKindTitle } from './todo-targets';
+import { todoHintLabel, todoItemTarget, todoKindAction, todoKindSummary, todoKindTitle } from './todo-targets';
 
 const SEVERITY_TONE: Record<TodoSeverity, RecordChipTone> = {
   info: 'info',
@@ -175,6 +175,7 @@ export function TodoCard({ kind, summary }: Readonly<{ kind: TodoKind; summary: 
   const top = useTodoTopItems(kind, TODO_TOP_LIMIT);
   const action = todoKindAction(kind, summary.count, top.data ?? [], copy);
   const title = todoKindTitle(kind, copy);
+  const kindSummary = todoKindSummary(kind, summary.count, copy);
   const headingId = `todo-${kind}`;
   const canExpand = summary.count > TODO_TOP_LIMIT;
 
@@ -190,6 +191,11 @@ export function TodoCard({ kind, summary }: Readonly<{ kind: TodoKind; summary: 
               {summary.count}
             </span>
           </div>
+          {kindSummary ? (
+            <p className="text-sm text-muted-foreground" data-testid="todo-kind-summary">
+              {kindSummary}
+            </p>
+          ) : null}
           {summary.amount ? (
             <p className="text-sm text-muted-foreground tabular-nums">{formatMoney(summary.amount, summary.currency)}</p>
           ) : null}

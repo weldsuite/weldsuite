@@ -97,6 +97,21 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldbooks/to-process')).toBe(false);
   });
 
+  it('hides the document review screen and Pay bills on Global, keeps the inbox itself, and offers them on Rust', () => {
+    expect(routeRequirement('/weldbooks/documents/doc_1/review')).toEqual({ modules: ['books'], feature: 'books-receipts' });
+    expect(routeRequirement('/weldbooks/purchases/pay')).toEqual({ modules: ['books'], feature: 'books-sepa-batches' });
+    expect(isRouteOffered('/weldbooks/documents/doc_1/review')).toBe(false);
+    expect(isRouteOffered('/weldbooks/purchases/pay')).toBe(false);
+    // The inbox page keeps today's dialog and create-bill flow on Global.
+    expect(isRouteOffered('/weldbooks/documents')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
+    expect(isRouteOffered('/weldbooks/documents/doc_1/review')).toBe(true);
+    expect(isRouteOffered('/weldbooks/purchases/pay')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: ['books-receipts', 'books-sepa-batches'] });
+    expect(isRouteOffered('/weldbooks/documents/doc_1/review')).toBe(false);
+    expect(isRouteOffered('/weldbooks/purchases/pay')).toBe(false);
+  });
+
   it('hides WeldPass settings (the offline copy) on Global and offers them on Rust (ADR PASS-010)', () => {
     expect(routeRequirement('/settings/apps/weldpass')).toEqual({ modules: ['pass'], feature: 'weldpass-offline' });
     // Global has no runtime config: GLOBAL_UNAVAILABLE_FEATURES lists the feature.

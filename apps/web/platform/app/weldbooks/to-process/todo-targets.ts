@@ -25,12 +25,16 @@ export type TodoItemTarget =
 
 /**
  * How an item opens. Records with a panel stack it; an inbox document opens
- * its dialog on the documents page (`?document=`); a payment (unapplied credit)
+ * the review screen where the edition has it (`books-receipts`), else its
+ * dialog on the documents page (`?document=`); a payment (unapplied credit)
  * opens its contact on the Credit tab, where it is applied.
  */
 export function todoItemTarget(item: Pick<TodoItem, 'objectType' | 'objectId'>): TodoItemTarget {
   if (PANEL_TYPES.has(item.objectType)) return { kind: 'panel', type: item.objectType, id: item.objectId };
   if (item.objectType === 'accounting_document') {
+    if (isFeatureAvailable('books-receipts')) {
+      return { kind: 'page', href: `/weldbooks/documents/${encodeURIComponent(item.objectId)}/review` };
+    }
     return { kind: 'page', href: withQuery('/weldbooks/documents', `document=${encodeURIComponent(item.objectId)}`) };
   }
   if (item.objectType === 'payment') return { kind: 'credit', paymentId: item.objectId };
@@ -81,6 +85,11 @@ export function todoKindAction(
       return { label: label(copy.kinds.bank_feeds.action), href: '/weldbooks/banking/feeds' };
     case 'duplicates':
       return { label: label(copy.kinds.duplicates.action), href: '/weldbooks/banking/transactions' };
+    case 'missing_receipts':
+      return {
+        label: label(copy.kinds.missing_receipts.action),
+        href: isFeatureAvailable('books-bank-processing') ? '/weldbooks/banking/process' : '/weldbooks/banking/transactions',
+      };
     case 'unapplied_credit':
       return null;
   }
@@ -95,4 +104,10 @@ export function todoHintLabel(hint: string | null, copy: TodoCopy): string | nul
 /** The translated name of a kind. */
 export function todoKindTitle(kind: TodoKind, copy: TodoCopy): string {
   return copy.kinds[kind].title;
+}
+
+/** The line under a card's title that says what the count counts, for the kinds that have one. */
+export function todoKindSummary(kind: TodoKind, count: number, copy: TodoCopy): string | null {
+  if (kind !== 'missing_receipts') return null;
+  return plural(count, copy.kinds.missing_receipts.summary, getLocale());
 }

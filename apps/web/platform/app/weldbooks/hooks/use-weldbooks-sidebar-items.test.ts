@@ -182,7 +182,7 @@ describe('the owner-first menu', () => {
     const titles = (group: string) => adjust().find((g) => g.group === group)?.items.map((i) => i.title);
     const g = en.navigation.moduleSidebar.groups;
     expect(titles(g.sales)).toEqual(['Invoices', 'Recurring']);
-    expect(titles(g.purchases)).toEqual(['Inbox', 'Bills & receipts']);
+    expect(titles(g.purchases)).toEqual(['Inbox', 'Bills & receipts', 'Pay bills']);
     expect(titles(g.bank)).toEqual(['Transactions', 'Accounts', 'Rules', 'Reconciliation', 'Import', 'Bank feeds']);
     expect(titles(g.contacts)).toEqual(['Contacts']);
     expect(titles(g.reports)).toEqual([

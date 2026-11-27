@@ -119,6 +119,9 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   ['/weldstash/shipments', { modules: ['stash'], feature: 'stash-shipping' }],
   // WeldBooks' to-process list and counts (`/api/accounting-todo`) are built only in Rust.
   ['/weldbooks/to-process', { modules: ['books'], feature: 'books-todo' }],
+  // WeldBooks' review screen for an inbox document and the SEPA payment files (Pay bills) are built only in Rust.
+  ['/weldbooks/documents/', { modules: ['books'], feature: 'books-receipts' }],
+  ['/weldbooks/purchases/pay', { modules: ['books'], feature: 'books-sepa-batches' }],
   // WeldPass's settings (the offline copy and its devices) exist only on the Rust backend (ADR PASS-010).
   ['/settings/apps/weldpass', { modules: ['pass'], feature: 'weldpass-offline' }],
 ];

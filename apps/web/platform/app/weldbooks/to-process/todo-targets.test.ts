@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { en } from '@weldsuite/i18n/locales/en';
 import { nl } from '@weldsuite/i18n/locales/nl';
 import { TODO_KINDS } from '@/lib/api/domains/weldbooks';
-import { todoHintLabel, todoItemTarget, todoKindAction, todoKindTitle } from './todo-targets';
+import { todoHintLabel, todoItemTarget, todoKindAction, todoKindSummary, todoKindTitle } from './todo-targets';
 
 const edition = vi.hoisted(() => ({ processing: false }));
 vi.mock('@/lib/edition', () => ({ isFeatureAvailable: () => edition.processing }));
@@ -22,6 +22,22 @@ describe('todoItemTarget', () => {
     expect(todoItemTarget({ objectType: 'accounting_document', objectId: 'doc 1' })).toEqual({
       kind: 'page',
       href: '/weldbooks/documents?document=doc%201',
+    });
+  });
+
+  it('opens an inbox document on the review screen where the edition has receipts', () => {
+    edition.processing = true;
+    expect(todoItemTarget({ objectType: 'accounting_document', objectId: 'doc 1' })).toEqual({
+      kind: 'page',
+      href: '/weldbooks/documents/doc%201/review',
+    });
+  });
+
+  it('opens a missing receipt as its bank line', () => {
+    expect(todoItemTarget({ objectType: 'bank_transaction', objectId: 'btx_9' })).toEqual({
+      kind: 'panel',
+      type: 'bank_transaction',
+      id: 'btx_9',
     });
   });
 
@@ -81,6 +97,7 @@ describe('todoHintLabel', () => {
   const codes = [
     'possible_match',
     'possible_duplicate',
+    'missing_receipt',
     'ocr_failed',
     'awaiting_approval',
     'overdue',
@@ -111,6 +128,21 @@ describe('todoHintLabel', () => {
   it('has a hint for every code the backend sends, in English and Dutch alike', () => {
     expect(Object.keys(en.weldbooksConnected.todo.hints).sort()).toEqual([...codes].sort());
     expect(Object.keys(nl.weldbooksConnected.todo.hints).sort()).toEqual([...codes].sort());
+  });
+});
+
+describe('missing receipts', () => {
+  it('says what the count counts, in both languages', () => {
+    expect(todoKindSummary('missing_receipts', 12, en.weldbooksConnected.todo)).toBe('12 expenses without a receipt');
+    expect(todoKindSummary('missing_receipts', 1, en.weldbooksConnected.todo)).toBe('1 expense without a receipt');
+    expect(todoKindSummary('missing_receipts', 12, nl.weldbooksConnected.todo)).toBe('12 uitgaven zonder bon');
+    expect(todoKindSummary('bank_lines', 12, en.weldbooksConnected.todo)).toBeNull();
+  });
+
+  it('leads to the processing view, or to the lines where the edition lacks it', () => {
+    expect(todoKindAction('missing_receipts', 3, [], copy)?.href).toBe('/weldbooks/banking/transactions');
+    edition.processing = true;
+    expect(todoKindAction('missing_receipts', 3, [], copy)).toEqual({ label: 'Add receipts', href: '/weldbooks/banking/process' });
   });
 });
 

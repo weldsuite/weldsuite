@@ -340,3 +340,50 @@ describe('ToProcessPage', () => {
     expect(screen.queryByRole('heading', { name: en.weldbooksConnected.todo.title })).not.toBeInTheDocument();
   });
 });
+
+describe('missing receipts', () => {
+  beforeEach(() => {
+    // `missing_receipts` is not part of `total`: it only shows for those who may read reports.
+    env.summary = { total: 0, currency: 'EUR', kinds: { missing_receipts: { count: 12, amount: '845.00', currency: 'EUR', mixedCurrency: false } } };
+    env.top = {
+      missing_receipts: [
+        item('missing_receipts', { objectId: 'btx_77', title: 'Bol.com', subtitle: null, amount: '49.00', hint: 'missing_receipt' }),
+      ],
+    };
+  });
+
+  it('shows a card that says how many expenses have no receipt, even when nothing else counts toward the total', () => {
+    render(<ToProcessPage />);
+
+    expect(screen.queryByText('All caught up')).not.toBeInTheDocument();
+    const missing = card('missing_receipts');
+    expect(within(missing).getByRole('heading', { name: 'Missing receipts' })).toBeInTheDocument();
+    expect(within(missing).getByTestId('todo-count')).toHaveTextContent('12');
+    expect(within(missing).getByTestId('todo-kind-summary')).toHaveTextContent('12 expenses without a receipt');
+    expect(within(missing).getByText('No receipt yet')).toBeInTheDocument();
+    expect(within(missing).getByRole('link', { name: 'Add receipts' })).toHaveAttribute('href', '/weldbooks/banking/transactions');
+  });
+
+  it('opens an item as its bank line', async () => {
+    const user = userEvent.setup();
+    render(<ToProcessPage />);
+
+    await user.click(within(card('missing_receipts')).getByRole('link', { name: /Bol\.com/ }));
+
+    expect(env.panel.open).toHaveBeenLastCalledWith({ type: 'bank_transaction', id: 'btx_77', stack: true });
+  });
+
+  it('says it in Dutch', () => {
+    env.locale = 'nl';
+    render(<ToProcessPage />);
+
+    expect(within(card('missing_receipts')).getByTestId('todo-kind-summary')).toHaveTextContent('12 uitgaven zonder bon');
+    expect(within(card('missing_receipts')).getByText('Nog geen bon')).toBeInTheDocument();
+  });
+
+  it('shows no card where the caller may not read it (the kind is absent)', () => {
+    env.summary = summary({ bank_lines: { count: 12, amount: null } });
+    render(<ToProcessPage />);
+    expect(screen.queryByTestId('todo-card-missing_receipts')).not.toBeInTheDocument();
+  });
+});

@@ -2,6 +2,8 @@ import { Link, getRouteApi } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useCreateBill } from '@/hooks/queries/use-accounting-queries';
+import { SourceDocumentViewer } from '@/components/accounting/source-document-viewer';
+import { useInboxDocument } from '@/hooks/queries/use-weldbooks-receipts-queries';
 import { BillForm, type BillPayload, type BillPrefill } from '../components/bill-form';
 import { Button } from '@weldsuite/ui/components/button';
 import { ArrowLeft, Sparkles } from 'lucide-react';
@@ -31,6 +33,10 @@ export default function AddBillPage() {
     // empty form at once; the bill is still linked to the document on save.
     retry: false,
   });
+
+  // The original sits beside the form, so the pre-fill can be checked against it.
+  const sourceDocument = useInboxDocument(fromDocument).data;
+  const showOriginal = Boolean(fromDocument && sourceDocument?.fileKey);
 
   const handleSubmit = (data: BillPayload) => {
     const payload: Record<string, unknown> = { ...data };
@@ -78,13 +84,22 @@ export default function AddBillPage() {
         </div>
       )}
 
-      <BillForm
-        mode="add"
-        prefill={prefill}
-        initialContactId={search.contactId}
-        onSubmit={handleSubmit}
-        isSubmitting={createBill.isPending}
-      />
+      <div className={showOriginal ? 'grid items-start gap-6 xl:grid-cols-2' : undefined}>
+        {showOriginal && sourceDocument ? (
+          <div className="xl:sticky xl:top-4" data-testid="bill-source-document">
+            <SourceDocumentViewer fileKey={sourceDocument.fileKey} mimeType={sourceDocument.mimeType} fileName={sourceDocument.fileName} />
+          </div>
+        ) : null}
+        <div className="min-w-0">
+          <BillForm
+            mode="add"
+            prefill={prefill}
+            initialContactId={search.contactId}
+            onSubmit={handleSubmit}
+            isSubmitting={createBill.isPending}
+          />
+        </div>
+      </div>
     </div>
   );
 }

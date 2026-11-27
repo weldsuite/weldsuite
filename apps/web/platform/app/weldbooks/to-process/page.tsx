@@ -45,7 +45,7 @@ export default function ToProcessPage() {
   } else {
     const cards = visibleTodoKinds(summary.data.kinds);
     body =
-      cards.length === 0 || summary.data.total === 0 ? (
+      cards.length === 0 ? (
         <EmptyState icon={CheckCircle2} title={copy.emptyTitle} description={copy.emptyDescription} />
       ) : (
         <ul className="grid items-start gap-4 lg:grid-cols-2">

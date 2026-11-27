@@ -36,6 +36,8 @@ import {
   AlertDialogTitle,
 } from '@weldsuite/ui/components/alert-dialog';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
+import { DropArea, DropAreaOverlay } from '@weldsuite/ui/components/drop-area';
+import { Upload } from 'lucide-react';
 import {
   FileText,
   Eye,
@@ -71,6 +73,10 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import type { TranslationsType } from '@/lib/i18n/types';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { isFeatureAvailable } from '@/lib/edition';
+import { useEntityDocumentStats, useEntityDocuments } from '@/hooks/queries/use-weldbooks-receipts-queries';
+import { useRouter } from '@/lib/router';
+import { InboxAddressCard } from './inbox-address-card';
+import { reviewPath } from './review/review-screen';
 import {
   ContactCell,
   RowAmount,
@@ -218,9 +224,15 @@ export default function DocumentInboxPage() {
 
   const qc = useQueryClient();
 
+  // Editions with `books-receipts` page the entity's documents and count them on the server; the others keep the first 100.
+  const receipts = isFeatureAvailable('books-receipts');
+  const router = useRouter();
+  const pagedDocuments = useEntityDocuments(statusFilter === 'all' ? undefined : statusFilter);
+  const pagedStats = useEntityDocumentStats();
   const documentsQuery = useQuery({
     queryKey: accountingKeys.documents.list(statusFilter === 'all' ? undefined : { status: statusFilter }),
     queryFn: () => accountingApi.listDocuments(statusFilter === 'all' ? undefined : { status: statusFilter }),
+    enabled: !receipts,
     refetchInterval: (query) => {
       const data = query.state.data as { data?: DocumentRow[] } | undefined;
       const anyProcessing = data?.data?.some((d) => d.status === 'processing');
@@ -230,6 +242,7 @@ export default function DocumentInboxPage() {
   const statsQuery = useQuery({
     queryKey: accountingKeys.documents.stats(),
     queryFn: () => accountingApi.getDocumentStats(),
+    enabled: !receipts,
   });
 
   const [selectedDoc, setSelectedDoc] = useState<DocumentRow | null>(null);
@@ -244,11 +257,14 @@ export default function DocumentInboxPage() {
     accountingApi
       .getDocument(documentParam)
       .then((full) => {
-        if (full?.data) setSelectedDoc(full.data as unknown as DocumentRow);
+        if (!full?.data) return;
+        // Where the edition has the review screen, a document still to check opens there; a booked one shows its dialog.
+        if (receipts && full.data.status !== 'linked') router.replace(reviewPath(full.data.id));
+        else setSelectedDoc(full.data as unknown as DocumentRow);
       })
       // A document that cannot be read leaves the list as it is.
       .catch(() => {});
-  }, [documentParam]);
+  }, [documentParam, receipts, router]);
   const [supplierDialog, setSupplierDialog] = useState<DocumentRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DocumentRow | null>(null);
   const [uploadQueue, setUploadQueue] = useState<Array<{ id: string; name: string; phase: 'uploading' | 'processing' | 'done' | 'failed'; error?: string; docId?: string }>>([]);
@@ -318,7 +334,6 @@ export default function DocumentInboxPage() {
   });
 
   // ------------ Upload wiring ------------
-  const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const fileUpload = useFileUpload({
@@ -386,13 +401,6 @@ export default function DocumentInboxPage() {
     }
   }, [fileUpload, processDoc, qc, st, td]);
 
-  const onDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setDragOver(false);
-    const dropped = Array.from(e.dataTransfer.files);
-    if (dropped.length > 0) void handleFiles(dropped);
-  }, [handleFiles]);
-
   const onSelectFiles = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files ?? []);
     if (picked.length > 0) void handleFiles(picked);
@@ -400,8 +408,19 @@ export default function DocumentInboxPage() {
   }, [handleFiles]);
 
   // ------------ Data binding ------------
-  const documents = (documentsQuery.data?.data ?? []) as unknown as DocumentRow[];
-  const stats = statsQuery.data?.data ?? [];
+  const documents = (
+    receipts ? (pagedDocuments.data?.items ?? []) : (documentsQuery.data?.data ?? [])
+  ) as unknown as DocumentRow[];
+  const stats = (receipts ? pagedStats.data : statsQuery.data?.data) ?? [];
+  const isLoading = receipts ? pagedDocuments.isLoading : documentsQuery.isLoading;
+  const totalCount = receipts ? (pagedDocuments.data?.totalCount ?? documents.length) : documents.length;
+
+  /** A document still to check opens the review screen where the edition has it; the rest open their dialog. */
+  const openDocument = (doc: DocumentRow) => {
+    if (!canOpenDocument(doc)) return;
+    if (receipts && doc.status !== 'linked' && doc.status !== 'rejected') router.push(reviewPath(doc.id));
+    else setSelectedDoc(doc);
+  };
 
   // Group by processing status, most-actionable first. Only shown while no
   // status filter is active — otherwise the lone group header is redundant.
@@ -486,7 +505,7 @@ export default function DocumentInboxPage() {
               size="sm"
               variant="ghost"
               className="h-7 w-7 p-0"
-              onClick={() => setSelectedDoc(doc)}
+              onClick={() => openDocument(doc)}
               title={doc.ocrResult ? td.viewOcrResult : td.openDocument}
               aria-label={doc.ocrResult ? td.viewOcrResult : td.openDocument}
             >
@@ -512,12 +531,12 @@ export default function DocumentInboxPage() {
 
   return (
     // The whole page is a drop target for invoice PDFs and images; the toolbar's upload button opens the picker.
-    <div
-      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false); }}
-      onDrop={onDrop}
-      className={`min-h-full transition-colors ${dragOver ? 'bg-primary/5 ring-2 ring-inset ring-primary' : ''}`}
-    >
+    <DropArea onDrop={(files) => void handleFiles(files)} className="min-h-full" data-testid="inbox-drop-area">
+      <DropAreaOverlay
+        icon={<Upload className="h-8 w-8 text-muted-foreground" aria-hidden />}
+        title={t.weldbooksReceipts.inbox.dropTitle}
+        description={t.weldbooksReceipts.inbox.dropDescription}
+      />
       <input
         ref={fileInputRef}
         type="file"
@@ -526,6 +545,8 @@ export default function DocumentInboxPage() {
         onChange={onSelectFiles}
         className="hidden"
       />
+
+      {receipts && <InboxAddressCard />}
 
       {uploadQueue.length > 0 && (
         <div className="space-y-1 px-4 pt-3">
@@ -574,13 +595,11 @@ export default function DocumentInboxPage() {
 
       <WeldbooksEntityList<DocumentRow>
         items={documents}
-        isLoading={documentsQuery.isLoading}
+        isLoading={isLoading}
         columns={columns}
         searchFields={['fileName']}
         searchPlaceholder={td.searchPlaceholder}
-        onRowClick={(doc) => {
-          if (canOpenDocument(doc)) setSelectedDoc(doc);
-        }}
+        onRowClick={openDocument}
         getRowLabel={(doc) => doc.fileName}
         groups={groups}
         filters={filterConfigs}
@@ -598,6 +617,24 @@ export default function DocumentInboxPage() {
           action: { label: td.uploadInvoice, onClick: () => fileInputRef.current?.click() },
         }}
       />
+
+      {receipts && documents.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-4" data-testid="inbox-paging">
+          <p className="text-xs text-muted-foreground" role="status">
+            {t.weldbooksReceipts.inbox.shown.replace('{shown}', String(documents.length)).replace('{total}', String(totalCount))}
+          </p>
+          {pagedDocuments.hasNextPage && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pagedDocuments.isFetchingNextPage}
+              onClick={() => void pagedDocuments.fetchNextPage()}
+            >
+              {pagedDocuments.isFetchingNextPage ? t.weldbooksReceipts.inbox.loadingMore : t.weldbooksReceipts.inbox.loadMore}
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* OCR Result Preview Dialog */}
       <Dialog open={!!selectedDoc} onOpenChange={(open) => !open && setSelectedDoc(null)}>
@@ -716,7 +753,7 @@ export default function DocumentInboxPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </DropArea>
   );
 }
 

@@ -56,6 +56,11 @@ export const weldbooksConnected = {
         title: 'Niet toegepast tegoed',
         action: 'Niet toegepast tegoed bekijken',
       },
+      missing_receipts: {
+        title: 'Ontbrekende bonnen',
+        summary: { one: '1 uitgave zonder bon', other: '{count} uitgaven zonder bon' },
+        action: { one: 'Bon toevoegen', other: 'Bonnen toevoegen' },
+      },
     },
     hints: {
       possible_match: 'Mogelijke match gevonden',
@@ -71,6 +76,7 @@ export const weldbooksConnected = {
       reauth_required: 'Opnieuw koppelen nodig',
       consent_expiring: 'Toestemming verloopt binnenkort',
       unapplied_credit: 'Niet toegepast tegoed',
+      missing_receipt: 'Nog geen bon',
     },
     severity: {
       info: 'Ter informatie',
@@ -233,6 +239,7 @@ export const weldbooksConnected = {
       documents: 'Gekoppeld aan de gekozen documenten.',
       documentsRounding: 'Gekoppeld aan de documenten. {amount} is naar afronding geboekt.',
       receipt: 'Bon gekoppeld.',
+      receiptBooked: 'Bon geboekt en aan de regel gekoppeld.',
       undone: 'Ongedaan gemaakt. De regel staat weer bij Te verwerken.',
       undo: 'Ongedaan maken',
       failed: 'Dat is niet gelukt.',

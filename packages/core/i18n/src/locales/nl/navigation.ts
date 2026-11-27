@@ -370,6 +370,7 @@ export const navigation = {
         receivedNfe: 'Ontvangen NF-e',
         taxCalendar: 'Belastingkalender',
         paymentRuns: 'Betaalruns',
+        payBills: 'Betalen',
         deposits: 'Stortingen',
         statementReconciliation: 'Afschriftafstemming',
         bankFeeds: 'Bankkoppelingen',

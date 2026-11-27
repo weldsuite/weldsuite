@@ -27,6 +27,9 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   resetEntityScopedAccountingQueries: mocks.resetQueries,
 }));
 vi.mock('@/lib/edition', () => ({ isFeatureAvailable: () => mocks.processing }));
+vi.mock('./components/entity-inbox-card', () => ({
+  EntityInboxCard: ({ entityId }: { entityId: string }) => <div data-testid="entity-inbox-card">{entityId}</div>,
+}));
 vi.mock('./components/differences-card', () => ({ DifferencesCard: () => <div data-testid="differences-card" /> }));
 vi.mock('@/lib/api/weldbooks-client', () => ({ setWeldbooksEntityId: mocks.setWeldbooksEntityId }));
 vi.mock('@/lib/api/domains/weldbooks', () => ({ accountingApi: {} }));
@@ -114,5 +117,16 @@ describe('WeldbooksEntitySettings', () => {
     mocks.processing = true;
     renderSettings();
     expect(screen.getByTestId('differences-card')).toBeInTheDocument();
+  });
+
+  it('shows the inbox address of the entity where the edition has receipts, else the single scan inbox', () => {
+    const { unmount } = renderSettings();
+    expect(screen.queryByTestId('entity-inbox-card')).not.toBeInTheDocument();
+    expect(screen.getByText('Email Inbox')).toBeInTheDocument();
+    unmount();
+    mocks.processing = true;
+    renderSettings();
+    expect(screen.getByTestId('entity-inbox-card')).toHaveTextContent('ent_b');
+    expect(screen.queryByText('Email Inbox')).not.toBeInTheDocument();
   });
 });

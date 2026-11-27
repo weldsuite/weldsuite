@@ -840,6 +840,8 @@ export const TODO_KINDS = [
   'duplicates',
   'bank_lines',
   'unapplied_credit',
+  /** Bank lines booked to an expense with VAT but without a document (`books-receipts`, needs `reports:read`; not part of `total`). */
+  'missing_receipts',
 ] as const;
 
 export type TodoKind = (typeof TODO_KINDS)[number];

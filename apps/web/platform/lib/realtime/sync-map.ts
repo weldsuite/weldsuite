@@ -320,7 +320,8 @@ export const platformSyncMap: EntitySyncMap = {
   ),
   account: inv(['accounting', 'accounts']),
   accounting_contact: inv(['accounting', 'customers']),
-  accounting_document: inv(['accounting', 'documents']),
+  // Booking a document (`accounting_document.booked`) also makes a bill and may pay it from a bank line.
+  accounting_document: inv(['accounting', 'documents'], ['accounting', 'bills'], ['accounting', 'bank-transactions'], ['accounting', 'payments']),
   accounting_settings: inv(['accounting', 'settings']),
   bank_account: inv(['accounting', 'bank-accounts']),
   bank_transaction: inv(['accounting', 'bank-transactions']),
