@@ -2410,18 +2410,46 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
                 weldsuite_mail::internal_outbound_router(mail_state(state)),
             )
             // Haraka's `RCPT TO` check (MAIL-010): the master registry,
-            // and WeldReach's reply addresses, behind `MAIL_INBOUND_SECRET`.
+            // WeldReach's reply addresses and the DMARC report address,
+            // behind `MAIL_INBOUND_SECRET`.
             .nest(
                 "/internal/mail-inbound",
                 weldsuite_mail_inbound::rcpt::router_with(
                     state.workspaces.master().clone(),
                     state.mail_inbound_secret.as_deref().map(str::to_owned),
-                    reach_recipients(state),
+                    extra_recipients(state),
                 ),
             )
     } else {
         router
     }
+}
+
+/// The addresses the RCPT check takes beyond the registry: the DMARC report
+/// address (`MAIL_DMARC_REPORTS_ADDRESS`, ADR MAIL-015), which `weldsuite
+/// consume` files instead of delivering, and WeldReach's replies.
+fn extra_recipients(state: &AppState) -> Option<weldsuite_mail_inbound::rcpt::ExtraRecipients> {
+    let read = |name: &str| std::env::var(name).ok();
+    let dmarc = mail_domains::dmarc_reports_address(&read);
+    let reach = reach_recipients(state);
+    if dmarc.is_none() {
+        return reach;
+    }
+    Some(Arc::new(move |address: String| {
+        let accept = dmarc
+            .as_deref()
+            .is_some_and(|ours| address.trim().eq_ignore_ascii_case(ours));
+        let reach = reach.clone();
+        Box::pin(async move {
+            if accept {
+                return Ok(true);
+            }
+            match reach {
+                Some(reach) => reach(address).await,
+                None => Ok(false),
+            }
+        })
+    }))
 }
 
 /// WeldReach's `reply+<token>@REACH_INBOUND_DOMAIN` for the RCPT check:

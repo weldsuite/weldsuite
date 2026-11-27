@@ -42,10 +42,11 @@ impl From<sqlx::Error> for StoreError {
 type Result<T> = std::result::Result<T, StoreError>;
 
 /// The migrations, in order. Never edit one that has shipped; add another.
-const MIGRATIONS: &[(i32, &str, &str)] = &[(
-    1,
-    "queue, domains, suppressions, counters, outbox",
-    r"
+const MIGRATIONS: &[(i32, &str, &str)] = &[
+    (
+        1,
+        "queue, domains, suppressions, counters, outbox",
+        r"
 CREATE TABLE mta_messages (
   id text PRIMARY KEY,
   pool text NOT NULL,
@@ -134,7 +135,20 @@ CREATE TABLE mta_jobs (
   last_run date NOT NULL
 );
 ",
-)];
+    ),
+    (
+        2,
+        "mail nodes: each sending address with its pools (DMARC reports, MAIL-015)",
+        r"
+CREATE TABLE mta_nodes (
+  ip text PRIMARY KEY,
+  hostname text NOT NULL,
+  pools text[] NOT NULL DEFAULT '{}',
+  seen_at timestamptz NOT NULL DEFAULT now()
+);
+",
+    ),
+];
 
 const MIGRATION_LOCK: i64 = 0x5745_4c44_4d54_4131; // "WELDMTA1"
 
@@ -684,6 +698,31 @@ impl Store {
             Some(cap) if sent > cap => Reservation::OverCap { cap, sent },
             _ => Reservation::Granted,
         })
+    }
+
+    /// Records this node's sending address, EHLO name and pools, at start
+    /// (`GET /v1/ips`, for DMARC reports, MAIL-015).
+    pub async fn register_node(&self, ip: &str, hostname: &str, pools: &[String]) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO mta_nodes (ip, hostname, pools, seen_at) VALUES ($1, $2, $3, now())
+             ON CONFLICT (ip) DO UPDATE SET hostname = EXCLUDED.hostname, pools = EXCLUDED.pools, seen_at = now()",
+        )
+        .bind(ip)
+        .bind(hostname)
+        .bind(pools)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The mail nodes seen in the last 30 days: address, EHLO name, pools.
+    pub async fn nodes(&self) -> Result<Vec<(String, String, Vec<String>)>> {
+        Ok(sqlx::query_as(
+            "SELECT ip, hostname, pools FROM mta_nodes
+              WHERE seen_at > now() - interval '30 days' ORDER BY ip",
+        )
+        .fetch_all(&self.pool)
+        .await?)
     }
 
     /// Every IP that has sent, with its first day (`YYYY-MM-DD`) when known.

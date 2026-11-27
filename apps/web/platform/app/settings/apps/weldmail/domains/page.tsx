@@ -35,7 +35,10 @@ import {
   useVerifyMailDomain,
 } from '@/hooks/queries/use-mail-queries';
 import { getTranslations, type TranslationNamespaces } from '@/lib/i18n';
+import { isFeatureAvailable } from '@/lib/edition';
 import { isRustBackend } from '@/lib/runtime-config';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
+import { DmarcPanel } from './dmarc-panel';
 import type { MailDnsRecord, MailDomainRow } from '@weldsuite/app-api-client/domains/mail-domains';
 import { createMailDomainSchema } from '@weldsuite/app-api-client/schemas/mail-domains';
 import { isSharedWeldMailDomain } from '@weldsuite/app-api-client/schemas/outbound-mail';
@@ -261,7 +264,12 @@ function SelfServedDomainRow({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {records.length > 0 && verified && (
-            <Button type="button" variant="ghost" size="sm" onClick={() => setShowRecords((v) => !v)}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowRecords((v) => !v)}
+            >
               {showRecords ? labels.hideRecords : labels.showRecords}
             </Button>
           )}
@@ -318,6 +326,10 @@ function SelfServedDomainRow({
         />
       )}
 
+      {verified && isFeatureAvailable('mail-dmarc-reports') && (
+        <DmarcPanel domain={domain} labels={labels} />
+      )}
+
       <ConfirmDialog
         open={confirmRemove}
         onOpenChange={setConfirmRemove}
@@ -350,57 +362,79 @@ function DnsRecordsTable({
     }
   }
 
+  const dmarc = records.find((r) => r.purpose === 'dmarc')?.dmarc;
+
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>{labels.columns.purpose}</TableHead>
-          <TableHead>{labels.columns.type}</TableHead>
-          <TableHead>{labels.columns.name}</TableHead>
-          <TableHead>{labels.columns.value}</TableHead>
-          <TableHead>{labels.columns.priority}</TableHead>
-          <TableHead>{labels.columns.status}</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {records.map((record) => (
-          <TableRow key={`${record.type}-${record.name}-${record.purpose ?? ''}`}>
-            <TableCell className="whitespace-nowrap">{purposeLabel(record.purpose)}</TableCell>
-            <TableCell className="font-mono text-xs">{record.type}</TableCell>
-            <TableCell className="max-w-[220px] whitespace-normal break-all font-mono text-xs">{record.name}</TableCell>
-            <TableCell className="max-w-[320px] whitespace-normal">
-              <div className="flex items-start gap-1">
-                <span className="break-all font-mono text-xs">{record.value}</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-6 shrink-0"
-                  aria-label={labels.copy}
-                  onClick={() => copy(record.value)}
-                >
-                  <Copy className="size-3.5" />
-                </Button>
-              </div>
-            </TableCell>
-            <TableCell className="font-mono text-xs">{record.priority ?? ''}</TableCell>
-            <TableCell className="whitespace-nowrap">
-              {record.verified ? (
-                <span className="flex items-center gap-1 text-xs text-green-600">
-                  <CheckCircle2 className="size-3.5" />
-                  {labels.recordFound}
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Circle className="size-3.5" />
-                  {labels.recordMissing}
-                </span>
-              )}
-            </TableCell>
+    <div className="space-y-3">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{labels.columns.purpose}</TableHead>
+            <TableHead>{labels.columns.type}</TableHead>
+            <TableHead>{labels.columns.name}</TableHead>
+            <TableHead>{labels.columns.value}</TableHead>
+            <TableHead>{labels.columns.priority}</TableHead>
+            <TableHead>{labels.columns.status}</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {records.map((record) => (
+            <TableRow key={`${record.type}-${record.name}-${record.purpose ?? ''}`}>
+              <TableCell className="whitespace-nowrap">{purposeLabel(record.purpose)}</TableCell>
+              <TableCell className="font-mono text-xs">{record.type}</TableCell>
+              <TableCell className="max-w-[220px] whitespace-normal break-all font-mono text-xs">
+                {record.name}
+              </TableCell>
+              <TableCell className="max-w-[320px] whitespace-normal">
+                <div className="flex items-start gap-1">
+                  <span className="break-all font-mono text-xs">{record.value}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 shrink-0"
+                    aria-label={labels.copy}
+                    onClick={() => copy(record.value)}
+                  >
+                    <Copy className="size-3.5" />
+                  </Button>
+                </div>
+              </TableCell>
+              <TableCell className="font-mono text-xs">{record.priority ?? ''}</TableCell>
+              <TableCell className="whitespace-nowrap">
+                {record.verified ? (
+                  <span className="flex items-center gap-1 text-xs text-green-600">
+                    <CheckCircle2 className="size-3.5" />
+                    {labels.recordFound}
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Circle className="size-3.5" />
+                    {labels.recordMissing}
+                  </span>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      {dmarc?.state === 'multiple' && (
+        <InfoBanner variant="warning" data-testid="dmarc-multiple">
+          {labels.dmarcRecord.multiple}
+        </InfoBanner>
+      )}
+      {dmarc?.state === 'invalid' && (
+        <InfoBanner variant="warning" data-testid="dmarc-invalid">
+          {labels.dmarcRecord.invalid}
+        </InfoBanner>
+      )}
+      {dmarc?.state === 'ok' && !dmarc.reportsToWeldSuite && (
+        <InfoBanner variant="info" data-testid="dmarc-not-reporting">
+          {labels.dmarcRecord.notReporting}
+        </InfoBanner>
+      )}
+      {dmarc && <p className="text-xs text-muted-foreground">{labels.dmarcRecord.neverSecond}</p>}
+    </div>
   );
 }
 

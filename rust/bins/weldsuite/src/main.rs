@@ -39,6 +39,7 @@ mod desk_http;
 mod doctor;
 mod edition;
 mod infra;
+mod mail_cli;
 mod migrate;
 mod monitoring;
 mod mta;
@@ -81,6 +82,8 @@ commands:
              database (weldsuite migrate --help)
   mta        WeldSuite's own MTA on the mail nodes, and its domain and queue
              tools (weldsuite mta --help)
+  mail       WeldMail's DMARC reports: the sending addresses as receivers saw
+             them, and the domain registry backfill (weldsuite mail --help)
   admin      staff work: access to apps on request only (WeldReach) and the
              staff list (weldsuite admin --help)
   doctor     check the configuration and what it points at: the master
@@ -126,6 +129,7 @@ fn main() -> ExitCode {
         Some("migrate") => migrate::run(&args[1..]),
         Some("admin") => admin::run(&args[1..]),
         Some("mta") => mta::run(&args[1..]),
+        Some("mail") => mail_cli::run(&args[1..]),
         Some("doctor") => doctor::run(&args[1..]),
         Some("version" | "--version" | "-V") => {
             println!("{}", version());

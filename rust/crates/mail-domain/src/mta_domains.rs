@@ -65,6 +65,43 @@ impl MtaDomainApi {
         }
     }
 
+    /// `GET /v1/ips`: each mail node's sending address with its pools, so a
+    /// DMARC report's rows from WeldSuite's own addresses can be told apart
+    /// (ADR MAIL-015). Address → first pool.
+    ///
+    /// # Errors
+    ///
+    /// [`DomainError::Provider`] when the MTA can't be asked.
+    pub async fn sending_addresses(
+        &self,
+    ) -> Result<std::collections::HashMap<String, String>, DomainError> {
+        let what = "list sending addresses";
+        let response = self
+            .send(
+                HttpRequest::empty("GET", format!("{}/v1/ips", self.base_url)),
+                what,
+            )
+            .await?;
+        if !(200..300).contains(&response.status) {
+            return Err(refusal(what, &response));
+        }
+        let body: Value = serde_json::from_slice(&response.body)
+            .map_err(|error| DomainError::Provider(format!("MTA API {what}: {error}")))?;
+        Ok(body["data"]
+            .as_array()
+            .map(|nodes| {
+                nodes
+                    .iter()
+                    .filter_map(|node| {
+                        let ip = node["ip"].as_str()?;
+                        let pool = node["pools"].as_array()?.first()?.as_str()?;
+                        Some((ip.to_owned(), pool.to_owned()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
     fn domain_url(&self, domain: &str) -> String {
         format!("{}/v1/domains/{}", self.base_url, encode(domain))
     }
@@ -412,6 +449,7 @@ mod tests {
                 spf_include: Some("_spf.eu.weldsuite.test".to_owned()),
                 dkim: None,
                 dmarc: "v=DMARC1; p=none".to_owned(),
+                dmarc_report_address: None,
             },
             Arc::new(doh),
             "https://resolver.test/dns-query".to_owned(),

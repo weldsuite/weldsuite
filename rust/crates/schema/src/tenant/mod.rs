@@ -247,6 +247,9 @@ pub mod mail_accounts;
 pub mod mail_attachments;
 pub mod mail_campaigns;
 pub mod mail_correspondents;
+pub mod mail_dmarc_records;
+pub mod mail_dmarc_reports;
+pub mod mail_dmarc_sources;
 pub mod mail_domains;
 pub mod mail_drafts;
 pub mod mail_folders;
@@ -810,6 +813,9 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         crate::snapshot::table::<mail_attachments::Entity>(&mail_attachments::DDL),
         crate::snapshot::table::<mail_campaigns::Entity>(&mail_campaigns::DDL),
         crate::snapshot::table::<mail_correspondents::Entity>(&mail_correspondents::DDL),
+        crate::snapshot::table::<mail_dmarc_records::Entity>(&mail_dmarc_records::DDL),
+        crate::snapshot::table::<mail_dmarc_reports::Entity>(&mail_dmarc_reports::DDL),
+        crate::snapshot::table::<mail_dmarc_sources::Entity>(&mail_dmarc_sources::DDL),
         crate::snapshot::table::<mail_domains::Entity>(&mail_domains::DDL),
         crate::snapshot::table::<mail_drafts::Entity>(&mail_drafts::DDL),
         crate::snapshot::table::<mail_folders::Entity>(&mail_folders::DDL),
@@ -1516,6 +1522,9 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
         "mail_attachments" => json(Box::pin(mail_attachments::Entity::find().all(db)).await?),
         "mail_campaigns" => json(Box::pin(mail_campaigns::Entity::find().all(db)).await?),
         "mail_correspondents" => json(Box::pin(mail_correspondents::Entity::find().all(db)).await?),
+        "mail_dmarc_records" => json(Box::pin(mail_dmarc_records::Entity::find().all(db)).await?),
+        "mail_dmarc_reports" => json(Box::pin(mail_dmarc_reports::Entity::find().all(db)).await?),
+        "mail_dmarc_sources" => json(Box::pin(mail_dmarc_sources::Entity::find().all(db)).await?),
         "mail_domains" => json(Box::pin(mail_domains::Entity::find().all(db)).await?),
         "mail_drafts" => json(Box::pin(mail_drafts::Entity::find().all(db)).await?),
         "mail_folders" => json(Box::pin(mail_folders::Entity::find().all(db)).await?),

@@ -802,11 +802,15 @@
     "sent",
     "scheduled"
   ],
+  "mail_dmarc_source": [
+    "updated"
+  ],
   "mail_domain": [
     "created",
     "updated",
     "deleted",
-    "verified"
+    "verified",
+    "dmarc_failing"
   ],
   "mail_draft": [
     "created",

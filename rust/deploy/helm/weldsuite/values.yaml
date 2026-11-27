@@ -311,6 +311,17 @@ config:
     # README, "Mail"). weldmail.com and weldmail.org are Global's: the server
     # refuses to start with them.
     freeAddressDomain: ""
+    # DMARC aggregate reports for customers' mail domains (ADR MAIL-015): the
+    # one address every suggested DMARC record names (dmarc@reports.<domain>
+    # on the EU edition). Its domain's MX points at Haraka, and the operator
+    # publishes `*._report._dmarc.<its domain>` TXT `v=DMARC1` so receivers
+    # send other domains' reports there. consume files the reports instead
+    # of delivering them. Empty: records carry no report address and the
+    # Domains page shows no reports.
+    dmarcReportsAddress: ""
+    # WeldSuite's own sending domains (comma-separated, subdomains included),
+    # whose reports are counted for the operator: weldsuite.eu,weldmail.eu.
+    dmarcOperatorDomains: ""
   # WeldSign: the signer portal's origin; signing links are <portalUrl>/r/<token>
   # (empty: https://sign.weldsuite.org). SIGN_SESSION_SECRET goes in the Secret.
   sign:

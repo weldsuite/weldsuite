@@ -30,6 +30,9 @@ pub mod helpcenter_domain_registry;
 pub mod iceberg_namespace_properties;
 pub mod iceberg_tables;
 pub mod mail_account_registry;
+pub mod mail_dmarc_pool_daily;
+pub mod mail_dmarc_report_log;
+pub mod mail_domain_registry;
 pub mod mail_threat_indicators;
 pub mod merge_provider_index;
 pub mod neon_shared_projects;
@@ -130,6 +133,9 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         ),
         crate::snapshot::table::<iceberg_tables::Entity>(&iceberg_tables::DDL),
         crate::snapshot::table::<mail_account_registry::Entity>(&mail_account_registry::DDL),
+        crate::snapshot::table::<mail_dmarc_pool_daily::Entity>(&mail_dmarc_pool_daily::DDL),
+        crate::snapshot::table::<mail_dmarc_report_log::Entity>(&mail_dmarc_report_log::DDL),
+        crate::snapshot::table::<mail_domain_registry::Entity>(&mail_domain_registry::DDL),
         crate::snapshot::table::<mail_threat_indicators::Entity>(&mail_threat_indicators::DDL),
         crate::snapshot::table::<merge_provider_index::Entity>(&merge_provider_index::DDL),
         crate::snapshot::table::<neon_shared_projects::Entity>(&neon_shared_projects::DDL),
@@ -272,6 +278,15 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
         "iceberg_tables" => json(Box::pin(iceberg_tables::Entity::find().all(db)).await?),
         "mail_account_registry" => {
             json(Box::pin(mail_account_registry::Entity::find().all(db)).await?)
+        }
+        "mail_dmarc_pool_daily" => {
+            json(Box::pin(mail_dmarc_pool_daily::Entity::find().all(db)).await?)
+        }
+        "mail_dmarc_report_log" => {
+            json(Box::pin(mail_dmarc_report_log::Entity::find().all(db)).await?)
+        }
+        "mail_domain_registry" => {
+            json(Box::pin(mail_domain_registry::Entity::find().all(db)).await?)
         }
         "mail_threat_indicators" => {
             json(Box::pin(mail_threat_indicators::Entity::find().all(db)).await?)

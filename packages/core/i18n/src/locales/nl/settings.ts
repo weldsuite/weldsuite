@@ -2501,6 +2501,101 @@ export const settings = {
           removeFailed: 'Domein verwijderen mislukt',
           copied: 'Gekopieerd',
         },
+        dmarcRecord: {
+          multiple:
+            'U heeft meer dan één DMARC-record. Ontvangers negeren DMARC dan helemaal. Vervang ze door het ene record hieronder.',
+          invalid:
+            'Het DMARC-record van dit domein is onbruikbaar. Vervang het door het record hieronder.',
+          notReporting:
+            'Uw DMARC-record stuurt nog geen rapporten naar WeldSuite. Het record hieronder bevat het adres van WeldSuite al en behoudt uw beleid: vervang uw huidige record erdoor.',
+          neverSecond:
+            'Voeg nooit een tweede DMARC-record toe. Een domein moet er precies één hebben, pas dus het bestaande record aan.',
+        },
+        dmarc: {
+          title: 'DMARC-rapporten',
+          description:
+            'Ontvangers sturen dagelijks een samenvatting van de mail die ze van uw domein zagen en of die DMARC haalde. Zo ziet u wie als uw domein verstuurt voordat u het beleid aanscherpt.',
+          privacy:
+            'Alleen geaggregeerde rapporten worden gelezen. Over de inhoud van uw berichten wordt niets gezien of opgeslagen.',
+          loadFailed: 'DMARC-rapporten laden mislukt',
+          period: 'Periode',
+          periodDays: 'Laatste {days} dagen',
+          passRate: 'Slagingspercentage',
+          messageCount: '{count} berichten',
+          lastReport: 'Laatste rapport',
+          noReportYet: 'Nog geen rapport',
+          emptyTitle: 'Nog geen rapporten',
+          emptyWithAddress:
+            'Ontvangers sturen één keer per dag rapporten, nadat uw DMARC-record {address} bevat. Het eerste komt meestal binnen een of twee dagen binnen.',
+          emptyNoAddress:
+            'Ontvangers sturen één keer per dag rapporten, nadat uw DMARC-record het rapportadres van WeldSuite bevat. Het eerste komt meestal binnen een of twee dagen binnen.',
+          spfNote:
+            'De eigen mail van WeldSuite komt nooit overeen op SPF, omdat die een eigen return-path gebruikt. Dat is normaal: DMARC slaagt op DKIM.',
+          sources: {
+            title: 'Verzendbronnen',
+            description: 'Alles wat mail als uw domein verstuurde, zoals de ontvangers het zagen.',
+            source: 'Bron',
+            messages: 'Berichten',
+            passRate: 'Slagingspercentage',
+            mark: 'Markering',
+            weldsuite: 'WeldSuite',
+            mine: 'Van mij',
+            notMine: 'Niet van mij',
+            clear: 'Wissen',
+            markedMine: 'Gemarkeerd als van u',
+            markedNotMine: 'Gemarkeerd als niet van u',
+            markCleared: 'Markering gewist',
+            markFailed: 'Markering opslaan mislukt',
+            markLabel: '{name} markeren',
+          },
+          failures: {
+            title: 'Mislukte mail',
+            description: 'Mail die DMARC niet haalde, per bron gegroepeerd.',
+            source: 'Bron',
+            from: 'Van',
+            dkim: 'DKIM',
+            spf: 'SPF',
+            messages: 'Berichten',
+            aligned: 'Komt overeen',
+            notAligned: 'Komt niet overeen',
+            dkimDomains: 'DKIM: {domains}',
+            spfDomain: 'SPF: {domain}',
+          },
+          reporters: {
+            title: 'Rapporterende ontvangers',
+            reporter: 'Ontvanger',
+            reports: 'Rapporten',
+            messages: 'Berichten',
+          },
+          advice: {
+            current: 'Huidig beleid: {policy}',
+            noPolicy: 'Nog geen beleid',
+            readyTitle: 'Klaar voor {policy}',
+            readyDescription:
+              'De rapporten laten zien dat dit domein klaar is voor {policy}. Vervang uw DMARC-record door dit record. Voeg het nooit toe als tweede record.',
+            notReadyTitle: 'Nog niet klaar om het beleid aan te scherpen',
+            suggestedRecord: 'Voorgesteld record',
+            states: {
+              missing: 'afwezig',
+              multiple: 'meer dan eens aanwezig',
+              invalid: 'ongeldig',
+              ok: 'in orde',
+              unchecked: 'nog niet gecontroleerd',
+            },
+            blockers: {
+              recordProblem: 'Uw DMARC-record is {state}. Los dat eerst op.',
+              noReports: 'Er zijn nog geen rapporten binnengekomen.',
+              tooFewDays: 'De rapporten beslaan {have} van de {need} benodigde dagen.',
+              tooFewReporters: 'Rapporten kwamen van {have} ontvangers; er zijn er minstens {need} nodig.',
+              passRate: 'Slechts {percent}% van de mail haalt DMARC; minstens {need}% is nodig.',
+              weldsuiteFailing:
+                'Slechts {percent}% van de mail via WeldSuite haalt DMARC; minstens {need}% is nodig.',
+              failingSource:
+                '{name} verstuurt {share}% van de mail, maar slechts {percent}% daarvan slaagt. Markeer de bron als van u of niet van u, of herstel de DKIM.',
+              tooSoon: 'Wacht nog even: {days} van de {need} benodigde dagen zijn verstreken.',
+            },
+          },
+        },
       },
       accounts: {
         noAccounts: 'Geen e-mailaccounts',

@@ -273,6 +273,18 @@ export interface MailDomainEventData {
   isPrimary?: boolean | null;
   catchAllEnabled?: boolean | null;
   catchAllAccountId?: string | null;
+  /** `dmarc_failing`: WeldSuite's messages in the report, how many failed, and the share (per mille). */
+  messages?: number;
+  failed?: number;
+  failedPermille?: number;
+}
+
+/** A sending source in a domain's DMARC reports, marked by the workspace (ADR MAIL-015). */
+export interface MailDmarcSourceEventData {
+  id: string;
+  mailDomainId: string;
+  sourceKey: string;
+  mark: 'mine' | 'not_mine' | null;
 }
 
 // ===========================================================================
@@ -879,6 +891,7 @@ export interface EntityEventData {
   mail_attachment: MailAttachmentEventData;
   mail_campaign: MailCampaignEventData;
   mail_domain: MailDomainEventData;
+  mail_dmarc_source: MailDmarcSourceEventData;
   mail_draft: MailDraftEventData;
   mail_folder: MailFolderEventData;
   mail_label: MailLabelEventData;

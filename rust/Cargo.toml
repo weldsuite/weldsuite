@@ -83,6 +83,7 @@ weldsuite-docs = { path = "modules/docs" }
 weldsuite-sheets = { path = "modules/sheets" }
 weldsuite-board = { path = "modules/board" }
 weldsuite-mail = { path = "modules/mail" }
+weldsuite-mail-dmarc = { path = "crates/mail-dmarc" }
 weldsuite-mail-domain = { path = "crates/mail-domain" }
 weldsuite-mail-inbound = { path = "crates/mail-inbound" }
 weldsuite-mta = { path = "crates/mta" }
@@ -164,6 +165,9 @@ png = "0.18.1"
 psl = "2.1.249"
 # Pix QR codes on Brazilian invoices: Nayuki's generator, which uqr ports (books-domain).
 qrcodegen = "1.8.0"
+# DMARC aggregate reports (ADR MAIL-015, crates/mail-dmarc). Already in the
+# lockfile through other crates; no DTD, no external entities.
+quick-xml = { version = "0.42.0", default-features = false }
 lettre = { version = "0.11.24", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
 jiff = { version = "0.2.38", default-features = false, features = ["std", "tzdb-bundle-always"] }
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["use_pem", "aws_lc_rs"] }

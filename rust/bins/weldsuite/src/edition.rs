@@ -214,6 +214,12 @@ pub(crate) const MAIL_DOMAINS_FEATURE: &str = "mail-domains";
 /// `weldmail.com` and `weldmail.org` are Global's and never used here.
 pub(crate) const MAIL_FREE_ADDRESSES_FEATURE: &str = "mail-free-addresses";
 
+/// DMARC aggregate reports for custom mail domains (ADR MAIL-015): the
+/// summaries under Settings › Apps › WeldMail › Domains. Unavailable without
+/// custom domains or without a report address (`MAIL_DMARC_REPORTS_ADDRESS`):
+/// nothing would receive the reports.
+pub(crate) const MAIL_DMARC_REPORTS_FEATURE: &str = "mail-dmarc-reports";
+
 /// Buying credits (`POST /api/credits/checkout`): a Mollie payment on the
 /// Kubernetes editions (`weldsuite_core_platform::topup`, ADR OPS-012), a
 /// Stripe Checkout on Global. Unavailable without `MOLLIE_API_KEY` (and an
@@ -335,6 +341,9 @@ pub(crate) struct MailOffer {
     /// Free addresses have a domain of this deployment's own
     /// (`WELDMAIL_DOMAIN`) and an MX: [`MAIL_FREE_ADDRESSES_FEATURE`].
     pub(crate) free_addresses: bool,
+    /// DMARC reports have custom domains and a report address
+    /// (`MAIL_DMARC_REPORTS_ADDRESS`): [`MAIL_DMARC_REPORTS_FEATURE`].
+    pub(crate) dmarc_reports: bool,
 }
 
 impl MailOffer {
@@ -355,6 +364,8 @@ impl MailOffer {
             custom_domains,
             free_addresses: custom_domains
                 && free_domain.is_some_and(|apex| weldsuite_mail::is_free_apex(&apex)),
+            dmarc_reports: custom_domains
+                && crate::routes::mail_domains::dmarc_reports_address(lookup).is_some(),
         }
     }
 }
@@ -500,6 +511,9 @@ impl EditionConfig {
         }
         if !self.mail.free_addresses {
             features.push(MAIL_FREE_ADDRESSES_FEATURE);
+        }
+        if !self.mail.dmarc_reports {
+            features.push(MAIL_DMARC_REPORTS_FEATURE);
         }
         if !self.credit_top_up {
             features.push(CREDIT_TOP_UP_FEATURE);
@@ -670,7 +684,7 @@ mod tests {
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 13
+            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 14
         );
         // Self-hosted: the operator decides about services outside the EU.
         assert!(
@@ -837,6 +851,7 @@ mod tests {
         lacks.extend([
             MAIL_DOMAINS_FEATURE,
             MAIL_FREE_ADDRESSES_FEATURE,
+            MAIL_DMARC_REPORTS_FEATURE,
             CREDIT_TOP_UP_FEATURE,
             BILLING_FEATURE,
             REACH_BILLING_FEATURE,
@@ -906,6 +921,27 @@ mod tests {
             assert!(problems[0].contains("Global's"), "{problems:?}");
             assert!(!config.mail.free_addresses);
         }
+    }
+
+    #[test]
+    fn offers_dmarc_reports_with_a_report_address_and_custom_domains() {
+        let lacks = |vars: &[(&str, &str)]| {
+            let (config, problems) = read(vars);
+            assert!(problems.is_empty(), "{problems:?}");
+            config
+                .unavailable_features()
+                .contains(&MAIL_DMARC_REPORTS_FEATURE)
+        };
+        let mx = ("MAIL_MX_HOST", "mx.weldsuite.eu");
+        let address = ("MAIL_DMARC_REPORTS_ADDRESS", "dmarc@reports.weldsuite.eu");
+        assert!(lacks(&[]));
+        assert!(lacks(&[mx]), "no report address");
+        assert!(lacks(&[address]), "no custom domains");
+        assert!(lacks(&[
+            mx,
+            ("MAIL_DMARC_REPORTS_ADDRESS", "not-an-address")
+        ]));
+        assert!(!lacks(&[mx, address]));
     }
 
     #[test]
@@ -1156,6 +1192,7 @@ mod tests {
         for feature in UNAVAILABLE_FEATURES.iter().chain(AI_FEATURES).chain([
             &MAIL_DOMAINS_FEATURE,
             &MAIL_FREE_ADDRESSES_FEATURE,
+            &MAIL_DMARC_REPORTS_FEATURE,
             &COLLAB_ROOMS_FEATURE,
             &REACH_BILLING_FEATURE,
             &CHAT_CALLS_FEATURE,

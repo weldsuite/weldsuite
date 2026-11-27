@@ -7565,6 +7565,7 @@ dependencies = [
  "weldsuite-know",
  "weldsuite-lakehouse",
  "weldsuite-mail",
+ "weldsuite-mail-dmarc",
  "weldsuite-mail-domain",
  "weldsuite-mail-inbound",
  "weldsuite-mcp",
@@ -9214,11 +9215,22 @@ dependencies = [
  "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-mail-dmarc",
  "weldsuite-mail-domain",
  "weldsuite-notifications",
  "weldsuite-permissions",
  "weldsuite-ports",
  "weldsuite-schema",
+]
+
+[[package]]
+name = "weldsuite-mail-dmarc"
+version = "0.0.0"
+dependencies = [
+ "flate2",
+ "quick-xml 0.42.0",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -9242,6 +9254,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-emails",
  "weldsuite-kit",
+ "weldsuite-mail-dmarc",
  "weldsuite-ports",
  "weldsuite-schema",
 ]
@@ -9253,6 +9266,8 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "encoding_rs",
+ "flate2",
+ "metrics",
  "regex",
  "sea-orm",
  "serde",
@@ -9271,6 +9286,7 @@ dependencies = [
  "weldsuite-desk-domain",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-mail-dmarc",
  "weldsuite-mail-domain",
  "weldsuite-notifications",
  "weldsuite-ports",
