@@ -1,0 +1,24 @@
+appId: ${APP_ID || "com.weldsuite.welddesk.dev"}
+name: Settings show the channels hint and the shared settings, and sign out
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- tapOn:
+    id: tab-settings
+- assertVisible:
+    id: channels-hint
+- assertVisible: "Chat widget, support email, and the help center are configured in WeldDesk on the web."
+- assertVisible:
+    id: appearance
+- scrollUntilVisible:
+    element:
+      id: sign-out
+    direction: DOWN
+- tapOn:
+    id: sign-out
+- tapOn:
+    id: confirm-sign-out
+- extendedWaitUntil:
+    visible:
+      id: sign-in
+    timeout: 30000

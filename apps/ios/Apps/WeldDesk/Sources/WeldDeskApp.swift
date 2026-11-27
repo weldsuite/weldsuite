@@ -6,6 +6,7 @@ import WeldUI
 struct WeldDeskApp: App {
     @UIApplicationDelegateAdaptor(WeldAppDelegate.self) private var delegate
     @State private var env: AppEnvironment
+    @State private var store: DeskStore
     @State private var toaster = Toaster()
     @AppStorage(AppAppearance.storageKey(app: "welddesk")) private var appearance = AppAppearance.system
     @Environment(\.scenePhase) private var scenePhase
@@ -13,7 +14,7 @@ struct WeldDeskApp: App {
     init() {
         let info = Bundle.main.infoDictionary ?? [:]
         let server = (info["WeldEUServerURL"] as? String).flatMap(URL.init(string:)) ?? URL(string: "https://app.weldsuite.eu")!
-        _env = State(initialValue: AppEnvironment(
+        let env = AppEnvironment(
             app: AppIdentity(
                 code: "welddesk",
                 name: DeskStrings.appName,
@@ -27,7 +28,9 @@ struct WeldDeskApp: App {
             lockRequired: false,
             optionalLock: true,
             usesPush: true
-        ))
+        )
+        _env = State(initialValue: env)
+        _store = State(initialValue: DeskStore(env: env))
     }
 
     var body: some Scene {
@@ -36,11 +39,17 @@ struct WeldDeskApp: App {
                 env: env,
                 branding: AppBranding(name: DeskStrings.appName, subtitle: DeskStrings.authSubtitle, logo: "Logo")
             ) { person, workspace, workspaces in
-                ContentView(env: env, person: person, workspace: workspace, workspaces: workspaces, appearance: $appearance)
+                ContentView(env: env, store: store, person: person, workspace: workspace, workspaces: workspaces, appearance: $appearance)
+                    // Another workspace (or person) starts over: its own inbox, threads and roster.
+                    .id("\(person.id):\(workspace.id)")
             }
             .tint(Tokens.Brand.welddesk)
             .preferredColorScheme(appearance.colorScheme)
             .toastOverlay(toaster)
+            // The Expo app's links: welddesk://conversation/<id>, welddesk://settings, welddesk://inbox.
+            .onOpenURL { url in
+                if let route = DeskLogic.route(forLink: url.absoluteString) { DeskLinks.shared.pending = route }
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {

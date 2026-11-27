@@ -7,13 +7,181 @@ info:
     source of truth: change both together, and see "Changing the contract"
     in apps/mobile-shared/README.md for what apps already on phones can read.
 
-    Checked against the server in rust/modules/desk/tests/openapi_contract.rs.
+    Checked against the server in rust/modules/desk/tests/openapi_contract.rs
+    (the inbox) and rust/modules/core-team/tests/openapi_contract_welddesk.rs
+    (the team members an agent assigns to).
+
+    Query parameters with a closed set of values are plain strings: the
+    Kotlin client sends an enum query parameter by its constant name
+    (`OPEN`), not its value.
 
     Every request carries `Authorization: Bearer <WeldID access token>` and
     names its workspace in `X-Weld-Workspace`.
+
+    One call isn't described here: `POST /api/desk/conversations/{id}/attachments`
+    takes `multipart/form-data` (one `file`), which the contract checker
+    doesn't read. It answers 201 with `DeskUploadedAttachmentResponse`; the
+    apps send it by hand and decode that schema.
 servers:
   - url: https://app.weldsuite.eu
-paths: {}
+paths:
+  /api/desk/conversations:
+    get:
+      operationId: listDeskConversations
+      summary: The agent inbox, a page at a time.
+      parameters:
+        - name: state
+          in: query
+          description: open or closed.
+          schema:
+            type: string
+        - name: assigneeId
+          in: query
+          description: Conversations assigned to this user (`sub` of the WeldID token).
+          schema:
+            type: string
+        - name: unassigned
+          in: query
+          schema:
+            type: boolean
+        - name: channel
+          in: query
+          schema:
+            type: string
+        - name: q
+          in: query
+          description: Free text, a name, an email, `#42` or words of a message.
+          schema:
+            type: string
+            maxLength: 200
+        - name: sort
+          in: query
+          description: newest, oldest or waiting_longest.
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: The page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeskConversationList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/desk/conversations/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getDeskConversation
+      summary: One conversation with its timeline.
+      parameters:
+        - name: include
+          in: query
+          description: messages, for the timeline.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The conversation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeskConversationDetailResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/desk/conversations/{id}/reply:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: replyToDeskConversation
+      summary: A reply to the customer, or an internal note.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeskReplyInput'
+      responses:
+        '201':
+          description: The conversation after the reply, and the new message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeskConversationChangeResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/desk/conversations/{id}/manage:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: manageDeskConversation
+      summary: Close, reopen, assign or unassign.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeskManageInput'
+      responses:
+        '200':
+          description: The conversation after the change, and its event in the timeline.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeskConversationChangeResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/team-members:
+    get:
+      operationId: listTeamMembers
+      summary: The workspace's members, for the assignee picker.
+      parameters:
+        - name: memberType
+          in: query
+          description: INTERNAL, EXTERNAL_GUEST, EMPLOYEE or all.
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: The members.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamMemberList'
+        default:
+          $ref: '#/components/responses/Error'
 components:
   securitySchemes:
     bearer:
@@ -40,5 +208,244 @@ components:
           type: string
         message:
           type: string
+    Pagination:
+      type: object
+      required: [totalCount, hasMore, cursor]
+      properties:
+        totalCount:
+          type: integer
+        hasMore:
+          type: boolean
+        cursor:
+          type: string
+          nullable: true
+    DeskConversation:
+      type: object
+      description: |
+        A conversation of the inbox. `state` is `open` or `closed` and
+        `channel` one of messenger, email, phone, whatsapp, sms, api,
+        portal; both are strings so a value added later doesn't break
+        installed apps.
+      required: [id, createdAt, updatedAt, conversationNumber, state, channel]
+      properties:
+        id:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+        conversationNumber:
+          type: integer
+        title:
+          type: string
+          nullable: true
+        state:
+          type: string
+        channel:
+          type: string
+        visitorId:
+          type: string
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        contactId:
+          type: string
+          nullable: true
+        assigneeId:
+          type: string
+          nullable: true
+          description: The assigned agent's user id (`sub` of the WeldID token).
+        priority:
+          type: string
+          nullable: true
+        waitingSince:
+          type: string
+          nullable: true
+          description: Set while the customer waits for an answer.
+        lastMessageAt:
+          type: string
+          nullable: true
+        lastMessagePreview:
+          type: string
+          nullable: true
+    DeskConversationList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeskConversation'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    DeskMessageAttachment:
+      type: object
+      description: A file on a message, uploaded to the conversation first.
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+        contentType:
+          type: string
+        filesize:
+          type: integer
+          format: int64
+          nullable: true
+        width:
+          type: number
+          format: double
+        height:
+          type: number
+          format: double
+    DeskMessageMetadata:
+      type: object
+      description: What an event entry (`kind` `event`) records.
+      properties:
+        eventType:
+          type: string
+          description: closed, reopened, assigned, unassigned, rated, …
+        assigneeId:
+          type: string
+          nullable: true
+        rating:
+          type: integer
+          nullable: true
+    DeskMessage:
+      type: object
+      description: |
+        One entry of the timeline. `kind` is message, note or event;
+        `authorType` visitor, agent, bot or system.
+      required: [id, createdAt, conversationId, kind, authorType]
+      properties:
+        id:
+          type: string
+        createdAt:
+          type: string
+        conversationId:
+          type: string
+        kind:
+          type: string
+        body:
+          type: string
+          nullable: true
+        authorType:
+          type: string
+        authorId:
+          type: string
+          nullable: true
+        attachments:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/DeskMessageAttachment'
+        metadata:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/DeskMessageMetadata'
+    DeskConversationDetail:
+      allOf:
+        - $ref: '#/components/schemas/DeskConversation'
+        - type: object
+          required: [messages]
+          properties:
+            messages:
+              type: array
+              items:
+                $ref: '#/components/schemas/DeskMessage'
+    DeskConversationDetailResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/DeskConversationDetail'
+    DeskConversationChange:
+      type: object
+      required: [conversation, message]
+      properties:
+        conversation:
+          $ref: '#/components/schemas/DeskConversation'
+        message:
+          $ref: '#/components/schemas/DeskMessage'
+    DeskConversationChangeResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/DeskConversationChange'
+    DeskUploadedAttachmentResponse:
+      type: object
+      description: The answer of the attachment upload (see the file's description).
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/DeskMessageAttachment'
+    DeskReplyInput:
+      type: object
+      description: A reply needs a body, attachments, or both.
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [message, note]
+        body:
+          type: string
+          maxLength: 20000
+        attachments:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/DeskMessageAttachment'
+    DeskManageInput:
+      type: object
+      description: |
+        `close` and `open` change the state; `assign` assigns to
+        `assigneeId`, or unassigns without one.
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [close, open, assign]
+        assigneeId:
+          type: string
+          nullable: true
+    TeamMember:
+      type: object
+      description: A workspace member. `email` only reaches admins and the member themselves.
+      required: [id, userId, role, status, memberType]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        picture:
+          type: string
+          nullable: true
+        role:
+          type: string
+        status:
+          type: string
+        memberType:
+          type: string
+    TeamMemberList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamMember'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
 security:
   - bearer: []

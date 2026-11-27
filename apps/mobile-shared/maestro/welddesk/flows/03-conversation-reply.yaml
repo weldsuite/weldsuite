@@ -1,0 +1,39 @@
+appId: ${APP_ID || "com.weldsuite.welddesk.dev"}
+name: Reply to the customer, close the conversation and reopen it
+# Writes to the workspace and reaches the customer: run it only against a
+# workspace whose open conversations are test data (`--include-tags customer`).
+tags: [writes, customer]
+---
+- runFlow: ../subflows/login.yaml
+- extendedWaitUntil:
+    visible:
+      id: conversation-list
+    timeout: 30000
+- tapOn: "Open"
+- tapOn:
+    id: "conversation-[0-9]+"
+    index: 0
+- extendedWaitUntil:
+    visible:
+      id: composer-input
+    timeout: 30000
+- tapOn: "Reply"
+- tapOn:
+    id: composer-input
+- inputText: "Maestro reply"
+- tapOn:
+    id: composer-send
+- extendedWaitUntil:
+    visible: "Maestro reply"
+    timeout: 15000
+# Close it, and open it again: each leaves an event in the timeline.
+- tapOn:
+    id: conversation-toggle-state
+- extendedWaitUntil:
+    visible: "Conversation closed"
+    timeout: 15000
+- tapOn:
+    id: conversation-toggle-state
+- extendedWaitUntil:
+    visible: "Conversation reopened"
+    timeout: 15000

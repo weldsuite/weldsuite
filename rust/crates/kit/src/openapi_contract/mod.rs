@@ -60,7 +60,13 @@ pub const CHECKED_IN: &[(&str, &[&str])] = &[
         &["modules/calendar/tests/openapi_contract.rs"],
     ),
     ("weldchat", &["modules/chat/tests/openapi_contract.rs"]),
-    ("welddesk", &["modules/desk/tests/openapi_contract.rs"]),
+    (
+        "welddesk",
+        &[
+            "modules/desk/tests/openapi_contract.rs",
+            "modules/core-team/tests/openapi_contract_welddesk.rs",
+        ],
+    ),
     ("weldhr", &["modules/hr/tests/openapi_contract.rs"]),
     (
         "core",
