@@ -9222,6 +9222,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-mail-dmarc"
+version = "0.0.0"
+dependencies = [
+ "flate2",
+ "quick-xml 0.42.0",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "weldsuite-mail-domain"
 version = "0.0.0"
 dependencies = [
