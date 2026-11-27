@@ -85,6 +85,13 @@ export const EDITION_FEATURES = [
    * EU edition when the deployment sets it (ADR MAIL-012).
    */
   'mail-free-addresses',
+  /**
+   * DMARC aggregate reports for custom mail domains (ADR MAIL-015): WeldSuite
+   * receives them at the install's report address and summarises them per
+   * domain under Settings › Apps › WeldMail › Domains. Rust only; offered when
+   * the deployment sets `MAIL_DMARC_REPORTS_ADDRESS`.
+   */
+  'mail-dmarc-reports',
   /** WeldMail's AI drafts, replies, summaries and smart replies (`/api/mail-ai`). */
   'mail-ai',
   /**

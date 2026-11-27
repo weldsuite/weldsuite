@@ -146,6 +146,7 @@ where
         .merge(routes::mail_rules::routes(state.clone(), gate))
         .merge(routes::mail_campaigns::routes(state.clone(), gate))
         .merge(routes::mail_domains::routes(state.clone(), gate))
+        .merge(routes::mail_dmarc::routes(state.clone(), gate))
         .merge(routes::mail_weldmail::routes(state.clone(), gate))
         .merge(routes::mail_sync::routes(state.clone(), gate))
         .merge(routes::mail_scheduled::routes(state.clone(), gate))

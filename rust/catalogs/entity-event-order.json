@@ -99,6 +99,7 @@
   "mail_attachment",
   "mail_campaign",
   "mail_domain",
+  "mail_dmarc_source",
   "mail_draft",
   "mail_folder",
   "mail_label",

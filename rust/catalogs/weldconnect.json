@@ -3779,6 +3779,8 @@
     "mail_domain.updated",
     "mail_domain.deleted",
     "mail_domain.verified",
+    "mail_domain.dmarc_failing",
+    "mail_dmarc_source.updated",
     "mail_draft.created",
     "mail_draft.updated",
     "mail_draft.deleted",

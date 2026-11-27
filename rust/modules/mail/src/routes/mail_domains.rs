@@ -478,6 +478,9 @@ pub(crate) async fn ensure_provisioned(
         at,
     )
     .await?;
+    if outcome.verified() {
+        register_for_reports(state, caller, &id, domain).await;
+    }
     Ok(())
 }
 
@@ -702,6 +705,63 @@ fn master_db(state: &MailState, caller: &Caller, fallback: &str) -> MailResult<P
         tracing::error!("[mail-domains] no master database for the catch-all registry");
         MailError::api(ApiError::internal().with_message(fallback))
     })
+}
+
+/// Files a verified domain in master `mail_domain_registry`, so DMARC
+/// reports for it reach this workspace (ADR MAIL-015). Best effort: a
+/// failure is logged, the domain stays verified.
+async fn register_for_reports(state: &MailState, caller: &Caller, id: &str, domain: &str) {
+    use weldsuite_schema::master::mail_domain_registry as reports;
+    let Some(master) = caller.bindings.master(state) else {
+        return;
+    };
+    let now = OffsetDateTime::now_utc();
+    let result = reports::Entity::insert(reports::ActiveModel {
+        id: Set(generate_id("mdreg")),
+        domain: Set(domain.to_lowercase()),
+        workspace_id: Set(caller.workspace_id.clone()),
+        mail_domain_id: Set(id.to_owned()),
+        verified_at: Set(now),
+        created_at: Set(now),
+        updated_at: Set(now),
+    })
+    .on_conflict(
+        OnConflict::columns([reports::Column::Domain, reports::Column::WorkspaceId])
+            .value(reports::Column::MailDomainId, Expr::value(id.to_owned()))
+            .value(reports::Column::UpdatedAt, Expr::value(now))
+            .to_owned(),
+    )
+    .exec_without_returning(&orm(&master))
+    .await;
+    if let Err(error) = result {
+        tracing::error!(%error, "[mail-domains] filing {domain} for DMARC reports failed");
+    }
+}
+
+/// A removed domain's DMARC data: its registry row (reports stop reaching
+/// the workspace), its stored reports (their rows cascade) and its marks.
+async fn forget_reports(
+    master: &PgPool,
+    caller: &Caller,
+    id: &str,
+    domain: &str,
+) -> MailResult<()> {
+    use weldsuite_schema::master::mail_domain_registry as reports;
+    use weldsuite_schema::tenant::{mail_dmarc_reports, mail_dmarc_sources};
+    reports::Entity::delete_many()
+        .filter(reports::Column::Domain.eq(domain.to_lowercase()))
+        .filter(reports::Column::WorkspaceId.eq(&caller.workspace_id))
+        .exec(&orm(master))
+        .await?;
+    mail_dmarc_reports::Entity::delete_many()
+        .filter(mail_dmarc_reports::Column::MailDomainId.eq(id))
+        .exec(&orm(&caller.db))
+        .await?;
+    mail_dmarc_sources::Entity::delete_many()
+        .filter(mail_dmarc_sources::Column::MailDomainId.eq(id))
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
 }
 
 /// `deactivateCatchAllRegistry`.
@@ -1091,6 +1151,7 @@ async fn remove(
             .await?;
         let master = master_db(&state, &caller, "Failed to delete domain")?;
         deactivate_catch_all(&master, &domain, at).await?;
+        forget_reports(&master, &caller, &id, &domain).await?;
         if let Some(adapter) = &state.domains
             && text(&existing, "dnsStatus") == "verified"
         {
@@ -1159,6 +1220,7 @@ async fn verify(
         .await?;
         let after = reread(&caller.db, &id).await?;
         if outcome.verified() {
+            register_for_reports(&state, &caller, &id, &domain).await;
             caller.publish(&state, MAIL_DOMAIN_VERIFIED, &id, &event_data(&after));
         }
         Ok(Data(after).into_response())
@@ -1199,6 +1261,9 @@ async fn sync(State(state): State<MailState>, caller: Caller, Path(id): Path<Str
         )
         .await?;
         let after = reread(&caller.db, &id).await?;
+        if outcome.verified() {
+            register_for_reports(&state, &caller, &id, &domain).await;
+        }
         caller.publish(&state, MAIL_DOMAIN_UPDATED, &id, &event_data(&after));
         Ok(Data(after).into_response())
     }

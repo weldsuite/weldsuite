@@ -136,6 +136,8 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   'crm-auto-add',
   // WeldMail attachment scanning and link protection, built only in Rust.
   'mail-threat-protection',
+  // DMARC aggregate reports for custom mail domains (ADR MAIL-015).
+  'mail-dmarc-reports',
   // Two-way Moneybird sync: live updates and sending WeldBooks records (ADR INT-013).
   'moneybirdTwoWay',
   // WeldBooks: the KvK jaarrekening (`/api/annual-reports`) and depositing it

@@ -143,6 +143,12 @@ pub trait MailDomains: Send + Sync {
         &'a self,
         record: &'a DnsRecord,
     ) -> BoxFuture<'a, Result<bool, DomainError>>;
+
+    /// The install's DMARC report address (`MAIL_DMARC_REPORTS_ADDRESS`,
+    /// ADR MAIL-015), when it has one.
+    fn dmarc_report_address(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// What the edition publishes for a domain: its MX, the relay's SPF include
@@ -296,11 +302,6 @@ impl ManualDomains {
         ));
         Ok(())
     }
-
-    /// The install's DMARC report address, when it has one.
-    pub fn dmarc_report_address(&self) -> Option<&str> {
-        self.config.dmarc_report_address.as_deref()
-    }
 }
 
 impl MailDomains for ManualDomains {
@@ -346,6 +347,10 @@ impl MailDomains for ManualDomains {
         record: &'a DnsRecord,
     ) -> BoxFuture<'a, Result<bool, DomainError>> {
         Box::pin(self.check(record))
+    }
+
+    fn dmarc_report_address(&self) -> Option<&str> {
+        self.config.dmarc_report_address.as_deref()
     }
 }
 
@@ -527,6 +532,10 @@ impl MailDomains for RelayDomains {
         record: &'a DnsRecord,
     ) -> BoxFuture<'a, Result<bool, DomainError>> {
         Box::pin(self.dns.check(record))
+    }
+
+    fn dmarc_report_address(&self) -> Option<&str> {
+        self.dns.dmarc_report_address()
     }
 }
 
