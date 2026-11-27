@@ -1,0 +1,26 @@
+appId: ${APP_ID || "com.weldsuite.weldmail.dev"}
+name: Open an email and go back
+tags: [smoke]
+---
+# Needs at least one email in the test account's inbox (see README).
+- runFlow: ../subflows/login.yaml
+- extendedWaitUntil:
+    visible:
+      id: inbox-email-row
+    timeout: 20000
+- tapOn:
+    id: inbox-email-row
+    index: 0
+- extendedWaitUntil:
+    visible:
+      id: message-screen
+    timeout: 10000
+- assertVisible:
+    id: reply
+- assertVisible:
+    id: forward
+- back
+- extendedWaitUntil:
+    visible:
+      id: inbox-list
+    timeout: 10000

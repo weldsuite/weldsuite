@@ -8586,6 +8586,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "time",
+ "tokio",
  "tracing",
  "url",
  "weldsuite-auth",

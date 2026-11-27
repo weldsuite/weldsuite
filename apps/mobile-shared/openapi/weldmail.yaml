@@ -7,18 +7,622 @@ info:
     source of truth: change both together, and see "Changing the contract"
     in apps/mobile-shared/README.md for what apps already on phones can read.
 
-    Checked against the server in rust/modules/mail/tests/openapi_contract.rs.
+    Checked against the server in rust/modules/mail/tests/openapi_contract.rs
+    (the mail routes) and rust/modules/crm/tests/weldmail_openapi_contract.rs
+    (the contacts the composer suggests and the contact screen shows).
 
     Every request carries `Authorization: Bearer <WeldID access token>` and
     names its workspace in `X-Weld-Workspace`.
+
+    Not here: an attachment's bytes (`GET /api/mail-attachments/{id}/download`)
+    and the upload of a new one (`POST /api/storage/generate-upload-url`, then
+    a `PUT` of the bytes to the URL it hands out). They aren't JSON, which the
+    contract checker reads only; the apps call them with the same headers.
 servers:
   - url: https://app.weldsuite.eu
-paths: {}
+paths:
+  /api/mail-accounts:
+    get:
+      operationId: listMailAccounts
+      summary: The mailboxes the caller may open in this workspace, newest first.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The mailboxes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailAccountList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createMailAccount
+      summary: A new mailbox on one of the workspace's mail domains.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMailAccountInput'
+      responses:
+        '201':
+          description: The new mailbox.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedMailAccountResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-accounts/{accountId}/send:
+    post:
+      operationId: sendMessage
+      summary: Send a message from the mailbox. `idempotencyKey` makes a retried send safe.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageInput'
+      responses:
+        '200':
+          description: Sent (or waiting for recipient verification).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResultResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mailboxes:
+    get:
+      operationId: listMailboxes
+      summary: The caller's mailboxes in every workspace they belong to, per workspace.
+      responses:
+        '200':
+          description: One group per workspace.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailboxGroupList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-messages:
+    get:
+      operationId: listMessages
+      summary: One page of messages, newest first. Without `accountId`, every mailbox the caller may open.
+      parameters:
+        - name: accountId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: isRead
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: hasAttachments
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailMessageList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-messages/stats:
+    get:
+      operationId: messageStats
+      summary: Folder counters of one mailbox, or of every mailbox the caller may open.
+      parameters:
+        - name: accountId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The counters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageStatsResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-messages/{messageId}:
+    get:
+      operationId: getMessage
+      summary: One message with its bodies and attachments.
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+      responses:
+        '200':
+          description: The message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailMessageResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: updateMessage
+      summary: Change a message's flags (read, starred, spam, …).
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMessageInput'
+      responses:
+        '200':
+          description: The message id and what changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageRefResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteMessage
+      summary: Delete the message.
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+      responses:
+        '204':
+          description: Deleted.
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-messages/{messageId}/thread:
+    get:
+      operationId: getThread
+      summary: The conversation the message is in, oldest first, with bodies.
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+      responses:
+        '200':
+          description: The conversation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailThreadResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-messages/{messageId}/labels/add:
+    post:
+      operationId: addMessageLabels
+      summary: Add labels (system ones like ARCHIVE, or the mailbox's own by name).
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabelsInput'
+      responses:
+        '200':
+          description: The message's labels now.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageLabelsResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-messages/{messageId}/labels/remove:
+    post:
+      operationId: removeMessageLabels
+      summary: Remove labels.
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabelsInput'
+      responses:
+        '200':
+          description: The message's labels now.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageLabelsResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-labels:
+    get:
+      operationId: listLabels
+      summary: The labels of one mailbox, or of every mailbox the caller may open, with live message counts.
+      parameters:
+        - name: accountId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The labels.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailLabelList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createLabel
+      summary: A label of the mailbox's own. 409 when the name is taken.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLabelInput'
+      responses:
+        '201':
+          description: The label.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailLabelResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-drafts:
+    post:
+      operationId: createDraft
+      summary: Keep what the composer held as a draft.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDraftInput'
+      responses:
+        '201':
+          description: The draft.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailDraftResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-drafts/{draftId}:
+    delete:
+      operationId: deleteDraft
+      summary: Discard a draft.
+      parameters:
+        - name: draftId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Discarded.
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-snooze/accounts/{accountId}/messages/{messageId}/snooze:
+    post:
+      operationId: snoozeMessage
+      summary: Out of the inbox until `until`, then back, unread.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/MessageId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SnoozeInput'
+      responses:
+        '200':
+          description: Snoozed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnoozeResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-snooze/accounts/{accountId}/messages/{messageId}/unsnooze:
+    post:
+      operationId: unsnoozeMessage
+      summary: Back in the inbox now.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/MessageId'
+      responses:
+        '200':
+          description: Back in the inbox.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnoozeResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-scheduled:
+    post:
+      operationId: scheduleMessage
+      summary: Send at `scheduledFor` (in the future, at most 365 days ahead).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleMessageInput'
+      responses:
+        '201':
+          description: Scheduled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduledResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-subscriptions:
+    get:
+      operationId: listSubscriptions
+      summary: The mailing lists that write to the mailbox, most recent first.
+      parameters:
+        - name: accountId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The subscriptions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailSubscriptionList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-subscriptions/scan:
+    post:
+      operationId: scanSubscriptions
+      summary: Look through recent mail for mailing lists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanSubscriptionsInput'
+      responses:
+        '200':
+          description: How much was looked at.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanResultResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-subscriptions/{subscriptionId}/unsubscribe:
+    post:
+      operationId: unsubscribe
+      summary: Unsubscribe the mailbox; `method` says how, `url` is the sender's page when that is still to be opened.
+      parameters:
+        - name: subscriptionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Done, or the page to finish on.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnsubscribeResultResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-weldmail/domain:
+    get:
+      operationId: weldmailDomain
+      summary: The workspace's free address domain (`acme.weldmail.eu`).
+      responses:
+        '200':
+          description: The domain.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeldmailDomainResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-weldmail/check:
+    post:
+      operationId: checkWeldmailAddress
+      summary: Whether a free address is still available.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WeldmailAddressInput'
+      responses:
+        '200':
+          description: Available, or why not (`reserved`, `taken`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeldmailAvailabilityResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-weldmail/reserve:
+    post:
+      operationId: reserveWeldmailAddress
+      summary: Take a free address as a new mailbox.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReserveWeldmailInput'
+      responses:
+        '201':
+          description: The new mailbox.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservedAddressResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/mail-domains:
+    get:
+      operationId: listMailDomains
+      summary: The workspace's own mail domains.
+      responses:
+        '200':
+          description: The domains.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailDomainList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/people:
+    get:
+      operationId: listPeople
+      summary: Contacts, for recipient suggestions and the sender's contact card.
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: The contacts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createPerson
+      summary: Add a contact. 200 when an existing record by that address was taken up instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePersonInput'
+      responses:
+        '200':
+          description: An existing contact, taken up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonResponse'
+        '201':
+          description: The new contact.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/people/{personId}:
+    get:
+      operationId: getPerson
+      summary: One contact.
+      parameters:
+        - $ref: '#/components/parameters/PersonId'
+      responses:
+        '200':
+          description: The contact.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: updatePerson
+      summary: Change some of a contact's fields.
+      parameters:
+        - $ref: '#/components/parameters/PersonId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePersonInput'
+      responses:
+        '200':
+          description: The contact.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonResponse'
+        default:
+          $ref: '#/components/responses/Error'
 components:
   securitySchemes:
     bearer:
       type: http
       scheme: bearer
+  parameters:
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      schema:
+        type: string
+    MessageId:
+      name: messageId
+      in: path
+      required: true
+      schema:
+        type: string
+    PersonId:
+      name: personId
+      in: path
+      required: true
+      schema:
+        type: string
   responses:
     Error:
       description: An error.
@@ -26,6 +630,9 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+  # Enums are written inline: the Kotlin generator marks a property that
+  # references an enum schema `@Contextual`. The server's value sets here
+  # (statuses, providers, send methods) are open, so they are plain strings.
   schemas:
     ErrorResponse:
       type: object
@@ -39,6 +646,847 @@ components:
         code:
           type: string
         message:
+          type: string
+        details:
+          $ref: '#/components/schemas/ErrorDetails'
+    ErrorDetails:
+      type: object
+      description: |
+        What a refused send carries: which limit, when a retry can work, who
+        got the message and who didn't, which recipients can't be used.
+      properties:
+        limit:
+          type: integer
+          nullable: true
+        window:
+          type: string
+          nullable: true
+        retryAfter:
+          type: string
+          nullable: true
+        suggestWeldReach:
+          type: boolean
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        sent:
+          type: array
+          nullable: true
+          items:
+            type: string
+        failed:
+          type: array
+          nullable: true
+          items:
+            type: string
+        recipients:
+          type: array
+          nullable: true
+          items:
+            type: string
+        invalidFormat:
+          type: array
+          nullable: true
+          items:
+            type: string
+        unreachableDomains:
+          type: array
+          nullable: true
+          items:
+            type: string
+    Pagination:
+      type: object
+      required: [totalCount, hasMore, cursor]
+      properties:
+        totalCount:
+          type: integer
+        hasMore:
+          type: boolean
+        cursor:
+          type: string
+          nullable: true
+    MailAccount:
+      type: object
+      required: [id, name, email, status]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        provider:
+          type: string
+        status:
+          type: string
+        isDefault:
+          type: boolean
+          nullable: true
+        isShared:
+          type: boolean
+          nullable: true
+        signature:
+          type: string
+          nullable: true
+    MailAccountList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailAccount'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    CreateMailAccountInput:
+      type: object
+      required: [name, email]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        displayName:
+          type: string
+        isShared:
+          type: boolean
+    CreatedMailAccount:
+      type: object
+      required: [id, name, email]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+    CreatedMailAccountResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/CreatedMailAccount'
+    MailboxAccount:
+      type: object
+      required: [id, email, displayName, status]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        displayName:
+          type: string
+        provider:
+          type: string
+        isDefault:
+          type: boolean
+        status:
+          type: string
+    MailboxGroup:
+      type: object
+      required: [workspaceId, workspaceName, accounts]
+      properties:
+        clerkOrgId:
+          type: string
+        workspaceId:
+          type: string
+        workspaceName:
+          type: string
+        slug:
+          type: string
+          nullable: true
+        imageUrl:
+          type: string
+          nullable: true
+        accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailboxAccount'
+    MailboxGroupList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailboxGroup'
+    MailAddress:
+      type: object
+      description: A sender or recipient. The sender may carry the matching contact's picture.
+      properties:
+        email:
+          type: string
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+    MailAttachment:
+      type: object
+      required: [id, fileName, size]
+      properties:
+        id:
+          type: string
+        fileName:
+          type: string
+        contentType:
+          type: string
+          nullable: true
+        size:
+          type: integer
+        isInline:
+          type: boolean
+          nullable: true
+    MailMessage:
+      type: object
+      description: |
+        A message. The list leaves out the bodies, the references and the
+        attachments; one message (`getMessage`, `getThread`) has them.
+      required: [id, accountId, sentDate, isRead, hasAttachments, createdAt]
+      properties:
+        id:
+          type: string
+        accountId:
+          type: string
+        messageId:
+          type: string
+          description: The SMTP Message-ID, for threading a reply.
+        threadId:
+          type: string
+          nullable: true
+        from:
+          $ref: '#/components/schemas/MailAddress'
+        to:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/MailAddress'
+        cc:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/MailAddress'
+        subject:
+          type: string
+          nullable: true
+        preview:
+          type: string
+          nullable: true
+        textBody:
+          type: string
+          nullable: true
+        htmlBody:
+          type: string
+          nullable: true
+        sentDate:
+          type: string
+        receivedDate:
+          type: string
+          nullable: true
+        isRead:
+          type: boolean
+        isStarred:
+          type: boolean
+          nullable: true
+        isImportant:
+          type: boolean
+          nullable: true
+        isDraft:
+          type: boolean
+          nullable: true
+        hasAttachments:
+          type: boolean
+        attachmentCount:
+          type: integer
+          nullable: true
+        labels:
+          type: array
+          nullable: true
+          items:
+            type: string
+        references:
+          type: array
+          nullable: true
+          items:
+            type: string
+        scheduledFor:
+          type: string
+          nullable: true
+        sendStatus:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailAttachment'
+    MailMessageList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailMessage'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    MailMessageResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MailMessage'
+    MailThread:
+      type: object
+      required: [threadId, messages]
+      properties:
+        threadId:
+          type: string
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailMessage'
+    MailThreadResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MailThread'
+    MessageStats:
+      type: object
+      required: [unread, inboxUnread, drafts]
+      properties:
+        total:
+          type: integer
+        unread:
+          type: integer
+        inboxUnread:
+          type: integer
+        starred:
+          type: integer
+        snoozed:
+          type: integer
+        scheduled:
+          type: integer
+        drafts:
+          type: integer
+    MessageStatsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MessageStats'
+    UpdateMessageInput:
+      type: object
+      properties:
+        isRead:
+          type: boolean
+        isStarred:
+          type: boolean
+        isSpam:
+          type: boolean
+        isImportant:
+          type: boolean
+        isFlagged:
+          type: boolean
+    MessageRef:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+    MessageRefResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MessageRef'
+    LabelsInput:
+      type: object
+      required: [labels]
+      properties:
+        labels:
+          type: array
+          items:
+            type: string
+    MessageLabels:
+      type: object
+      required: [id, labels]
+      properties:
+        id:
+          type: string
+        labels:
+          type: array
+          items:
+            type: string
+    MessageLabelsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MessageLabels'
+    MailLabel:
+      type: object
+      required: [id, accountId, name, messageCount]
+      properties:
+        id:
+          type: string
+        accountId:
+          type: string
+        name:
+          type: string
+        color:
+          type: string
+          nullable: true
+        isSystem:
+          type: boolean
+          nullable: true
+        slug:
+          type: string
+          nullable: true
+        messageCount:
+          type: integer
+    MailLabelList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailLabel'
+    MailLabelResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MailLabel'
+    CreateLabelInput:
+      type: object
+      required: [accountId, name]
+      properties:
+        accountId:
+          type: string
+        name:
+          type: string
+        color:
+          type: string
+        aiEnabled:
+          type: boolean
+    CreateDraftInput:
+      type: object
+      required: [accountId]
+      properties:
+        accountId:
+          type: string
+        to:
+          type: array
+          items:
+            type: string
+        cc:
+          type: array
+          items:
+            type: string
+        bcc:
+          type: array
+          items:
+            type: string
+        subject:
+          type: string
+        body:
+          type: string
+        htmlBody:
+          type: string
+    MailDraft:
+      type: object
+      required: [id, accountId]
+      properties:
+        id:
+          type: string
+        accountId:
+          type: string
+        subject:
+          type: string
+          nullable: true
+    MailDraftResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MailDraft'
+    SendAttachment:
+      type: object
+      required: [filename, size, fileKey]
+      properties:
+        filename:
+          type: string
+        contentType:
+          type: string
+        size:
+          type: integer
+        fileKey:
+          type: string
+          description: The storage key `generate-upload-url` handed out.
+    SendMessageInput:
+      type: object
+      required: [to]
+      properties:
+        to:
+          type: array
+          items:
+            type: string
+        cc:
+          type: array
+          items:
+            type: string
+        bcc:
+          type: array
+          items:
+            type: string
+        subject:
+          type: string
+        body:
+          type: string
+        htmlBody:
+          type: string
+        inReplyTo:
+          type: string
+        references:
+          type: array
+          items:
+            type: string
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/SendAttachment'
+        idempotencyKey:
+          type: string
+          maxLength: 64
+    SendResult:
+      type: object
+      required: [messageId, pendingVerification]
+      properties:
+        messageId:
+          type: string
+        smtpMessageId:
+          type: string
+          nullable: true
+        pendingVerification:
+          type: boolean
+        message:
+          type: string
+    SendResultResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/SendResult'
+    SnoozeInput:
+      type: object
+      required: [until]
+      properties:
+        until:
+          type: string
+          description: An ISO 8601 timestamp in the future.
+    SnoozeResult:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+        snoozedUntil:
+          type: string
+    SnoozeResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/SnoozeResult'
+    ScheduleMessageInput:
+      type: object
+      required: [accountId, to, scheduledFor]
+      properties:
+        accountId:
+          type: string
+        to:
+          type: array
+          items:
+            type: string
+        cc:
+          type: array
+          items:
+            type: string
+        bcc:
+          type: array
+          items:
+            type: string
+        subject:
+          type: string
+        body:
+          type: string
+        htmlBody:
+          type: string
+        scheduledFor:
+          type: string
+          description: An ISO 8601 timestamp.
+        inReplyTo:
+          type: string
+        references:
+          type: array
+          items:
+            type: string
+    ScheduledMessage:
+      type: object
+      required: [messageId, scheduledFor]
+      properties:
+        messageId:
+          type: string
+        scheduledFor:
+          type: string
+    ScheduledResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ScheduledMessage'
+    MailSubscription:
+      type: object
+      required: [id, accountId, senderEmail, messageCount, lastReceivedAt, status, oneClick]
+      properties:
+        id:
+          type: string
+        accountId:
+          type: string
+        senderEmail:
+          type: string
+        senderName:
+          type: string
+          nullable: true
+        lastSubject:
+          type: string
+          nullable: true
+        messageCount:
+          type: integer
+        lastReceivedAt:
+          type: string
+        status:
+          type: string
+          description: '`active` or `unsubscribed`.'
+        unsubscribedAt:
+          type: string
+          nullable: true
+        unsubscribeUrl:
+          type: string
+          nullable: true
+        unsubscribeMailto:
+          type: string
+          nullable: true
+        oneClick:
+          type: boolean
+    MailSubscriptionList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailSubscription'
+    ScanSubscriptionsInput:
+      type: object
+      required: [accountId]
+      properties:
+        accountId:
+          type: string
+    ScanResult:
+      type: object
+      required: [scanned, subscriptions]
+      properties:
+        scanned:
+          type: integer
+        subscriptions:
+          type: integer
+    ScanResultResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ScanResult'
+    UnsubscribeResult:
+      type: object
+      required: [method]
+      properties:
+        method:
+          type: string
+          description: '`one_click`, `mailto` or `link` (the sender''s page still has to be opened).'
+        url:
+          type: string
+          nullable: true
+    UnsubscribeResultResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/UnsubscribeResult'
+    WeldmailDomain:
+      type: object
+      required: [domain]
+      properties:
+        domain:
+          type: string
+    WeldmailDomainResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/WeldmailDomain'
+    WeldmailAddressInput:
+      type: object
+      required: [address]
+      properties:
+        address:
+          type: string
+    WeldmailAvailability:
+      type: object
+      required: [available]
+      properties:
+        available:
+          type: boolean
+        reason:
+          type: string
+        email:
+          type: string
+    WeldmailAvailabilityResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/WeldmailAvailability'
+    ReserveWeldmailInput:
+      type: object
+      required: [address]
+      properties:
+        address:
+          type: string
+        name:
+          type: string
+        displayName:
+          type: string
+    ReservedAddress:
+      type: object
+      required: [id, email]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+    ReservedAddressResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ReservedAddress'
+    MailDomain:
+      type: object
+      required: [id, domainName]
+      properties:
+        id:
+          type: string
+        domainName:
+          type: string
+        isActive:
+          type: boolean
+          nullable: true
+    MailDomainList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailDomain'
+    Person:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          nullable: true
+        firstName:
+          type: string
+          nullable: true
+        lastName:
+          type: string
+          nullable: true
+        fullName:
+          type: string
+          nullable: true
+        directPhone:
+          type: string
+          nullable: true
+        mobilePhone:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        linkedinUrl:
+          type: string
+          nullable: true
+        bestTimeToContact:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+    PersonList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Person'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    PersonResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Person'
+    CreatePersonInput:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+    UpdatePersonInput:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+        directPhone:
+          type: string
+        notes:
+          type: string
+        department:
+          type: string
+        linkedinUrl:
           type: string
 security:
   - bearer: []

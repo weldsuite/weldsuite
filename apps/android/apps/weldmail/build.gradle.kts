@@ -88,6 +88,8 @@ dependencies {
     implementation(libs.navigation.compose)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.process)
+    // A sender's unsubscribe page opens in a Custom Tab, as the Expo app's in-app browser.
+    implementation(libs.browser)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     testImplementation(libs.junit)

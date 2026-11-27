@@ -2,6 +2,32 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Whether the phone is online: the outbox sends what waited once it is. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- A photo to attach is taken by the phone's camera app; the camera itself is optional. -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+
+    <!-- Viewers for an attachment, the mail app and dialler for links in a message (Android 11+). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="*/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="mailto" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+        </intent>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+    </queries>
+
     <!-- No backup: the data stays on the server, the session keys in the Keystore. -->
     <application
         android:name=".WeldMailApplication"
@@ -23,7 +49,48 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- weldmail://message/<id>, weldmail://compose, …/search, …/settings, …/subscriptions. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="weldmail" />
+                <data android:host="message" />
+                <data android:host="compose" />
+                <data android:host="search" />
+                <data android:host="settings" />
+                <data android:host="subscriptions" />
+            </intent-filter>
         </activity>
+
+        <!--
+            AppAuth's redirect activity claims the whole weldmail:// scheme; narrowed
+            to its own weldmail://sso-callback so the links above open the app, not a chooser.
+        -->
+        <activity
+            android:name="net.openid.appauth.RedirectUriReceiverActivity"
+            android:exported="true"
+            tools:node="replace">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="sso-callback"
+                    android:scheme="weldmail" />
+            </intent-filter>
+        </activity>
+
+        <!-- Downloaded attachments and camera photos, shared with a viewer or the camera app. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"

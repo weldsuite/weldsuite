@@ -1,0 +1,29 @@
+appId: ${APP_ID || "com.weldsuite.weldmail.dev"}
+name: Search mail
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- tapOn:
+    id: search-mail
+- extendedWaitUntil:
+    visible:
+      id: search-input
+    timeout: 10000
+- tapOn:
+    id: search-input
+- inputText: "zz-maestro-no-such-mail"
+- extendedWaitUntil:
+    visible: "No results found"
+    timeout: 15000
+# A filter chip opens its choices; "Read" narrows the search.
+- tapOn:
+    id: search-filter-unread
+- tapOn: "Read"
+- assertVisible:
+    id: search-input
+- tapOn:
+    id: tab-mail
+- extendedWaitUntil:
+    visible:
+      id: inbox-list
+    timeout: 10000

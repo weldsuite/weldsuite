@@ -54,7 +54,13 @@ const METHODS: &[&str] = &["get", "put", "post", "delete", "patch", "head", "opt
 pub const CHECKED_IN: &[(&str, &[&str])] = &[
     ("weldpass", &["modules/pass/tests/openapi_contract.rs"]),
     ("weldbooks", &["modules/books/tests/openapi_contract.rs"]),
-    ("weldmail", &["modules/mail/tests/openapi_contract.rs"]),
+    (
+        "weldmail",
+        &[
+            "modules/mail/tests/openapi_contract.rs",
+            "modules/crm/tests/weldmail_openapi_contract.rs",
+        ],
+    ),
     (
         "weldcalendar",
         &["modules/calendar/tests/openapi_contract.rs"],

@@ -1,0 +1,24 @@
+appId: ${APP_ID || "com.weldsuite.weldmail.dev"}
+name: Open settings, the subscriptions and the outbox
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- tapOn:
+    id: tab-settings
+- extendedWaitUntil:
+    visible:
+      id: settings-list
+    timeout: 10000
+- assertVisible:
+    id: settings-outbox
+- tapOn:
+    id: settings-subscriptions
+- extendedWaitUntil:
+    visible:
+      id: subscriptions-search
+    timeout: 15000
+- back
+- tapOn:
+    id: tab-mail
+- assertVisible:
+    id: inbox-list
