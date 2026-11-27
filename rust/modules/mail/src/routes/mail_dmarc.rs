@@ -20,6 +20,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
+use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch};
 use sea_orm::sea_query::{Expr, OnConflict};
@@ -33,6 +34,7 @@ use weldsuite_catalogs::entity_events::MAIL_DMARC_SOURCE_UPDATED;
 use weldsuite_catalogs::permission_keys::{ACCOUNTS_READ, ACCOUNTS_UPDATE};
 use weldsuite_db::orm;
 use weldsuite_events::iso_timestamp;
+use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{Data, List, Pagination, generate_id};
 use weldsuite_mail_dmarc::readiness::{self, Mark, SourceStat, Window};
 use weldsuite_mail_dmarc::record::{self, Inspection};
@@ -42,7 +44,7 @@ use weldsuite_schema::tenant::{
     mail_dmarc_records, mail_dmarc_reports, mail_dmarc_sources, mail_domains,
 };
 
-use crate::util::{MailError, MailResult, answer, query_map};
+use crate::util::{MailError, MailResult, answer, query_map, validate};
 use crate::{Caller, MailState};
 
 /// Failing groups listed at most.
@@ -611,39 +613,39 @@ async fn reports(caller: Caller, Path(id): Path<String>, RawQuery(raw): RawQuery
     answer(result, "Failed to list the domain's DMARC reports")
 }
 
+/// A key `weldsuite_mail_dmarc::sources::key` makes.
+fn is_source_key(key: &str) -> bool {
+    ["weldsuite:", "name:", "ip:"]
+        .iter()
+        .any(|prefix| key.len() > prefix.len() && key.starts_with(prefix))
+}
+
 /// `PATCH /mail-domains/:id/dmarc/sources` `{ key, mark }`.
 async fn mark_source(
     State(state): State<MailState>,
     caller: Caller,
     Path(id): Path<String>,
+    headers: HeaderMap,
     body: Bytes,
 ) -> Response {
     let result = async {
-        let body: Value = serde_json::from_slice(&body)
-            .map_err(|_| MailError::bad_request("Invalid JSON body".to_owned()))?;
-        let key = body["key"]
-            .as_str()
-            .map(str::trim)
-            .filter(|key| {
-                !key.is_empty()
-                    && key.len() <= 255
-                    && ["weldsuite:", "name:", "ip:"]
-                        .iter()
-                        .any(|prefix| key.starts_with(prefix))
-            })
-            .ok_or_else(|| MailError::bad_request("key must be a source key".to_owned()))?
-            .to_owned();
-        let mark = match &body["mark"] {
-            Value::Null => None,
-            Value::String(text) => Some(Mark::parse(text).ok_or_else(|| {
-                MailError::bad_request("mark must be mine, not_mine or null".to_owned())
-            })?),
-            _ => {
-                return Err(MailError::bad_request(
-                    "mark must be mine, not_mine or null".to_owned(),
-                ));
+        // The module's body reader: JSON only, each field checked, 400 with
+        // the issues otherwise.
+        let (key, mark) = validate(&headers, &body, |issues, fields| {
+            let key = issues
+                .text(fields, "key", Presence::Required, Some(1), Some(255))
+                .into_option()
+                .map(|key| key.trim().to_owned());
+            let mark = issues
+                .choice(fields, "mark", Presence::Nullable, &["mine", "not_mine"])
+                .into_option()
+                .and_then(|mark| Mark::parse(&mark));
+            if key.as_deref().is_some_and(|key| !is_source_key(key)) {
+                issues.custom("key", "key must be a source key (name:, ip: or weldsuite:)");
             }
-        };
+            (key, mark)
+        })?;
+        let key = key.ok_or_else(|| MailError::bad_request("key is required".to_owned()))?;
         if sources::is_weldsuite(&key) {
             return Err(MailError::bad_request(
                 "WeldSuite's own sending addresses can't be marked".to_owned(),

@@ -105,6 +105,9 @@ pub enum Outcome {
     NotAggregate,
     /// Not readable as a report.
     Invalid(String),
+    /// About a period older than the workspaces keep ([`RETENTION_DAYS`]):
+    /// dropped, as it would be pruned at once.
+    Stale,
 }
 
 impl Outcome {
@@ -116,6 +119,7 @@ impl Outcome {
             Self::Duplicate => "duplicate",
             Self::NotAggregate => "not_aggregate",
             Self::Invalid(_) => "invalid",
+            Self::Stale => "stale",
         }
     }
 }
@@ -285,6 +289,10 @@ impl DmarcReports {
     }
 
     async fn file(&self, report: &Report, authenticated: bool) -> Result<Outcome, Unavailable> {
+        let oldest = time::OffsetDateTime::now_utc().unix_timestamp() - RETENTION_DAYS * 86_400;
+        if report.end < oldest {
+            return Ok(Outcome::Stale);
+        }
         let rows = self.sourced(report).await;
         let targets = store::route(&self.master, &rows)
             .await

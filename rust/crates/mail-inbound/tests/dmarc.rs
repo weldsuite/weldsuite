@@ -60,12 +60,18 @@ impl SendingAddresses for OnePool {
     }
 }
 
+/// A report about yesterday (UTC), as receivers send them.
 fn report(domain: &str, id: &str) -> Vec<u8> {
+    let end = time::OffsetDateTime::now_utc().unix_timestamp() - 3_600;
+    report_for(domain, id, end - 86_399, end)
+}
+
+fn report_for(domain: &str, id: &str, begin: i64, end: i64) -> Vec<u8> {
     let xml = format!(
         r#"<?xml version="1.0"?>
 <feedback>
   <report_metadata><org_name>google.com</org_name><email>noreply-dmarc-support@google.com</email>
-    <report_id>{id}</report_id><date_range><begin>1764028800</begin><end>1764115199</end></date_range></report_metadata>
+    <report_id>{id}</report_id><date_range><begin>{begin}</begin><end>{end}</end></date_range></report_metadata>
   <policy_published><domain>{domain}</domain><p>none</p></policy_published>
   <record><row><source_ip>198.51.100.7</source_ip><count>12</count>
     <policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>fail</spf></policy_evaluated></row>
@@ -164,4 +170,13 @@ async fn reports_are_filed_once_for_the_workspace_that_verified_the_domain() {
         .await
         .expect("filed");
     assert_eq!(unknown, Outcome::UnknownDomain);
+
+    // A report about a period the workspace no longer keeps: dropped.
+    let year_ago = time::OffsetDateTime::now_utc().unix_timestamp() - 365 * 86_400;
+    let stale = dmarc
+        .ingest(&report_for(DOMAIN, "r-old", year_ago - 86_399, year_ago))
+        .await
+        .expect("filed");
+    assert_eq!(stale, Outcome::Stale);
+    assert_eq!(count(&tenant, &reports).await, 1);
 }
