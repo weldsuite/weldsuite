@@ -1,0 +1,7 @@
+# Maestro workspace config: `maestro test apps/mobile-shared/maestro/weldbooks`
+# runs every flow in flows/ against the native WeldBooks app (iOS or Android).
+# Subflows live in subflows/ and are not run on their own.
+flows:
+  - flows/*
+executionOrder:
+  continueOnFailure: true

@@ -14,6 +14,18 @@ class WeldBooksApplication : Application() {
     lateinit var appearance: AppearancePreference
         private set
 
+    /** The WeldBooks API for the active company. */
+    lateinit var repository: BooksRepository
+        private set
+
+    /** The workspace's companies and the one whose books are open. */
+    lateinit var entities: EntityState
+        private set
+
+    /** Expenses and receipts captured offline. */
+    lateinit var queue: OfflineQueue
+        private set
+
     override fun onCreate() {
         super.onCreate()
         env = AppEnvironment(
@@ -32,6 +44,9 @@ class WeldBooksApplication : Application() {
             usesPush = true,
         )
         appearance = AppearancePreference(this, "weldbooks")
+        repository = BooksRepository(env)
+        entities = EntityState(this, repository)
+        queue = OfflineQueue(this, env)
         WeldPush.init(
             context = this,
             env = env,

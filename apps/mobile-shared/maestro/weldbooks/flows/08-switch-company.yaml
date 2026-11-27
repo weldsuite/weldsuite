@@ -1,0 +1,80 @@
+appId: ${APP_ID || "com.weldsuite.weldbooks.dev"}
+name: Add a second company and switch between companies
+tags: [smoke, writes]
+---
+- runFlow: ../subflows/login.yaml
+- extendedWaitUntil:
+    visible: "E2E Company BV|E2E Second BV"
+    timeout: 15000
+
+- tapOn:
+    id: tab-more
+- tapOn:
+    id: administration-row
+- extendedWaitUntil:
+    visible: "Administrations"
+    timeout: 10000
+- runFlow:
+    when:
+      visible: "E2E Second BV"
+    commands:
+      - tapOn: "E2E Second BV"
+- runFlow:
+    when:
+      notVisible: "E2E Second BV"
+    commands:
+      - tapOn:
+          id: administration-add
+      - extendedWaitUntil:
+          visible: "Add a company"
+          timeout: 10000
+      - assertVisible: "Netherlands.*"
+      - tapOn:
+          id: company-name
+      - inputText: "E2E Second BV"
+      - hideKeyboard
+      - scrollUntilVisible:
+          element:
+            id: create-company-submit
+      - tapOn:
+          id: create-company-submit
+
+- extendedWaitUntil:
+    visible: "E2E Second BV"
+    timeout: 30000
+- tapOn:
+    id: tab-home
+- extendedWaitUntil:
+    visible:
+      id: kpi-outstanding
+    timeout: 30000
+- assertVisible: "E2E Second BV"
+# The second company's books are its own.
+- tapOn:
+    id: tab-expenses
+- extendedWaitUntil:
+    visible: "Search bills and expenses"
+    timeout: 10000
+- extendedWaitUntil:
+    notVisible: "E2E Supplier.*"
+    timeout: 10000
+
+# Back to the first company from Home (Android: the title; iOS: the switcher button).
+- tapOn:
+    id: tab-home
+- tapOn:
+    id: title-switcher
+- extendedWaitUntil:
+    visible: "Administrations"
+    timeout: 10000
+- tapOn: "E2E Company BV"
+- extendedWaitUntil:
+    visible:
+      id: kpi-outstanding
+    timeout: 30000
+- assertVisible: "E2E Company BV"
+- tapOn:
+    id: tab-expenses
+- extendedWaitUntil:
+    visible: "E2E Supplier.*"
+    timeout: 15000

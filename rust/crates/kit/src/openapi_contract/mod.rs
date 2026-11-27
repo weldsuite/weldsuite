@@ -53,7 +53,18 @@ const METHODS: &[&str] = &["get", "put", "post", "delete", "patch", "head", "opt
 /// the tests here, as does an operation no listed file names.
 pub const CHECKED_IN: &[(&str, &[&str])] = &[
     ("weldpass", &["modules/pass/tests/openapi_contract.rs"]),
-    ("weldbooks", &["modules/books/tests/openapi_contract.rs"]),
+    (
+        "weldbooks",
+        &[
+            "modules/books/tests/openapi_contract.rs",
+            "modules/books-banking/tests/openapi_contract.rs",
+            "modules/books-purchases/tests/openapi_contract.rs",
+            "modules/books-reports/tests/openapi_contract.rs",
+            "modules/books-sales/tests/openapi_contract.rs",
+            "modules/books-sales-tax/tests/openapi_contract.rs",
+            "modules/books-tax/tests/openapi_contract.rs",
+        ],
+    ),
     (
         "weldmail",
         &[

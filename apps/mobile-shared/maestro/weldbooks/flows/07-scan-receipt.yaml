@@ -1,0 +1,86 @@
+appId: ${APP_ID || "com.weldsuite.weldbooks.dev"}
+name: Scan a receipt into a booked expense
+tags: [smoke, writes]
+---
+- runFlow: ../subflows/login.yaml
+- addMedia:
+    - "../assets/receipt-albert-heijn.png"
+- evalScript: ${output.vendor = "Albert Heijn E2E " + Date.now()}
+
+- tapOn:
+    id: tab-scan
+- runFlow: ../subflows/close-camera.yaml
+- tapOn:
+    id: scan-gallery
+- runFlow: ../subflows/pick-first-photo.yaml
+
+- extendedWaitUntil:
+    visible:
+      id: scan-retake
+    timeout: 15000
+- extendedWaitUntil:
+    notVisible: "Uploading.*|Reading.*"
+    timeout: 90000
+# OCR or not, the receipt stays attached.
+- assertVisible: "Found.*|Receipt attached.*|Could not read.*|Not enough AI credits.*|The photo is too large.*"
+- tapOn:
+    id: scan-quick-expense
+
+- extendedWaitUntil:
+    visible:
+      id: receipt-preview
+    timeout: 15000
+- extendedWaitUntil:
+    notVisible: "Filling in fields from the scan.*"
+    timeout: 30000
+- tapOn:
+    id: expense-amount
+- eraseText: 12
+- inputText: "32.48"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: expense-vendor
+- tapOn:
+    id: expense-vendor
+- eraseText: 40
+- inputText: ${output.vendor}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: expense-save
+- tapOn:
+    id: expense-save
+- extendedWaitUntil:
+    visible:
+      id: kpi-outstanding
+    timeout: 20000
+
+- tapOn:
+    id: tab-expenses
+- extendedWaitUntil:
+    visible: "Search bills and expenses"
+    timeout: 10000
+- tapOn:
+    id: search
+- inputText: ${output.vendor}
+- hideKeyboard
+- extendedWaitUntil:
+    visible:
+      id: bill-row
+    timeout: 10000
+- tapOn:
+    id: bill-row
+    index: 0
+- extendedWaitUntil:
+    visible: "Paid"
+    timeout: 15000
+- assertVisible: "€32.48"
+- scrollUntilVisible:
+    element:
+      id: receipt-preview
+    timeout: 20000
+- tapOn:
+    id: receipt-preview
+- assertVisible: "Close"
+- tapOn: "Close"

@@ -6,6 +6,9 @@ import WeldUI
 struct WeldBooksApp: App {
     @UIApplicationDelegateAdaptor(WeldAppDelegate.self) private var delegate
     @State private var env: AppEnvironment
+    /// The store, the companies and the offline queue, for every screen (`@Environment(Books.self)`).
+    @State private var books: Books
+    @State private var navigator = BooksNavigator()
     @State private var toaster = Toaster()
     @AppStorage(AppAppearance.storageKey(app: "weldbooks")) private var appearance = AppAppearance.system
     @Environment(\.scenePhase) private var scenePhase
@@ -13,7 +16,7 @@ struct WeldBooksApp: App {
     init() {
         let info = Bundle.main.infoDictionary ?? [:]
         let server = (info["WeldEUServerURL"] as? String).flatMap(URL.init(string:)) ?? URL(string: "https://app.weldsuite.eu")!
-        _env = State(initialValue: AppEnvironment(
+        let env = AppEnvironment(
             app: AppIdentity(
                 code: "weldbooks",
                 name: BooksStrings.appName,
@@ -27,7 +30,9 @@ struct WeldBooksApp: App {
             lockRequired: false,
             optionalLock: true,
             usesPush: true
-        ))
+        )
+        _env = State(initialValue: env)
+        _books = State(initialValue: Books(env: env))
     }
 
     var body: some Scene {
@@ -36,8 +41,18 @@ struct WeldBooksApp: App {
                 env: env,
                 branding: AppBranding(name: BooksStrings.appName, subtitle: BooksStrings.authSubtitle, logo: "Logo")
             ) { person, workspace, workspaces in
-                ContentView(env: env, person: person, workspace: workspace, workspaces: workspaces, appearance: $appearance)
+                ContentView(
+                    env: env,
+                    books: books,
+                    navigator: navigator,
+                    person: person,
+                    workspace: workspace,
+                    workspaces: workspaces,
+                    appearance: $appearance
+                )
             }
+            .environment(books)
+            .environment(navigator)
             .tint(Tokens.Brand.weldbooks)
             .preferredColorScheme(appearance.colorScheme)
             .toastOverlay(toaster)

@@ -1,0 +1,58 @@
+appId: ${APP_ID || "com.weldsuite.weldbooks.dev"}
+name: Add a quick expense
+tags: [smoke, writes]
+---
+- runFlow: ../subflows/login.yaml
+- evalScript: ${output.vendor = "E2E Supplier " + Date.now()}
+- tapOn:
+    id: action-expense
+- extendedWaitUntil:
+    visible:
+      id: expense-amount
+    timeout: 10000
+- tapOn:
+    id: expense-amount
+- inputText: "30.25"
+- hideKeyboard
+- assertVisible: "incl. €5.25 VAT \(21%\)"
+- tapOn:
+    id: category-food
+# The category picks the company's own expense account.
+- scrollUntilVisible:
+    element: ".*Representatiekosten"
+- scrollUntilVisible:
+    element:
+      id: expense-vendor
+- tapOn:
+    id: expense-vendor
+- inputText: ${output.vendor}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: expense-save
+- tapOn:
+    id: expense-save
+- extendedWaitUntil:
+    visible:
+      id: kpi-outstanding
+    timeout: 20000
+- tapOn:
+    id: tab-expenses
+- extendedWaitUntil:
+    visible: "Search bills and expenses"
+    timeout: 10000
+- tapOn:
+    id: search
+- inputText: ${output.vendor}
+- hideKeyboard
+- extendedWaitUntil:
+    visible:
+      id: bill-row
+    timeout: 10000
+- tapOn:
+    id: bill-row
+    index: 0
+- extendedWaitUntil:
+    visible: "Paid"
+    timeout: 15000
+- assertVisible: "€30.25"

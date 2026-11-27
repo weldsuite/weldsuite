@@ -1,0 +1,10 @@
+# Picks the newest photo in the system photo picker (Android: "Photo taken
+# on …"; iOS: "Photo, …").
+appId: ${APP_ID || "com.weldsuite.weldbooks.dev"}
+---
+- extendedWaitUntil:
+    visible: "Photo.*"
+    timeout: 10000
+- tapOn:
+    text: "Photo.*"
+    index: 0

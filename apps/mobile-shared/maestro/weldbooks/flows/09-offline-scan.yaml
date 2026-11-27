@@ -1,0 +1,75 @@
+appId: ${APP_ID || "com.weldsuite.weldbooks.dev"}
+name: Scan a receipt offline; it syncs with its expense
+tags: [writes]
+onFlowComplete:
+  - setAirplaneMode: disabled
+---
+- runFlow: ../subflows/login.yaml
+- addMedia:
+    - "../assets/receipt-albert-heijn.png"
+- evalScript: ${output.vendor = "Offline E2E " + Date.now()}
+- setAirplaneMode: enabled
+
+- tapOn:
+    id: tab-scan
+- runFlow: ../subflows/close-camera.yaml
+- tapOn:
+    id: scan-gallery
+- runFlow: ../subflows/pick-first-photo.yaml
+- extendedWaitUntil:
+    visible: "You're offline.*"
+    timeout: 15000
+- tapOn:
+    id: scan-quick-expense
+- extendedWaitUntil:
+    visible:
+      id: receipt-preview
+    timeout: 15000
+- tapOn:
+    id: expense-amount
+- inputText: "12.10"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: expense-vendor
+- tapOn:
+    id: expense-vendor
+- inputText: ${output.vendor}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: expense-save
+- tapOn:
+    id: expense-save
+- extendedWaitUntil:
+    visible:
+      id: kpi-outstanding
+    timeout: 20000
+
+- setAirplaneMode: disabled
+- extendedWaitUntil:
+    notVisible: ".*waiting to sync.*|.*queued.*"
+    timeout: 90000
+- tapOn:
+    id: tab-expenses
+- extendedWaitUntil:
+    visible: "Search bills and expenses"
+    timeout: 15000
+- tapOn:
+    id: search
+- inputText: ${output.vendor}
+- hideKeyboard
+- extendedWaitUntil:
+    visible:
+      id: bill-row
+    timeout: 30000
+- tapOn:
+    id: bill-row
+    index: 0
+- extendedWaitUntil:
+    visible: "Paid"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: receipt-preview
+    timeout: 20000
