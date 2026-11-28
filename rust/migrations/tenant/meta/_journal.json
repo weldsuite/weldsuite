@@ -1926,6 +1926,13 @@
       "when": 1795826129151,
       "tag": "0274_weldbooks_payment_connections",
       "breakpoints": true
+    },
+    {
+      "idx": 275,
+      "version": "7",
+      "when": 1795829474201,
+      "tag": "0275_weldbooks_contact_tax_default",
+      "breakpoints": true
     }
   ]
 }
