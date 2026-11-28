@@ -11,8 +11,8 @@
  * prompt, so the Rust backend runs the same tests in conformance mode.
  */
 
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { eq, inArray, like } from 'drizzle-orm';
 import { createMockModel, type MockChatRequest, type MockChatReply } from '@weldsuite/ai/testing';
 import { searchRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
@@ -598,5 +598,77 @@ describe('POST /api/search/reindex', () => {
 
     expect((await reindex({}, model.env, ['contacts:read'])).status).toBe(403);
     expect((await reindex({ cursor: { entityType: 'bogus', afterId: null } }, model.env)).status).toBe(400);
+  });
+});
+
+describe('POST /api/search · per-entity access', () => {
+  // WeldBooks' invoices and bills belong to a legal entity (ADR SEC-015): two
+  // entities open to everyone and a restricted one, and an entity role
+  // without invoices or bills in the third.
+  const BOOKS = ['invoices:read', 'bills:read'];
+  const ids = ['seaq7_open', 'seaq7_secret', 'seaq7_role'];
+
+  beforeAll(async () => {
+    await db.insert(schema.roles).values({ id: 'role_sea_hr', name: 'HR only', permissions: ['weldhr:employees:read'] });
+    await db.insert(schema.workspaceMembers).values([
+      { id: 'wm_sea_member', userId: 'user_sea_member', role: 'MEMBER', status: 'ACTIVE' },
+      { id: 'wm_sea_listed', userId: 'user_sea_listed', role: 'MEMBER', status: 'ACTIVE' },
+    ]);
+    await db.insert(schema.legalEntities).values([
+      { id: 'ent_sea_open', name: 'Open BV', jurisdictionCode: 'NL', accessRestricted: false },
+      { id: 'ent_sea_secret', name: 'Secret BV', jurisdictionCode: 'NL', accessRestricted: true },
+      { id: 'ent_sea_role', name: 'HR BV', jurisdictionCode: 'NL', accessRestricted: false },
+    ]);
+    await db.insert(schema.legalEntityMembers).values([
+      { id: 'lem_sea_listed', entityId: 'ent_sea_secret', userId: 'user_sea_listed', roleId: null },
+      { id: 'lem_sea_role', entityId: 'ent_sea_role', userId: 'user_sea_member', roleId: 'role_sea_hr' },
+    ]);
+    for (const id of ids) {
+      const entityId = `ent_sea_${id.slice('seaq7_'.length)}`;
+      await db.insert(schema.invoices).values({
+        id: `inv_${id}`, entityId, contactId: 'con_1', invoiceNumber: id.toUpperCase(), contactName: 'Acme',
+        issueDate: at(30), dueDate: at(30), updatedAt: at(30),
+      });
+      await db.insert(schema.bills).values({
+        id: `bil_${id}`, entityId, contactId: 'con_1', billNumber: id.toUpperCase(), contactName: 'Acme',
+        issueDate: at(30), dueDate: at(30), updatedAt: at(30),
+      });
+    }
+  });
+
+  afterAll(async () => {
+    await db.delete(schema.invoices).where(inArray(schema.invoices.id, ids.map((id) => `inv_${id}`)));
+    await db.delete(schema.bills).where(inArray(schema.bills.id, ids.map((id) => `bil_${id}`)));
+    await db.delete(schema.legalEntityMembers).where(like(schema.legalEntityMembers.id, 'lem_sea_%'));
+    await db.delete(schema.legalEntities).where(like(schema.legalEntities.id, 'ent_sea_%'));
+    await db.delete(schema.workspaceMembers).where(like(schema.workspaceMembers.id, 'wm_sea_%'));
+    await db.delete(schema.roles).where(eq(schema.roles.id, 'role_sea_hr'));
+  });
+
+  async function found(userId: string, keys: string[]) {
+    const res = await body(await search({ q: 'seaq7', types: ['invoice', 'bill'], limit: 10 }, { userId, keys }));
+    const of = (type: string) => (res.data.find((g) => g.type === type)?.items.map((i) => i.id) ?? []).sort();
+    return { invoice: of('invoice'), bill: of('bill') };
+  }
+
+  it('finds invoices and bills only in the entities the caller may read them in', async () => {
+    // Not listed on the restricted entity, and an entity role without
+    // invoices or bills in the third: the open entity's records only.
+    expect(await found('user_sea_member', BOOKS)).toEqual({ invoice: ['inv_seaq7_open'], bill: ['bil_seaq7_open'] });
+    // Listed on the restricted entity, with the workspace role.
+    expect(await found('user_sea_listed', BOOKS)).toEqual({
+      invoice: ['inv_seaq7_open', 'inv_seaq7_role', 'inv_seaq7_secret'],
+      bill: ['bil_seaq7_open', 'bil_seaq7_role', 'bil_seaq7_secret'],
+    });
+    // Managing access shows a restricted entity only to those listed on it.
+    expect(await found('user_sea_admin', [...BOOKS, 'legal_entities:manage'])).toEqual({
+      invoice: ['inv_seaq7_open', 'inv_seaq7_role'],
+      bill: ['bil_seaq7_open', 'bil_seaq7_role'],
+    });
+    // The owner sees every entity.
+    expect(await found('user_sea_owner', ['*'])).toEqual({
+      invoice: ['inv_seaq7_open', 'inv_seaq7_role', 'inv_seaq7_secret'],
+      bill: ['bil_seaq7_open', 'bil_seaq7_role', 'bil_seaq7_secret'],
+    });
   });
 });
