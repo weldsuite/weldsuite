@@ -139,7 +139,8 @@ export function getWeldbooksContactTabs(labels: {
         id: 'chat',
         label: page.chat,
         icon: MessageSquare,
-        defaultVisibleInPanel: false,
+        // The questions to the accountant live here: reachable from the side panel too.
+        defaultVisibleInPanel: true,
         defaultVisibleInFullscreen: true,
       },
       {

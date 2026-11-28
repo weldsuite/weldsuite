@@ -11,6 +11,7 @@ import type { AccountingEntity, UpdateLockDatesInput } from '@/lib/api/domains/w
 import { toCalendarDate } from '@/lib/weldbooks/format';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useI18n } from '@/lib/i18n/provider';
+import { LockDateSuggestionBanner } from './lock-date-suggestion';
 
 type SoftLockField = 'salesLockDate' | 'purchaseLockDate' | 'taxLockDate' | 'periodLockDate';
 
@@ -102,6 +103,16 @@ export function LockDatesCard({ entity, canUpdate }: Readonly<LockDatesCardProps
       </CardHeader>
       <CardContent className="space-y-6">
         {!canUpdate && <p className="text-sm text-muted-foreground">{tl.noPermission}</p>}
+
+        {/* The date the books could be locked at (edition feature `books-questions`): fills the period lock, saves nothing. */}
+        <LockDateSuggestionBanner
+          entityId={entity.id}
+          disabled={!canUpdate}
+          onUse={(date) => {
+            setValues((prev) => ({ ...prev, periodLockDate: date }));
+            toast.info(t.weldbooksQuestions.lock.used);
+          }}
+        />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {SOFT_LOCKS.map(({ field, label }) => {

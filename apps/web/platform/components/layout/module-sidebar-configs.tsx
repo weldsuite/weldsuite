@@ -3,6 +3,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Inbox,
   ListChecks,
+  MessageCircleQuestion,
   Upload,
   Radio,
   BarChart3,
@@ -708,6 +709,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         {
           group: groups.accountant,
           items: [
+            // Questions on records (edition feature `books-questions`; the sidebar hook drops it where there are none).
+            { title: nav.questions, href: '/weldbooks/questions', icon: MessageCircleQuestion },
             { title: nav.journalEntries, href: '/weldbooks/journal', icon: TextAlignStart },
             { title: nav.chartOfAccounts, href: '/weldbooks/accounts', icon: WalletCards },
             // Opening and closing periods is month-end work, not configuration.

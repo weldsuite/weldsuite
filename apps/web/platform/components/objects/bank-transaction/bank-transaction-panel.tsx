@@ -74,6 +74,8 @@ import { cn } from '@/lib/utils';
 import { withQuery } from '@/lib/with-query';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { automaticReasonLabel } from '@/app/weldbooks/banking/process/process-model';
+import { RecordQuestionChat } from '@/components/accounting/questions/record-question-chat';
+import { isQuestionsAvailable } from '@/hooks/queries/use-weldbooks-questions-queries';
 import { getBankTransactionTabs, type BankTransactionTab } from './bank-transaction-tabs';
 import { useBankTransactionLinks } from './use-bank-transaction-links';
 
@@ -603,8 +605,14 @@ export function BankTransactionPanel(props: Readonly<ObjectPanelComponentProps>)
   const mode = shell.mode;
 
   const tabs = useMemo(
-    () => getBankTransactionTabs({ details: st('sweep.entities.detailsTab'), history: st('sweep.entities.auditLogTab') }),
-    [st],
+    () =>
+      getBankTransactionTabs({
+        details: st('sweep.entities.detailsTab'),
+        history: st('sweep.entities.auditLogTab'),
+        chat: t.weldbooksQuestions.chat.tab,
+        showChat: isQuestionsAvailable(),
+      }),
+    [st, t.weldbooksQuestions.chat.tab],
   );
   const initial = useMemo<BankTransactionTab['id']>(
     () => tabs.find((tab) => tab.id === initialTab)?.id ?? 'overview',
@@ -680,6 +688,13 @@ export function BankTransactionPanel(props: Readonly<ObjectPanelComponentProps>)
             <Connections links={links} currency={currency} t={t} />
             <Facts links={links} canEditNotes={processing && can('banking:update')} t={t} />
           </div>
+        )}
+        {links && activeTab === 'chat' && (
+          <RecordQuestionChat
+            recordType="bank_transaction"
+            recordId={links.transaction.id}
+            name={links.transaction.counterpartyName ?? undefined}
+          />
         )}
         {links && activeTab === 'history' && <EntityAuditPanel entityType={OBJECT_TYPE} entityId={links.transaction.id} />}
       </EntityDetailView>

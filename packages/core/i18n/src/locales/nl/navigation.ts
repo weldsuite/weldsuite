@@ -351,6 +351,7 @@ export const navigation = {
         reconciliation: 'Afletteren',
         rules: 'Regels',
         chartOfAccounts: 'Grootboekrekeningen',
+        questions: 'Vragen',
         journalEntries: 'Memoriaal',
         vatReturns: 'BTW-aangiften',
         annualReports: 'Jaarrekening',

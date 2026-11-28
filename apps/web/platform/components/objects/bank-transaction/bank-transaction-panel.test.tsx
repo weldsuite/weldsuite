@@ -6,6 +6,7 @@ import type { BankLine, BankLineLinks } from '@/lib/api/domains/weldbooks-bankin
 
 const env = vi.hoisted(() => ({
   expanded: true,
+  questions: true,
   processing: false,
   undo: vi.fn(),
   saveNotes: vi.fn(),
@@ -57,8 +58,17 @@ vi.mock('@/components/entity-audit-panel', () => ({
   ),
 }));
 vi.mock('@/lib/edition', () => ({
-  isFeatureAvailable: (feature: string) => (feature === 'books-bank-processing' ? env.processing : env.expanded),
+  isFeatureAvailable: (feature: string) => {
+    if (feature === 'books-questions') return env.questions;
+    return feature === 'books-bank-processing' ? env.processing : env.expanded;
+  },
 }));
+vi.mock('@/components/accounting/questions/record-question-chat', () => ({
+  RecordQuestionChat: ({ recordType, recordId }: { recordType: string; recordId: string }) => (
+    <div data-testid="record-question-chat" data-type={recordType} data-id={recordId} />
+  ),
+}));
+
 vi.mock('@/hooks/queries/use-weldbooks-processing-queries', () => ({
   useUndoBankLine: () => ({ mutateAsync: env.undo, isPending: false }),
   useUpdateBankLineNotes: () => ({ mutate: env.saveNotes, isPending: false }),
@@ -149,6 +159,7 @@ function renderPanel() {
 describe('BankTransactionPanel', () => {
   beforeEach(() => {
     env.expanded = true;
+    env.questions = true;
     env.processing = false;
     env.undo.mockReset().mockResolvedValue({});
     env.saveNotes.mockReset();
@@ -522,5 +533,22 @@ describe('BankTransactionPanel', () => {
     expect(screen.queryByTestId('edit-notes')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /more actions/i }));
     expect(screen.queryByRole('menuitem', { name: 'Paid privately' })).not.toBeInTheDocument();
+  });
+
+  describe('chat (books-questions)', () => {
+    it("has a Chat tab with the line's chat, where questions to the accountant are asked", async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await user.click(screen.getByRole('tab', { name: 'Chat' }));
+      const chat = screen.getByTestId('record-question-chat');
+      expect(chat).toHaveAttribute('data-type', 'bank_transaction');
+      expect(chat).toHaveAttribute('data-id', 'bt_1');
+    });
+
+    it('has no Chat tab on Global', () => {
+      env.questions = false;
+      renderPanel();
+      expect(screen.queryByRole('tab', { name: 'Chat' })).not.toBeInTheDocument();
+    });
   });
 });

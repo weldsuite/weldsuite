@@ -567,7 +567,13 @@ export const sweep = {
         "person": "Personen",
         "project": "Projecten",
         "sheet": "Spreadsheets",
-        "task": "Taken"
+        "task": "Taken",
+        "invoice": "Facturen",
+        "bill": "Inkoopfacturen",
+        "bank_transaction": "Bankregels",
+        "accounting_document": "Boekhouddocumenten",
+        "vat_return": "Btw-aangiftes",
+        "accounting_contact": "Boekhoudcontacten"
       },
       "hideGroup": "Deze groep verbergen",
       "muteAllFailed": "Deze chats konden niet worden bijgewerkt",
@@ -579,7 +585,13 @@ export const sweep = {
         "person": "Persoon openen",
         "project": "Project openen",
         "sheet": "Spreadsheet openen",
-        "task": "Taak openen"
+        "task": "Taak openen",
+        "invoice": "Factuur openen",
+        "bill": "Inkoopfactuur openen",
+        "bank_transaction": "Bankregel openen",
+        "accounting_document": "Document openen",
+        "vat_return": "Btw-aangifte openen",
+        "accounting_contact": "Contact openen"
       },
       "openInWeldChat": "Openen in WeldChat",
       "openRecord": "Record openen",
@@ -632,7 +644,13 @@ export const sweep = {
         "person": "Persoon",
         "project": "Project",
         "sheet": "Spreadsheet",
-        "task": "Taak"
+        "task": "Taak",
+        "invoice": "Factuur",
+        "bill": "Inkoopfactuur",
+        "bank_transaction": "Bankregel",
+        "accounting_document": "Boekhouddocument",
+        "vat_return": "Btw-aangifte",
+        "accounting_contact": "Boekhoudcontact"
       },
       "undo": "Ongedaan maken",
       "unfollow": "Niet meer volgen",

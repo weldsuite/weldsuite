@@ -19,6 +19,8 @@ const TRANSACTIONS_HREF = '/weldbooks/banking/transactions';
 /** The processing view (`books-bank-processing`): where the Transactions item leads on the Rust backend. */
 const PROCESS_HREF = '/weldbooks/banking/process';
 const RECONCILIATION_HREF = '/weldbooks/banking/reconciliation';
+/** Questions to and from the accountant (`books-questions`). */
+const QUESTIONS_HREF = '/weldbooks/questions';
 const ACCOUNTANT_COLLAPSED_KEY = 'weldbooks:sidebar:accountant-collapsed';
 /** What makes a member "an accountant" for the menu: they book journal entries. */
 const ACCOUNTANT_PERMISSION = 'journal:create';
@@ -71,6 +73,7 @@ function isContactsPath(pathname: string): boolean {
  *   entries (an owner of the business, not their bookkeeper) until they open it;
  *   the choice is remembered in the browser. A collapsed group keeps the item
  *   of the page they are on;
+ * - Questions (under Accountant) is shown only where the edition has them (`books-questions`);
  * - where the edition has the processing view (`books-bank-processing`) the
  *   Transactions item opens it, and the separate reconciliation item goes;
  * - groups left without items are dropped.
@@ -95,6 +98,7 @@ export function useWeldbooksSidebarItems(enabled: boolean) {
   const documents = todo?.kinds.documents?.count ?? 0;
   const bankLines = todo?.kinds.bank_lines?.count ?? 0;
   const processing = isFeatureAvailable('books-bank-processing');
+  const questions = isFeatureAvailable('books-questions');
 
   const { can } = usePermissions();
   const accountant = can(ACCOUNTANT_PERMISSION);
@@ -117,7 +121,12 @@ export function useWeldbooksSidebarItems(enabled: boolean) {
       return groups
         .map((group) => {
           const items = group.items
-            .filter((item) => visible(item.href) && !(processing && item.href === RECONCILIATION_HREF))
+            .filter(
+              (item) =>
+                visible(item.href) &&
+                !(processing && item.href === RECONCILIATION_HREF) &&
+                !(item.href === QUESTIONS_HREF && !questions),
+            )
             .map((item) => {
               if (item.href === TAX_HREF) return { ...item, title: nav.taxNav[terminology.tax] };
               if (item.href === CONTACTS_HREF) return { ...item, isActive: contactsActive };
@@ -157,6 +166,7 @@ export function useWeldbooksSidebarItems(enabled: boolean) {
       documents,
       bankLines,
       processing,
+      questions,
       pathname,
       t,
       accountantCollapsed,

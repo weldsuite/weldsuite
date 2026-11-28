@@ -97,6 +97,16 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldbooks/to-process')).toBe(false);
   });
 
+  it('hides the Questions list where books-questions is missing, such as Global, and offers it on Rust', () => {
+    expect(routeRequirement('/weldbooks/questions')).toEqual({ modules: ['books'], feature: 'books-questions' });
+    expect(routeRequirement('/weldbooks/questions?status=open&stack=bill:bil_1')).toEqual({ modules: ['books'], feature: 'books-questions' });
+    expect(isRouteOffered('/weldbooks/questions')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
+    expect(isRouteOffered('/weldbooks/questions')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: ['books-questions'] });
+    expect(isRouteOffered('/weldbooks/questions')).toBe(false);
+  });
+
   it('hides the quotes pages, the form included, where books-quotes is missing, and offers them on Rust', () => {
     for (const path of ['/weldbooks/quotes', '/weldbooks/quotes/add', '/weldbooks/quotes/q_1/edit', '/weldbooks/quotes?stack=quote:q_1']) {
       expect(routeRequirement(path)).toEqual({ modules: ['books'], feature: 'books-quotes' });

@@ -12,12 +12,25 @@ const deleteMutate = vi.fn();
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 const panelOpen = vi.hoisted(() => vi.fn());
 const permissions = new Set(['journal:read', 'journal:update']);
+const review = vi.hoisted(() => ({ questions: true, mutate: vi.fn() }));
 const journal: { entry: JournalEntryDetail | undefined; isLoading: boolean } = {
   entry: undefined,
   isLoading: false,
 };
 
 vi.mock('sonner', () => ({ toast }));
+vi.mock('@/lib/edition', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/edition')>();
+  return {
+    ...actual,
+    isFeatureAvailable: (feature: Parameters<typeof actual.isFeatureAvailable>[0]) =>
+      feature === 'books-questions' ? review.questions : actual.isFeatureAvailable(feature),
+  };
+});
+vi.mock('@/hooks/queries/use-weldbooks-questions-queries', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/queries/use-weldbooks-questions-queries')>()),
+  useSetJournalEntryReview: () => ({ mutate: review.mutate, isPending: false }),
+}));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => permissions.has(permission) }),
 }));
@@ -171,6 +184,8 @@ describe('JournalEntryPanel', () => {
     permissions.add('journal:update');
     journal.entry = entry();
     journal.isLoading = false;
+    review.questions = true;
+    review.mutate.mockReset();
   });
 
   it('shows the entry number and status, with the totals, date, description and source', () => {
@@ -315,5 +330,48 @@ describe('JournalEntryPanel', () => {
     journal.entry = undefined;
     renderPanel(<JournalEntryPanel {...panelProps} />);
     expect(screen.getByText('Journal entry not found.')).toBeInTheDocument();
+  });
+
+  describe('the review mark (books-questions)', () => {
+    it('shows an unreviewed posted entry with "Mark reviewed", and marks it', async () => {
+      const user = userEvent.setup();
+      journal.entry = entry({ status: 'posted' });
+      renderPanel(<JournalEntryPanel {...panelProps} />);
+      const strip = screen.getByTestId('journal-review');
+      expect(within(strip).getByTestId('review-chip')).toHaveTextContent('Not reviewed');
+      await user.click(within(strip).getByRole('button', { name: 'Mark reviewed' }));
+      expect(review.mutate).toHaveBeenCalledWith({ journalEntryId: 'je_1', reviewed: true }, expect.anything());
+    });
+
+    it('shows a reviewed entry as Reviewed with "Unmark", and takes the mark off', async () => {
+      const user = userEvent.setup();
+      journal.entry = entry({ status: 'posted', reviewedAt: '2026-11-26T10:00:00Z', reviewedBy: 'user_acc' });
+      renderPanel(<JournalEntryPanel {...panelProps} />);
+      const strip = screen.getByTestId('journal-review');
+      expect(within(strip).getByTestId('review-chip')).toHaveTextContent('Reviewed');
+      await user.click(within(strip).getByRole('button', { name: 'Unmark' }));
+      expect(review.mutate).toHaveBeenCalledWith({ journalEntryId: 'je_1', reviewed: false }, expect.anything());
+    });
+
+    it('shows the chip, but no action, without journal:update', () => {
+      journal.entry = entry({ status: 'posted' });
+      permissions.delete('journal:update');
+      renderPanel(<JournalEntryPanel {...panelProps} />);
+      expect(screen.getByTestId('review-chip')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Mark reviewed' })).not.toBeInTheDocument();
+    });
+
+    it('is left out for a draft entry, which has nothing to review', () => {
+      journal.entry = entry({ status: 'draft' });
+      renderPanel(<JournalEntryPanel {...panelProps} />);
+      expect(screen.queryByTestId('journal-review')).not.toBeInTheDocument();
+    });
+
+    it('is left out on Global', () => {
+      review.questions = false;
+      journal.entry = entry({ status: 'posted' });
+      renderPanel(<JournalEntryPanel {...panelProps} />);
+      expect(screen.queryByTestId('journal-review')).not.toBeInTheDocument();
+    });
   });
 });

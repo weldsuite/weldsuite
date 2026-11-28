@@ -5,14 +5,16 @@
  */
 
 import { useState } from 'react';
-import { Banknote, FileSearch } from 'lucide-react';
+import { Banknote, FileSearch, MessageCircleQuestion } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
+import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Card, CardContent, CardFooter, CardHeader } from '@weldsuite/ui/components/card';
 import { RecordChip, type RecordChipTone } from '@weldsuite/ui/components/record-chip';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
+import { AskReceiptsDialog } from '@/components/accounting/questions/ask-receipts-dialog';
 import { useBulkRemind } from '@/components/accounting/bulk-remind';
 import { useObjectPanel } from '@/components/object-panel';
 import { RecordLink } from '@/components/object-panel/record-link';
@@ -22,6 +24,7 @@ import {
   useInfiniteTodoItems,
   useTodoTopItems,
 } from '@/hooks/queries/use-weldbooks-todo-queries';
+import { isQuestionsAvailable } from '@/hooks/queries/use-weldbooks-questions-queries';
 import { isRemindersAvailable, useReminderDueItems } from '@/hooks/queries/use-weldbooks-sales-queries';
 import type { TodoItem, TodoKind, TodoKindSummary, TodoSeverity } from '@/lib/api/domains/weldbooks';
 import { getLocale } from '@/lib/i18n';
@@ -72,8 +75,14 @@ function CreditItemChip({
   );
 }
 
+/** Picking items of a card (the lines to ask receipts for): which ones are picked, and how to toggle one. */
+export interface TodoSelection {
+  ids: ReadonlySet<string>;
+  toggle: (id: string) => void;
+}
+
 /** One item: a chip that opens its record, the hint in words, the amount and the date. */
-export function TodoItemRow({ item }: Readonly<{ item: TodoItem }>) {
+export function TodoItemRow({ item, selection }: Readonly<{ item: TodoItem; selection?: TodoSelection }>) {
   const { t } = useI18n();
   const copy = t.weldbooksConnected.todo;
   const router = useRouter();
@@ -128,6 +137,14 @@ export function TodoItemRow({ item }: Readonly<{ item: TodoItem }>) {
 
   return (
     <li className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2" data-testid="todo-item">
+      {selection ? (
+        <Checkbox
+          checked={selection.ids.has(item.objectId)}
+          onCheckedChange={() => selection.toggle(item.objectId)}
+          aria-label={copy.receiptsPick.replace('{name}', label)}
+          data-testid={`todo-select-${item.objectId}`}
+        />
+      ) : null}
       <div className="flex min-w-0 flex-1 basis-48 flex-col gap-0.5">
         <div className="flex min-w-0">{chip}</div>
         {hint ? <p className={cn('truncate text-xs', HINT_CLASS[item.severity])}>{hint}</p> : null}
@@ -140,26 +157,29 @@ export function TodoItemRow({ item }: Readonly<{ item: TodoItem }>) {
   );
 }
 
-function ItemList({ items }: Readonly<{ items: readonly TodoItem[] }>) {
+function ItemList({ items, selection }: Readonly<{ items: readonly TodoItem[]; selection?: TodoSelection }>) {
   return (
     <ul className="divide-y">
       {items.map((item) => (
-        <TodoItemRow key={`${item.objectType}:${item.objectId}`} item={item} />
+        <TodoItemRow key={`${item.objectType}:${item.objectId}`} item={item} selection={selection} />
       ))}
     </ul>
   );
 }
 
 /** Every item of a card, a page at a time. */
-function AllItems({ kind, title }: Readonly<{ kind: TodoKind; title: string }>) {
+function AllItems({
+  all,
+  title,
+  selection,
+}: Readonly<{ all: ReturnType<typeof useInfiniteTodoItems>; title: string; selection?: TodoSelection }>) {
   const { t } = useI18n();
   const copy = t.weldbooksConnected.todo;
-  const all = useInfiniteTodoItems(kind);
   if (all.isError) return <ErrorState message={copy.listFailed} onRetry={() => void all.refetch()} />;
   if (!all.data) return <InlineSpinner />;
   return (
     <>
-      <ItemList items={all.data.items} />
+      <ItemList items={all.data.items} selection={selection} />
       {all.hasNextPage ? (
         <div className="pt-2">
           <Button variant="ghost" size="sm" disabled={all.isFetchingNextPage} onClick={() => void all.fetchNextPage()}>
@@ -210,19 +230,84 @@ function SendRemindersButton({
   );
 }
 
+/**
+ * "Ask for receipts" on the Missing receipts card, for a member who books and may write in a chat: pick the
+ * lines, then ask about all of them at once (`POST /api/accounting-questions/bulk`).
+ */
+function ReceiptsAskBar({
+  selecting,
+  count,
+  onStart,
+  onCancel,
+  onAsk,
+}: Readonly<{ selecting: boolean; count: number; onStart: () => void; onCancel: () => void; onAsk: () => void }>) {
+  const { t } = useI18n();
+  const tr = t.weldbooksQuestions.receipts;
+  if (!selecting) {
+    return (
+      <Button type="button" size="sm" variant="outline" onClick={onStart} title={tr.selectHint} data-testid="todo-ask-receipts">
+        <MessageCircleQuestion className="size-4" aria-hidden />
+        {tr.select}
+      </Button>
+    );
+  }
+  return (
+    <>
+      <span className="text-sm font-medium" role="status" data-testid="todo-receipts-count">
+        {plural(count, tr.selected, getLocale())}
+      </span>
+      <Button type="button" size="sm" disabled={count === 0} onClick={onAsk} data-testid="todo-receipts-ask">
+        <MessageCircleQuestion className="size-4" aria-hidden />
+        {tr.select}
+      </Button>
+      <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
+        {tr.cancel}
+      </Button>
+    </>
+  );
+}
+
 export function TodoCard({ kind, summary }: Readonly<{ kind: TodoKind; summary: TodoKindSummary }>) {
   const { t } = useI18n();
   const copy = t.weldbooksConnected.todo;
   const { formatMoney } = useWeldbooksFormat();
   const [expanded, setExpanded] = useState(false);
+  // The accountant asks for several receipts at once (edition feature `books-questions`).
+  const canAsk = useCan('messages:create');
+  const canBook = useCan('journal:create');
+  const askReceipts = kind === 'missing_receipts' && isQuestionsAvailable() && canAsk && canBook;
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [askOpen, setAskOpen] = useState(false);
+  const selection: TodoSelection | undefined = selecting
+    ? {
+        ids: new Set(picked),
+        toggle: (id) => setPicked((current) => (current.includes(id) ? current.filter((x) => x !== id) : [...current, id])),
+      }
+    : undefined;
   // The overdue card sends the reminders that are due and not sent by themselves (edition feature `books-reminders`).
   const remindersOn = kind === 'invoices_overdue' && isRemindersAvailable();
   const top = useTodoTopItems(kind, TODO_TOP_LIMIT);
+  const all = useInfiniteTodoItems(kind, { enabled: expanded });
   const action = todoKindAction(kind, summary.count, top.data ?? [], copy);
   const title = todoKindTitle(kind, copy);
   const kindSummary = todoKindSummary(kind, summary.count, copy);
   const headingId = `todo-${kind}`;
   const canExpand = summary.count > TODO_TOP_LIMIT;
+  // What a picked line is called in the result of the bulk ask.
+  const lineName = (id: string) => {
+    const known = [...(all.data?.items ?? []), ...(top.data ?? [])].find((item) => item.objectId === id);
+    return known?.title ?? known?.subtitle ?? t.accounting.statusLabels.counterpartyUnknown;
+  };
+  const startSelecting = () => {
+    setSelecting(true);
+    // Every line can be picked, not only the first three.
+    setExpanded(true);
+  };
+  const stopSelecting = () => {
+    setSelecting(false);
+    setPicked([]);
+  };
 
   return (
     <article aria-labelledby={headingId} className="@container/todo min-w-0" data-testid={`todo-card-${kind}`} data-kind={kind}>
@@ -252,16 +337,16 @@ export function TodoCard({ kind, summary }: Readonly<{ kind: TodoKind; summary: 
         </CardHeader>
         <CardContent>
           {expanded ? (
-            <AllItems kind={kind} title={title} />
+            <AllItems all={all} title={title} selection={selection} />
           ) : top.isError ? (
             <ErrorState message={copy.listFailed} onRetry={() => void top.refetch()} />
           ) : top.data ? (
-            <ItemList items={top.data} />
+            <ItemList items={top.data} selection={selection} />
           ) : (
             <InlineSpinner />
           )}
         </CardContent>
-        {action || canExpand ? (
+        {action || canExpand || askReceipts ? (
           <CardFooter className="flex flex-wrap items-center gap-2">
             {remindersOn ? (
               <SendRemindersButton viewAction={action}>
@@ -271,6 +356,15 @@ export function TodoCard({ kind, summary }: Readonly<{ kind: TodoKind; summary: 
               <Button asChild size="sm">
                 <Link href={action.href}>{action.label}</Link>
               </Button>
+            ) : null}
+            {askReceipts ? (
+              <ReceiptsAskBar
+                selecting={selecting}
+                count={picked.length}
+                onStart={startSelecting}
+                onCancel={stopSelecting}
+                onAsk={() => setAskOpen(true)}
+              />
             ) : null}
             {canExpand ? (
               <Button variant="ghost" size="sm" aria-expanded={expanded} onClick={() => setExpanded((open) => !open)}>
@@ -282,6 +376,15 @@ export function TodoCard({ kind, summary }: Readonly<{ kind: TodoKind; summary: 
           </CardFooter>
         ) : null}
       </Card>
+      {askReceipts ? (
+        <AskReceiptsDialog
+          open={askOpen}
+          onOpenChange={setAskOpen}
+          lineIds={picked}
+          lineName={lineName}
+          onDone={stopSelecting}
+        />
+      ) : null}
     </article>
   );
 }

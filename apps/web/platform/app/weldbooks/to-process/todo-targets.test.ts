@@ -2,7 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { en } from '@weldsuite/i18n/locales/en';
 import { nl } from '@weldsuite/i18n/locales/nl';
 import { TODO_KINDS } from '@/lib/api/domains/weldbooks';
-import { todoHintLabel, todoItemTarget, todoKindAction, todoKindSummary, todoKindTitle } from './todo-targets';
+import {
+  questionAnswerTarget,
+  questionReceiptHref,
+  todoHintLabel,
+  todoItemTarget,
+  todoKindAction,
+  todoKindSummary,
+  todoKindTitle,
+} from './todo-targets';
 
 const edition = vi.hoisted(() => ({ processing: false }));
 vi.mock('@/lib/edition', () => ({ isFeatureAvailable: () => edition.processing }));
@@ -14,7 +22,7 @@ beforeEach(() => {
 });
 
 describe('todoItemTarget', () => {
-  it.each(['bank_transaction', 'invoice', 'bill', 'vat_return', 'bank_account'])('opens a %s as a stacked panel', (objectType) => {
+  it.each(['bank_transaction', 'invoice', 'bill', 'vat_return', 'bank_account', 'weldbooks_contact'])('opens a %s as a stacked panel', (objectType) => {
     expect(todoItemTarget({ objectType, objectId: 'x_1' })).toEqual({ kind: 'panel', type: objectType, id: 'x_1' });
   });
 
@@ -30,6 +38,22 @@ describe('todoItemTarget', () => {
     expect(todoItemTarget({ objectType: 'accounting_document', objectId: 'doc 1' })).toEqual({
       kind: 'page',
       href: '/weldbooks/documents/doc%201/review',
+    });
+  });
+
+  it('opens a question on an inbox document on its dialog, which holds the document chat, not the review screen', () => {
+    edition.processing = true;
+    expect(todoItemTarget({ objectType: 'accounting_document', objectId: 'doc 1', hint: 'question' })).toEqual({
+      kind: 'page',
+      href: '/weldbooks/documents?document=doc%201',
+    });
+  });
+
+  it('opens a question on a contact as the contact panel', () => {
+    expect(todoItemTarget({ objectType: 'weldbooks_contact', objectId: 'prt_1', hint: 'question' })).toEqual({
+      kind: 'panel',
+      type: 'weldbooks_contact',
+      id: 'prt_1',
     });
   });
 
@@ -123,6 +147,8 @@ describe('todoHintLabel', () => {
     // Phase 4a (Rust only).
     'undelivered',
     'reminder_due',
+    // Phase 7 (Rust only): a question waiting for an answer.
+    'question',
   ];
 
   it.each(codes)('translates %s into words in both languages, never the raw code', (code) => {
@@ -167,5 +193,40 @@ describe('todoKindTitle', () => {
       expect(todoKindTitle(kind, nl.weldbooksConnected.todo)).not.toBe('');
     }
     expect(todoKindTitle('bank_lines', nl.weldbooksConnected.todo)).toBe('Bankregels');
+  });
+});
+
+describe('questions', () => {
+  it('has a card title, an action and a hint in both languages', () => {
+    expect(todoKindTitle('questions', en.weldbooksConnected.todo)).toBe('Questions from your accountant');
+    expect(todoKindTitle('questions', nl.weldbooksConnected.todo)).toBe('Vragen van je boekhouder');
+    expect(todoKindAction('questions', 3, [], copy)).toEqual({ label: 'See all questions', href: '/weldbooks/questions' });
+    expect(todoHintLabel('question', copy)).toBe('Waiting for your answer');
+    expect(todoHintLabel('question', nl.weldbooksConnected.todo)).toBe('Wacht op je antwoord');
+  });
+
+  it.each([
+    ['invoice', 'invoice'],
+    ['bill', 'bill'],
+    ['bank_transaction', 'bank_transaction'],
+    ['vat_return', 'vat_return'],
+    ['accounting_contact', 'weldbooks_contact'],
+  ] as const)('answers a question on a %s in the record panel, on its Chat tab', (recordType, type) => {
+    expect(questionAnswerTarget({ recordType, recordId: 'r_1' })).toEqual({ kind: 'panel', type, id: 'r_1', initialTab: 'chat' });
+  });
+
+  it('answers a question on an inbox document on the documents page', () => {
+    expect(questionAnswerTarget({ recordType: 'accounting_document', recordId: 'doc 1' })).toEqual({
+      kind: 'page',
+      href: '/weldbooks/documents?document=doc%201',
+    });
+  });
+
+  it('adds a document to a bank line in the processing view, and to no other record', () => {
+    expect(questionReceiptHref({ recordType: 'bank_transaction', recordId: 'btx 1' })).toBe(
+      '/weldbooks/banking/process?lineId=btx%201&action=receipt',
+    );
+    expect(questionReceiptHref({ recordType: 'invoice', recordId: 'inv_1' })).toBeNull();
+    expect(questionReceiptHref({ recordType: 'accounting_document', recordId: 'doc_1' })).toBeNull();
   });
 });

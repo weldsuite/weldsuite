@@ -623,6 +623,9 @@ export interface JournalEntry {
   /** The document that posted the entry (invoice, bill, payment…); such an entry is corrected through it. */
   sourceId?: string | null;
   isAutomatic: boolean | null;
+  /** Rust only (`books-questions`): the accountant's review mark. Absent while the entry is not reviewed. */
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
 }
 
 export interface JournalLine {
@@ -850,6 +853,8 @@ interface CursorListResponse<T> {
 export const TODO_KINDS = [
   'vat_return',
   'bank_feeds',
+  /** Open questions to or from the accountant (`books-questions`; asked to the caller, or for an accountant every open one of the entity). */
+  'questions',
   'invoices_overdue',
   /** The last e-mail of an invoice bounced or failed (`books-invoice-email`, needs `invoices:read`). */
   'invoices_undelivered',

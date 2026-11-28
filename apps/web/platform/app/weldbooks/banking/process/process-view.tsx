@@ -17,6 +17,7 @@ import { KeyboardHelp } from '@weldsuite/ui/components/keyboard-help';
 import { PageTabs } from '@weldsuite/ui/components/page-tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Label } from '@weldsuite/ui/components/label';
+import { AskQuestionButton } from '@/components/accounting/questions/ask-question-button';
 import { ReconciliationRuleFormDialog } from '@/components/accounting/reconciliation-rule-form-dialog';
 import { useObjectPanelUrlSync } from '@/components/object-panel';
 import { useAccountingAccounts, useAccountingTaxRates } from '@/hooks/queries/use-accounting-queries';
@@ -672,6 +673,16 @@ export function ProcessView() {
                       </p>
                     ) : null}
                     <ActionGrid disabled={!canUpdate} active={mode} onRun={runAction} />
+                    {/* "Ask your accountant": what was this payment? (edition feature `books-questions`) */}
+                    <div className="flex justify-start">
+                      <AskQuestionButton
+                        recordType="bank_transaction"
+                        recordId={selectedLine.id}
+                        label={t.weldbooksQuestions.processing.ask}
+                        defaultText={t.weldbooksQuestions.processing.askDefaultText}
+                        testId="process-ask-question"
+                      />
+                    </div>
                   </>
                 ) : null}
 

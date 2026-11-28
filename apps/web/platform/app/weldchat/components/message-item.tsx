@@ -37,6 +37,7 @@ import { fileTokenIds } from '../lib/render-tokens';
 import { isPinNotice, isSystemNotice, matchSystemNotice } from '../lib/system-notice';
 import type { CallSummary } from '../lib/call-history';
 import { getRecordChatTypeInfo } from '../lib/record-chat-types';
+import { MessageQuestionBar } from '@/components/accounting/questions/question-status';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatAttachment, ChatClipAttachment } from '@weldsuite/db/schema';
 
@@ -963,6 +964,9 @@ export function MessageItem({
 
         {/* A WeldMerge update (or an item shared with /merge) as a card */}
         <MessageWeldMergeCard message={message} />
+
+        {/* A question to the accountant on a WeldBooks record: its status and the actions on it */}
+        <MessageQuestionBar message={message} channelId={resolvedChannelId} membersMap={membersMap} />
 
         {/* Forwarded message snapshot */}
         {message.forwardedFrom && (

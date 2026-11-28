@@ -2,7 +2,7 @@
  * The Defaults section of a contact's Details tab (edition feature `books-contact-page`): the
  * expense account and VAT rate a bill of this contact starts with, the payment terms, and whether
  * reminders are paused. Each value saves on its own (`PATCH /accounting-contacts/:id/defaults`,
- * `null` clears it). Pausing reminders is for the selected legal entity only, and says so.
+ * `null` clears it). Pausing reminders is for the selected legal entity only, and the note names it ("For <entity name> only").
  */
 
 import { BellOff, Clock, Percent, WalletCards } from 'lucide-react';
@@ -10,7 +10,8 @@ import { toast } from 'sonner';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { PropertyRow } from '@/components/objects/_shared/property-row';
 import { SelectPropertyRow } from '@/components/objects/_shared/select-property-row';
-import { useAccountingAccounts, useAccountingTaxRates } from '@/hooks/queries/use-accounting-queries';
+import { useAccountingAccounts, useAccountingEntity, useAccountingTaxRates } from '@/hooks/queries/use-accounting-queries';
+import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import { useContactDefaults, useUpdateContactDefaults } from '@/hooks/queries/use-weldbooks-contact-page-queries';
 import type { ContactDefaultsPatch } from '@/lib/api/domains/weldbooks-contact-page';
 import { useI18n } from '@/lib/i18n/provider';
@@ -22,6 +23,9 @@ export function ContactDefaultsSection({ contactId, canEdit }: Readonly<{ contac
   const update = useUpdateContactDefaults(contactId);
   const accounts = useAccountingAccounts({ type: 'expense' });
   const taxRates = useAccountingTaxRates();
+  // The pause is per legal entity (it follows the request's entity): the note names it.
+  const { entityId } = useCurrentAccountingEntity();
+  const entityName = useAccountingEntity(entityId).data?.name;
 
   const save = async (patch: ContactDefaultsPatch) => {
     try {
@@ -143,7 +147,7 @@ export function ContactDefaultsSection({ contactId, canEdit }: Readonly<{ contac
             aria-describedby={`pause-reminders-note-${contactId}`}
           />
           <p id={`pause-reminders-note-${contactId}`} className="text-xs text-muted-foreground">
-            {copy.pauseNote}
+            {entityName ? copy.pauseNoteFor.replace('{entity}', entityName) : copy.pauseNote}
           </p>
         </div>
       </div>

@@ -48,6 +48,8 @@ import { canRecordBillPayment } from './bill-capabilities';
 import { BillDetailsTab } from './bill-details-tab';
 import { BillPaymentsTab } from './bill-payments-tab';
 import { BillLineItemsTab, BillTaxTab, hasBillTaxTab } from './bill-items-tab';
+import { RecordQuestionChat } from '@/components/accounting/questions/record-question-chat';
+import { isQuestionsAvailable } from '@/hooks/queries/use-weldbooks-questions-queries';
 import { getBillTabs, type BillTab } from './bill-tabs';
 
 const BILL_PANEL_WIDTH = 480;
@@ -222,11 +224,13 @@ export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
         payments: st('sweep.weldbooks.records.paymentsTab'),
         tax: tb.tax,
         history: st('sweep.entities.auditLogTab'),
+        chat: t.weldbooksQuestions.chat.tab,
+        showChat: isQuestionsAvailable(),
         itemsCount: bill?.items?.length || undefined,
         paymentsCount: bill?.payments?.length || undefined,
         showTax,
       }),
-    [st, tb, bill?.items?.length, bill?.payments?.length, showTax],
+    [st, t.weldbooksQuestions.chat.tab, tb, bill?.items?.length, bill?.payments?.length, showTax],
   );
 
   // A deep-linked tab that only appears once the record is loaded is applied when it does.
@@ -290,6 +294,9 @@ export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
           <BillPaymentsTab bill={bill} onRecordPayment={canPay ? () => setPaymentOpen(true) : undefined} />
         )}
         {bill && activeTab === 'tax' && <BillTaxTab bill={bill} />}
+        {bill && activeTab === 'chat' && (
+          <RecordQuestionChat recordType="bill" recordId={bill.id} name={bill.billNumber ?? undefined} />
+        )}
         {bill && activeTab === 'history' && <EntityAuditPanel entityType="bill" entityId={bill.id} />}
       </EntityDetailView>
 

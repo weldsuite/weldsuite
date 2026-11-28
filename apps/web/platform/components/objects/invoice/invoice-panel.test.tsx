@@ -23,7 +23,22 @@ const env = vi.hoisted(() => ({
   certificates: new Map<string, { id: string; certificateNumber: string | null; reason: string; states: string[] }>(),
 }));
 
+const questionsEdition = vi.hoisted(() => ({ on: true }));
 vi.mock('sonner', () => ({ toast: env.toast }));
+vi.mock('@/lib/edition', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/edition')>();
+  return {
+    ...actual,
+    isFeatureAvailable: (feature: Parameters<typeof actual.isFeatureAvailable>[0]) =>
+      feature === 'books-questions' ? questionsEdition.on : actual.isFeatureAvailable(feature),
+  };
+});
+vi.mock('@/components/accounting/questions/record-question-chat', () => ({
+  RecordQuestionChat: ({ recordType, recordId }: { recordType: string; recordId: string }) => (
+    <div data-testid="record-question-chat" data-type={recordType} data-id={recordId} />
+  ),
+}));
+
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => true }));
 vi.mock('@/hooks/use-workspace-url', () => ({ useWorkspaceUrl: () => (path: string) => `https://app.test${path}` }));
 vi.mock('@weldsuite/ui/components/drawer-field-settings', () => ({ DrawerFieldSettings: () => null }));
@@ -212,6 +227,7 @@ describe('InvoicePanel', () => {
   beforeEach(() => {
     env.invoice = invoice();
     env.loading = false;
+    questionsEdition.on = true;
     env.salesTax = true;
     env.missingDetails = [];
     env.certificates = new Map();
@@ -777,6 +793,23 @@ describe('InvoicePanel', () => {
       expect(screen.getByText('BTW 21%')).toBeInTheDocument();
       expect(screen.queryByTestId('sales-tax-card')).not.toBeInTheDocument();
       expect(screen.queryByTestId('tax-breakdown-row')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('chat (books-questions)', () => {
+    it('has a Chat tab with the invoice\'s chat, where questions to the accountant are asked', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await openTab(user, 'Chat');
+      const chat = screen.getByTestId('record-question-chat');
+      expect(chat).toHaveAttribute('data-type', 'invoice');
+      expect(chat).toHaveAttribute('data-id', 'inv_1');
+    });
+
+    it('has no Chat tab on Global', () => {
+      questionsEdition.on = false;
+      renderPanel();
+      expect(screen.queryByRole('tab', { name: 'Chat' })).not.toBeInTheDocument();
     });
   });
 });

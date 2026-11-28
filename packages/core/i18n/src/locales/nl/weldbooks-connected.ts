@@ -20,6 +20,7 @@ export const weldbooksConnected = {
     mixedCurrency: 'Gemengde valuta, getoond in {currency}',
     dueOn: 'Vervalt {date}',
     sendReminders: { one: '1 herinnering versturen', other: '{count} herinneringen versturen' },
+    receiptsPick: 'Kies {name}',
     kinds: {
       vat_return: {
         title: 'Aangifte om in te dienen',
@@ -61,6 +62,10 @@ export const weldbooksConnected = {
         title: 'Niet toegepast tegoed',
         action: 'Niet toegepast tegoed bekijken',
       },
+      questions: {
+        title: 'Vragen van je boekhouder',
+        action: 'Alle vragen bekijken',
+      },
       missing_receipts: {
         title: 'Ontbrekende bonnen',
         summary: { one: '1 uitgave zonder bon', other: '{count} uitgaven zonder bon' },
@@ -84,6 +89,7 @@ export const weldbooksConnected = {
       consent_expiring: 'Toestemming verloopt binnenkort',
       unapplied_credit: 'Niet toegepast tegoed',
       missing_receipt: 'Nog geen bon',
+      question: 'Wacht op je antwoord',
     },
     severity: {
       info: 'Ter informatie',

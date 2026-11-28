@@ -4,7 +4,7 @@
  */
 
 import type { RecordChatTypeSummary } from '@weldsuite/app-api-client/schemas/chat-entity-channels';
-import { RECORD_CHAT_TYPES, recordGroupKey, type RecordChatType } from './record-chat-types';
+import { offeredRecordChatTypes, recordGroupKey, type RecordChatType } from './record-chat-types';
 
 /** The fields of a record chat row these rules read. */
 interface RecordChatState {
@@ -25,7 +25,7 @@ export function recordGroupTypes(
   isHidden: (groupKey: string) => boolean,
 ): RecordChatType[] {
   const followed = new Map((summary ?? []).map((s) => [s.type, s.followed]));
-  return RECORD_CHAT_TYPES.filter(
+  return offeredRecordChatTypes().filter(
     (type) => (followed.get(type) ?? 0) > 0 && !isHidden(recordGroupKey(type)),
   );
 }

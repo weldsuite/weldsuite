@@ -567,7 +567,13 @@ export const sweep = {
         "person": "People",
         "project": "Projects",
         "sheet": "Spreadsheets",
-        "task": "Tasks"
+        "task": "Tasks",
+        "invoice": "Invoices",
+        "bill": "Bills",
+        "bank_transaction": "Bank lines",
+        "accounting_document": "Accounting documents",
+        "vat_return": "VAT returns",
+        "accounting_contact": "Accounting contacts"
       },
       "hideGroup": "Hide this group",
       "muteAllFailed": "Couldn't update these chats",
@@ -579,7 +585,13 @@ export const sweep = {
         "person": "Open person",
         "project": "Open project",
         "sheet": "Open spreadsheet",
-        "task": "Open task"
+        "task": "Open task",
+        "invoice": "Open invoice",
+        "bill": "Open bill",
+        "bank_transaction": "Open bank line",
+        "accounting_document": "Open document",
+        "vat_return": "Open VAT return",
+        "accounting_contact": "Open contact"
       },
       "openInWeldChat": "Open in WeldChat",
       "openRecord": "Open record",
@@ -632,7 +644,13 @@ export const sweep = {
         "person": "Person",
         "project": "Project",
         "sheet": "Spreadsheet",
-        "task": "Task"
+        "task": "Task",
+        "invoice": "Invoice",
+        "bill": "Bill",
+        "bank_transaction": "Bank line",
+        "accounting_document": "Accounting document",
+        "vat_return": "VAT return",
+        "accounting_contact": "Accounting contact"
       },
       "undo": "Undo",
       "unfollow": "Unfollow",

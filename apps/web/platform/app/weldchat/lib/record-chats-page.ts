@@ -9,7 +9,7 @@ import {
   type RecordChatFilter,
   type RecordChatTypeSummary,
 } from '@weldsuite/app-api-client/schemas/chat-entity-channels';
-import { isRecordChatType, RECORD_CHAT_TYPES, type RecordChatType } from './record-chat-types';
+import { isRecordChatType, offeredRecordChatTypes, type RecordChatType } from './record-chat-types';
 
 export { RECORD_CHAT_FILTERS, type RecordChatFilter };
 
@@ -66,7 +66,7 @@ export function permittedRecordChatTypes(
 ): RecordChatType[] | null {
   if (!summary) return null;
   const listed = new Set(summary.map((s) => s.type));
-  return RECORD_CHAT_TYPES.filter((type) => listed.has(type));
+  return offeredRecordChatTypes().filter((type) => listed.has(type));
 }
 
 /**

@@ -81,7 +81,7 @@ import { contactIdLabels } from '@/lib/weldbooks/contact-id-labels';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { useContactCredits } from '@/hooks/queries/use-weldbooks-processing-queries';
 import { isQuotesAvailable } from '@/hooks/queries/use-weldbooks-sales-queries';
-import { EntityChat } from '@/components/entity-chat/entity-chat';
+import { RecordQuestionChat } from '@/components/accounting/questions/record-question-chat';
 import { isContactPageAvailable } from '@/hooks/queries/use-weldbooks-contact-page-queries';
 import { ContactBankLinesTab } from './weldbooks-contact-bank-lines-tab';
 import { ContactCreditTab } from './weldbooks-contact-credit-tab';
@@ -1040,7 +1040,7 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
         )}
         {contact && activeTab === 'bankLines' && <ContactBankLinesTab contactId={contact.id} />}
         {contact && activeTab === 'chat' && (
-          <EntityChat entityType="accounting_contact" entityId={contact.id} fallbackName={contact.name} hideHeader />
+          <RecordQuestionChat recordType="accounting_contact" recordId={contact.id} name={contact.name} />
         )}
         {contact && activeTab === 'credit' && <ContactCreditTab contactId={contact.id} />}
         {contact && activeTab === 'exemptions' && (

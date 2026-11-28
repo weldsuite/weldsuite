@@ -42,6 +42,8 @@ export function invalidateAfterProcessing(qc: QueryClient) {
   void qc.invalidateQueries({ queryKey: accountingKeys.journalEntries.all });
   void qc.invalidateQueries({ queryKey: accountingKeys.accounts.all });
   void qc.invalidateQueries({ queryKey: accountingKeys.dashboard() });
+  // A receipt or a booking answers the questions about the line (edition feature `books-questions`).
+  void qc.invalidateQueries({ queryKey: [...accountingKeys.all, 'questions'] });
 }
 
 /** Book a line to one category, or split it over several (they are posted as one entry). */

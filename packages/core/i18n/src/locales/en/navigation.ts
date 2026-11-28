@@ -351,6 +351,7 @@ export const navigation = {
         reconciliation: 'Reconciliation',
         rules: 'Rules',
         chartOfAccounts: 'Ledger accounts',
+        questions: 'Questions',
         journalEntries: 'Journal entries',
         vatReturns: 'VAT Returns',
         annualReports: 'Annual reports',

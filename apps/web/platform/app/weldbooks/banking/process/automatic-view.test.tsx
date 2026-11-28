@@ -14,6 +14,9 @@ const env = vi.hoisted(() => ({
   permissions: new Set<string>(['banking:update']),
   toast: { success: vi.fn(), error: vi.fn() },
   filters: [] as unknown[],
+  questions: true,
+  setReview: vi.fn(),
+  reviewLines: vi.fn(),
 }));
 
 vi.mock('sonner', () => ({ toast: env.toast }));
@@ -41,6 +44,11 @@ vi.mock('@/hooks/queries/use-weldbooks-banking-queries', () => ({
     };
   },
   useBankLineLinks: (id: string) => ({ data: env.links[id] }),
+}));
+vi.mock('@/hooks/queries/use-weldbooks-questions-queries', () => ({
+  isQuestionsAvailable: () => env.questions,
+  useSetJournalEntryReview: () => ({ mutate: env.setReview, isPending: false }),
+  useReviewBankLines: () => ({ mutate: env.reviewLines, isPending: false }),
 }));
 vi.mock('@/hooks/queries/use-weldbooks-processing-queries', () => ({
   useUndoBankLine: () => ({ mutate: env.undo, isPending: false }),
@@ -78,6 +86,9 @@ describe('AutomaticView', () => {
     env.isError = false;
     env.isLoading = false;
     env.filters = [];
+    env.questions = true;
+    env.setReview.mockReset();
+    env.reviewLines.mockReset();
     env.permissions = new Set(['banking:update']);
     env.undo.mockReset();
     env.fetchNextPage.mockReset();
@@ -146,6 +157,124 @@ describe('AutomaticView', () => {
     env.isError = true;
     renderView();
     expect(screen.getByRole('alert')).toHaveTextContent('The automatic bookings could not be loaded.');
+  });
+});
+
+describe('review marks (books-questions)', () => {
+  const withEntry = (reason: BankLineLinks['reason'], entryId: string) => ({
+    ...withReason(reason),
+    journalEntry: { id: entryId, entryNumber: null, date: '2026-11-25', description: null, sourceType: null, sourceId: null },
+  });
+
+  beforeEach(() => {
+    env.lines = [
+      line('b1', 'Acme Logistics BV', '1210.00'),
+      line('b2', 'Studio Noord BV', '-2500.00'),
+      line('b3', 'Belastingdienst', '-640.00'),
+      line('b4', 'Telnet Zakelijk', '-89.95'),
+    ];
+    env.isError = false;
+    env.isLoading = false;
+    env.hasNextPage = false;
+    env.filters = [];
+    env.toast.success.mockReset();
+    env.toast.error.mockReset();
+    env.permissions = new Set(['banking:update', 'journal:update']);
+    env.links = {
+      b1: withEntry('document_match', 'je_1'),
+      b2: withEntry('own_account_transfer', 'je_2'),
+      b3: withEntry('tax_authority', 'je_3'),
+      b4: withEntry('rule', 'je_4'),
+    };
+  });
+
+  it('asks for the lines that are not reviewed yet, and for the reviewed ones when the filter says so', async () => {
+    const user = userEvent.setup();
+    renderView();
+    expect(env.filters.at(-1)).toEqual({ bankAccountId: 'ba_1', processedAutomatically: true, reviewed: false });
+    expect(screen.getByTestId('review-filter-notReviewed')).toBeChecked();
+    await user.click(screen.getByTestId('review-filter-reviewed'));
+    expect(env.filters.at(-1)).toEqual({ bankAccountId: 'ba_1', processedAutomatically: true, reviewed: true });
+  });
+
+  it('shows each line as Not reviewed, or Reviewed with the date of the mark', () => {
+    env.lines = [line('b1', 'Acme Logistics BV', '1210.00'), { ...line('b2', 'Studio Noord BV', '-2500.00'), reviewedAt: '2026-11-26T10:00:00Z' }];
+    renderView();
+    const chip = (id: string) => within(screen.getByTestId(`automatic-line-${id}`)).getByTestId('review-chip');
+    expect(chip('b1')).toHaveTextContent('Not reviewed');
+    expect(chip('b2')).toHaveTextContent('Reviewed');
+  });
+
+  it('marks one line reviewed through its booking', async () => {
+    const user = userEvent.setup();
+    renderView();
+    await user.click(within(screen.getByTestId('automatic-line-b3')).getByTestId('review-mark'));
+    expect(env.setReview).toHaveBeenCalledWith({ journalEntryId: 'je_3', reviewed: true }, expect.anything());
+  });
+
+  it('takes the mark off a reviewed line', async () => {
+    const user = userEvent.setup();
+    env.lines = [{ ...line('b1', 'Acme Logistics BV', '1210.00'), reviewedAt: '2026-11-26T10:00:00Z' }];
+    renderView();
+    await user.click(screen.getByTestId('review-filter-reviewed'));
+    await user.click(within(screen.getByTestId('automatic-line-b1')).getByTestId('review-unmark'));
+    expect(env.setReview).toHaveBeenCalledWith({ journalEntryId: 'je_1', reviewed: false }, expect.anything());
+  });
+
+  it('marks the lines picked as reviewed in one go, and says what was left as it was', async () => {
+    const user = userEvent.setup();
+    env.reviewLines.mockImplementation((_ids: string[], options: { onSuccess: (r: unknown) => void }) =>
+      options.onSuccess({ reviewed: ['je_1'], skipped: ['je_2'], withoutEntry: 0 }),
+    );
+    renderView();
+    expect(screen.getByTestId('review-bulk-mark')).toBeDisabled();
+    await user.click(screen.getByRole('checkbox', { name: 'Select Acme Logistics BV' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select Studio Noord BV' }));
+    expect(screen.getByText('2 lines selected')).toBeInTheDocument();
+    await user.click(screen.getByTestId('review-bulk-mark'));
+    expect(env.reviewLines).toHaveBeenCalledWith(['b1', 'b2'], expect.anything());
+    expect(env.toast.success).toHaveBeenCalledWith('1 booking marked as reviewed. 1 was left as it was.');
+    // The selection is cleared afterwards.
+    expect(screen.getByRole('checkbox', { name: 'Select Acme Logistics BV' })).not.toBeChecked();
+  });
+
+  it('selects every line shown with one click', async () => {
+    const user = userEvent.setup();
+    renderView();
+    await user.click(within(screen.getByTestId('review-bulk-bar')).getByRole('checkbox'));
+    expect(screen.getByText('4 lines selected')).toBeInTheDocument();
+  });
+
+  it('says so when the marks could not be set', async () => {
+    const user = userEvent.setup();
+    env.reviewLines.mockImplementation((_ids: string[], options: { onError: (e: Error) => void }) => options.onError(new Error('Period is locked')));
+    renderView();
+    await user.click(screen.getByRole('checkbox', { name: 'Select Acme Logistics BV' }));
+    await user.click(screen.getByTestId('review-bulk-mark'));
+    expect(env.toast.error).toHaveBeenCalledWith('The bookings could not be marked as reviewed', { description: 'Period is locked' });
+  });
+
+  it('says everything is reviewed when nothing is left', () => {
+    env.lines = [];
+    renderView();
+    expect(screen.getByText('Everything booked automatically has been reviewed.')).toBeInTheDocument();
+  });
+
+  it('is for accountants only: without journal:update the lines are as they were, with no review controls', () => {
+    env.permissions = new Set(['banking:update']);
+    renderView();
+    expect(env.filters.at(-1)).toEqual({ bankAccountId: 'ba_1', processedAutomatically: true });
+    expect(screen.queryByTestId('review-filter')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-chip')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('is not there on Global', () => {
+    env.questions = false;
+    renderView();
+    expect(env.filters.at(-1)).toEqual({ bankAccountId: 'ba_1', processedAutomatically: true });
+    expect(screen.queryByTestId('review-filter')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-mark')).not.toBeInTheDocument();
   });
 });
 

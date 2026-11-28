@@ -40,6 +40,8 @@ import { useObjectPanelShell, type ObjectPanelComponentProps } from '@/component
 import { RecordLink } from '@/components/object-panel/record-link';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
+import { ReviewChip, ReviewMarkButton } from '@/components/accounting/questions/review-mark';
+import { isQuestionsAvailable } from '@/hooks/queries/use-weldbooks-questions-queries';
 import { PropertyRow } from '@/components/objects/_shared/property-row';
 import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';
 import { NotesIllustration, TabEmptyState, tabBodyClassName } from '@/components/objects/_shared/tab-empty-state';
@@ -236,6 +238,19 @@ function JournalEntryDetailsTab({ entry, t }: Readonly<{ entry: JournalEntryDeta
           )}
         />
       </div>
+
+      {/* The accountant's review mark (edition feature `books-questions`). */}
+      {isQuestionsAvailable() && entry.status === 'posted' ? (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2"
+          role="group"
+          aria-label={t.weldbooksQuestions.review.chipAria}
+          data-testid="journal-review"
+        >
+          <ReviewChip reviewedAt={entry.reviewedAt} />
+          <ReviewMarkButton journalEntryId={entry.id} reviewed={!!entry.reviewedAt} />
+        </div>
+      ) : null}
     </div>
   );
 }

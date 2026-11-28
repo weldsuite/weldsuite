@@ -1,24 +1,44 @@
 /**
  * "Booked automatically": the lines a rule or auto-link booked without a
  * person, each with the reason (from the line's connections) and an Undo.
+ *
+ * For an accountant (edition feature `books-questions`, `journal:update`) each
+ * line also carries the review mark of its booking: a "Not reviewed" /
+ * "Reviewed" filter, "Mark reviewed" per line and for the lines picked.
  */
 
+import { useId, useState } from 'react';
 import { Undo2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
+import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { ReviewChip, ReviewMarkButton, useCanReview } from '@/components/accounting/questions/review-mark';
 import { RecordLink } from '@/components/object-panel/record-link';
 import { useBankLineLinks, useInfiniteBankLines } from '@/hooks/queries/use-weldbooks-banking-queries';
+import { useReviewBankLines } from '@/hooks/queries/use-weldbooks-questions-queries';
 import { useUndoBankLine } from '@/hooks/queries/use-weldbooks-processing-queries';
 import type { BankLine } from '@/lib/api/domains/weldbooks-banking';
+import { getLocale } from '@/lib/i18n';
+import { plural } from '@/lib/i18n/plural';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { automaticReasonLabel } from './process-model';
 
-function AutomaticRow({ line, currency, canUndo }: Readonly<{ line: BankLine; currency: string | null; canUndo: boolean }>) {
+type ReviewFilter = 'notReviewed' | 'reviewed';
+
+interface AutomaticRowProps {
+  line: BankLine;
+  currency: string | null;
+  canUndo: boolean;
+  /** The review controls: the chip, the per-line button and the checkbox. */
+  review: { selected: boolean; onToggle: () => void } | null;
+}
+
+function AutomaticRow({ line, currency, canUndo, review }: Readonly<AutomaticRowProps>) {
   const { t } = useI18n();
   const ta = t.weldbooksConnected.automatic;
   const { formatMoney, formatDate } = useWeldbooksFormat();
@@ -26,9 +46,18 @@ function AutomaticRow({ line, currency, canUndo }: Readonly<{ line: BankLine; cu
   const undo = useUndoBankLine();
   const name = line.counterpartyName || line.description || t.accounting.statusLabels.counterpartyUnknown;
   const inflow = Number(line.amount) >= 0;
+  const entryId = links?.journalEntry?.id ?? null;
 
   return (
     <li className="flex flex-wrap items-center gap-3 rounded-[10px] border px-4 py-3" data-testid={`automatic-line-${line.id}`}>
+      {review ? (
+        <Checkbox
+          checked={review.selected}
+          onCheckedChange={review.onToggle}
+          aria-label={t.weldbooksQuestions.review.selectLine.replace('{name}', name)}
+          data-testid={`automatic-select-${line.id}`}
+        />
+      ) : null}
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex min-w-0 flex-wrap items-center gap-2">
           <RecordLink type="bank_transaction" id={line.id} label={name} secondary={formatDate(line.date)} />
@@ -38,6 +67,7 @@ function AutomaticRow({ line, currency, canUndo }: Readonly<{ line: BankLine; cu
           >
             {automaticReasonLabel(links?.reason, links?.rule ?? null, ta.reasons)}
           </span>
+          {review ? <ReviewChip reviewedAt={line.reviewedAt} /> : null}
         </span>
         {line.description ? <span className="truncate text-[13px] text-muted-foreground">{line.description}</span> : null}
       </div>
@@ -45,6 +75,7 @@ function AutomaticRow({ line, currency, canUndo }: Readonly<{ line: BankLine; cu
         {inflow ? '+' : ''}
         {formatMoney(line.amount, currency)}
       </span>
+      {review && entryId ? <ReviewMarkButton journalEntryId={entryId} reviewed={!!line.reviewedAt} /> : null}
       {canUndo ? (
         <Button
           type="button"
@@ -66,12 +97,98 @@ function AutomaticRow({ line, currency, canUndo }: Readonly<{ line: BankLine; cu
   );
 }
 
+/** "Not reviewed" / "Reviewed": two choices, so visible radio buttons rather than a select. */
+function ReviewFilterChoice({
+  value,
+  onChange,
+}: Readonly<{ value: ReviewFilter; onChange: (next: ReviewFilter) => void }>) {
+  const { t } = useI18n();
+  const tr = t.weldbooksQuestions.review;
+  const name = useId();
+  return (
+    <fieldset className="flex flex-wrap items-center gap-x-4 gap-y-1" data-testid="review-filter">
+      <legend className="sr-only">{tr.filterLabel}</legend>
+      {(['notReviewed', 'reviewed'] as const).map((choice) => (
+        <label key={choice} className="flex cursor-pointer items-center gap-1.5 text-sm">
+          <input
+            type="radio"
+            name={name}
+            className="accent-primary"
+            checked={value === choice}
+            onChange={() => onChange(choice)}
+            data-testid={`review-filter-${choice}`}
+          />
+          {tr[choice]}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+/** The bar over the lines picked: how many, and "Mark reviewed" for all of them. */
+function ReviewBulkBar({
+  lines,
+  allSelected,
+  onSelectAll,
+  onClear,
+}: Readonly<{ lines: readonly string[]; allSelected: boolean; onSelectAll: () => void; onClear: () => void }>) {
+  const { t } = useI18n();
+  const tr = t.weldbooksQuestions.review;
+  const mark = useReviewBankLines();
+
+  const run = () =>
+    mark.mutate([...lines], {
+      onSuccess: (result) => {
+        const done = plural(result.reviewed.length, tr.bulkDone, getLocale());
+        const skipped = result.skipped.length > 0 ? ` ${plural(result.skipped.length, tr.bulkSkipped, getLocale())}` : '';
+        toast.success(`${done}${skipped}`);
+        onClear();
+      },
+      onError: (error) => toast.error(tr.bulkFailed, { description: error instanceof Error ? error.message : undefined }),
+    });
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm" data-testid="review-bulk-bar">
+      <label className="flex cursor-pointer items-center gap-2">
+        <Checkbox checked={allSelected} onCheckedChange={() => (allSelected ? onClear() : onSelectAll())} />
+        <span className="sr-only">{tr.selectAll}</span>
+      </label>
+      <span className="flex-1 font-medium" role="status">
+        {lines.length > 0 ? plural(lines.length, tr.bulkSelected, getLocale()) : tr.selectAll}
+      </span>
+      <Button type="button" size="sm" disabled={lines.length === 0 || mark.isPending} onClick={run} data-testid="review-bulk-mark">
+        {mark.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : null}
+        {tr.bulkAction}
+      </Button>
+      {lines.length > 0 ? (
+        <Button type="button" size="sm" variant="ghost" onClick={onClear}>
+          {tr.clearSelection}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 export function AutomaticView({ bankAccountId, currency }: Readonly<{ bankAccountId: string; currency: string | null }>) {
   const { t } = useI18n();
   const ta = t.weldbooksConnected.automatic;
+  const tr = t.weldbooksQuestions.review;
   const { can } = usePermissions();
-  const query = useInfiniteBankLines({ bankAccountId, processedAutomatically: true });
+  const canReview = useCanReview();
+  const [filter, setFilter] = useState<ReviewFilter>('notReviewed');
+  const [picked, setPicked] = useState<string[]>([]);
+  const query = useInfiniteBankLines({
+    bankAccountId,
+    processedAutomatically: true,
+    // The accountant works through what is not reviewed yet; everyone else sees every line.
+    ...(canReview ? { reviewed: filter === 'reviewed' } : {}),
+  });
   const lines = query.data?.lines ?? [];
+  const shownIds = lines.map((line) => line.id);
+
+  const toggle = (id: string) => setPicked((current) => (current.includes(id) ? current.filter((x) => x !== id) : [...current, id]));
+  // What was picked on a list that has since changed is not marked by mistake.
+  const pickedShown = picked.filter((id) => shownIds.includes(id));
 
   let body;
   if (query.isLoading) {
@@ -79,13 +196,31 @@ export function AutomaticView({ bankAccountId, currency }: Readonly<{ bankAccoun
   } else if (query.isError) {
     body = <ErrorState message={ta.loadFailed} onRetry={() => void query.refetch()} />;
   } else if (lines.length === 0) {
-    body = <EmptyState title={ta.empty} />;
+    body = <EmptyState title={canReview ? (filter === 'reviewed' ? tr.emptyReviewed : tr.emptyNotReviewed) : ta.empty} />;
   } else {
     body = (
       <>
+        {canReview && filter === 'notReviewed' ? (
+          <ReviewBulkBar
+            lines={pickedShown}
+            allSelected={pickedShown.length === shownIds.length}
+            onSelectAll={() => setPicked(shownIds)}
+            onClear={() => setPicked([])}
+          />
+        ) : null}
         <ul className="space-y-2" data-testid="automatic-list">
           {lines.map((line) => (
-            <AutomaticRow key={line.id} line={line} currency={currency} canUndo={can('banking:update')} />
+            <AutomaticRow
+              key={line.id}
+              line={line}
+              currency={currency}
+              canUndo={can('banking:update')}
+              review={
+                canReview
+                  ? { selected: pickedShown.includes(line.id), onToggle: () => toggle(line.id) }
+                  : null
+              }
+            />
           ))}
         </ul>
         {query.hasNextPage ? (
@@ -103,6 +238,15 @@ export function AutomaticView({ bankAccountId, currency }: Readonly<{ bankAccoun
   return (
     <section className="space-y-4" aria-label={ta.title}>
       <p className="text-sm text-muted-foreground">{ta.description}</p>
+      {canReview ? (
+        <ReviewFilterChoice
+          value={filter}
+          onChange={(next) => {
+            setFilter(next);
+            setPicked([]);
+          }}
+        />
+      ) : null}
       {body}
     </section>
   );

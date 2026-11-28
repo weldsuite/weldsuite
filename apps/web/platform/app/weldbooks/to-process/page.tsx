@@ -11,6 +11,7 @@ import { TODO_KINDS, type TodoKind, type TodoKindSummary } from '@/lib/api/domai
 import { isTimeBillingAvailable } from '@/hooks/queries/use-weldbooks-time-billing-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { Link } from '@/lib/router';
+import { QuestionsCard } from './questions-card';
 import { TodoCard } from './todo-card';
 
 /** The kinds that have something to do, most urgent first; a kind this build does not know is left out. */
@@ -57,7 +58,7 @@ export default function ToProcessPage() {
         <ul className="grid items-start gap-4 lg:grid-cols-2">
           {cards.map(([kind, kindSummary]) => (
             <li key={kind} className="min-w-0">
-              <TodoCard kind={kind} summary={kindSummary} />
+              {kind === 'questions' ? <QuestionsCard summary={kindSummary} /> : <TodoCard kind={kind} summary={kindSummary} />}
             </li>
           ))}
         </ul>

@@ -25,7 +25,7 @@ vi.mock('@/lib/router', () => ({
   useSearchParams: () => new URLSearchParams(route.search),
 }));
 
-const access = vi.hoisted(() => ({ accountant: true, processing: false, quotes: false, timeBilling: false }));
+const access = vi.hoisted(() => ({ accountant: true, processing: false, quotes: false, timeBilling: false, questions: false }));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => (permission === 'journal:create' ? access.accountant : true) }),
 }));
@@ -34,7 +34,8 @@ vi.mock('@/lib/edition', async (importOriginal) => ({
   isFeatureAvailable: (feature: string) =>
     (feature === 'books-bank-processing' && access.processing) ||
     (feature === 'books-quotes' && access.quotes) ||
-    (feature === 'books-time-billing' && access.timeBilling),
+    (feature === 'books-time-billing' && access.timeBilling) ||
+    (feature === 'books-questions' && access.questions),
 }));
 
 const todo = vi.hoisted(() => ({ summary: undefined as unknown, enabledSeen: [] as boolean[] }));
@@ -76,6 +77,7 @@ describe('useWeldbooksSidebarItems', () => {
     access.processing = false;
     access.quotes = false;
     access.timeBilling = false;
+    access.questions = false;
     localStorage.clear();
     todo.summary = undefined;
     todo.enabledSeen = [];
@@ -420,5 +422,41 @@ describe('the new-supplier form', () => {
     expect(isSupplierContactForm('/weldbooks/customers/add', null)).toBe(false);
     expect(isSupplierContactForm('/weldbooks/customers/add', 'supplier')).toBe(true);
     expect(isSupplierContactForm('/weldbooks/customers', 'supplier')).toBe(false);
+  });
+});
+
+describe('Questions in the menu (books-questions)', () => {
+  beforeEach(() => {
+    route.pathname = '/weldbooks';
+    route.search = '';
+    access.accountant = true;
+    access.questions = false;
+    localStorage.clear();
+    todo.summary = undefined;
+    jurisdiction = known();
+  });
+
+  it('is an item of the Accountant group, where the edition has questions', () => {
+    access.questions = true;
+    const groups = adjust();
+    const accountant = groups.find((group) => group.group === en.navigation.moduleSidebar.groups.accountant);
+    expect(accountant?.items.map((item) => item.href)).toContain('/weldbooks/questions');
+    expect(accountant?.items.find((item) => item.href === '/weldbooks/questions')?.title).toBe('Questions');
+  });
+
+  it('is left out on Global', () => {
+    access.questions = false;
+    expect(hrefs(adjust())).not.toContain('/weldbooks/questions');
+  });
+
+  it('stays out of the owner\'s main menu: an owner reaches it from the Accountant group and the To process card', () => {
+    access.questions = true;
+    access.accountant = false;
+    const groups = adjust();
+    const first = groups[0];
+    expect(first?.items.map((item) => item.href)).not.toContain('/weldbooks/questions');
+    const accountant = groups.find((group) => group.group === en.navigation.moduleSidebar.groups.accountant);
+    // Collapsed for an owner, who sees the page they are on.
+    expect(accountant?.collapsed).toBe(true);
   });
 });

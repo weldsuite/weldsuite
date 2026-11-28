@@ -61,6 +61,8 @@ import {
 } from '@/components/objects/_shared/record-panel-parts';
 import { tabBodyClassName } from '@/components/objects/_shared/tab-empty-state';
 import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';
+import { RecordQuestionChat } from '@/components/accounting/questions/record-question-chat';
+import { isQuestionsAvailable } from '@/hooks/queries/use-weldbooks-questions-queries';
 import { VatNotAvailable } from '@/app/weldbooks/vat/components/vat-not-available';
 import { accountingApi, type VatReturn } from '@/lib/api/domains/weldbooks';
 import { isFeatureAvailable } from '@/lib/edition';
@@ -82,6 +84,7 @@ import {
   VAT_TOTAL_KEYS,
 } from './vat-return-model';
 import { MarkVatFiledDialog } from './mark-vat-filed-dialog';
+import { VatCheckSection } from './vat-check-section';
 import { getVatReturnTabs, type VatReturnTab } from './vat-return-tabs';
 import {
   useDeleteVatReturn,
@@ -374,6 +377,9 @@ function VatReturnDetailsTab({
 
   return (
     <div className="@container p-4 space-y-4">
+      {/* The Check step comes first: what is still open in the period, before the return is filed. */}
+      <VatCheckSection vatReturnId={vr.id} filed={isFiledVatReturn(vr.status)} />
+
       <VatFilingNotices vr={vr} filedNotice={filedNotice} filingError={filingError} t={t} />
 
       <div className="space-y-1">
@@ -500,6 +506,9 @@ function VatReturnTabBody({
   t: Translations;
 }>) {
   if (activeTab === 'boxes') return <VatReturnBoxesTab vr={vr} t={t} />;
+  if (activeTab === 'chat') {
+    return <RecordQuestionChat recordType="vat_return" recordId={vr.id} name={vr.periodLabel ?? undefined} />;
+  }
   if (activeTab === 'history') return <EntityAuditPanel entityType={VAT_RETURN_TYPE} entityId={vr.id} />;
   return (
     <VatReturnDetailsTab
@@ -548,8 +557,10 @@ export function VatReturnPanel(props: Readonly<ObjectPanelComponentProps>) {
         details: st('sweep.entities.detailsTab'),
         boxes: tv.rubrieken,
         history: st('sweep.entities.auditLogTab'),
+        chat: t.weldbooksQuestions.chat.tab,
+        showChat: isQuestionsAvailable(),
       }),
-    [st, tv.rubrieken],
+    [st, t.weldbooksQuestions.chat.tab, tv.rubrieken],
   );
 
   const initial = useMemo<VatReturnTab['id']>(() => {

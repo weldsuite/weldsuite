@@ -1,4 +1,4 @@
-import { Banknote, FileMinus, History, LayoutGrid, ListOrdered, Percent } from 'lucide-react';
+import { Banknote, FileMinus, History, LayoutGrid, ListOrdered, MessageSquare, Percent } from 'lucide-react';
 import type { ConfigurablePanelTab } from '@/components/objects/_shared/configurable-panel-tabs';
 
 /**
@@ -11,9 +11,10 @@ import type { ConfigurablePanelTab } from '@/components/objects/_shared/configur
  *   payments     → `/invoices/:id` payments
  *   creditNotes  → `/invoices/:id` creditNotes        (only when some were issued)
  *   tax          → `/invoices/:id` engine, provider sync, Brazil fiscal document and Pix
+ *   chat         → the invoice's record chat, with the questions to the accountant (`books-questions`)
  *   history      → `/api/audit-logs?entityType=invoice`
  */
-export type InvoiceTabId = 'overview' | 'items' | 'payments' | 'creditNotes' | 'tax' | 'history';
+export type InvoiceTabId = 'overview' | 'items' | 'payments' | 'creditNotes' | 'tax' | 'chat' | 'history';
 
 export type InvoiceTab = ConfigurablePanelTab<InvoiceTabId>;
 
@@ -24,6 +25,7 @@ export function getInvoiceTabs(input: {
     payments: string;
     creditNotes: string;
     tax: string;
+    chat?: string;
     history: string;
   };
   counts: { items?: number; payments?: number; creditNotes?: number };
@@ -31,8 +33,10 @@ export function getInvoiceTabs(input: {
   hasCreditNotes: boolean;
   /** The invoice carries sales tax engine output, or its jurisdiction has fiscal documents / Pix. */
   hasTaxDetails: boolean;
+  /** The edition has questions to the accountant (`books-questions`): the invoice has a Chat tab. */
+  showChat?: boolean;
 }): InvoiceTab[] {
-  const { labels, counts, hasCreditNotes, hasTaxDetails } = input;
+  const { labels, counts, hasCreditNotes, hasTaxDetails, showChat } = input;
   const tabs: InvoiceTab[] = [
     {
       id: 'overview',
@@ -71,6 +75,9 @@ export function getInvoiceTabs(input: {
   }
   if (hasTaxDetails) {
     tabs.push({ id: 'tax', label: labels.tax, icon: Percent, defaultVisibleInFullscreen: true });
+  }
+  if (showChat && labels.chat) {
+    tabs.push({ id: 'chat', label: labels.chat, icon: MessageSquare, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true });
   }
   tabs.push({ id: 'history', label: labels.history, icon: History, defaultVisibleInFullscreen: true });
   return tabs;

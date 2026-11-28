@@ -249,6 +249,9 @@ export type BankLine = BankTransaction & {
   depositId?: string | null;
   reconciledPaymentId?: string | null;
   notes?: string | null;
+  /** Rust only (`books-questions`): the accountant's review mark on the line's booking, on the automatic lists. */
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
 };
 
 export interface BankLineFilters {
@@ -262,6 +265,8 @@ export interface BankLineFilters {
   depositId?: string;
   /** Rust only (`books-bank-processing`): lines a rule or auto-link booked (`true`). */
   processedAutomatically?: boolean;
+  /** Rust only (`books-questions`), with `processedAutomatically`: the lines whose booking is reviewed (`true`) or not (`false`). */
+  reviewed?: boolean;
   page?: number;
   pageSize?: number;
 }

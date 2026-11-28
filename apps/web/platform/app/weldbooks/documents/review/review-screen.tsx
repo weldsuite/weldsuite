@@ -6,6 +6,7 @@
  * credit note, pays it when it can, and opens the next document to check.
  */
 
+import { DocumentChatSection } from '@/components/accounting/questions/document-chat-section';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useAtom } from 'jotai';
 import { ArrowLeft, Ban, CheckCircle2, Loader2 } from 'lucide-react';
@@ -432,7 +433,10 @@ function ReviewForm({ doc, prefill, prefillFailed }: Readonly<ReviewFormProps>) 
         <div className="lg:sticky lg:top-4">
           <SourceDocumentViewer fileKey={doc.fileKey} mimeType={doc.mimeType} fileName={doc.fileName} />
         </div>
-        <div className="min-w-0">{body}</div>
+        <div className="min-w-0 space-y-4">
+          {body}
+          <DocumentChatSection documentId={doc.id} name={doc.fileName} />
+        </div>
       </div>
 
       <ConfirmDialog

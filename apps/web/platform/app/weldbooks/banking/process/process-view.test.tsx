@@ -133,6 +133,14 @@ vi.mock('@weldsuite/ui/components/autocomplete', () => ({
 }));
 vi.mock('@/components/accounting/contact-picker', () => ({ ContactPicker: () => <div data-testid="contact-picker" /> }));
 vi.mock('@/components/weldflow/project-select', () => ({ ProjectSelect: () => <div data-testid="project-select" /> }));
+// "Ask your accountant" is its own component (tested with its form); here only what the view hands it.
+vi.mock('@/components/accounting/questions/ask-question-button', () => ({
+  AskQuestionButton: ({ recordType, recordId, label, defaultText }: { recordType: string; recordId: string; label?: string; defaultText?: string }) => (
+    <button type="button" data-testid="process-ask-question" data-type={recordType} data-id={recordId} data-text={defaultText}>
+      {label}
+    </button>
+  ),
+}));
 vi.mock('./connections-strip', () => ({ ConnectionsStrip: ({ lineId }: { lineId: string }) => <div data-testid="connections" data-line={lineId} /> }));
 vi.mock('./automatic-view', () => ({ AutomaticView: () => <div data-testid="automatic-view" /> }));
 vi.mock('@/components/accounting/reconciliation-rule-form-dialog', () => ({
@@ -851,6 +859,24 @@ describe('ProcessView', () => {
       renderView();
       await act(async () => {});
       expect(screen.getByTestId('connections')).toHaveAttribute('data-line', 'l1');
+    });
+  });
+
+  describe('ask your accountant', () => {
+    it('is offered for the open line, with "What was this payment?" as the question to start from', () => {
+      renderView();
+      const ask = screen.getByTestId('process-ask-question');
+      expect(ask).toHaveTextContent('Ask your accountant');
+      expect(ask).toHaveAttribute('data-type', 'bank_transaction');
+      expect(ask).toHaveAttribute('data-id', 'l1');
+      expect(ask).toHaveAttribute('data-text', 'What was this payment?');
+    });
+
+    it('follows the line that is open', async () => {
+      const user = userEvent.setup();
+      renderView();
+      await user.keyboard('j');
+      expect(screen.getByTestId('process-ask-question')).toHaveAttribute('data-id', expect.not.stringMatching(/^l1$/));
     });
   });
 });

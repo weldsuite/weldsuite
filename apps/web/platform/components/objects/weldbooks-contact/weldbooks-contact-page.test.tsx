@@ -66,6 +66,9 @@ vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
     today: () => '2026-11-30',
   }),
 }));
+// The reminder pause is per legal entity: the Defaults section names the request's entity.
+const entity = vi.hoisted(() => ({ id: 'ent_1' as string | null }));
+vi.mock('@/hooks/use-current-accounting-entity', () => ({ useCurrentAccountingEntity: () => ({ entityId: entity.id }) }));
 vi.mock('@/hooks/use-workspace-url', () => ({ useWorkspaceUrl: () => (path: string) => `https://app.test${path}` }));
 vi.mock('@/hooks/queries/use-settings-queries', () => ({
   useGridViewSettings: () => ({ data: undefined, isLoading: false }),
@@ -163,6 +166,7 @@ function serve(options: Served = {}) {
     if (path.includes('/accounting-contacts/prt_1/bills')) return paged(bills);
     if (path.startsWith('/bank-transactions')) return paged(options.bankLines ?? []);
     if (path.startsWith('/accounts') || path.startsWith('/tax-rates')) return { data: [] };
+    if (path === '/accounting-entities/ent_1') return { data: { id: 'ent_1', name: 'Atelier BV' } };
     if (path === '/accounting-contacts/prt_1') return { data: options.contact ?? contact };
     return { data: [] };
   });
@@ -183,6 +187,7 @@ beforeEach(() => {
   toast.error.mockReset();
   download.save.mockReset();
   edition.contactPage = true;
+  entity.id = 'ent_1';
   permissions.allowed = new Set(['invoices:read', 'invoices:create', 'invoices:update', 'bills:create', 'time:read']);
 });
 
@@ -350,15 +355,26 @@ describe('the contact page: overview and timeline', () => {
 });
 
 describe('the contact page: defaults', () => {
-  it('saves pausing reminders on its own and says it is for this company', async () => {
+  it('says it is for the selected entity while the entity is not known', async () => {
+    const user = userEvent.setup();
+    serve();
+    entity.id = null;
+    renderPanel();
+    await user.click(await screen.findByRole('tab', { name: copy.tabs.details }));
+    await screen.findByRole('switch', { name: copy.defaults.pauseReminders });
+    expect(screen.getByText(copy.defaults.pauseNote)).toBeInTheDocument();
+  });
+
+  it('saves pausing reminders on its own and says it is for the entity of the request', async () => {
     const user = userEvent.setup();
     serve();
     api.patch.mockResolvedValue({ data: { ...defaults, remindersPaused: true } });
     renderPanel();
     await user.click(await screen.findByRole('tab', { name: copy.tabs.details }));
     const toggle = await screen.findByRole('switch', { name: copy.defaults.pauseReminders });
-    expect(screen.getByText(copy.defaults.pauseNote)).toBeInTheDocument();
-    expect(copy.defaults.pauseNote).toContain('For this company');
+    // "For <entity name> only": the pause follows the legal entity the request is made for.
+    expect(await screen.findByText(copy.defaults.pauseNoteFor.replace('{entity}', 'Atelier BV'))).toBeInTheDocument();
+    expect(copy.defaults.pauseNoteFor).toContain('only');
     await user.click(toggle);
     expect(api.patch).toHaveBeenCalledWith('/accounting-contacts/prt_1/defaults', { remindersPaused: true });
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith(copy.defaults.saved));

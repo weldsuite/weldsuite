@@ -19,6 +19,7 @@ export const weldbooksConnected = {
     mixedCurrency: 'Mixed currencies, shown in {currency}',
     dueOn: 'Due {date}',
     sendReminders: { one: 'Send 1 reminder', other: 'Send {count} reminders' },
+    receiptsPick: 'Select {name}',
     kinds: {
       vat_return: {
         title: 'Tax return to file',
@@ -60,6 +61,10 @@ export const weldbooksConnected = {
         title: 'Unapplied credit',
         action: 'View unapplied credit',
       },
+      questions: {
+        title: 'Questions from your accountant',
+        action: 'See all questions',
+      },
       missing_receipts: {
         title: 'Missing receipts',
         summary: { one: '1 expense without a receipt', other: '{count} expenses without a receipt' },
@@ -83,6 +88,7 @@ export const weldbooksConnected = {
       consent_expiring: 'Consent expires soon',
       unapplied_credit: 'Unapplied credit',
       missing_receipt: 'No receipt yet',
+      question: 'Waiting for your answer',
     },
     severity: {
       info: 'For your information',

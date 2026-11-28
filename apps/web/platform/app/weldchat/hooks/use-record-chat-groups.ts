@@ -48,5 +48,12 @@ export function useRecordChatGroups(
     sheet: useFollowedRecordChats('sheet', summaryOf('sheet'), enabled),
     doc: useFollowedRecordChats('doc', summaryOf('doc'), enabled),
     board: useFollowedRecordChats('board', summaryOf('board'), enabled),
+    // WeldBooks' records (edition feature `books-questions`): the summary lists them only for callers who may read them.
+    invoice: useFollowedRecordChats('invoice', summaryOf('invoice'), enabled),
+    bill: useFollowedRecordChats('bill', summaryOf('bill'), enabled),
+    bank_transaction: useFollowedRecordChats('bank_transaction', summaryOf('bank_transaction'), enabled),
+    accounting_document: useFollowedRecordChats('accounting_document', summaryOf('accounting_document'), enabled),
+    vat_return: useFollowedRecordChats('vat_return', summaryOf('vat_return'), enabled),
+    accounting_contact: useFollowedRecordChats('accounting_contact', summaryOf('accounting_contact'), enabled),
   };
 }

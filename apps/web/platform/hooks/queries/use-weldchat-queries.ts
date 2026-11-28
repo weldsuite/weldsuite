@@ -26,9 +26,10 @@ import type {
   RecordChatCallerState,
   RecordChatFilter,
   RecordChatSort,
-  RecordChatType,
   RecordChatTypeSummary,
 } from '@weldsuite/app-api-client/schemas/chat-entity-channels';
+// The client's own union: the base record types and WeldBooks' six (edition feature `books-questions`).
+import type { RecordChatType } from '@/app/weldchat/lib/record-chat-types';
 
 /** app-api list envelope — `{ data, pagination }` with an opaque cursor. */
 interface ListEnvelope<T> {

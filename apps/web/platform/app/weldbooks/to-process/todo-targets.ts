@@ -4,7 +4,9 @@
  * so the mapping is tested without rendering the page.
  */
 
+import type { BooksRecordChatType } from '@weldsuite/app-api-client/schemas/chat-entity-channels';
 import type { TodoItem, TodoKind } from '@/lib/api/domains/weldbooks';
+import type { Question } from '@/lib/api/domains/weldbooks-questions';
 import { getLocale } from '@/lib/i18n';
 import { plural } from '@/lib/i18n/plural';
 import type { TranslationsType } from '@/lib/i18n/types';
@@ -14,7 +16,15 @@ import { withQuery } from '@/lib/with-query';
 type TodoCopy = TranslationsType['weldbooksConnected']['todo'];
 
 /** Object types of the panels a to-process item can open stacked on the page. */
-const PANEL_TYPES: ReadonlySet<string> = new Set(['bank_transaction', 'invoice', 'bill', 'vat_return', 'bank_account']);
+const PANEL_TYPES: ReadonlySet<string> = new Set([
+  'bank_transaction',
+  'invoice',
+  'bill',
+  'vat_return',
+  'bank_account',
+  // A question on a contact (`books-questions`) opens the contact's panel.
+  'weldbooks_contact',
+]);
 
 export type TodoItemTarget =
   | { kind: 'panel'; type: string; id: string }
@@ -27,12 +37,14 @@ export type TodoItemTarget =
  * How an item opens. Records with a panel stack it; an inbox document opens
  * the review screen where the edition has it (`books-receipts`), else its
  * dialog on the documents page (`?document=`); a payment (unapplied credit)
- * opens its contact on the Credit tab, where it is applied.
+ * opens its contact on the Credit tab, where it is applied. A question's item
+ * (`hint: 'question'`) is about the same records: a document opens its dialog,
+ * which holds the document's chat, not the review screen.
  */
-export function todoItemTarget(item: Pick<TodoItem, 'objectType' | 'objectId'>): TodoItemTarget {
+export function todoItemTarget(item: Pick<TodoItem, 'objectType' | 'objectId'> & { hint?: string | null }): TodoItemTarget {
   if (PANEL_TYPES.has(item.objectType)) return { kind: 'panel', type: item.objectType, id: item.objectId };
   if (item.objectType === 'accounting_document') {
-    if (isFeatureAvailable('books-receipts')) {
+    if (item.hint !== 'question' && isFeatureAvailable('books-receipts')) {
       return { kind: 'page', href: `/weldbooks/documents/${encodeURIComponent(item.objectId)}/review` };
     }
     return { kind: 'page', href: withQuery('/weldbooks/documents', `document=${encodeURIComponent(item.objectId)}`) };
@@ -93,6 +105,8 @@ export function todoKindAction(
     }
     case 'bank_feeds':
       return { label: label(copy.kinds.bank_feeds.action), href: '/weldbooks/banking/feeds' };
+    case 'questions':
+      return { label: label(copy.kinds.questions.action), href: '/weldbooks/questions' };
     case 'duplicates':
       return { label: label(copy.kinds.duplicates.action), href: '/weldbooks/banking/transactions' };
     case 'missing_receipts':
@@ -120,4 +134,37 @@ export function todoKindTitle(kind: TodoKind, copy: TodoCopy): string {
 export function todoKindSummary(kind: TodoKind, count: number, copy: TodoCopy): string | null {
   if (kind !== 'missing_receipts') return null;
   return plural(count, copy.kinds.missing_receipts.summary, getLocale());
+}
+
+/** The object panel type of each record a question can be about; an inbox document has none (its dialog is a page). */
+const QUESTION_PANEL_TYPES: Readonly<Record<BooksRecordChatType, string | null>> = {
+  invoice: 'invoice',
+  bill: 'bill',
+  bank_transaction: 'bank_transaction',
+  accounting_document: null,
+  vat_return: 'vat_return',
+  accounting_contact: 'weldbooks_contact',
+};
+
+/**
+ * Where "Answer" leads: the record's panel on its Chat tab (stacked, so back returns to the page), or for an
+ * inbox document its dialog on the documents page, which holds the document's chat.
+ */
+export type QuestionAnswerTarget =
+  | { kind: 'panel'; type: string; id: string; initialTab: 'chat' }
+  | { kind: 'page'; href: string };
+
+export function questionAnswerTarget(question: Pick<Question, 'recordType' | 'recordId'>): QuestionAnswerTarget {
+  const type = QUESTION_PANEL_TYPES[question.recordType];
+  if (type) return { kind: 'panel', type, id: question.recordId, initialTab: 'chat' };
+  return { kind: 'page', href: withQuery('/weldbooks/documents', `document=${encodeURIComponent(question.recordId)}`) };
+}
+
+/**
+ * Where "Add a document" leads, for the questions that are answered by one: the processing view's receipt flow
+ * for that bank line. Null for every other record.
+ */
+export function questionReceiptHref(question: Pick<Question, 'recordType' | 'recordId'>): string | null {
+  if (question.recordType !== 'bank_transaction') return null;
+  return withQuery('/weldbooks/banking/process', `lineId=${encodeURIComponent(question.recordId)}&action=receipt`);
 }

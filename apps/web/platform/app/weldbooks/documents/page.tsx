@@ -1,3 +1,4 @@
+import { DocumentChatSection } from '@/components/accounting/questions/document-chat-section';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { RecordChip } from '@weldsuite/ui/components/record-chip';
@@ -656,6 +657,7 @@ export default function DocumentInboxPage() {
               className="max-h-[50vh] w-full rounded-md border object-contain"
             />
           )}
+          {selectedDoc ? <DocumentChatSection documentId={selectedDoc.id} name={selectedDoc.fileName} /> : null}
           {selectedDoc?.fileKey && (
             <div>
               <Button variant="link" className="h-auto p-0" asChild>
