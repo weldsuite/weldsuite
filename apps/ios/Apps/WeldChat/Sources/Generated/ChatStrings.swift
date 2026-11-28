@@ -949,6 +949,8 @@ enum ChatStrings {
     static var tabsCalls: String { tr("tabs.calls") }
     /// Direct messages
     static var tabsDirectMessages: String { tr("tabs.directMessages") }
+    /// DMs
+    static var tabsDms: String { tr("tabs.dms") }
     /// Home
     static var tabsHome: String { tr("tabs.home") }
     /// Reply failed to send

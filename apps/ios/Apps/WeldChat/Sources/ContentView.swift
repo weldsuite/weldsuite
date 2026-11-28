@@ -33,7 +33,7 @@ struct ContentView: View {
                     DmsView(env: env, store: store, person: person)
                         .chatDestinations(env: env, store: store, person: person, workspace: workspace, workspaces: workspaces, appearance: $appearance)
                 }
-                .tabItem { Label(ChatStrings.tabsDirectMessages, systemImage: "bubble.left.and.bubble.right") }
+                .tabItem { Label(ChatStrings.tabsDms, systemImage: "bubble.left.and.bubble.right") }
                 .tag(ChatTab.dms)
                 .accessibilityIdentifier("tab-dms")
 

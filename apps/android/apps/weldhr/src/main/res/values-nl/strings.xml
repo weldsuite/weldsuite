@@ -416,6 +416,7 @@
     <string name="weldhr_tabs_announcements">Mededelingen</string>
     <string name="weldhr_tabs_expenses">Declaraties</string>
     <string name="weldhr_tabs_home">Home</string>
+    <string name="weldhr_tabs_news">Nieuws</string>
     <string name="weldhr_tabs_schedule">Rooster</string>
     <string name="weldhr_tasks_assigned_to">Voor %1$s</string>
     <string name="weldhr_tasks_checklist_done">Checklist afgerond</string>

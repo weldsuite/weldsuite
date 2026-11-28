@@ -8306,6 +8306,23 @@
         }
       }
     },
+    "tabs.dms": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DMs"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DM’s"
+          }
+        }
+      }
+    },
     "tabs.home": {
       "extractionState": "manual",
       "localizations": {

@@ -44,6 +44,7 @@ import org.weldsuite.core.AppEnvironment
 import org.weldsuite.core.SessionState
 import org.weldsuite.push.NotificationPermissionRequest
 import org.weldsuite.push.WeldPush
+import org.weldsuite.ui.TabLabel
 import org.weldsuite.ui.AppearancePreference
 import org.weldsuite.ui.RealtimeRefresh
 import org.weldsuite.ui.WorkspacePicker
@@ -244,7 +245,7 @@ private fun TabBar(nav: NavHostController) {
                 selected = current == tab,
                 onClick = { selectTab(nav, tab) },
                 icon = { Icon(tab.icon, contentDescription = null) },
-                label = { Text(stringResource(tab.label)) },
+                label = { TabLabel(stringResource(tab.label)) },
                 modifier = Modifier.tagged(tab.tag),
             )
         }

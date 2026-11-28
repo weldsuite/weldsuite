@@ -43,6 +43,7 @@ import kotlinx.coroutines.launch
 import org.weldsuite.api.weldpass.models.Item
 import org.weldsuite.core.AppEnvironment
 import org.weldsuite.core.SessionState
+import org.weldsuite.ui.TabLabel
 import org.weldsuite.ui.tagged
 
 /** Shows a short message at the bottom of the screen (a copy, a failure). */
@@ -217,7 +218,7 @@ private fun TabBar(nav: NavHostController) {
                     }
                 },
                 icon = { Icon(tab.icon, contentDescription = null) },
-                label = { Text(stringResource(tab.label)) },
+                label = { TabLabel(stringResource(tab.label)) },
                 modifier = Modifier.tagged(tab.tag),
             )
         }

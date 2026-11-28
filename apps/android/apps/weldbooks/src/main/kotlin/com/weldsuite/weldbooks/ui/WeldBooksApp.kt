@@ -48,6 +48,7 @@ import org.weldsuite.core.api.ApiException
 import org.weldsuite.core.apiErrorMessage
 import org.weldsuite.push.NotificationPermissionRequest
 import org.weldsuite.push.WeldPush
+import org.weldsuite.ui.TabLabel
 import org.weldsuite.ui.AppearancePreference
 import org.weldsuite.ui.CenteredProgress
 import org.weldsuite.ui.MessageAction
@@ -290,7 +291,7 @@ private fun TabBar(nav: NavHostController) {
                     }
                 },
                 icon = { Icon(tab.icon, contentDescription = null) },
-                label = { Text(stringResource(tab.label)) },
+                label = { TabLabel(stringResource(tab.label)) },
                 modifier = Modifier.tagged(tab.tag),
             )
         }

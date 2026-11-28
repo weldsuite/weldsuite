@@ -67,6 +67,7 @@ import org.weldsuite.core.AppEnvironment
 import org.weldsuite.core.SessionState
 import org.weldsuite.push.NotificationPermissionRequest
 import org.weldsuite.push.WeldPush
+import org.weldsuite.ui.TabLabel
 import org.weldsuite.ui.AppearancePreference
 import org.weldsuite.ui.RealtimeRefresh
 import org.weldsuite.ui.ToastHost
@@ -138,7 +139,7 @@ private enum class Tab(val route: String, val label: Int, val icon: ImageVector,
     Schedule(Routes.SCHEDULE, R.string.weldhr_tabs_schedule, Icons.Filled.CalendarMonth, "tab-schedule"),
     Absence(Routes.ABSENCE, R.string.weldhr_tabs_absence, Icons.Filled.EventBusy, "tab-absence"),
     Expenses(Routes.EXPENSES, R.string.weldhr_tabs_expenses, Icons.Filled.Receipt, "tab-expenses"),
-    Announcements(Routes.ANNOUNCEMENTS, R.string.weldhr_tabs_announcements, Icons.Filled.Campaign, "tab-announcements"),
+    Announcements(Routes.ANNOUNCEMENTS, R.string.weldhr_tabs_news, Icons.Filled.Campaign, "tab-announcements"),
 }
 
 /** WeldHR once signed in, in a workspace and unlocked. */
@@ -300,7 +301,7 @@ private fun TabBar(nav: NavHostController, tabs: HrTabs, access: HrAccess, selfR
                         Icon(tab.icon, contentDescription = null)
                     }
                 },
-                label = { Text(stringResource(tab.label)) },
+                label = { TabLabel(stringResource(tab.label)) },
                 modifier = Modifier.tagged(tab.tag),
             )
         }

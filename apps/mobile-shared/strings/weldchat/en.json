@@ -11,7 +11,8 @@
     "home": "Home",
     "directMessages": "Direct messages",
     "activity": "Activity",
-    "calls": "Calls"
+    "calls": "Calls",
+    "dms": "DMs"
   },
   "home": {
     "saved": "Saved",
