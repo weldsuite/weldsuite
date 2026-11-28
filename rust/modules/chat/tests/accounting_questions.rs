@@ -557,7 +557,9 @@ async fn a_reply_by_someone_else_answers_and_resolving_and_reopening_are_a_patch
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
-    let (_, list) = call(&asker, "GET", "/api/accounting-questions", None).await;
+    // The list holds the request's entity (the shared database may hold a default one).
+    let list_path = format!("/api/accounting-questions?entityId={}", b.entity);
+    let (_, list) = call(&asker, "GET", &list_path, None).await;
     let mine = list["data"]
         .as_array()
         .unwrap()
@@ -589,7 +591,10 @@ async fn a_reply_by_someone_else_answers_and_resolving_and_reopening_are_a_patch
     let (_, list) = call(
         &asker,
         "GET",
-        "/api/accounting-questions?status=answered",
+        &format!(
+            "/api/accounting-questions?status=answered&entityId={}",
+            b.entity
+        ),
         None,
     )
     .await;
