@@ -385,13 +385,11 @@ impl Ctx {
     }
 }
 
-/// `publicFormUrl(env, publicId)`.
-pub(crate) fn public_form_url(env: &Env, public_id: Option<&str>) -> Option<String> {
+/// `publicFormUrl(env, publicId)`, on the workspace's link base (its primary
+/// custom domain, else `FORMS_PORTAL_URL`: [`crate::domains::base_of`]).
+pub(crate) fn public_form_url(base: &str, public_id: Option<&str>) -> Option<String> {
     let public_id = public_id?;
-    let base = env
-        .non_empty("FORMS_PORTAL_URL")
-        .unwrap_or_else(|| "https://forms.weldsuite.org".to_owned());
-    let base = base.strip_suffix('/').unwrap_or(&base);
+    let base = base.strip_suffix('/').unwrap_or(base);
     Some(format!("{base}/f/{public_id}"))
 }
 

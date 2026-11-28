@@ -20,6 +20,22 @@ A published form has a public link of the form `https://forms.weldsuite.org/f/<p
 
 Add values to the link to prefill answers or fill hidden fields, for example to know which campaign a response came from. The **URL builder** on the Share tab writes the link for you.
 
+### Your own domain
+
+On WeldSuite EU and self-hosted installs, forms can live on your own domain, such as `forms.example.com`. Add it in **Settings → Apps → WeldForms → Custom domains**, then add the DNS records shown there at your DNS provider:
+
+| Record | Why |
+| --- | --- |
+| **TXT** `_weldforms.forms.example.com` | Proves the domain is yours |
+| **CNAME** `forms.example.com` to the address shown | Sends visitors to WeldForms. An apex domain such as `example.com` uses **A** records instead, when your install offers them |
+
+WeldSuite checks the records every few minutes, or straight away with **Check now**, and then sets up a certificate. Once the domain is active:
+
+- **Make primary** to use it in every link WeldSuite gives you: the public link, the QR code, the embed snippet and invitation emails. Links on `forms.weldsuite.org` keep working.
+- Choose a **home form** to show at the domain itself (`https://forms.example.com/`). Every other form is at `/f/<publicId>` on the domain.
+
+A domain shows only your workspace's forms. You need the **manage** permission for forms to add or change domains.
+
 ---
 
 ## Embed on a website

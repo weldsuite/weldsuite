@@ -2,6 +2,9 @@
 {{- if and (not .Values.secret.existingSecret) (not (hasKey .Values.secret.values "FORMS_PORTAL_SECRET")) }}
 {{- fail "formsPortal.enabled needs FORMS_PORTAL_SECRET in the Secret (secret.values or secret.existingSecret): the portal and the server share it" }}
 {{- end }}
+{{- if and .Values.formsPortal.customDomains.enabled (not .Values.formsPortal.customDomains.cnameTarget) }}
+{{- fail "formsPortal.customDomains.enabled needs formsPortal.customDomains.cnameTarget (e.g. the portal's own forms.<domain>, pointing at the ingress load balancer)" }}
+{{- end }}
 # The WeldForms respondent page (ADR FE-017, FORMS-002): TanStack Start's Node
 # build, which calls the server's /public/forms/* endpoints with the shared
 # FORMS_PORTAL_SECRET and the respondent's IP from the ingress.

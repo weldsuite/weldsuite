@@ -1,7 +1,7 @@
 /**
  * Settings → Apps → WeldForms: the themes library, the sender name, reminder
- * defaults for invitations, the "Made with WeldForms" badge and the month's
- * usage.
+ * defaults for invitations, the "Made with WeldForms" badge, custom domains
+ * (EU and self-hosted) and the month's usage.
  */
 
 import { useMemo, useState } from 'react';
@@ -35,23 +35,11 @@ import { FormPreview } from '@/app/weldforms/components/form-preview';
 import { ToggleRow } from '@/app/weldforms/components/prop-controls';
 import { ThemeSwatch, ThemeTokensEditor } from '@/app/weldforms/components/theme-tokens-editor';
 import { createSampleDefinition } from '@/app/weldforms/lib/sample-definition';
+import { isFeatureAvailable } from '@/lib/edition';
+import { DomainsSection } from './domains-section';
+import { Section } from './settings-section';
 
 const DEFAULT_TOKENS = formThemeTokensSchema.parse({});
-
-function Section({ title, description, children, actions }: Readonly<{ title: string; description?: string; children: React.ReactNode; actions?: React.ReactNode }>) {
-  return (
-    <section className="space-y-4 rounded-lg border bg-card p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold">{title}</h2>
-          {description && <p className="text-sm text-muted-foreground">{description}</p>}
-        </div>
-        {actions}
-      </div>
-      {children}
-    </section>
-  );
-}
 
 export default function WeldFormsSettingsPage() {
   const { t, format, language } = useI18n();
@@ -83,6 +71,8 @@ export default function WeldFormsSettingsPage() {
 
         <ThemesSection themes={themes.data ?? []} defaultThemeId={settings.data.defaultThemeId} canManage={canManage} />
         <GeneralSection key={JSON.stringify(settings.data)} settings={settings.data} canManage={canManage} />
+
+        {isFeatureAvailable('forms-custom-domains') && <DomainsSection canManage={canManage} />}
 
         {usage.data && (
           <Section title={tw.usage} description={format(tw.usagePeriod, { from: dateFormat.format(new Date(usage.data.periodStart)), to: dateFormat.format(new Date(usage.data.periodEnd)) })}>

@@ -26,6 +26,7 @@ pub mod feature_requests;
 pub mod form_abuse_reports;
 pub mod form_invitation_registry;
 pub mod form_link_registry;
+pub mod forms_custom_domains;
 pub mod helpcenter_domain_registry;
 pub mod iceberg_namespace_properties;
 pub mod iceberg_tables;
@@ -125,6 +126,7 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         crate::snapshot::table::<form_abuse_reports::Entity>(&form_abuse_reports::DDL),
         crate::snapshot::table::<form_invitation_registry::Entity>(&form_invitation_registry::DDL),
         crate::snapshot::table::<form_link_registry::Entity>(&form_link_registry::DDL),
+        crate::snapshot::table::<forms_custom_domains::Entity>(&forms_custom_domains::DDL),
         crate::snapshot::table::<helpcenter_domain_registry::Entity>(
             &helpcenter_domain_registry::DDL,
         ),
@@ -269,6 +271,9 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
             json(Box::pin(form_invitation_registry::Entity::find().all(db)).await?)
         }
         "form_link_registry" => json(Box::pin(form_link_registry::Entity::find().all(db)).await?),
+        "forms_custom_domains" => {
+            json(Box::pin(forms_custom_domains::Entity::find().all(db)).await?)
+        }
         "helpcenter_domain_registry" => {
             json(Box::pin(helpcenter_domain_registry::Entity::find().all(db)).await?)
         }

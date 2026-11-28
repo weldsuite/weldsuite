@@ -15,7 +15,13 @@
 //! POST /sessions/uploads        a file or a signature for one field
 //! POST /sessions/submit         the final answers, validated by the engine
 //! GET  /altcha/challenge        a proof-of-work challenge
+//! GET  /host                    the live custom domain in X-Forms-Host: its home form (EU and self-hosted)
 //! ```
+//!
+//! The portal names the host the respondent reached it on in `X-Forms-Host`.
+//! On a workspace's custom domain only that workspace's forms answer; any
+//! other form is a 404 there, from the moment the domain is added
+//! (`crate::domains::host_allows`).
 
 use axum::Router;
 use axum::body::Bytes;
@@ -43,6 +49,7 @@ use crate::common::{
 };
 use crate::counters::{Counters, rate_limited, today};
 use crate::crypto::safe_equal;
+use crate::domains::{host_allows, lookup_host};
 use crate::input;
 use crate::public_cache::PublicCacheEntry;
 use crate::public_form::{
@@ -62,6 +69,8 @@ pub const FORMS_PORTAL_KEY_HEADER: &str = "x-forms-portal-key";
 /// Header carrying the respondent's IP; trusted only next to the key.
 pub const RESPONDENT_IP_HEADER: &str = "x-respondent-ip";
 const RESPONDENT_COUNTRY_HEADER: &str = "x-respondent-country";
+/// Header carrying the host the respondent reached the portal on.
+pub const FORMS_HOST_HEADER: &str = "x-forms-host";
 
 /// Submissions one form takes per minute, over all respondents.
 const SUBMITS_PER_FORM_PER_MINUTE: i64 = 120;
@@ -78,6 +87,7 @@ where
 {
     Router::new()
         .route("/altcha/challenge", get(altcha_challenge))
+        .route("/host", get(host))
         .route("/f/{publicId}", get(public_form))
         .route("/f/{publicId}/view", post(view))
         .route("/f/{publicId}/sessions", post(sessions))
@@ -137,6 +147,8 @@ pub(crate) struct Portal {
     tenant: Option<PgPool>,
     ip: Option<String>,
     country: Option<String>,
+    /// `X-Forms-Host`: the host the respondent reached the portal on.
+    host: Option<String>,
     authorization: Option<String>,
 }
 
@@ -169,6 +181,7 @@ impl FromRequestParts<FormsState> for Portal {
                 .map(|tenant| tenant.db.clone()),
             ip: header(RESPONDENT_IP_HEADER),
             country,
+            host: header(FORMS_HOST_HEADER),
             authorization: parts
                 .headers
                 .get(AUTHORIZATION)
@@ -187,6 +200,17 @@ impl Portal {
 
     fn now_ms(&self) -> i64 {
         self.svc.env.now_ms()
+    }
+
+    /// `resolveLink(master, publicId)`, a 404 when the form may not be
+    /// served on the host the respondent is on.
+    async fn link(&self, public_id: &str) -> FormsResult<Link> {
+        let master = self.master()?;
+        let link = resolve_link(master, public_id).await?;
+        if !host_allows(&self.svc, master, self.host.as_deref(), &link.workspace_id).await? {
+            return Err(not_found("Form"));
+        }
+        Ok(link)
     }
 
     fn counters(&self, form_id: &str) -> Counters {
@@ -232,7 +256,7 @@ impl Portal {
     /// stopped ends its sessions too.
     async fn session_context(&self) -> FormsResult<(RespondentSession, Link, Ctx, Counters)> {
         let session = require_session(&self.svc.env, self.authorization.as_deref(), self.now_ms())?;
-        let link = resolve_link(self.master()?, &session.public_id).await?;
+        let link = self.link(&session.public_id).await?;
         if link.form_id != session.form || link.workspace_id != session.ws {
             return Err(expired());
         }
@@ -262,6 +286,30 @@ async fn altcha_challenge(portal: Portal) -> Response {
     }
 }
 
+// ── The custom domain ────────────────────────────────────────────────────────
+
+/// `GET /host`: the active custom domain in `X-Forms-Host` and its home
+/// form; 404 for any other host (the install's portal included).
+async fn host(portal: Portal) -> Response {
+    answer(
+        async {
+            let Some(host) = portal
+                .host
+                .as_deref()
+                .map(weldsuite_custom_domains::normalize_host)
+            else {
+                return Err(not_found("Domain"));
+            };
+            let entry = lookup_host(portal.master()?, &portal.svc.cache, &host)
+                .await?
+                .filter(|entry| entry.active)
+                .ok_or_else(|| not_found("Domain"))?;
+            Ok(Data(json!({ "homeFormPublicId": entry.home_form_public_id })).into_response())
+        }
+        .await,
+    )
+}
+
 // ── The form ─────────────────────────────────────────────────────────────────
 
 async fn public_form(
@@ -271,7 +319,7 @@ async fn public_form(
 ) -> Response {
     answer(
         async {
-            let link = resolve_link(portal.master()?, &public_id).await?;
+            let link = portal.link(&public_id).await?;
             let (entry, opened) = portal.entry(&link).await?;
             // A respondent finishing an older version asks for it by id.
             let version_id = form_urlencoded::parse(query.unwrap_or_default().as_bytes())
@@ -311,7 +359,7 @@ async fn view(
     answer(
         async {
             let view_key = input::json(&headers, &body, input::record_view)?;
-            let link = resolve_link(portal.master()?, &public_id).await?;
+            let link = portal.link(&public_id).await?;
             let counters = portal.counters(&link.form_id);
             // The view key is the browser's own choice: without a limit a
             // script could count views at will.
@@ -343,7 +391,7 @@ async fn sessions(
         async {
             let input = input::json(&headers, &body, input::start_session)?;
             session_secret(&portal.svc.env)?;
-            let link = resolve_link(portal.master()?, &public_id).await?;
+            let link = portal.link(&public_id).await?;
             let (entry, opened) = portal.entry(&link).await?;
             let counters = portal.counters(&link.form_id);
             let result = start_session(
@@ -389,7 +437,7 @@ async fn send_code_route(
         async {
             let (email, bot_token) = input::json(&headers, &body, input::send_code)?;
             session_secret(&portal.svc.env)?;
-            let link = resolve_link(portal.master()?, &public_id).await?;
+            let link = portal.link(&public_id).await?;
             let (entry, _) = portal.entry(&link).await?;
             let state = state_of(&link, &entry, portal.now_ms());
             if state != "open" {
@@ -446,7 +494,7 @@ async fn verify(
         async {
             let (email, code) = input::json(&headers, &body, input::verify_code)?;
             session_secret(&portal.svc.env)?;
-            let link = resolve_link(portal.master()?, &public_id).await?;
+            let link = portal.link(&public_id).await?;
             let (entry, _) = portal.entry(&link).await?;
             if entry.settings.respondent_mode != "verified_email" {
                 return Err(not_verified_email());
@@ -475,7 +523,7 @@ async fn report(
         async {
             let input = input::json(&headers, &body, input::report_abuse)?;
             let master = portal.master()?.clone();
-            let link = resolve_link(&master, &public_id).await?;
+            let link = portal.link(&public_id).await?;
             let ip_hash = portal.ip_hash().unwrap_or(None);
             rate_limited(
                 &portal.counters(&link.form_id),

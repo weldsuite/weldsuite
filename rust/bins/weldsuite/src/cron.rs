@@ -120,6 +120,10 @@
 //!   domains still pending (ownership record, routing, certificate), from the
 //!   master `storefront_hosts` alone (`crate::storefront`). Nothing while
 //!   custom shop domains are off.
+//! - `forms-domains` (every 10 minutes): WeldForms' custom form domains
+//!   still pending (ownership record, routing, certificate), from the master
+//!   `forms_custom_domains` alone (`crate::forms_domains`). Nothing while
+//!   custom form domains are off.
 //! - `sandbox-cleanup` (every 5 minutes): deletes WeldAgent's sandbox pods
 //!   that are done: their agent exited when idle, Kubernetes stopped them at
 //!   their lifetime, or they never started (`weldsuite_sandbox::Sandboxes::cleanup`).
@@ -250,6 +254,7 @@ const JOBS: &[&str] = &[
     "stash-replenishment",
     "stash-parcel-tracking",
     "storefront-hosts",
+    "forms-domains",
     "mail-attachment-scan",
     "mail-threat-feeds",
 ];
@@ -322,6 +327,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "stash-replenishment" => stash_replenishment(config).await,
             "stash-parcel-tracking" => Box::pin(stash_parcel_tracking(config)).await,
             "storefront-hosts" => Box::pin(crate::storefront::sweep(config)).await,
+            "forms-domains" => Box::pin(crate::forms_domains::sweep(config)).await,
             "mail-attachment-scan" => mail_attachment_scan(config).await,
             "mail-threat-feeds" => mail_threat_feeds(config).await,
             "sign-lifecycle" => sign_lifecycle(config).await,
@@ -438,6 +444,8 @@ async fn forms_sweep(config: Config, job: &str) -> Result<(), Box<dyn std::error
         local_cache: Arc::default(),
         // The sweeps call no model.
         ai: None,
+        // The reminders' links use the primary domain; no domain is checked here.
+        domains: None,
     };
     let now = time::OffsetDateTime::now_utc();
     let request = http::Extensions::new();

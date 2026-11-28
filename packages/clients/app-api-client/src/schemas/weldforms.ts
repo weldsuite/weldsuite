@@ -971,6 +971,65 @@ export const reportAbuseSchema = z.object({
 export type ReportAbuseInput = z.infer<typeof reportAbuseSchema>;
 
 // ---------------------------------------------------------------------------
+// Custom domains (`/api/forms/domains`, EU and self-hosted editions only)
+// ---------------------------------------------------------------------------
+
+export const FORM_DOMAIN_STATUSES = ['pending', 'active', 'failed'] as const;
+export type FormDomainStatus = (typeof FORM_DOMAIN_STATUSES)[number];
+
+export const FORM_DOMAIN_SSL_STATUSES = ['issuing', 'active', 'failed'] as const;
+export type FormDomainSslStatus = (typeof FORM_DOMAIN_SSL_STATUSES)[number];
+
+export const formDomainDnsRecordSchema = z.object({
+  type: z.enum(['TXT', 'CNAME', 'A', 'AAAA']),
+  name: z.string(),
+  value: z.string(),
+  /** `ownership` proves the domain is yours; `routing` sends its traffic to WeldForms. */
+  purpose: z.enum(['ownership', 'routing']),
+  satisfied: z.boolean(),
+});
+export type FormDomainDnsRecord = z.infer<typeof formDomainDnsRecordSchema>;
+
+export const formDomainSchema = z.object({
+  id: z.string(),
+  hostname: z.string(),
+  isPrimary: z.boolean(),
+  status: z.enum(FORM_DOMAIN_STATUSES),
+  sslStatus: z.enum(FORM_DOMAIN_SSL_STATUSES).nullable(),
+  lastError: z.string().nullable(),
+  lastCheckedAt: z.string().nullable(),
+  verifiedAt: z.string().nullable(),
+  homeFormPublicId: z.string().nullable(),
+  /** `https://<hostname>` */
+  url: z.string(),
+  dnsRecords: z.array(formDomainDnsRecordSchema),
+  createdAt: z.string(),
+});
+export type FormDomain = z.infer<typeof formDomainSchema>;
+
+/** `GET /api/forms/domains/config`: `available` is false when the install has cert-manager off. */
+export const formDomainsConfigSchema = z.object({
+  available: z.boolean(),
+  cnameTarget: z.string().nullable(),
+  apexAddresses: z.array(z.string()),
+  portalUrl: z.string(),
+  maxDomains: z.number().int(),
+});
+export type FormDomainsConfig = z.infer<typeof formDomainsConfigSchema>;
+
+/** Errors: 400 `VALIDATION_ERROR` / `HOST_RESERVED`, 409 `HOST_TAKEN` / `TOO_MANY_DOMAINS`, 503 `FEATURE_UNAVAILABLE`. */
+export const addFormDomainSchema = z.object({
+  hostname: z.string().trim().min(1).max(253),
+});
+export type AddFormDomainInput = z.infer<typeof addFormDomainSchema>;
+
+/** The form shown at the domain's root; null clears it. */
+export const updateFormDomainSchema = z.object({
+  homeFormPublicId: z.string().max(60).nullable(),
+});
+export type UpdateFormDomainInput = z.infer<typeof updateFormDomainSchema>;
+
+// ---------------------------------------------------------------------------
 // Re-exports for consumers that only import the API contract
 // ---------------------------------------------------------------------------
 

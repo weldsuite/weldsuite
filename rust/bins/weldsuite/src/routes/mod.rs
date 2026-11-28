@@ -922,6 +922,7 @@ pub(crate) fn forms_state(state: &AppState) -> weldsuite_forms::FormsState {
         env: Arc::new(weldsuite_forms::env_from_process()),
         local_cache: Arc::default(),
         ai: state.ai.clone(),
+        domains: crate::forms_domains::custom_domains(),
     }
 }
 

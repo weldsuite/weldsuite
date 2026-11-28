@@ -7,6 +7,7 @@ import { hiddenFromSearch, isSafeUrl, parseUserAgent, prefillFromSearch, utmFrom
 import { submitRefusal } from './client/submit-errors'
 import { MIN_FILL_MS, submitWaitMs } from './client/submit-timing'
 import { forwardedClientIp } from './forwarded-ip'
+import { formCacheKey, requestHost } from './host'
 import { parseInvitation } from './invitation'
 import { localeFromRequest } from './i18n'
 
@@ -143,5 +144,22 @@ describe('localeFromRequest', () => {
     expect(localeFromRequest('locale=nl', 'en')).toBe('nl')
     expect(localeFromRequest(null, 'nl-NL,nl;q=0.9,en;q=0.8')).toBe('nl')
     expect(localeFromRequest(null, 'fr-FR')).toBe('en')
+  })
+})
+
+describe('requestHost', () => {
+  it('is the lower-case host name, without port', () => {
+    expect(requestHost({ url: 'https://Forms.Acme.com:8443/f/abc' })).toBe('forms.acme.com')
+    expect(requestHost({ url: 'http://localhost:3025/' })).toBe('localhost')
+  })
+  it('is null for a URL that does not parse', () => {
+    expect(requestHost({ url: 'not a url' })).toBeNull()
+  })
+})
+
+describe('formCacheKey', () => {
+  it('keeps one form apart per host', () => {
+    expect(formCacheKey('forms.acme.com', 'abc')).not.toBe(formCacheKey('forms.weldsuite.eu', 'abc'))
+    expect(formCacheKey(null, 'abc')).toBe('|abc')
   })
 })

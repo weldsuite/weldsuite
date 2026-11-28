@@ -674,6 +674,7 @@ export const platformSyncMap: EntitySyncMap = {
   form_response: inv(['weldforms']),
   form_invitation: inv(['weldforms']),
   form_integration: inv(['weldforms']),
+  form_domain: inv(['weldforms']),
   // Releases, issue record links and chat subscriptions live under the same
   // root (use-weldmerge-across-queries.ts keys them under weldmergeKeys.all).
   merge_release: inv(['weldmerge']),

@@ -4,6 +4,7 @@
 
 mod ai;
 mod cross;
+mod domains;
 mod fill;
 mod integrations;
 mod invitations;
@@ -36,7 +37,9 @@ use weldsuite_events::{EventContext, publish_entity_event};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
 
-pub use self::public::{FORMS_PORTAL_KEY_HEADER, RESPONDENT_IP_HEADER, public_router};
+pub use self::public::{
+    FORMS_HOST_HEADER, FORMS_PORTAL_KEY_HEADER, RESPONDENT_IP_HEADER, public_router,
+};
 use crate::FormsState;
 use crate::access::{AccessibleForm, Grants, Need, load_accessible_form, resolve_grants};
 use crate::common::{Ctx, FormsResult, answer, forms_error, text};
@@ -209,6 +212,7 @@ where
         )
         .merge(responses::routes(gate))
         .merge(cross::routes(gate))
+        .merge(domains::routes(gate))
         .merge(invitations::routes(gate))
         .merge(integrations::routes(gate))
         .merge(ai::routes(gate))

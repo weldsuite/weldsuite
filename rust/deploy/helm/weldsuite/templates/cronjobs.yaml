@@ -4,7 +4,7 @@ server's environment and Secret (the workers' Cron Triggers). The pods carry
 component=cron, so the api Service and NetworkPolicy never select them.
 */}}
 {{- range $name, $job := .Values.cron.jobs }}
-{{- if or $job.enabled (and (eq $name "sandbox-cleanup") $.Values.sandbox.enabled) (and (eq $name "storefront-hosts") (eq (include "weldsuite.storefrontDomains.enabled" $) "true")) }}
+{{- if or $job.enabled (and (eq $name "sandbox-cleanup") $.Values.sandbox.enabled) (and (eq $name "storefront-hosts") (eq (include "weldsuite.storefrontDomains.enabled" $) "true")) (and (eq $name "forms-domains") (eq (include "weldsuite.formsDomains.enabled" $) "true")) }}
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -47,9 +47,9 @@ spec:
           {{- end }}
           serviceAccountName: {{ include "weldsuite.serviceAccountName" $ }}
           {{- /* The jobs that start or delete sandbox pods talk to the Kubernetes API, and so do
-          panel-schedule with WeldPanel's custom domains on and storefront-hosts with WeldCommerce's (their
-          sweeps create the Certificates and Ingresses). */}}
-          automountServiceAccountToken: {{ or (and $.Values.sandbox.enabled (has $name (list "weldagent-routines" "sandbox-cleanup"))) (and (eq (include "weldsuite.panelDomains.enabled" $) "true") (eq $name "panel-schedule")) (and (eq (include "weldsuite.storefrontDomains.enabled" $) "true") (eq $name "storefront-hosts")) }}
+          panel-schedule with WeldPanel's custom domains on, storefront-hosts with WeldCommerce's and
+          forms-domains with WeldForms' (their sweeps create the Certificates and Ingresses). */}}
+          automountServiceAccountToken: {{ or (and $.Values.sandbox.enabled (has $name (list "weldagent-routines" "sandbox-cleanup"))) (and (eq (include "weldsuite.panelDomains.enabled" $) "true") (eq $name "panel-schedule")) (and (eq (include "weldsuite.storefrontDomains.enabled" $) "true") (eq $name "storefront-hosts")) (and (eq (include "weldsuite.formsDomains.enabled" $) "true") (eq $name "forms-domains")) }}
           securityContext:
             {{- toYaml $.Values.podSecurityContext | nindent 12 }}
           containers:
