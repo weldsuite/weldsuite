@@ -445,18 +445,17 @@ Change both sides in the same PR:
   `Unit · platform`, `Rust` and `WeldSuite Review`. CI job names are required
   status checks; don't rename them. On a PR, jobs run only for the areas the
   change touches (`.github/scripts/ci-changes.mjs`).
-- **Test** deploys every `main` commit that passes CI: `handoff.yml` starts
-  `deploy-test` in the private repo `weldsuite/weldsuite-deploy`
-  (`*-test.weldsuite.org`, `app-test.weldsuite.org`).
-- **Global production** goes out only through the Promote workflow in
-  `weldsuite-deploy`, run by a person, for a commit test already runs.
-  **EU production** follows the EU test cluster automatically
-  (`eu-production-watch.yml`). Self-hosted installs get tagged releases.
-- The deploy logic stays in this repo: `.github/actions/deploy-*` and
-  `.github/scripts/deploy-plan.mjs`. A new worker, mobile app, Pages app,
-  Vercel app or TanStack Start app is added there, never to a workflow.
-- Test Pages projects and Vercel test builds still carry the label `develop`.
-  That is a project setting, not a branch; leave it.
+- **The EU test cluster** runs the `main` builds of "Rust images"
+  (`rust-images.yml`). **EU production** follows it automatically once a
+  build has soaked on test and CI has passed (`eu-production-watch.yml`, ADR
+  OPS-020). The cluster pins live in the private repo
+  `weldsuite/weldsuite-deploy`; a rollback or a hold is its Promote workflow
+  with target `eu`. Self-hosted installs get tagged releases
+  (`rust-release.yml`).
+- **Nothing deploys to Global.** Its deploy (Workers, Pages, Vercel apps,
+  Expo OTA updates, hosted WeldApps) was removed on 2026-11-28, after its
+  workspaces moved into EU production (ADR OPS-025). A merge reaches only the
+  EU install.
 
 ## Working on a task
 

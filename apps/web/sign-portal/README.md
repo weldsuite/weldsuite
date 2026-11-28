@@ -68,15 +68,14 @@ codes with it; the portal checks them and signs the sessions).
 
 ## Deploy
 
-Workers `weldsuite-sign-portal-test` (route `sign-test.weldsuite.org/*`) and
-`weldsuite-sign-portal` (route `sign.weldsuite.org/*`), released only by
-the private deploy in `weldsuite/weldsuite-deploy` (`start-workers`, action
-`.github/actions/deploy-start-worker`): a merge to `main` that touches this
-app or a package it runs deploys test once CI passes; Promote deploys
-production. The build
-picks the wrangler environment (`CLOUDFLARE_ENV=test pnpm build`); the deploy
-is a plain `wrangler deploy`. It runs after the workers job, because it binds
-sign-api's Workflow.
+On the Kubernetes editions the Helm chart runs it (`rust/deploy/helm/weldsuite`,
+`sign-portal.yaml`). On Global it ran as the Workers
+`weldsuite-sign-portal-test` (route `sign-test.weldsuite.org/*`) and
+`weldsuite-sign-portal` (route `sign.weldsuite.org/*`). Nothing deploys those
+since Global's deploy was removed on 2026-11-28 (ADR OPS-025), and
+`sign.weldsuite.org` now reaches EU production. A Worker build picks the
+wrangler environment (`CLOUDFLARE_ENV=test pnpm build`) and binds sign-api's
+Workflow.
 
 Secrets: `pnpm secrets:sync <test|production> sign-portal` (manifest entry
 `sign-portal`). sign-api's `SIGN_PORTAL_URL` points signing links at these

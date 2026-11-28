@@ -21,13 +21,13 @@ name: EU production watch
 #
 # Production starts following once it serves a main build itself (/version
 # answers X.Y.Z-main.N); until then, and while it runs a release, nothing is
-# handed on. Pausing is the private repo's EU_CONTINUOUS_DEPLOY variable; like
-# the hand-off, this runs only while DEPLOYS_PRIVATE is "true".
+# handed on. Pausing is the private repo's EU_CONTINUOUS_DEPLOY variable; this
+# runs only while the repository variable DEPLOYS_PRIVATE is "true".
 #
 # It runs here, not in the private repo, because a public repo's minutes are
 # free: the private repo runs only when there is a build to roll out. The
 # weldsuite-deploy-bot App (Actions read/write on weldsuite-deploy only)
-# starts it, as in handoff.yml.
+# starts it (.github/SECRETS.md, "Deploy bot environment").
 
 on:
   workflow_run:
@@ -52,8 +52,9 @@ env:
 jobs:
   watch:
     name: Compare test and production
-    # CI finishing counts only for a passing push to main in this repo (a
-    # fork's branch can be called main too, as handoff.yml notes).
+    # CI finishing counts only for a passing push to main in this repo: a pull
+    # request from a fork also completes CI, workflow_run runs with this
+    # repo's environments, and a fork's branch can be called main too.
     if: >-
       vars.DEPLOYS_PRIVATE == 'true' && github.repository == 'weldsuite/weldsuite' &&
       (github.event_name != 'workflow_run' ||
@@ -180,8 +181,10 @@ jobs:
     if: needs.watch.outputs.release != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # As in handoff.yml: the App's key sits on the environment `handoff`,
-    # which only main can use; no deployment record in the public repo.
+    # The App's key sits on the environment `handoff`, which only main can
+    # use. deployment: false: the job still gets the environment's secrets and
+    # branch rule, but GitHub writes no deployment record for it, so the
+    # public repo lists no deployments (TASK-1399).
     environment:
       name: handoff
       deployment: false

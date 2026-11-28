@@ -26,4 +26,4 @@ See [`store/README.md`](./store/README.md) for Firebase, Clerk native apps, App 
 ## CI
 
 - Native builds: `.github/workflows/mobile-build.yml` (tick **WeldCalendar**)
-- OTA updates: the deploy's mobile step (`.github/actions/deploy-mobile`, run by `weldsuite-deploy`): channel `preview` on test, `production` on Promote
+- OTA updates: none since Global's deploy was removed (2026-11-28, ADR OPS-025); a JS-only change needs a build too

@@ -162,7 +162,7 @@ gh pr create --base main \
 
 - **`Closes #<n>`** in the body auto-closes the issue when the PR merges, that's stage 7 for free.
 - The **PR review gate** runs on every PR; the required `WeldSuite Review` check HARD-blocks merge on `main`. Address its findings, don't try to route around it.
-- `main` also requires `Lint`, `Build`, `Type Check · app-api`, `Type Check · platform`, `Unit · app-api`, `Unit · platform` and `Rust`, so keep those green. A merge deploys test; production goes out only through Promote in the private repo `weldsuite/weldsuite-deploy`.
+- `main` also requires `Lint`, `Build`, `Type Check · app-api`, `Type Check · platform`, `Unit · app-api`, `Unit · platform` and `Rust`, so keep those green. A merge reaches the EU test cluster, and EU production follows it (ADR OPS-020).
 
 ---
 

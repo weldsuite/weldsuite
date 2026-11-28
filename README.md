@@ -58,7 +58,7 @@ The first-party API is one Cloudflare Worker per module (`apps/workers/<module>-
 
 ## Configuration & deployment
 
-Every merge to `main` that passes CI deploys to **test** (`app-test.weldsuite.org`). **Production** (`app.weldsuite.org`) goes out only through the Promote workflow in the private repo `weldsuite/weldsuite-deploy`, for a commit test already deployed. The deploy logic lives in this repository (`.github/actions/deploy-*`, `.github/scripts/deploy-plan.mjs`); the private repo runs it on GitHub-hosted runners and holds the GitHub Environments `test` and `production` with their secrets — see [`.github/SECRETS.md`](./.github/SECRETS.md).
+Every merge to `main` is built into the images the EU install runs (`rust-images.yml`). The EU **test** cluster (`app.test.weldsuite.eu`) runs each `main` build, and **production** (`app.weldsuite.eu`) follows it automatically once the build has soaked on test and CI has passed (ADR OPS-020). The private repo `weldsuite/weldsuite-deploy` holds the clusters' configuration and secrets; this repository's GitHub secrets are listed in [`.github/SECRETS.md`](./.github/SECRETS.md). Self-hosted installs use tagged releases.
 
 Hosted WeldSuite at [weldsuite.org](https://weldsuite.org) is the supported product. The AGPL source is public so you can audit, contribute, and self-host; self-hosting is not a supported product offering.
 

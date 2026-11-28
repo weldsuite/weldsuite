@@ -1,47 +1,43 @@
-# Deploy secrets
+# Secrets
 
-The deploy secrets sit on the GitHub Environments **`test`** and
-**`production`** of the private repo **`weldsuite/weldsuite-deploy`**
-(ADR OPS-018), which runs this repo's deploy actions. This repository is
-public and holds no deploy secrets: only the `handoff` environment (below)
-and the release environments.
+The GitHub secrets and environments this repository's workflows use. The
+repository is public and holds no deploy secrets: only the `handoff`
+environment (the deploy bot) and the release environments below.
 
-| Environment (`weldsuite-deploy`) | Allowed branches | Deployed by |
+Deploys run in the private repo **`weldsuite/weldsuite-deploy`** (ADR
+OPS-018): its EU workflows pin the EU clusters, and Flux rolls them out. EU
+production follows the test cluster (`eu-production-watch.yml` here, ADR
+OPS-020). The cluster secrets are SOPS files in that repo, not GitHub secrets.
+
+Global's deploy is gone. It ran this repo's `deploy-*` actions (Workers, Pages,
+Vercel apps, the Expo OTA updates, hosted WeldApps and Global's migrations) on
+the private repo's `test` and `production` environments, and was removed on
+2026-11-28, after Global's workspaces moved into EU production (ADR OPS-025).
+
+## Deploy bot environment (public)
+
+`eu-production-watch.yml` signs in as the **weldsuite-deploy-bot** GitHub App
+(Actions read and write, installed on `weldsuite-deploy` only) to hand a build
+to production there. The environment is still called `handoff`, after the test
+hand-off it was made for; it allows branch `main` and holds:
+
+| Name | Kind | Value |
 |---|---|---|
-| `test` | `main` | `deploy-test`, for every `main` commit here that passes CI |
-| `production` | `main` | `promote`, started by a person with write access there |
+| `DEPLOY_BOT_CLIENT_ID` | variable | The App's client id (Doppler `WELDSUITE_DEPLOY_BOT_CLIENT_ID`) |
+| `DEPLOY_BOT_PRIVATE_KEY` | secret | The App's private key, the `.pem` (Doppler `WELDSUITE_DEPLOY_BOT_PRIVATE_KEY`) |
 
-Values come from Doppler project `weldsuite` (`test` / `prd` configs).
-Doppler's master DB URL is `DATABASE_URL_MASTER`; the workflow reads
-`MASTER_DATABASE_URL`. Personal DB URL is `DATABASE_URL_PERSONAL`; the
-workflow reads `PERSONAL_DATABASE_URL`.
+The repository variable `DEPLOYS_PRIVATE` must be `true`, or nothing is
+handed on.
 
-| GitHub secret | Doppler name | Used by |
-|---|---|---|
-| `MASTER_DATABASE_URL` | `DATABASE_URL_MASTER` | Master Neon migrations |
-| `PERSONAL_DATABASE_URL` | `DATABASE_URL_PERSONAL` | Shared personal Neon migrations |
-| `DATABASE_ENCRYPTION_KEY` | `DATABASE_ENCRYPTION_KEY` | Tenant migrations |
-| `NEON_API_KEY` | `NEON_API_KEY` | Tenant migrations |
-| `CLOUDFLARE_API_TOKEN` | `CLOUDFLARE_DEPLOY_API_TOKEN` | Workers + Pages + D1 migrations: the deploy token (account Workers Scripts, Pages, D1, Queues, KV, R2, Hyperdrive and Containers edit; zone Workers Routes edit). **Not** Doppler's `CLOUDFLARE_API_TOKEN`, a narrower token without Workers access: with it, D1 migrations pass and every Worker deploy fails with "No access to the specified service" |
-| `CLOUDFLARE_ACCOUNT_ID` | `CLOUDFLARE_ACCOUNT_ID` | Workers + Pages + D1 migrations |
-| `EXPO_TOKEN` | not in Doppler | WeldMail / WeldChat / WeldBooks OTA (`production`; `test` has none, so test skips OTA) |
-| `VERCEL_TOKEN` | not in Doppler | `vercel` deploy job (Vercel account token with access to team `weldsuite`; same value on both environments is fine) |
+## Release environments (public)
 
-Vercel-hosted apps (`vercel` job; app → project map in
-`.github/scripts/vercel-apps.mjs`): `api-docs`, `booking-portal`,
-`docs`, `helpdesk-widget`, `meeting-portal`, `partner`. Their
-env vars and domains stay on the Vercel projects: production builds pull the
-Production env, test builds pull the Preview env for branch `develop`, and the
-project's domains bound to `develop` (e.g. `partner-test.weldsuite.org`) are
-aliased to each test deploy. Each app's `vercel.json` turns Vercel's own Git
-builds off for every branch, so Vercel makes no automatic preview deployments.
-Build-time env vars must not be marked **Sensitive** on Vercel: `vercel pull`
-cannot read those, so the runner would build without them.
+The release workflows, run by hand, each read their own environment:
 
-The admin console (`apps/web/admin`) is a Worker now (the deploy's `start-workers` job). It
-deploys only to the environments named in the repository **variable**
-`ADMIN_WORKER_ENVS` (`test`, later `test,production`); its runtime secrets come
-from Doppler with `pnpm secrets:sync <env> admin`, not from GitHub.
+| Environment | Branch | Workflow | Secrets |
+|---|---|---|---|
+| `desktop-release` | `main` | `release-desktop.yml` | `CLOUDFLARE_ACCOUNT_ID`, `R2_DOWNLOADS_API_TOKEN`, and optionally `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` (signing degrades to unsigned without them) |
+| `mobile-release` | `main` | `mobile-build.yml`, channel `production`; `mobile-native-release.yml` | `EXPO_TOKEN`; for the native apps `APP_STORE_CONNECT_API_KEY`, `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_ISSUER_ID`, `APPLE_TEAM_ID` (iOS) and `ANDROID_UPLOAD_KEYSTORE`, `ANDROID_UPLOAD_KEYSTORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS`, `ANDROID_UPLOAD_KEY_PASSWORD`, `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` (Android) |
+| `mobile-preview` | `main` | `mobile-build.yml`, channel `preview` | `EXPO_TOKEN` |
 
 Store submission of the Expo apps (`auto-submit` in `mobile-build.yml`) needs
 **no GitHub secrets** beyond `EXPO_TOKEN`: the App Store Connect API key and
@@ -49,35 +45,10 @@ the Google service account key are stored on EAS, per app, with
 `eas credentials`. The workflow header lists the one-time setup.
 
 The native apps (`mobile-native-release.yml`) sign and upload without EAS,
-with their own secrets in `mobile-release` (the table below). The workflow
+with their own secrets in `mobile-release` (the table above). The workflow
 header says what each one is and the one-time setup per app.
 
-Optional frontend build secrets (on both environments if used):
-
-| GitHub secret | Used by |
-|---|---|
-| `VITE_BOOKING_PORTAL_URL` | Platform + WeldCalendar Pages builds (optional: defaults to `https://book.weldsuite.org` / `https://book-test.weldsuite.org`) |
-| `VITE_MEETING_PORTAL_URL` | Platform Pages build |
-| `VITE_MAPBOX_ACCESS_TOKEN` | Platform Pages build (WeldCalendar event location autocomplete; no suggestions without it) |
-| `VITE_MIXPANEL_TOKEN` | Platform Pages build |
-| `VITE_BETTERSTACK_SOURCE_TOKEN` | Platform Pages build |
-
-Cloudflare Pages projects for the developer portal (create manually; Git auto-deploy off):
-
-| Project | Custom domain |
-|---|---|
-| `developer-web-test` | `developer-test.weldsuite.org` |
-| `developer-web` | `developer.weldsuite.org` |
-
-Also add both hostnames to Clerk **Allowed origins** / **Redirect URLs**.
-
-First-party hosted WeldApps (`apps/hosted-apps/`, the deploy's `hosted-apps` job, on the deploy environments in `weldsuite-deploy`):
-
-| GitHub secret | Used by |
-|---|---|
-| `HOSTED_APPS_WELD_API_KEY` | Publisher workspace `wsk_` key (`user-apps:manage`). Test env targets `https://api-test.weldsuite.org`; production targets `https://api.weldsuite.org`. Leave unset to skip the job. |
-
-### Repo-level (npm publish)
+## Repo-level (npm publish)
 
 **Happy path:** `publish-cli.yml` uses **npm Trusted Publishing** (GitHub Actions
 OIDC). Configure once per package on npmjs.com → Package settings → Trusted
@@ -97,6 +68,11 @@ Provenance is generated automatically for this public repo.
 | GitHub secret | Used by |
 |---|---|
 | `NPM_TOKEN` | **Legacy fallback only.** Optional Automation token for `publish-cli.yml` when the workflow input `use_legacy_npm_token` is true. Do **not** create this for normal releases. Delete the secret (and revoke the npm token) after Trusted Publishing works. Not an Environment secret. |
+
+## Global's Workers (until they are deleted)
+
+Runtime settings of Global's Workers, which nothing deploys any more. They go
+with the Workers (ADR OPS-025, phase 8).
 
 Worker runtime **vars** (not GitHub secrets) — set in `wrangler.toml` per env:
 
@@ -121,64 +97,3 @@ Worker runtime secrets (set via `wrangler secret put`, not GitHub):
 | `BILLING_ADMIN_SECRET` | `billing-worker`; the admin console (`apps/web/admin`) holds the same value |
 | `WORKSPACE_ADMIN_SECRET` | `workspace-worker` (`/api/internal/admin/*`: database moves, live shard state, shard sizes); the admin console holds the same value, next to `WORKSPACE_WORKER_URL` (`https://workspace-worker-test.weldsuite.org` / `https://workspace-worker.weldsuite.org`). 32+ random characters; unset or shorter, the routes answer 503. The console also sends the admin's `x-admin-email`, `x-admin-user-id` and `x-admin-role` headers; only a `superadmin` can start, cancel or recover a move |
 | `OUTBOUND_ADMIN_SECRET` | `mail-api` (`/internal/outbound/*`); the admin console holds the same value, next to `MAIL_API_URL` |
-
-Copy from Doppler into the private repo's environments without printing
-values:
-
-```bash
-REPO=weldsuite/weldsuite-deploy
-for env in test production; do
-  cfg=$([ "$env" = production ] && echo prd || echo test)
-  for s in DATABASE_ENCRYPTION_KEY NEON_API_KEY CLOUDFLARE_ACCOUNT_ID; do
-    doppler secrets get "$s" --project weldsuite --config "$cfg" --plain \
-      | gh secret set "$s" --env "$env" -R "$REPO"
-  done
-  doppler secrets get CLOUDFLARE_DEPLOY_API_TOKEN --project weldsuite --config "$cfg" --plain \
-    | gh secret set CLOUDFLARE_API_TOKEN --env "$env" -R "$REPO"
-  doppler secrets get DATABASE_URL_MASTER --project weldsuite --config "$cfg" --plain \
-    | gh secret set MASTER_DATABASE_URL --env "$env" -R "$REPO"
-  doppler secrets get DATABASE_URL_PERSONAL --project weldsuite --config "$cfg" --plain \
-    | gh secret set PERSONAL_DATABASE_URL --env "$env" -R "$REPO"
-done
-```
-
-### Private deploy repo `weldsuite/weldsuite-deploy` (OPS-018)
-
-Its environments `test` and `production` are limited to that repo's `main`
-branch (`weldsuite-documentation/plans/main-only-private-deploys.md`). Fill them with:
-
-- the Doppler-backed ones: the loop above;
-- by hand (not in Doppler, and a GitHub secret can't be read back):
-  `VERCEL_TOKEN` (both), `EXPO_TOKEN` (production), `VITE_MAPBOX_ACCESS_TOKEN`
-  (both) and any other optional `VITE_*` build secret above that is set;
-- the repository variable `ADMIN_WORKER_ENVS` there, when the admin console
-  deploys.
-
-The desktop signing secrets and `R2_DOWNLOADS_API_TOKEN` do not go there:
-`release-desktop.yml`, `mobile-build.yml` and `mobile-native-release.yml` stay
-public and use their own public environments (below).
-
-### Hand-off environment (public)
-
-`handoff.yml` signs in as the **weldsuite-deploy-bot** GitHub App (Actions
-read and write, installed on `weldsuite-deploy` only) to start `deploy-test`
-there. The environment `handoff` (branch `main`) holds:
-
-| Name | Kind | Value |
-|---|---|---|
-| `DEPLOY_BOT_CLIENT_ID` | variable | The App's client id (Doppler `WELDSUITE_DEPLOY_BOT_CLIENT_ID`) |
-| `DEPLOY_BOT_PRIVATE_KEY` | secret | The App's private key, the `.pem` (Doppler `WELDSUITE_DEPLOY_BOT_PRIVATE_KEY`) |
-
-The repository variable `DEPLOYS_PRIVATE` must be `true`, or nothing is
-handed off.
-
-### Release environments (public)
-
-The release workflows that stay public, run by hand, each read their own
-environment, never `test` or `production`:
-
-| Environment | Branch | Workflow | Secrets |
-|---|---|---|---|
-| `desktop-release` | `main` | `release-desktop.yml` | `CLOUDFLARE_ACCOUNT_ID`, `R2_DOWNLOADS_API_TOKEN`, and optionally `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` (signing degrades to unsigned without them) |
-| `mobile-release` | `main` | `mobile-build.yml`, channel `production`; `mobile-native-release.yml` | `EXPO_TOKEN`; for the native apps `APP_STORE_CONNECT_API_KEY`, `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_ISSUER_ID`, `APPLE_TEAM_ID` (iOS) and `ANDROID_UPLOAD_KEYSTORE`, `ANDROID_UPLOAD_KEYSTORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS`, `ANDROID_UPLOAD_KEY_PASSWORD`, `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` (Android) |
-| `mobile-preview` | `main` | `mobile-build.yml`, channel `preview` | `EXPO_TOKEN` |

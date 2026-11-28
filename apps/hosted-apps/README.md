@@ -45,11 +45,11 @@ pnpm exec weld app deploy
 pnpm exec weld app publish           # auto-approves for official publishers
 ```
 
-## CI
+## Deploying
 
-The private repo `weldsuite/weldsuite-deploy` deploys hosted apps: to test for every merge to `main` that passes CI, to production through its Promote workflow. It deploys every changed `apps/hosted-apps/<code>/` that contains `weldapp.json`, using `HOSTED_APPS_WELD_API_KEY` from its GitHub Environment.
+Nothing deploys hosted apps automatically. Global's deploy did, for every changed `apps/hosted-apps/<code>/` with a `weldapp.json`, until it was removed on 2026-11-28 (ADR OPS-025); where the EU install keeps hosted app bundles is still open. Until then, deploy by hand with `weld app deploy` (the local loop above).
 
-Bump `version` in `weldapp.json` before merging a change you want shipped — duplicate versions are rejected.
+Bump `version` in `weldapp.json` before deploying a change: duplicate versions are rejected.
 
 Existing first-party **SPA modules** (WeldCRM, WeldDesk, WeldCommerce, …) stay in `apps/web/platform`. Do not migrate them here unless that is an explicit follow-up. (WeldCommerce briefly shipped as a hosted app and is an SPA module again.)
 

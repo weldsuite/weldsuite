@@ -36,8 +36,7 @@ eas init            # writes extra.eas.projectId into app.json
 Commit only the project id: `eas init` also writes the autofill extension's
 `extra.eas.build.experimental` block, which `@bacons/apple-targets` adds at
 build time anyway. Without a project id `app.config.js` refuses CI and EAS
-builds. There is no `updates.url` and no OTA step in the deploy: WeldPass is
-not in `MOBILE_APPS` (`.github/scripts/deploy-plan.mjs`).
+builds. There is no `updates.url`: WeldPass ships no OTA updates.
 
 ### 1.2 WeldID
 
