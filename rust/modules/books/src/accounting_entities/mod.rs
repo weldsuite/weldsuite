@@ -17,6 +17,7 @@
 //! `DELETE` only switches WeldBooks off, until it holds documents.
 
 mod body;
+mod lock_suggestion;
 mod locks;
 mod numbering;
 mod registrations;
@@ -131,6 +132,11 @@ where
             "/{id}/inbox",
             post(crate::accounting_settings::register_entity_inbox)
                 .route_layer(need("accounts:update")),
+        )
+        // Rust only (edition feature `books-questions`): where a period could be locked.
+        .route(
+            "/{id}/lock-date-suggestion",
+            get(lock_suggestion::lock_date_suggestion).route_layer(need("entities:update")),
         )
         .route(
             "/{id}/number-sequences",

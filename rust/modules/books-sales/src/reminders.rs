@@ -462,7 +462,7 @@ pub(crate) async fn remind_many(caller: &Caller, state: &BooksState, ids: Vec<St
     let rows: Vec<Value> = rows.into_iter().map(row_json).collect::<Result<_, _>>()?;
     let settings = entity_settings_of(db, &entity_id).await?;
     let contact_ids: Vec<String> = rows.iter().filter_map(|r| owned(r, "contactId")).collect();
-    let paused = paused_contacts(db, &contact_ids).await?;
+    let paused = paused_contacts(db, &entity_id, &contact_ids).await?;
     let mut skipped: Vec<Value> = ids
         .iter()
         .filter(|id| !rows.iter().any(|r| text(r, "id") == Some(id.as_str())))
@@ -677,7 +677,7 @@ pub async fn send_due_reminders(
             .all(&orm(db))
             .await?;
         let contact_ids: Vec<String> = candidates.iter().map(|r| r.contact_id.clone()).collect();
-        let paused = paused_contacts(db, &contact_ids).await?;
+        let paused = paused_contacts(db, &entity_id, &contact_ids).await?;
         let mut groups: BTreeMap<(String, i32), (Vec<Value>, Step)> = BTreeMap::new();
         for row in candidates {
             if paused.contains(&row.contact_id) {

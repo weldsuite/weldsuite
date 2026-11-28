@@ -82,6 +82,8 @@ pub mod payments;
 pub mod payroll;
 pub mod positive_pay;
 pub mod posting;
+pub mod process_queries;
+pub mod questions;
 pub mod reconciliation_rules;
 pub mod reminders;
 pub mod reports_basis;

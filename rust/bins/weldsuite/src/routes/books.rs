@@ -72,6 +72,13 @@ pub(crate) fn api(router: Router<AppState>, state: &AppState) -> Router<AppState
     routers.extend(weldsuite_books_sales_tax::routers(&books, gate));
     routers.extend(weldsuite_books_tax::routers(&books, gate));
     routers.extend(weldsuite_books_reports::routers(&books, gate));
+    // Questions on WeldBooks records are threads of WeldChat's record chats
+    // (edition feature `books-questions`, ADR BOOKS-015): WeldChat's router,
+    // at the books prefix.
+    routers.push((
+        "/accounting-questions",
+        weldsuite_chat::accounting_questions(super::chat_state(state), gate),
+    ));
     // Every books request marks its workspace for the daily sweep (books-api's
     // `registerBooksWorkspace` middleware). Conformance builds have no master.
     let master = books.master.clone();

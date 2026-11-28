@@ -4,7 +4,9 @@
 //! one, and what its detail panel shows.
 //!
 //! Registration order is the record chat group order: Companies, People,
-//! Tasks, Projects, Domains, Sheets, Documents, Boards; `contact` is a legacy name
+//! Tasks, Projects, Domains, Sheets, Documents, Boards, then WeldBooks' records
+//! (Invoices, Bills, Bank lines, Accounting documents, VAT returns, Accounting
+//! contacts: [`crate::books_records`], Rust only); `contact` is a legacy name
 //! for a person's chat, left out of the lists.
 
 use std::collections::HashSet;
@@ -35,12 +37,20 @@ pub enum Provider {
     Sheet,
     Doc,
     Board,
+    /// WeldBooks' records (ADR BOOKS-015, edition feature `books-questions`).
+    Invoice,
+    Bill,
+    BankTransaction,
+    AccountingDocument,
+    VatReturn,
+    /// A WeldBooks contact (`parties`).
+    Party,
     /// Legacy name of a person's chat.
     Contact,
 }
 
 /// Every provider, in registration order.
-pub const PROVIDERS: [Provider; 9] = [
+pub const PROVIDERS: [Provider; 15] = [
     Provider::Company,
     Provider::Person,
     Provider::Task,
@@ -49,6 +59,12 @@ pub const PROVIDERS: [Provider; 9] = [
     Provider::Sheet,
     Provider::Doc,
     Provider::Board,
+    Provider::Invoice,
+    Provider::Bill,
+    Provider::BankTransaction,
+    Provider::AccountingDocument,
+    Provider::VatReturn,
+    Provider::Party,
     Provider::Contact,
 ];
 
@@ -206,6 +222,12 @@ impl Provider {
             Self::Sheet => "sheet",
             Self::Doc => "doc",
             Self::Board => "board",
+            Self::Invoice => "invoice",
+            Self::Bill => "bill",
+            Self::BankTransaction => "bank_transaction",
+            Self::AccountingDocument => "accounting_document",
+            Self::VatReturn => "vat_return",
+            Self::Party => "accounting_contact",
             Self::Contact => "contact",
         }
     }
@@ -221,6 +243,12 @@ impl Provider {
             Self::Sheet => "Sheets",
             Self::Doc => "Documents",
             Self::Board => "Boards",
+            Self::Invoice => "Invoices",
+            Self::Bill => "Bills",
+            Self::BankTransaction => "Bank lines",
+            Self::AccountingDocument => "Accounting documents",
+            Self::VatReturn => "VAT returns",
+            Self::Party => "Accounting contacts",
             Self::Contact => "Contacts",
         }
     }
@@ -236,6 +264,10 @@ impl Provider {
             Self::Sheet => "sheets:read",
             Self::Doc => "docs:read",
             Self::Board => "boards:read",
+            Self::Invoice | Self::AccountingDocument | Self::Party => "invoices:read",
+            Self::Bill => "bills:read",
+            Self::BankTransaction => "banking:read",
+            Self::VatReturn => "reports:read",
         }
     }
 
@@ -259,6 +291,12 @@ impl Provider {
     ) -> Result<Option<ResolvedEntity>, DbErr> {
         let orm_db = orm(db);
         match self {
+            Self::Invoice
+            | Self::Bill
+            | Self::BankTransaction
+            | Self::AccountingDocument
+            | Self::VatReturn
+            | Self::Party => crate::books_records::resolve(self, db, entity_id).await,
             Self::Company => {
                 let row: Option<(
                     Option<String>,
@@ -524,6 +562,14 @@ impl Provider {
             Self::Sheet | Self::Doc | Self::Board => {
                 visible_files(self, db, acting_user_id, can, entity_ids).await
             }
+            Self::Invoice
+            | Self::Bill
+            | Self::BankTransaction
+            | Self::AccountingDocument
+            | Self::VatReturn
+            | Self::Party => {
+                crate::books_records::visible(self, db, acting_user_id, can, entity_ids).await
+            }
         }
     }
 
@@ -571,7 +617,14 @@ impl Provider {
     ) -> Result<Option<Value>, DbErr> {
         let orm_db = orm(db);
         let row: Option<Map<String, Value>> = match self {
-            Self::Company | Self::Person => return Ok(None),
+            Self::Company
+            | Self::Person
+            | Self::Invoice
+            | Self::Bill
+            | Self::BankTransaction
+            | Self::AccountingDocument
+            | Self::VatReturn
+            | Self::Party => return Ok(None),
             Self::Contact => {
                 let row = people::Entity::find_by_id(entity_id)
                     .filter(people::Column::DeletedAt.is_null())

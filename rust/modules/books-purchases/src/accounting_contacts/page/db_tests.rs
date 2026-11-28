@@ -1118,9 +1118,12 @@ async fn defaults_are_stored_read_and_feed_the_booking_defaults() {
     let row = row_of(&world.db, "parties", &acme).await;
     assert_eq!(text(&row, "default_tax_rate_id"), co.vat21);
     assert_eq!(text(&row, "payment_terms"), "14");
+    // The pause is the entity's: its list, next to the keys already there.
+    assert!(row["average_deal_size"].is_null(), "{row}");
+    let entity_row = row_of(&world.db, "entities", &co.entity).await;
     assert_eq!(
-        row["average_deal_size"],
-        json!({ "weldbooks": { "remindersPaused": true } })
+        entity_row["jurisdiction_settings"]["reminders"]["pausedContactIds"],
+        json!([acme])
     );
     let events = world.events().await;
     assert!(
@@ -1183,7 +1186,14 @@ async fn defaults_are_stored_read_and_feed_the_booking_defaults() {
     assert!(booked["taxRate"].is_null());
     let row = row_of(&world.db, "parties", &acme).await;
     assert!(row["default_tax_rate_id"].is_null() && row["payment_terms"].is_null());
-    assert_eq!(row["average_deal_size"], json!({}));
+    assert!(row["average_deal_size"].is_null(), "{row}");
+    let entity_row = row_of(&world.db, "entities", &co.entity).await;
+    assert!(
+        entity_row["jurisdiction_settings"]
+            .get("reminders")
+            .is_none(),
+        "{entity_row}"
+    );
     sqlx::query("update parties set default_expense_account_id = 'acc_gone' where id = $1")
         .bind(&acme)
         .execute(&world.db)

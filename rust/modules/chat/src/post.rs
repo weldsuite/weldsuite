@@ -527,6 +527,18 @@ pub(crate) async fn post_chat_message(
             at,
         )
         .await?;
+        // A reply by someone other than the asker answers a question on a
+        // WeldBooks record (edition feature `books-questions`, Rust only).
+        match weldsuite_chat_domain::questions::answer_on_reply(db, parent, author_id).await {
+            Ok(Some(changed)) => caller.publish(
+                state,
+                weldsuite_catalogs::entity_events::ACCOUNTING_QUESTION_UPDATED,
+                &changed.message_id,
+                &weldsuite_chat_domain::questions::changed_json(&changed),
+            ),
+            Ok(None) => {}
+            Err(error) => tracing::error!(%error, "[app-api/chat] answering a question failed"),
+        }
     }
 
     let message = messages::Entity::find_by_id(id.clone())

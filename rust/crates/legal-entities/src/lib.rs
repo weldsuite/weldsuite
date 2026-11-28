@@ -41,6 +41,6 @@ pub use middleware::{
     ACCOUNTING_ENTITY_HEADER, EntityScopeCondition, LEGAL_ENTITY_HEADER, LegalEntityContextLayer,
     LegalEntityContextOptions, RequestEntity, default_entity_id_for, entity_scope_condition,
     legal_entity_context, record_in_request_entity, request_entity_id, request_entity_scope,
-    requested_entity_id, resolve_request_entity, visible_entity_filter,
+    requested_entity_id, resolve_request_entity, visible_entity_filter, weldbooks_entity_scope,
 };
 pub use service::{LegalEntityError, LegalEntityErrorCode};

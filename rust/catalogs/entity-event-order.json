@@ -142,6 +142,7 @@
   "accounting_contact",
   "accounting_document",
   "accounting_settings",
+  "accounting_question",
   "bank_account",
   "bank_transaction",
   "bill",

@@ -27,6 +27,10 @@
     "updated",
     "deleted"
   ],
+  "accounting_question": [
+    "created",
+    "updated"
+  ],
   "accounting_settings": [
     "updated"
   ],

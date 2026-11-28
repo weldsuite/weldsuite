@@ -3943,6 +3943,8 @@
     "accounting_document.deleted",
     "accounting_document.booked",
     "accounting_settings.updated",
+    "accounting_question.created",
+    "accounting_question.updated",
     "bank_account.created",
     "bank_account.updated",
     "bank_account.deleted",

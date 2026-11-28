@@ -12,6 +12,7 @@
 )]
 
 use serde_json::{Value, json};
+use weldsuite_books_domain::contact_page::{contact_paused, paused_contacts, set_contact_paused};
 use weldsuite_books_domain::http::now_ms;
 
 use crate::reminders::{pause_invoice, remind_invoice, remind_many, send_due_reminders};
@@ -650,14 +651,22 @@ async fn a_contact_with_reminders_paused_gets_none_from_the_sweep_or_a_bulk_remi
         Some("open@example.test"),
     )
     .await;
-    // The pause is the contact's: stored in the party's jsonb, with whatever else is there.
-    let column = weldsuite_books_domain::contact_page::with_reminders_paused(None, true);
-    sqlx::query("update parties set average_deal_size = $2 where id = $1")
-        .bind(&held)
-        .bind(&column)
-        .execute(&world.db)
+    // The pause is the contact's in this entity: the entity's list, next to its workflow.
+    let other = entity(&world.db, "Other B.V.", "nl-NL", Some(workflow(false))).await;
+    let was = set_contact_paused(&world.db, &on, &held, true)
         .await
         .unwrap();
+    assert!(!was);
+    let settings = row_of(&world.db, "entities", &on).await["jurisdiction_settings"].clone();
+    assert_eq!(settings["reminders"]["pausedContactIds"], json!([held]));
+    assert_eq!(settings["reminders"]["enabled"], json!(true));
+    // Another entity of the workspace does not hold it.
+    assert!(
+        paused_contacts(&world.db, &other, std::slice::from_ref(&held))
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     // A bulk reminder skips the held contact's invoice and names the reason.
     let (status, out) =
@@ -680,13 +689,63 @@ async fn a_contact_with_reminders_paused_gets_none_from_the_sweep_or_a_bulk_remi
         .unwrap();
     assert_eq!(result.failed, 0);
     assert_eq!(level(&row_of(&world.db, "invoices", &a).await), 0);
-    sqlx::query("update parties set average_deal_size = null where id = $1")
-        .bind(&held)
-        .execute(&world.db)
-        .await
-        .unwrap();
+    assert!(
+        set_contact_paused(&world.db, &on, &held, false)
+            .await
+            .unwrap()
+    );
     send_due_reminders(&world.db, &world.state, WORKSPACE, WORKSPACE, now_ms())
         .await
         .unwrap();
     assert_eq!(level(&row_of(&world.db, "invoices", &a).await), 1);
+}
+
+#[tokio::test]
+async fn an_old_pause_moves_to_the_default_entity_when_it_is_read() {
+    let _one = ONE_AT_A_TIME.lock().await;
+    let Some(world) = World::new() else { return };
+    alone(&world).await;
+    let on = entity(&world.db, "Acme B.V.", "nl-NL", Some(workflow(false))).await;
+    let held = customer(&world.db, "Oud gepauzeerd BV", false).await;
+    // Phase 5 kept the pause in the party's jsonb, next to whatever else is there.
+    sqlx::query("update parties set average_deal_size = $2 where id = $1")
+        .bind(&held)
+        .bind(json!({ "amount": 5, "weldbooks": { "remindersPaused": true } }))
+        .execute(&world.db)
+        .await
+        .unwrap();
+    let destination = weldsuite_legal_entities::default_entity_id_for(
+        &world.db,
+        Some(weldsuite_legal_entities::LegalEntityApp::Weldbooks),
+    )
+    .await
+    .unwrap()
+    .unwrap_or_else(|| on.clone());
+
+    // Reading it anywhere moves it: the default entity holds it, the old key is gone.
+    let seen = paused_contacts(&world.db, &destination, std::slice::from_ref(&held))
+        .await
+        .unwrap();
+    assert!(seen.contains(&held));
+    let column = row_of(&world.db, "parties", &held).await["average_deal_size"].clone();
+    assert_eq!(column, json!({ "amount": 5 }));
+    let settings =
+        row_of(&world.db, "entities", &destination).await["jurisdiction_settings"].clone();
+    assert!(
+        settings["reminders"]["pausedContactIds"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(held)),
+        "{settings}"
+    );
+    // The other keys of the entity's workflow stay.
+    if destination == on {
+        assert_eq!(settings["reminders"]["enabled"], json!(true));
+    }
+    // And it reads the same the second time.
+    assert!(
+        contact_paused(&world.db, &destination, &held)
+            .await
+            .unwrap()
+    );
 }

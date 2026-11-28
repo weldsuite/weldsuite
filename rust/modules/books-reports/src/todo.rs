@@ -14,6 +14,20 @@
 //!
 //! Item titles and subtitles are data (a counterparty, a number); the `hint`
 //! is a machine code the platform translates.
+//!
+//! # Questions (edition feature `books-questions`)
+//!
+//! The `questions` kind holds the open questions on WeldBooks records
+//! (threads of the records' chats, ADR BOOKS-015) in this entity: those asked
+//! to the caller, or, for a member who manages the books here (`journal:create`),
+//! every unanswered question of the entity. Only the questions asked to the
+//! caller count toward `total` and are in the list with no `kind`; the
+//! accountant's wider set is what `kind=questions` and the summary's
+//! `kinds.questions` show. Each item is the question: `objectType` is the
+//! record's panel type (`invoice`, `bill`, `bank_transaction`,
+//! `accounting_document`, `vat_return`, `weldbooks_contact`), `title` the
+//! question, `subtitle` the record, and `hint` is `question`. A contact has no
+//! entity, so a question on one shows in every entity of the workspace.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,10 +36,10 @@ use axum::Router;
 use axum::extract::RawQuery;
 use axum::response::Response;
 use axum::routing::get;
-use sea_orm::sea_query::{Condition, Expr, Func};
+use sea_orm::sea_query::{Condition, Expr};
 use sea_orm::{
     ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
-    Select, prelude::BigDecimal,
+    prelude::BigDecimal,
 };
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -34,13 +48,15 @@ use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::http::{BooksState, Caller, Query, Refusal, Reply, paged, reply};
 use weldsuite_books_domain::js::days_from_civil;
 use weldsuite_books_domain::jurisdictions;
+use weldsuite_books_domain::process_queries::{self, Tally, aggregate, bank_line_amounts, in_base};
 use weldsuite_books_domain::reminders::ReminderSettings;
 use weldsuite_books_domain::reports_basis::today_for;
+use weldsuite_chat_domain::entity::{self as chat_entity, Provider};
 use weldsuite_legal_entities::{LegalEntityApp, default_entity_id_for};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{
-    bank_accounts, bank_connections, bank_transactions, bills, documents, entities, invoices,
-    parties, payments, vat_returns,
+    bank_accounts, bank_connections, bank_transactions, bills, chat_channels, chat_messages,
+    documents, entities, invoices, parties, payments, vat_returns,
 };
 
 use crate::rows::{js, js_rows, timestamp_of_millis};
@@ -72,6 +88,9 @@ where
 enum Kind {
     VatReturn,
     BankFeeds,
+    /// Rust only (edition feature `books-questions`): open questions on
+    /// records, asked to the caller (all of the entity's for an accountant).
+    Questions,
     InvoicesOverdue,
     /// Rust only (edition feature `books-invoice-email`): the last e-mail
     /// of the invoice failed, so the customer may not have it.
@@ -88,9 +107,10 @@ enum Kind {
     MissingReceipts,
 }
 
-const KINDS: [Kind; 11] = [
+const KINDS: [Kind; 12] = [
     Kind::VatReturn,
     Kind::BankFeeds,
+    Kind::Questions,
     Kind::InvoicesOverdue,
     Kind::InvoicesUndelivered,
     Kind::BillsDue,
@@ -107,6 +127,7 @@ impl Kind {
         match self {
             Self::VatReturn => "vat_return",
             Self::BankFeeds => "bank_feeds",
+            Self::Questions => "questions",
             Self::InvoicesOverdue => "invoices_overdue",
             Self::InvoicesUndelivered => "invoices_undelivered",
             Self::BillsDue => "bills_due",
@@ -138,10 +159,40 @@ impl Kind {
             Self::BankFeeds | Self::Duplicates | Self::BankLines | Self::UnappliedCredit => {
                 "banking:read"
             }
-            Self::InvoicesOverdue | Self::InvoicesUndelivered | Self::Documents => "invoices:read",
+            Self::InvoicesOverdue
+            | Self::InvoicesUndelivered
+            | Self::Documents
+            | Self::Questions => "invoices:read",
             Self::BillsDue | Self::BillsToApprove => "bills:read",
         }
     }
+
+    /// Whether the caller may read what the kind counts. Questions are read
+    /// per record type, so any of the types' permissions opens the kind (the
+    /// query leaves out the types the caller may not read).
+    fn readable_by(self, caller: &Caller) -> bool {
+        match self {
+            Self::Questions => !question_types(caller).is_empty(),
+            other => caller.can(other.permission()),
+        }
+    }
+}
+
+/// The record types of questions the caller may read: the books providers
+/// whose permission they hold (the record chat's own rule).
+fn question_types(caller: &Caller) -> Vec<&'static str> {
+    chat_entity::record_chat_providers()
+        .filter(|provider| provider.is_books() && caller.can(provider.required_permission()))
+        .map(Provider::type_name)
+        .collect()
+}
+
+/// A record type's `objectType`: the object panel's type, and for a document
+/// (which has none) the inbox's `accounting_document`.
+fn panel_type(record_type: &str) -> &'static str {
+    chat_entity::provider(record_type)
+        .and_then(Provider::panel_type)
+        .unwrap_or("accounting_document")
 }
 
 /// What every query of a request shares.
@@ -160,9 +211,23 @@ struct Ctx {
     has_vat_return: bool,
     /// The entity's reminder workflow (`jurisdictionSettings.reminders`).
     reminders: ReminderSettings,
+    /// The caller, for the questions asked to them.
+    user_id: String,
+    /// The record types of questions the caller may read.
+    question_types: Vec<&'static str>,
+    /// Whether the questions kind holds the entity's unanswered questions (an
+    /// accountant's `kind=questions`) or those asked to the caller.
+    questions_all: bool,
 }
 
 impl Ctx {
+    fn scope(&self) -> process_queries::Scope<'_> {
+        process_queries::Scope {
+            entity_id: &self.entity_id,
+            is_default_entity: self.is_default_entity,
+        }
+    }
+
     async fn load(caller: &Caller) -> Result<Self, Refusal> {
         let Some(entity_id) = resolve_entity_id(caller).await? else {
             return Err(Refusal::bad_request("No accounting entity resolved"));
@@ -197,6 +262,11 @@ impl Ctx {
                 .as_bool()
                 .unwrap_or(false),
             reminders: ReminderSettings::of(entity.get("jurisdictionSettings")),
+            user_id: caller.user_id.clone(),
+            question_types: question_types(caller),
+            // A member who manages the books here (`journal:create`) sees
+            // every unanswered question of the entity.
+            questions_all: caller.can("journal:create"),
             entity_id,
         })
     }
@@ -204,43 +274,22 @@ impl Ctx {
 
 // ── What each kind counts ───────────────────────────────────────────────────
 
-/// The entity's bank lines to book: unreconciled (so not excluded), on a live
-/// account of the entity.
-fn bank_lines_cond(ctx: &Ctx) -> Condition {
-    use bank_transactions::Column as C;
-    Condition::all()
-        .add(C::EntityId.eq(ctx.entity_id.as_str()))
-        .add(C::DeletedAt.is_null())
-        .add(C::Status.eq("unreconciled"))
-        .add(Expr::cust(
-            "EXISTS (SELECT 1 FROM bank_accounts b WHERE b.id = bank_transactions.bank_account_id \
-             AND b.entity_id = bank_transactions.entity_id AND b.deleted_at IS NULL)",
-        ))
-}
-
+/// The entity's bank lines to book, flagged duplicates, unbooked documents and
+/// missing receipts are `weldsuite_books_domain::process_queries`, where the
+/// rule is shared with the VAT return's check.
 fn duplicates_cond(ctx: &Ctx) -> Condition {
-    bank_lines_cond(ctx).add(bank_transactions::Column::PossibleDuplicateOfId.is_not_null())
+    process_queries::duplicates(&ctx.scope())
 }
 
 /// The `bank_lines` kind: lines to book that aren't flagged as a possible
-/// duplicate. A flagged line is under `duplicates` only, so the total counts
-/// every line once.
+/// duplicate.
 fn to_book_cond(ctx: &Ctx) -> Condition {
-    bank_lines_cond(ctx).add(bank_transactions::Column::PossibleDuplicateOfId.is_null())
+    process_queries::to_book(&ctx.scope())
 }
 
-/// Inbox documents still to process; those with no entity count for the
-/// default entity only.
+/// Inbox documents still to process.
 fn documents_cond(ctx: &Ctx) -> Condition {
-    use documents::Column as C;
-    let mut entity = Condition::any().add(C::EntityId.eq(ctx.entity_id.as_str()));
-    if ctx.is_default_entity {
-        entity = entity.add(C::EntityId.is_null());
-    }
-    Condition::all()
-        .add(C::DeletedAt.is_null())
-        .add(C::Status.is_in(["pending", "processing", "processed", "failed"]))
-        .add(entity)
+    process_queries::unbooked_documents(&ctx.scope())
 }
 
 /// Bills posted by nobody yet: a draft nobody approved or rejected (a rejected
@@ -356,6 +405,68 @@ fn bank_feeds_cond(ctx: &Ctx) -> Result<Condition, DbErr> {
         ))
 }
 
+/// Open questions on records of this entity (and on contacts, which have
+/// none), of the types the caller may read: the first message of a thread in
+/// the record's live chat, `metadata.question.status = 'open'`. With
+/// `asked_to_me` only those whose `askedTo` names the caller.
+fn questions_cond(ctx: &Ctx, asked_to_me: bool) -> Condition {
+    use chat_messages::Column as C;
+    let mut branches: Vec<String> = Vec::new();
+    for kind in &ctx.question_types {
+        branches.push(match *kind {
+            "invoice" | "bill" | "bank_transaction" | "vat_return" => {
+                let table = match *kind {
+                    "invoice" => "invoices",
+                    "bill" => "bills",
+                    "bank_transaction" => "bank_transactions",
+                    _ => "vat_returns",
+                };
+                format!(
+                    "(c.entity_type = '{kind}' AND EXISTS (SELECT 1 FROM {table} r WHERE r.id = c.entity_id \
+                     AND r.entity_id = $1 AND r.deleted_at IS NULL))"
+                )
+            }
+            "accounting_document" => format!(
+                "(c.entity_type = 'accounting_document' AND EXISTS (SELECT 1 FROM documents r \
+                 WHERE r.id = c.entity_id AND r.deleted_at IS NULL AND (r.entity_id = $1{})))",
+                if ctx.is_default_entity {
+                    " OR r.entity_id IS NULL"
+                } else {
+                    ""
+                }
+            ),
+            _ => "(c.entity_type = 'accounting_contact' AND EXISTS (SELECT 1 FROM parties r \
+                  WHERE r.id = c.entity_id AND r.deleted_at IS NULL))"
+                .to_owned(),
+        });
+    }
+    if branches.is_empty() {
+        // Nothing the caller may read: no rows.
+        return Condition::all().add(Expr::cust("FALSE"));
+    }
+    let mut cond = Condition::all()
+        .add(C::ParentId.is_null())
+        .add(C::DeletedAt.is_null())
+        .add(Expr::cust(
+            "chat_messages.metadata -> 'question' ->> 'status' = 'open'",
+        ))
+        .add(Expr::cust_with_values(
+            format!(
+                "EXISTS (SELECT 1 FROM chat_channels c WHERE c.id = chat_messages.channel_id \
+                 AND c.deleted_at IS NULL AND c.type = 'entity' AND ({}))",
+                branches.join(" OR ")
+            ),
+            [ctx.entity_id.as_str()],
+        ));
+    if asked_to_me {
+        cond = cond.add(Expr::cust_with_values(
+            "chat_messages.metadata -> 'question' -> 'askedTo' @> to_jsonb($1::text)",
+            [ctx.user_id.as_str()],
+        ));
+    }
+    cond
+}
+
 /// What a live payment did not allocate to a document.
 const UNALLOCATED: &str = "payments.amount - COALESCE((SELECT SUM(a.amount) FROM payment_allocations a \
      WHERE a.payment_id = payments.id AND a.deleted_at IS NULL), 0)";
@@ -376,90 +487,12 @@ fn unapplied_credit_cond(ctx: &Ctx) -> Condition {
         ))
 }
 
-/// Bank lines booked to an expense with VAT claimed, by hand or by a rule,
-/// money out, with no document attached to the line and no bill behind the
-/// payment (a line settled through a bill's payment has its receipt there).
-/// Three `EXISTS` on indexed ids keep the count cheap; nothing is scored.
+/// Bank lines booked to an expense with VAT and no receipt.
 fn missing_receipts_cond(ctx: &Ctx) -> Condition {
-    use bank_transactions::Column as C;
-    Condition::all()
-        .add(C::EntityId.eq(ctx.entity_id.as_str()))
-        .add(C::DeletedAt.is_null())
-        .add(C::Status.eq("reconciled"))
-        .add(C::ReconciliationType.is_in(["manual", "auto"]))
-        .add(C::JournalEntryId.is_not_null())
-        .add(C::ReconciledPaymentId.is_null())
-        .add(C::ReconciledBillId.is_null())
-        .add(C::ReconciledInvoiceId.is_null())
-        .add(C::DepositId.is_null())
-        .add(Expr::cust("bank_transactions.amount < 0"))
-        .add(Expr::cust(
-            "EXISTS (SELECT 1 FROM tax_lines t WHERE t.journal_entry_id = bank_transactions.journal_entry_id \
-             AND t.direction = 'purchase' AND t.tax_amount > 0)",
-        ))
-        .add(Expr::cust(
-            "EXISTS (SELECT 1 FROM journal_lines l JOIN accounts a ON a.id = l.account_id \
-             WHERE l.journal_entry_id = bank_transactions.journal_entry_id AND l.deleted_at IS NULL \
-             AND a.type = 'expense')",
-        ))
-        .add(Expr::cust(
-            "NOT EXISTS (SELECT 1 FROM documents d WHERE d.deleted_at IS NULL \
-             AND d.linked_entity_type = 'bank_transaction' AND d.linked_entity_id = bank_transactions.id)",
-        ))
+    process_queries::missing_receipts(&ctx.scope())
 }
 
 // ── Counts and sums ─────────────────────────────────────────────────────────
-
-/// A kind's count and sum, for the summary.
-struct Tally {
-    count: i64,
-    amount: Option<BigDecimal>,
-    /// Some rows are in another currency and are not in `amount`.
-    mixed: bool,
-}
-
-/// `count(*)`, `sum(amount)` and `count(foreign)` of the rows.
-async fn aggregate<E: EntityTrait>(
-    orm: &DatabaseConnection,
-    rows: Select<E>,
-    amount: Option<Expr>,
-    foreign: Option<Expr>,
-) -> Result<Tally, DbErr> {
-    let mut select = rows
-        .select_only()
-        .expr_as(Func::count(Expr::cust("*")), "count");
-    select = select.expr_as(
-        amount.map_or_else(|| Expr::cust("NULL::numeric"), |a| Func::sum(a).into()),
-        "amount",
-    );
-    select = select.expr_as(
-        foreign.map_or_else(|| Expr::cust("0::bigint"), |f| Func::count(f).into()),
-        "foreign",
-    );
-    let (count, amount, foreign) = select
-        .into_tuple::<(i64, Option<BigDecimal>, i64)>()
-        .one(orm)
-        .await?
-        .unwrap_or((0, None, 0));
-    Ok(Tally {
-        count,
-        amount,
-        mixed: foreign > 0,
-    })
-}
-
-/// `inner` in the base currency: a foreign document's rate is foreign units
-/// per base unit (`balance_in_base`).
-fn in_base(table: &str, inner: &str, base: &str) -> Expr {
-    Expr::cust_with_values(
-        format!(
-            "CASE WHEN COALESCE({table}.currency, $1) IN ($1, $2) OR COALESCE({table}.exchange_rate, 0) <= 0 \
-             THEN ({inner}) ELSE ({inner}) / {table}.exchange_rate END"
-        ),
-        // $1 is the empty text and $2 the base currency (no quoted literals in the text).
-        ["", base],
-    )
-}
 
 #[allow(clippy::too_many_lines)] // one arm per kind
 async fn tally(kind: Kind, ctx: &Ctx) -> Result<Tally, DbErr> {
@@ -472,18 +505,7 @@ async fn tally(kind: Kind, ctx: &Ctx) -> Result<Tally, DbErr> {
                 duplicates_cond(ctx)
             };
             // A line has no rate: only the base currency's lines are summed.
-            let account_currency = "COALESCE((SELECT b.currency FROM bank_accounts b \
-                 WHERE b.id = bank_transactions.bank_account_id), $1)";
-            let amount = Expr::cust_with_values(
-                format!(
-                    "CASE WHEN {account_currency} IN ($1, $2) THEN ABS(bank_transactions.amount) END"
-                ),
-                ["", ctx.base.as_str()],
-            );
-            let foreign = Expr::cust_with_values(
-                format!("CASE WHEN {account_currency} NOT IN ($1, $2) THEN 1 END"),
-                ["", ctx.base.as_str()],
-            );
+            let (amount, foreign) = bank_line_amounts(&ctx.base);
             aggregate(
                 orm,
                 bank_transactions::Entity::find().filter(cond),
@@ -566,6 +588,15 @@ async fn tally(kind: Kind, ctx: &Ctx) -> Result<Tally, DbErr> {
             )
             .await
         }
+        Kind::Questions => {
+            aggregate(
+                orm,
+                chat_messages::Entity::find().filter(questions_cond(ctx, !ctx.questions_all)),
+                None,
+                None,
+            )
+            .await
+        }
         Kind::UnappliedCredit => {
             let amount = in_base("payments", UNALLOCATED, &ctx.base);
             aggregate(
@@ -577,18 +608,7 @@ async fn tally(kind: Kind, ctx: &Ctx) -> Result<Tally, DbErr> {
             .await
         }
         Kind::MissingReceipts => {
-            let account_currency = "COALESCE((SELECT b.currency FROM bank_accounts b \
-                 WHERE b.id = bank_transactions.bank_account_id), $1)";
-            let amount = Expr::cust_with_values(
-                format!(
-                    "CASE WHEN {account_currency} IN ($1, $2) THEN ABS(bank_transactions.amount) END"
-                ),
-                ["", ctx.base.as_str()],
-            );
-            let foreign = Expr::cust_with_values(
-                format!("CASE WHEN {account_currency} NOT IN ($1, $2) THEN 1 END"),
-                ["", ctx.base.as_str()],
-            );
+            let (amount, foreign) = bank_line_amounts(&ctx.base);
             aggregate(
                 orm,
                 bank_transactions::Entity::find().filter(missing_receipts_cond(ctx)),
@@ -604,8 +624,25 @@ async fn tally(kind: Kind, ctx: &Ctx) -> Result<Tally, DbErr> {
 fn readable(caller: &Caller) -> Vec<Kind> {
     KINDS
         .into_iter()
-        .filter(|kind| caller.can(kind.permission()))
+        .filter(|kind| kind.readable_by(caller))
         .collect()
+}
+
+/// What a kind adds to `total`: its count, except that an accountant's
+/// questions kind (all of the entity's unanswered) adds only those asked to
+/// them.
+async fn counted_in_total(kind: Kind, ctx: &Ctx, count: i64) -> Result<i64, DbErr> {
+    if kind != Kind::Questions || !ctx.questions_all {
+        return Ok(count);
+    }
+    Ok(aggregate(
+        &ctx.orm,
+        chat_messages::Entity::find().filter(questions_cond(ctx, true)),
+        None,
+        None,
+    )
+    .await?
+    .count)
 }
 
 fn amount_text(amount: Option<&BigDecimal>) -> Value {
@@ -628,7 +665,7 @@ async fn build_summary(caller: &Caller) -> Reply {
     for kind in readable(caller) {
         let tally = tally(kind, &ctx).await?;
         if kind.is_owner_work() {
-            total += tally.count;
+            total += counted_in_total(kind, &ctx, tally.count).await?;
         }
         let mut entry = json!({
             "count": tally.count,
@@ -1050,6 +1087,57 @@ async fn items(kind: Kind, ctx: &Ctx, offset: u64, limit: u64) -> Result<Vec<Ite
                 })
                 .collect())
         }
+        Kind::Questions => {
+            use chat_messages::Column as C;
+            let rows = chat_messages::Entity::find()
+                .filter(questions_cond(ctx, !ctx.questions_all))
+                .order_by_desc(C::CreatedAt)
+                .order_by_asc(C::Id)
+                .offset(offset)
+                .limit(limit)
+                .all(orm)
+                .await?;
+            let channel_ids: Vec<String> = rows.iter().map(|r| r.channel_id.clone()).collect();
+            let channels: HashMap<String, Record> = chat_channels::Entity::find()
+                .select_only()
+                .columns([
+                    chat_channels::Column::Id,
+                    chat_channels::Column::EntityType,
+                    chat_channels::Column::EntityId,
+                    chat_channels::Column::EntityDisplayName,
+                ])
+                .filter(chat_channels::Column::Id.is_in(&channel_ids))
+                .into_tuple::<(String, Option<String>, Option<String>, Option<String>)>()
+                .all(orm)
+                .await?
+                .into_iter()
+                .map(|(id, kind, record, name)| (id, (kind, record, name)))
+                .collect();
+            Ok(js_rows!(rows)?
+                .iter()
+                .filter_map(|row| {
+                    let (kind, record, name) = channels.get(&s(row, "channelId")?)?;
+                    let asked_to_me = row
+                        .get("metadata")
+                        .and_then(|m| m.get("question"))
+                        .and_then(|q| q.get("askedTo"))
+                        .and_then(Value::as_array)
+                        .is_some_and(|ids| ids.iter().any(|id| id == ctx.user_id.as_str()));
+                    Some(Item {
+                        object_type: panel_type(kind.as_deref()?),
+                        object_id: record.clone()?,
+                        title: s(row, "content").map(|text| question_title(&text)),
+                        subtitle: name.clone().filter(|n| !n.trim().is_empty()),
+                        amount: None,
+                        currency: None,
+                        date: s(row, "createdAt"),
+                        due_date: None,
+                        severity: if asked_to_me { "warning" } else { "info" },
+                        hint: Some("question"),
+                    })
+                })
+                .collect())
+        }
         Kind::MissingReceipts => {
             use bank_transactions::Column as C;
             let rows = bank_transactions::Entity::find()
@@ -1115,6 +1203,20 @@ async fn items(kind: Kind, ctx: &Ctx, offset: u64, limit: u64) -> Result<Vec<Ite
     }
 }
 
+/// A record chat's record type, id and name.
+type Record = (Option<String>, Option<String>, Option<String>);
+
+/// A question as an item's title: one line, at most 140 characters.
+fn question_title(text: &str) -> String {
+    const MAX: usize = 140;
+    let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if line.chars().count() <= MAX {
+        return line;
+    }
+    let cut: String = line.chars().take(MAX - 1).collect();
+    format!("{cut}…")
+}
+
 /// `<kind>:<offset>`.
 fn parse_cursor(raw: &str) -> Option<(usize, u64)> {
     let (name, offset) = raw.split_once(':')?;
@@ -1136,7 +1238,7 @@ async fn list_items(caller: &Caller, q: &Query) -> Reply {
             let Some(kind) = Kind::parse(name) else {
                 return Err(Refusal::bad_request(format!("Unknown kind: {name}")));
             };
-            if !caller.can(kind.permission()) {
+            if !kind.readable_by(caller) {
                 return Err(Refusal::forbidden(
                     "You do not have permission to see these items",
                 ));
@@ -1153,7 +1255,13 @@ async fn list_items(caller: &Caller, q: &Query) -> Reply {
         Some(raw) => parse_cursor(raw).ok_or_else(|| Refusal::bad_request("Invalid cursor"))?,
         None => (0, 0),
     };
-    let ctx = Ctx::load(caller).await?;
+    let mut ctx = Ctx::load(caller).await?;
+    // Only `kind=questions` shows an accountant the entity's unanswered
+    // questions; the list of every kind holds those asked to them.
+    if only != Some(Kind::Questions) {
+        ctx.questions_all = false;
+    }
+    let ctx = ctx;
     let kinds: Vec<Kind> = match only {
         Some(kind) => vec![kind],
         None => readable(caller)
@@ -1934,18 +2042,35 @@ mod db_tests {
         let banking = summary_of(&caller(&db, &a, &["banking:read"])).await;
         assert_eq!(
             kind_names(&banking),
-            ["bank_feeds", "bank_lines", "duplicates", "unapplied_credit"]
+            [
+                "bank_feeds",
+                "bank_lines",
+                "duplicates",
+                "questions",
+                "unapplied_credit"
+            ]
         );
         assert_eq!(banking["total"], 3 + 2 + 1 + 2);
         let bills = summary_of(&caller(&db, &a, &["bills:read"])).await;
-        assert_eq!(kind_names(&bills), ["bills_due", "bills_to_approve"]);
+        assert_eq!(
+            kind_names(&bills),
+            ["bills_due", "bills_to_approve", "questions"]
+        );
         let invoices = summary_of(&caller(&db, &a, &["invoices:read"])).await;
         assert_eq!(
             kind_names(&invoices),
-            ["documents", "invoices_overdue", "invoices_undelivered"]
+            [
+                "documents",
+                "invoices_overdue",
+                "invoices_undelivered",
+                "questions"
+            ]
         );
         let reports = summary_of(&caller(&db, &a, &["reports:read"])).await;
-        assert_eq!(kind_names(&reports), ["missing_receipts", "vat_return"]);
+        assert_eq!(
+            kind_names(&reports),
+            ["missing_receipts", "questions", "vat_return"]
+        );
         let nothing = summary_of(&caller(&db, &a, &[])).await;
         assert_eq!(nothing["total"], 0);
         assert_eq!(kind_names(&nothing), Vec::<String>::new());
@@ -2332,8 +2457,183 @@ mod db_tests {
             0
         );
     }
-}
 
+    async fn chat(db: &PgPool, kind: &str, record: &str) -> String {
+        let id = generate_id("ch");
+        sqlx::query(
+            "insert into chat_channels (id, name, slug, type, entity_type, entity_id, entity_display_name) \
+             values ($1, 'Chat', $1, 'entity', $2, $3, 'Record title')",
+        )
+        .bind(&id)
+        .bind(kind)
+        .bind(record)
+        .execute(db)
+        .await
+        .expect("channel");
+        id
+    }
+
+    async fn question(db: &PgPool, channel: &str, text: &str, status: &str, asked_to: &[&str]) {
+        let metadata = json!({ "question": { "status": status, "askedTo": asked_to } });
+        sqlx::query(
+            "insert into chat_messages (id, channel_id, author_id, author_name, content, metadata) \
+             values ($1, $2, 'user_asker', 'Asker', $3, $4::text::jsonb)",
+        )
+        .bind(generate_id("msg"))
+        .bind(channel)
+        .bind(text)
+        .bind(metadata.to_string())
+        .execute(db)
+        .await
+        .expect("question");
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used)]
+    async fn open_questions_asked_to_the_caller_are_to_process_and_an_accountant_sees_the_entitys()
+    {
+        let Some(db) = pool() else { return };
+        // A contact has no entity: its question shows in every entity, so it is
+        // removed again, and any left by an aborted run before.
+        for _ in 0..2 {
+            sqlx::query("delete from chat_messages where channel_id in (select id from chat_channels where entity_type = 'accounting_contact')")
+                .execute(&db).await.expect("clean");
+            sqlx::query("delete from chat_channels where entity_type = 'accounting_contact'")
+                .execute(&db)
+                .await
+                .expect("clean");
+        }
+        let (a, b) = (entity(&db, "NL").await, entity(&db, "NL").await);
+        let party = party(&db).await;
+        let eur = bank_account(&db, &a, "EUR").await;
+        let line_a = line(&db, &a, &eur, "10.00", "coffee", "unreconciled", None).await;
+        let inv_a = invoice(&db, &a, &party, "Q-1", "standard", "sent", 5, "121").await;
+        let inv_b = invoice(&db, &b, &party, "Q-2", "standard", "sent", 5, "121").await;
+        let chat_line = chat(&db, "bank_transaction", &line_a).await;
+        let chat_inv = chat(&db, "invoice", &inv_a).await;
+        let chat_other = chat(&db, "invoice", &inv_b).await;
+        let chat_contact = chat(&db, "accounting_contact", &party).await;
+        question(
+            &db,
+            &chat_line,
+            "What was this payment?",
+            "open",
+            &["user_questions"],
+        )
+        .await;
+        question(
+            &db,
+            &chat_inv,
+            "Is this the right customer?",
+            "open",
+            &["someone_else"],
+        )
+        .await;
+        question(
+            &db,
+            &chat_inv,
+            "Already answered",
+            "answered",
+            &["user_questions"],
+        )
+        .await;
+        question(
+            &db,
+            &chat_other,
+            "Other entity",
+            "open",
+            &["user_questions"],
+        )
+        .await;
+        question(
+            &db,
+            &chat_contact,
+            "About the contact",
+            "open",
+            &["user_questions"],
+        )
+        .await;
+
+        // The owner: what is asked to them (a contact has no entity, so it shows here).
+        let as_user = |keys: &[&str]| {
+            let mut c = caller(&db, &a, keys);
+            c.user_id = "user_questions".to_owned();
+            c
+        };
+        let owner = as_user(&ALL);
+        let summary = summary_of(&owner).await;
+        assert_eq!(count(&summary, "questions"), 2);
+        let (_, list) = list_of(&owner, "kind=questions").await;
+        let data = list["data"].as_array().unwrap();
+        assert_eq!(data.len(), 2);
+        let line_item = data
+            .iter()
+            .find(|i| i["objectId"] == json!(line_a))
+            .unwrap();
+        assert_eq!(line_item["objectType"], "bank_transaction");
+        assert_eq!(line_item["hint"], "question");
+        assert_eq!(line_item["kind"], "questions");
+        assert_eq!(line_item["title"], "What was this payment?");
+        assert_eq!(line_item["subtitle"], "Record title");
+        let contact_item = data.iter().find(|i| i["objectId"] == json!(party)).unwrap();
+        assert_eq!(contact_item["objectType"], "weldbooks_contact");
+        // It counts toward the total, and the list of every kind holds it.
+        let without = summary["total"].as_i64().unwrap() - 2;
+        let (_, all) = list_of(&owner, "").await;
+        assert!(
+            all["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|i| i["hint"] == "question")
+        );
+        assert!(summary["total"].as_i64().unwrap() >= without + 2);
+
+        // Without the permission of a type its questions are left out; without any, the kind is gone.
+        let invoicer = as_user(&["invoices:read"]);
+        let (_, mine) = list_of(&invoicer, "kind=questions").await;
+        let types: Vec<&str> = mine["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["objectType"].as_str().unwrap())
+            .collect();
+        assert_eq!(types, ["weldbooks_contact"]);
+        let nothing = as_user(&[]);
+        let (status, _) = list_of(&nothing, "kind=questions").await;
+        assert_eq!(status, 403);
+
+        // An accountant (journal:create) sees every unanswered question of the entity in
+        // the kind, but only those asked to them count in the total.
+        let mut keys = ALL.to_vec();
+        keys.push("journal:create");
+        let accountant = as_user(&keys);
+        let summary_acc = summary_of(&accountant).await;
+        assert_eq!(count(&summary_acc, "questions"), 3);
+        assert_eq!(summary_acc["total"], summary["total"]);
+        let (_, wide) = list_of(&accountant, "kind=questions").await;
+        assert_eq!(wide["data"].as_array().unwrap().len(), 3);
+        assert_eq!(wide["pagination"]["totalCount"], 3);
+        let (_, narrow) = list_of(&accountant, "").await;
+        let questions: Vec<&Value> = narrow["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|i| i["hint"] == "question")
+            .collect();
+        assert_eq!(questions.len(), 2);
+        sqlx::query("delete from chat_messages where channel_id = $1")
+            .bind(&chat_contact)
+            .execute(&db)
+            .await
+            .expect("clean");
+        sqlx::query("delete from chat_channels where id = $1")
+            .bind(&chat_contact)
+            .execute(&db)
+            .await
+            .expect("clean");
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2344,7 +2644,7 @@ mod tests {
             assert_eq!(Kind::parse(kind.as_str()), Some(kind));
         }
         assert_eq!(Kind::parse("nope"), None);
-        assert_eq!(parse_cursor("bills_due:20"), Some((4, 20)));
+        assert_eq!(parse_cursor("bills_due:20"), Some((5, 20)));
         assert_eq!(parse_cursor("bills_due"), None);
         assert_eq!(parse_cursor("nope:1"), None);
         assert_eq!(parse_cursor("bills_due:x"), None);

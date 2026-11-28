@@ -867,3 +867,90 @@ async fn a_small_gap_is_rounded_off_never_a_large_one() {
             .unwrap();
     assert_eq!(stored["differences"]["roundingCap"], json!("0.00"));
 }
+
+#[tokio::test]
+async fn attaching_a_receipt_answers_the_open_questions_on_the_line() {
+    let Some(world) = World::new() else {
+        return;
+    };
+    let (entity, bank, _) = company(&world.db, "NL91ABNA0417164300").await;
+    let id = line(&world.db, &entity, &bank, "-12.00", "Lunch", (None, None)).await;
+    let other = line(&world.db, &entity, &bank, "-8.00", "Taxi", (None, None)).await;
+    let chat = |record: String| {
+        let db = world.db.clone();
+        async move {
+            let channel = fresh("ch");
+            sqlx::query(
+                "insert into chat_channels (id, name, slug, type, entity_type, entity_id) \
+                 values ($1, 'Chat', $1, 'entity', 'bank_transaction', $2)",
+            )
+            .bind(&channel)
+            .bind(record)
+            .execute(&db)
+            .await
+            .unwrap();
+            channel
+        }
+    };
+    let ask = |channel: String, status: &'static str| {
+        let db = world.db.clone();
+        async move {
+            let message = fresh("msg");
+            sqlx::query(
+                "insert into chat_messages (id, channel_id, author_id, author_name, content, metadata) \
+                 values ($1, $2, 'u_asker', 'Asker', 'What was this?', $3::text::jsonb)",
+            )
+            .bind(&message)
+            .bind(channel)
+            .bind(json!({ "question": { "status": status } }).to_string())
+            .execute(&db)
+            .await
+            .unwrap();
+            message
+        }
+    };
+    let on_line = chat(id.clone()).await;
+    let open = ask(on_line.clone(), "open").await;
+    let resolved = ask(on_line, "resolved").await;
+    let on_other = chat(other.clone()).await;
+    let elsewhere = ask(on_other, "open").await;
+    let document = fresh("doc");
+    sqlx::query(
+        "insert into documents (id, entity_id, file_name, file_key, file_size, mime_type, type, source, status) \
+         values ($1, $2, 'receipt.pdf', $1, 10, 'application/pdf', 'receipt', 'upload', 'inbox')",
+    )
+    .bind(&document)
+    .bind(&entity)
+    .execute(&world.db)
+    .await
+    .unwrap();
+
+    let caller = world.caller(&entity);
+    let (status, body) = answer(attach(&caller, &world.state, &id, &document).await).await;
+    assert_eq!(status, 200, "{body}");
+    let status_of = |message: String| {
+        let db = world.db.clone();
+        async move {
+            let (status,): (String,) = sqlx::query_as(
+                "select metadata -> 'question' ->> 'status' from chat_messages where id = $1",
+            )
+            .bind(message)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+            status
+        }
+    };
+    assert_eq!(status_of(open.clone()).await, "answered");
+    assert_eq!(status_of(resolved).await, "resolved");
+    assert_eq!(status_of(elsewhere).await, "open");
+    let events = world.events().await;
+    let updated: Vec<&Value> = events
+        .iter()
+        .filter(|(name, _)| name == "accounting_question.updated")
+        .map(|(_, data)| data)
+        .collect();
+    assert_eq!(updated.len(), 1, "{events:?}");
+    assert_eq!(updated[0]["id"], json!(open));
+    assert_eq!(updated[0]["status"], "answered");
+}

@@ -400,6 +400,9 @@ export const API_MODULES: readonly ApiModule[] = [
     // The "to process" list and its counts, served by the Rust backend only
     // (rust/modules/books-reports).
     '/api/accounting-todo',
+    // Questions on WeldBooks records, threads of their record chats (WeldChat), served by the
+    // Rust backend only (rust/modules/chat, mounted with the books routes).
+    '/api/accounting-questions',
     // The KvK jaarrekening, served by the Rust backend only (rust/modules/books-reports).
     '/api/annual-reports',
     '/api/bank-accounts',

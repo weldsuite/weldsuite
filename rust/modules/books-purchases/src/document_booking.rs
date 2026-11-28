@@ -1382,6 +1382,12 @@ pub(crate) async fn book_document(
             &bill_id,
             json!({ "id": bill_id, "paymentId": paid.payment_id }),
         );
+        // The document booked for a bank line answers the questions asked
+        // about the line (edition feature `books-questions`).
+        if let Some(line) = &paid.bank_transaction_id {
+            weldsuite_books_domain::questions::answer_bank_line_questions(caller, state, line)
+                .await;
+        }
     }
 
     // The answer: the bill as it stands now.

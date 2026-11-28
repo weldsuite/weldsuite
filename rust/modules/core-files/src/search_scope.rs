@@ -12,10 +12,7 @@
 
 use sea_orm::DbErr;
 use weldsuite_db::PgPool;
-use weldsuite_legal_entities::{
-    EntityScopeCondition, LegalEntityApp, default_entity_id_for, entity_scope_condition,
-    load_entity_access, visible_entity_filter,
-};
+use weldsuite_legal_entities::{EntityScopeCondition, weldbooks_entity_scope};
 use weldsuite_permissions::Permissions;
 
 /// The condition on an entity column for what `user_id` may see, from their
@@ -24,7 +21,9 @@ use weldsuite_permissions::Permissions;
 /// everywhere (`entity_scope_condition`). Nobody (no user, no permissions)
 /// sees nothing.
 ///
-/// Apply it with `scope.condition(Column::EntityId)`.
+/// Apply it with `scope.condition(Column::EntityId)`. The rule is the
+/// legal-entities crate's ([`weldbooks_entity_scope`], shared with the record
+/// chats of WeldBooks' records).
 pub(crate) async fn entity_scope(
     db: &PgPool,
     user_id: Option<&str>,
@@ -33,10 +32,5 @@ pub(crate) async fn entity_scope(
     let (Some(user_id), Some(permissions)) = (user_id, permissions) else {
         return Ok(EntityScopeCondition::Nothing);
     };
-    let access = load_entity_access(db, user_id, permissions.resolved().clone()).await?;
-    let default = default_entity_id_for(db, Some(LegalEntityApp::Weldbooks)).await?;
-    Ok(entity_scope_condition(
-        visible_entity_filter(&access).as_deref(),
-        default.as_deref(),
-    ))
+    weldbooks_entity_scope(db, user_id, permissions.resolved().clone()).await
 }

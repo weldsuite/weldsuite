@@ -1,5 +1,6 @@
 //! One module per chat-api route file.
 
+pub(crate) mod accounting_questions;
 pub(crate) mod activity;
 pub(crate) mod bookmarks;
 pub(crate) mod channel_members;

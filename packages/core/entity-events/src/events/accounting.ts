@@ -11,6 +11,10 @@ export const ACCOUNTING_ENTITY_EVENTS = {
   // edition feature `books-receipts`).
   accounting_document: ['created', 'updated', 'deleted', 'booked'],
   accounting_settings: ['updated'],
+  // A question on a record, as a thread of its record chat (Rust backend only, edition feature
+  // `books-questions`). `created` is asking; `updated` is a change of status (`from`, `status`):
+  // answered by a reply or a receipt, resolved, re-opened. The id is the thread's first message.
+  accounting_question: ['created', 'updated'],
   bank_account: ['created', 'updated', 'deleted'],
   // `processed` carries `how` (category, transfer, private, ignore, rule, auto, link);
   // `unprocessed` is the undo. Both Rust backend only (edition feature `books-bank-processing`).

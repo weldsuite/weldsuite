@@ -486,6 +486,9 @@ pub(crate) async fn attach(
         id,
         line_event(&txn, text(&txn, "status").unwrap_or("unreconciled")),
     );
+    // The receipt answers the questions asked about the line (edition feature
+    // `books-questions`).
+    weldsuite_books_domain::questions::answer_bank_line_questions(caller, state, id).await;
     Ok(ok(json!({
         "id": id,
         "documentId": document_id,

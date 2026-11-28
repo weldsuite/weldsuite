@@ -29,7 +29,7 @@ use sea_orm::{
 };
 use serde_json::{Map, Value, json};
 use time::{OffsetDateTime, PrimitiveDateTime};
-use weldsuite_books_domain::contact_page::{reminders_paused, with_reminders_paused};
+use weldsuite_books_domain::contact_page::{contact_paused, set_contact_paused};
 use weldsuite_books_domain::entity_context::{resolve_entity_base_currency, resolve_entity_id};
 use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
 use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, json_of, ok, paged, reply};
@@ -873,22 +873,35 @@ pub(super) async fn statement(
 
 // ── Defaults ────────────────────────────────────────────────────────────────
 
-/// The stored defaults of a party.
-pub(super) fn defaults_view(party: &parties::Model) -> Value {
+/// The stored defaults of a party; `reminders_paused` is whether the
+/// request's entity holds the contact's reminders.
+pub(super) fn defaults_view(party: &parties::Model, reminders_paused: bool) -> Value {
     json!({
         "contactId": party.id,
         "defaultExpenseAccountId": party.default_expense_account_id.clone().filter(|id| !id.is_empty()),
         "defaultTaxRateId": party.default_tax_rate_id.clone().filter(|id| !id.is_empty()),
         "paymentTermsDays": parse_payment_terms_days(party.payment_terms.as_deref()),
-        "remindersPaused": reminders_paused(party.average_deal_size.as_ref()),
+        "remindersPaused": reminders_paused,
     })
+}
+
+/// Whether the request's entity holds the contact's reminders (false when no
+/// entity resolves).
+async fn paused_in_request_entity(caller: &Caller, contact_id: &str) -> Result<bool, Refusal> {
+    match resolve_entity_id(caller).await? {
+        Some(entity) => Ok(contact_paused(&caller.db, &entity, contact_id).await?),
+        None => Ok(false),
+    }
 }
 
 pub(super) async fn defaults(caller: Caller, Path(id): Path<String>) -> Response {
     reply(
         async {
             match live_party(&caller.db, &id).await? {
-                Some(party) => Ok(ok(defaults_view(&party))),
+                Some(party) => {
+                    let paused = paused_in_request_entity(&caller, &id).await?;
+                    Ok(ok(defaults_view(&party, paused)))
+                }
                 None => Err(Refusal::not_found("Contact", &id)),
             }
         }
@@ -1058,13 +1071,13 @@ async fn apply_defaults(
         );
     }
     if let Some(paused) = patch.reminders_paused {
-        let column = with_reminders_paused(party.average_deal_size.as_ref(), paused);
-        update = update.col_expr(parties::Column::AverageDealSize, Expr::value(Some(column)));
-        change(
-            "remindersPaused",
-            json!(reminders_paused(party.average_deal_size.as_ref())),
-            json!(paused),
-        );
+        // Per legal entity: the entity's own list (and an old pause of the
+        // contact moves there first).
+        let Some(entity) = resolve_entity_id(caller).await? else {
+            return Err(Refusal::bad_request("No accounting entity resolved"));
+        };
+        let was = set_contact_paused(&caller.db, &entity, id, paused).await?;
+        change("remindersPaused", json!(was), json!(paused));
     }
     update.filter(parties::Column::Id.eq(id)).exec(&db).await?;
     write_accounting_audit(
@@ -1091,7 +1104,8 @@ async fn apply_defaults(
     let fresh = live_party(&caller.db, id)
         .await?
         .ok_or_else(|| Refusal::not_found("Contact", id))?;
-    Ok(ok(defaults_view(&fresh)))
+    let paused = paused_in_request_entity(caller, id).await?;
+    Ok(ok(defaults_view(&fresh, paused)))
 }
 
 /// Paging of `/invoices` and `/bills`, opt-in: `None` without `page` and

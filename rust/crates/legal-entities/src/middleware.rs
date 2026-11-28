@@ -421,6 +421,27 @@ pub fn entity_scope_condition(
     }
 }
 
+/// What `user_id` may see of WeldBooks' entity-owned records (ADR SEC-015),
+/// from their WORKSPACE permissions: no filter when nothing is hidden from
+/// them, else the entities they see ([`visible_entity_filter`]). A row with no
+/// entity counts as the default entity's, as everywhere
+/// ([`entity_scope_condition`]). For code that reads records across entities
+/// (search, record chats) and has no request entity.
+///
+/// Apply it with `scope.condition(Column::EntityId)`.
+pub async fn weldbooks_entity_scope(
+    db: &PgPool,
+    user_id: &str,
+    workspace_permissions: ResolvedPermissions,
+) -> Result<EntityScopeCondition, DbErr> {
+    let access = load_entity_access(db, user_id, workspace_permissions).await?;
+    let default = default_entity_id_for(db, Some(LegalEntityApp::Weldbooks)).await?;
+    Ok(entity_scope_condition(
+        visible_entity_filter(&access).as_deref(),
+        default.as_deref(),
+    ))
+}
+
 type Skip = dyn Fn(&Request) -> bool + Send + Sync;
 
 /// `LegalEntityContextOptions`.

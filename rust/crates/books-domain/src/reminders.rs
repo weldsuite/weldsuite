@@ -77,6 +77,9 @@ pub struct ReminderSettings {
     pub enabled: bool,
     pub steps: Vec<Step>,
     pub statutory: StatutoryCosts,
+    /// The contacts (`parties.id`) whose reminders this entity holds (see
+    /// `contact_page`); kept as they are whenever the workflow is rewritten.
+    pub paused_contact_ids: Vec<String>,
 }
 
 pub fn default_steps() -> Vec<Step> {
@@ -116,6 +119,7 @@ impl Default for ReminderSettings {
                 commercial_rate: COMMERCIAL_RATE,
                 consumer_rate: CONSUMER_RATE,
             },
+            paused_contact_ids: Vec::new(),
         }
     }
 }
@@ -138,6 +142,7 @@ impl ReminderSettings {
         else {
             return settings;
         };
+        settings.paused_contact_ids = crate::contact_page::paused_ids_of(jurisdiction_settings);
         settings.enabled = stored
             .get("enabled")
             .and_then(Value::as_bool)
@@ -166,7 +171,7 @@ impl ReminderSettings {
     }
 
     pub fn to_json(&self) -> Value {
-        json!({
+        let mut out = json!({
             "enabled": self.enabled,
             "steps": self.steps.iter().map(|s| json!({
                 "level": s.level,
@@ -181,7 +186,12 @@ impl ReminderSettings {
                 "commercialRate": self.statutory.commercial_rate,
                 "consumerRate": self.statutory.consumer_rate,
             },
-        })
+        });
+        // Only when there is one, so a workflow without a pause reads as before.
+        if !self.paused_contact_ids.is_empty() {
+            out[crate::contact_page::PAUSED_IDS_KEY] = json!(self.paused_contact_ids);
+        }
+        out
     }
 
     pub fn step(&self, level: i32) -> Option<&Step> {

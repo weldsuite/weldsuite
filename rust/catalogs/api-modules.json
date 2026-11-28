@@ -256,6 +256,7 @@
       "/api/accounting-reports",
       "/api/accounting-settings",
       "/api/accounting-todo",
+      "/api/accounting-questions",
       "/api/annual-reports",
       "/api/bank-accounts",
       "/api/bank-transactions",
