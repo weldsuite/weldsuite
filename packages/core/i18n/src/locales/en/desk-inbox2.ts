@@ -41,6 +41,7 @@ export const deskInbox2 = {
     snoozedUntil: 'Snoozed until {date}',
     you: 'You',
     unassignedBadge: 'Unassigned',
+    waitingBadge: 'Waiting for reply',
     selectConversation: 'Select conversation',
     selectAll: 'Select all',
     filter: 'Filter',

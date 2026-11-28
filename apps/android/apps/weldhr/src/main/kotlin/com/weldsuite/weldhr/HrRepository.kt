@@ -346,6 +346,8 @@ class HrRepository(private val env: AppEnvironment, val scope: CoroutineScope) {
             toAcknowledge = data.toAcknowledge.coaching + data.toAcknowledge.evaluations,
             openShifts = data.openShifts,
             unreadAnnouncements = data.unreadAnnouncements,
+            latestEvaluation = data.latestEvaluation?.let { EvaluationSummary(it.overallScore, it.formName, it.submittedAt) },
+            milestones = data.milestones?.let { MilestoneCount(it.achieved, it.open) },
         )
     }
 

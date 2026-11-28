@@ -330,6 +330,7 @@ struct CreateEntitySheet: View {
                 }
             }
             .tagged("create-company-sheet")
+            .environment(\.booksPlainFields, true)
             .navigationTitle(additional ? BooksStrings.entitySetupAddSheetTitle : BooksStrings.entitySetupSheetTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -544,14 +545,20 @@ struct EntityEmptyStateView: View {
 
     private var content: some View {
         VStack(spacing: Tokens.Spacing.s) {
-            IconTile(systemImage: "building.2", color: Accents.brand, size: 96)
+            // The platform's empty state: the icon in a muted rounded square, a semibold title.
+            Image(systemName: "building.2")
+                .font(.system(size: 22))
+                .foregroundStyle(Tokens.Palette.mutedForeground)
+                .frame(width: 48, height: 48)
+                .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: Tokens.Radius.large))
+                .accessibilityHidden(true)
             Text(BooksStrings.entitySetupEmptyTitle)
-                .font(.title3.weight(.semibold))
+                .font(.inter(.subheadline, weight: .semibold))
                 .multilineTextAlignment(.center)
                 .padding(.top, Tokens.Spacing.m)
             Text(BooksStrings.entitySetupEmptyDescription)
-                .font(.subheadline)
-                .foregroundStyle(Color.secondary)
+                .font(.inter(.subheadline))
+                .foregroundStyle(Tokens.Palette.mutedForeground)
                 .multilineTextAlignment(.center)
             Button {
                 creating = true
@@ -563,8 +570,8 @@ struct EntityEmptyStateView: View {
             .tagged("create-company-open")
             .padding(.top, Tokens.Spacing.l)
             Text(BooksStrings.entitySetupEmptyWebHint)
-                .font(.footnote)
-                .foregroundStyle(Color.secondary)
+                .font(.inter(.footnote))
+                .foregroundStyle(Tokens.Palette.mutedForeground)
                 .multilineTextAlignment(.center)
                 .padding(.top, Tokens.Spacing.l)
             Button(BooksStrings.entitySetupEmptyRefresh) { checkAgain() }
@@ -622,19 +629,14 @@ struct AdministrationSheet: View {
                         adding = true
                     } label: {
                         HStack(spacing: Tokens.Spacing.m) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundStyle(Accents.brand)
-                                .frame(width: 40, height: 40)
-                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(uiColor: .separator), lineWidth: 1))
-                                .accessibilityHidden(true)
+                            ListIcon("plus")
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(BooksStrings.administrationsAdd)
-                                    .font(.body.weight(.semibold))
-                                    .foregroundStyle(Accents.brand)
+                                    .font(.inter(.subheadline, weight: .medium))
+                                    .foregroundStyle(Tokens.Palette.foreground)
                                 Text(BooksStrings.administrationsAddHint)
-                                    .font(.footnote)
-                                    .foregroundStyle(Color.secondary)
+                                    .font(.inter(.footnote))
+                                    .foregroundStyle(Tokens.Palette.mutedForeground)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -676,22 +678,22 @@ private struct AdministrationRow: View {
 
     var body: some View {
         HStack(spacing: Tokens.Spacing.m) {
-            IconTile(systemImage: "building.2", color: Accents.settings)
+            ListIcon("building.2")
             VStack(alignment: .leading, spacing: 2) {
                 Text(entity.name)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Color.primary)
+                    .font(.inter(.subheadline, weight: .medium))
+                    .foregroundStyle(Tokens.Palette.foreground)
                     .lineLimit(1)
                 Text(entity.isDefault ? "\(entityMeta(entity)) · \(BooksStrings.commonDefault)" : entityMeta(entity))
-                    .font(.footnote)
-                    .foregroundStyle(Color.secondary)
+                    .font(.inter(.footnote))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if selected {
                 Image(systemName: "checkmark")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Accents.brand)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Tokens.Palette.foreground)
                     .accessibilityHidden(true)
             }
         }
@@ -785,6 +787,7 @@ private struct EditCompanyForm: View {
                 }
             }
             .tagged("edit-company-sheet")
+            .environment(\.booksPlainFields, true)
             .navigationTitle(BooksStrings.companyEditTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -904,16 +907,16 @@ private struct CompanySettingsSection: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(BooksStrings.settingsAdministration)
-                                .font(.footnote)
-                                .foregroundStyle(Color.secondary)
+                                .font(.inter(.footnote))
+                                .foregroundStyle(Tokens.Palette.mutedForeground)
                             Text(name)
-                                .font(.body.weight(.semibold))
-                                .foregroundStyle(Color.primary)
+                                .font(.inter(.body, weight: .semibold))
+                                .foregroundStyle(Tokens.Palette.foreground)
                         }
                         Spacer()
                         Image(systemName: "chevron.right")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(Color(uiColor: .tertiaryLabel))
+                            .font(.inter(.footnote, weight: .semibold))
+                            .foregroundStyle(Tokens.Palette.mutedForeground)
                     }
                     .contentShape(Rectangle())
                 }

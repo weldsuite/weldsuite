@@ -7,12 +7,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,7 +27,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -43,10 +43,15 @@ import org.weldsuite.core.R
 import org.weldsuite.core.api.ApiException
 import org.weldsuite.core.apiErrorMessage
 
-/** A person's picture, or their initials on a tinted circle when there is none (or it doesn't load). */
+/**
+ * A person's picture, or the first letter of their name when there is none
+ * (or it doesn't load): white on the colour the web platform gives that name,
+ * or in `tint` on a light wash of it when one is passed. The platform's shape:
+ * a rounded square with corners of about a third of the width.
+ */
 @Composable
-fun Avatar(name: String?, url: String? = null, size: Dp = 36.dp, tint: Color = MaterialTheme.colorScheme.primary, modifier: Modifier = Modifier) {
-    val box = modifier.size(size).clip(CircleShape).clearAndSetSemantics { }
+fun Avatar(name: String?, url: String? = null, size: Dp = 36.dp, tint: Color? = null, modifier: Modifier = Modifier) {
+    val box = modifier.size(size).clip(AvatarShape).clearAndSetSemantics { }
     if (url.isNullOrBlank()) {
         Initials(name, size, tint, box)
     } else {
@@ -62,11 +67,58 @@ fun Avatar(name: String?, url: String? = null, size: Dp = 36.dp, tint: Color = M
 }
 
 @Composable
-private fun Initials(name: String?, size: Dp, tint: Color, modifier: Modifier) {
-    Box(modifier.background(tint.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
-        Text(initialsOf(name), color = tint, fontWeight = FontWeight.SemiBold, fontSize = (size.value * 0.38f).sp)
+private fun Initials(name: String?, size: Dp, tint: Color?, modifier: Modifier) {
+    val background = tint?.copy(alpha = 0.15f) ?: avatarColor(name.orEmpty())
+    Box(modifier.background(background), contentAlignment = Alignment.Center) {
+        val letter = (size.value * 0.42f).sp
+        Text(
+            initialsOf(name).take(1),
+            color = tint ?: Color.White,
+            fontWeight = FontWeight.SemiBold,
+            // A line as tall as the letter, so it sits in the middle at any size.
+            style = TextStyle(
+                fontSize = letter,
+                lineHeight = letter,
+                lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+            ),
+        )
     }
 }
+
+/** The platform's avatar shape (`rounded-[32%]`). */
+val AvatarShape = RoundedCornerShape(percent = 32)
+
+private val AvatarColors = listOf(
+    0xFF4F46E5, 0xFF7C3AED, 0xFFEC4899, 0xFFEF4444, 0xFFF97316,
+    0xFFEAB308, 0xFF22C55E, 0xFF14B8A6, 0xFF06B6D4, 0xFF3B82F6,
+).map { Color(it) }
+
+private val LabelColors = listOf(
+    0xFFEF4444, 0xFFF97316, 0xFFF59E0B, 0xFFEAB308, 0xFF84CC16,
+    0xFF22C55E, 0xFF10B981, 0xFF14B8A6, 0xFF06B6D4, 0xFF0EA5E9,
+    0xFF3B82F6, 0xFF6366F1, 0xFF8B5CF6, 0xFFA855F7, 0xFFD946EF,
+    0xFFEC4899, 0xFFF43F5E,
+).map { Color(it) }
+
+/**
+ * The web platform's string hash (`hashString` in the platform's
+ * conversation-list utils), JavaScript number semantics included, so a name
+ * gets the same colour here as there.
+ */
+internal fun platformHash(text: String): Long {
+    var hash = 0.0
+    for (i in text.indices) {
+        val shifted = hash.toLong().toInt() shl 5
+        hash = text.codePointAt(i) + (shifted - hash)
+    }
+    return kotlin.math.abs(hash).toLong()
+}
+
+/** The colour the web platform gives a person's avatar. */
+fun avatarColor(name: String): Color = AvatarColors[(platformHash(name) % AvatarColors.size).toInt()]
+
+/** The colour the web platform gives a label or tag without one of its own. */
+fun labelColor(name: String): Color = LabelColors[(platformHash(name) % LabelColors.size).toInt()]
 
 /** "Ann de Vries" → "AV", "ann@example.com" → "A". */
 fun initialsOf(name: String?): String {
@@ -83,10 +135,10 @@ fun StatusBadge(text: String, color: Color, modifier: Modifier = Modifier) {
     Text(
         text,
         color = color,
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.SemiBold,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Medium,
         modifier = modifier
-            .background(color.copy(alpha = 0.14f), RoundedCornerShape(50))
+            .background(color.copy(alpha = 0.12f), RoundedCornerShape(Tokens.Radius.small))
             .padding(horizontal = Tokens.Spacing.s, vertical = 2.dp),
     )
 }

@@ -13,8 +13,14 @@ enum HRStrings {
     static var absenceAbsences: String { tr("absence.absences") }
     /// Allowance
     static var absenceAllowance: String { tr("absence.allowance") }
-    /// Time off balances
+    /// Leave balances
     static var absenceBalances: String { tr("absence.balances") }
+    /// Approved
+    static var absenceGroupsApproved: String { tr("absence.groups.approved") }
+    /// Pending
+    static var absenceGroupsPending: String { tr("absence.groups.pending") }
+    /// Rejected & cancelled
+    static var absenceGroupsRejectedCancelled: String { tr("absence.groups.rejectedCancelled") }
     /// Leave
     static var absenceLeave: String { tr("absence.leave") }
     /// {days} leave
@@ -99,6 +105,8 @@ enum HRStrings {
     static var announcementsJustNow: String { tr("announcements.justNow") }
     /// {count}m
     static func announcementsMinutesAgo(count: Int) -> String { tr("announcements.minutesAgo", count) }
+    /// New
+    static var announcementsNew: String { tr("announcements.new") }
     /// This announcement is no longer there
     static var announcementsNotFound: String { tr("announcements.notFound") }
     /// Pinned
@@ -125,6 +133,8 @@ enum HRStrings {
     static var attendanceStatusRemote: String { tr("attendanceStatus.remote") }
     /// Your work life, in your pocket
     static var authSubtitle: String { tr("auth.subtitle") }
+    /// Allowance {days}
+    static func balanceAllowance(days: String) -> String { tr("balance.allowance", days) }
     /// {count} days
     static func balanceDays(_ count: Int) -> String { tr("balance.days", count) }
     /// {days} days
@@ -133,10 +143,14 @@ enum HRStrings {
     static func balanceLeft(days: String) -> String { tr("balance.left", days) }
     /// of {days} days
     static func balanceOfAllowance(days: String) -> String { tr("balance.ofAllowance", days) }
+    /// Pending {days}
+    static func balancePending(days: String) -> String { tr("balance.pending", days) }
     /// Pro-rated for this year
     static var balanceProrated: String { tr("balance.prorated") }
-    /// No limit
+    /// Unlimited
     static var balanceUnlimited: String { tr("balance.unlimited") }
+    /// Used {days}
+    static func balanceUsed(days: String) -> String { tr("balance.used", days) }
     /// Next
     static var calendarNext: String { tr("calendar.next") }
     /// Previous
@@ -191,9 +205,9 @@ enum HRStrings {
     static var declarationStatusCancelled: String { tr("declarationStatus.cancelled") }
     /// Paid
     static var declarationStatusPaid: String { tr("declarationStatus.paid") }
-    /// Awaiting approval
+    /// Pending
     static var declarationStatusPending: String { tr("declarationStatus.pending") }
-    /// Declined
+    /// Rejected
     static var declarationStatusRejected: String { tr("declarationStatus.rejected") }
     /// Call
     static var directoryCall: String { tr("directory.call") }
@@ -221,7 +235,7 @@ enum HRStrings {
     static var directoryTitle: String { tr("directory.title") }
     /// Active
     static var employeeStatusActive: String { tr("employeeStatus.active") }
-    /// Leaving
+    /// Offboarding
     static var employeeStatusOffboarding: String { tr("employeeStatus.offboarding") }
     /// On leave
     static var employeeStatusOnLeave: String { tr("employeeStatus.on_leave") }
@@ -281,7 +295,7 @@ enum HRStrings {
     static var expenseFormTakePhoto: String { tr("expenseForm.takePhoto") }
     /// New expense
     static var expenseFormTitle: String { tr("expenseForm.title") }
-    /// Awaiting approval
+    /// Awaiting a decision
     static var expensesAwaiting: String { tr("expenses.awaiting") }
     /// Withdraw
     static var expensesCancelConfirm: String { tr("expenses.cancelConfirm") }
@@ -291,6 +305,12 @@ enum HRStrings {
     static var expensesCancelled: String { tr("expenses.cancelled") }
     /// Declarations
     static var expensesDeclarations: String { tr("expenses.declarations") }
+    /// Other
+    static var expensesGroupsOther: String { tr("expenses.groups.other") }
+    /// Paid
+    static var expensesGroupsPaid: String { tr("expenses.groups.paid") }
+    /// Rejected & cancelled
+    static var expensesGroupsRejectedCancelled: String { tr("expenses.groups.rejectedCancelled") }
     /// Keep
     static var expensesKeep: String { tr("expenses.keep") }
     /// My expenses
@@ -309,13 +329,15 @@ enum HRStrings {
     static var expensesNoResultsDescription: String { tr("expenses.noResultsDescription") }
     /// Could not open the receipt.
     static var expensesReceiptFailed: String { tr("expenses.receiptFailed") }
+    /// To review
+    static var expensesReviewGroup: String { tr("expenses.reviewGroup") }
     /// Search expenses
     static var expensesSearch: String { tr("expenses.search") }
     /// Expenses
     static var expensesTitle: String { tr("expenses.title") }
     /// To approve
     static var expensesToApprove: String { tr("expenses.toApprove") }
-    /// Approved, to be paid
+    /// Approved, to be paid out
     static var expensesToBePaid: String { tr("expenses.toBePaid") }
     /// Claiming expenses from the app is turned off. Ask HR how to claim them.
     static var expensesTurnedOff: String { tr("expenses.turnedOff") }
@@ -331,13 +353,21 @@ enum HRStrings {
     static var homeClockedIn: String { tr("home.clockedIn") }
     /// Clocked out
     static var homeClockedOut: String { tr("home.clockedOut") }
+    /// Evaluation
+    static var homeEvaluation: String { tr("home.evaluation") }
     /// I'm better
     static var homeImBetter: String { tr("home.imBetter") }
     /// End your sick report
     static var homeImBetterHint: String { tr("home.imBetterHint") }
+    /// Milestones
+    static var homeMilestones: String { tr("home.milestones") }
+    /// {open} still open
+    static func homeMilestonesOpen(open: String) -> String { tr("home.milestonesOpen", open) }
+    /// {achieved} of {total} achieved
+    static func homeMilestonesValue(achieved: String, total: String) -> String { tr("home.milestonesValue", achieved, total) }
     /// My absences {year}
     static func homeMyAbsences(year: String) -> String { tr("home.myAbsences", year) }
-    /// My schedule
+    /// Upcoming shifts
     static var homeMySchedule: String { tr("home.mySchedule") }
     /// New expense
     static var homeNewExpense: String { tr("home.newExpense") }
@@ -345,16 +375,22 @@ enum HRStrings {
     static var homeNewExpenseHint: String { tr("home.newExpenseHint") }
     /// You have no absences
     static var homeNoAbsences: String { tr("home.noAbsences") }
+    /// No evaluation yet
+    static var homeNoEvaluation: String { tr("home.noEvaluation") }
     /// No other shifts today
     static var homeNoOtherShifts: String { tr("home.noOtherShifts") }
     /// No shift planned
     static var homeNoShiftToday: String { tr("home.noShiftToday") }
-    /// No shifts planned
+    /// No upcoming shifts
     static var homeNoShifts: String { tr("home.noShifts") }
+    /// Nothing to confirm
+    static var homeNothingToConfirm: String { tr("home.nothingToConfirm") }
     /// {count} open shifts to sign up for
     static func homeOpenShiftsToSignUp(_ count: Int) -> String { tr("home.openShiftsToSignUp", count) }
     /// {count} open tasks
     static func homeOpenTasks(_ count: Int) -> String { tr("home.openTasks", count) }
+    /// Open tasks
+    static var homeOpenTasksLabel: String { tr("home.openTasksLabel") }
     /// Take a photo of a receipt
     static var homePhotoReceipt: String { tr("home.photoReceipt") }
     /// Profile and settings
@@ -379,6 +415,8 @@ enum HRStrings {
     static var homeSwitched: String { tr("home.switched") }
     /// {count} to read
     static func homeToAcknowledge(_ count: Int) -> String { tr("home.toAcknowledge", count) }
+    /// To confirm
+    static var homeToConfirm: String { tr("home.toConfirm") }
     /// To do
     static var homeToDo: String { tr("home.toDo") }
     /// {count} unread announcements
@@ -449,7 +487,7 @@ enum HRStrings {
     static var leaveStatusCancelled: String { tr("leaveStatus.cancelled") }
     /// Pending
     static var leaveStatusPending: String { tr("leaveStatus.pending") }
-    /// Declined
+    /// Rejected
     static var leaveStatusRejected: String { tr("leaveStatus.rejected") }
     /// WeldHR checks that you are at work when you clock in or out. Allow location access in Settings, then try again.
     static var locationDeniedMessage: String { tr("location.deniedMessage") }
@@ -463,10 +501,18 @@ enum HRStrings {
     static var locationUnavailable: String { tr("location.unavailable") }
     /// Department
     static var meDepartment: String { tr("me.department") }
+    /// Email
+    static var meEmail: String { tr("me.email") }
     /// Employee number
     static var meEmployeeNumberLabel: String { tr("me.employeeNumberLabel") }
+    /// Location
+    static var meLocation: String { tr("me.location") }
     /// Manager
     static var meManager: String { tr("me.manager") }
+    /// My HR
+    static var meMyHr: String { tr("me.myHr") }
+    /// Phone
+    static var mePhone: String { tr("me.phone") }
     /// Reviews & coaching
     static var meReviews: String { tr("me.reviews") }
     /// Sick leave
@@ -717,7 +763,7 @@ enum HRStrings {
     static var shiftRequestStatusApproved: String { tr("shiftRequest.status.approved") }
     /// Withdrawn
     static var shiftRequestStatusCancelled: String { tr("shiftRequest.status.cancelled") }
-    /// Waiting for approval
+    /// Pending
     static var shiftRequestStatusPending: String { tr("shiftRequest.status.pending") }
     /// Declined
     static var shiftRequestStatusRejected: String { tr("shiftRequest.status.rejected") }
@@ -805,6 +851,8 @@ enum HRStrings {
     static var tasksEmpty: String { tr("tasks.empty") }
     /// Tasks HR assigns to you while you start or leave show up here.
     static var tasksEmptyDescription: String { tr("tasks.emptyDescription") }
+    /// {done} of {total} done
+    static func tasksProgress(done: String, total: String) -> String { tr("tasks.progress", done, total) }
     /// you
     static var tasksRolesEmployee: String { tr("tasks.roles.employee") }
     /// HR
@@ -815,6 +863,12 @@ enum HRStrings {
     static var tasksRolesManager: String { tr("tasks.roles.manager") }
     /// someone else
     static var tasksRolesOther: String { tr("tasks.roles.other") }
+    /// Done
+    static var tasksStateDone: String { tr("tasks.state.done") }
+    /// To do
+    static var tasksStateOpen: String { tr("tasks.state.open") }
+    /// Overdue
+    static var tasksStateOverdue: String { tr("tasks.state.overdue") }
     /// Onboarding tasks
     static var tasksTitle: String { tr("tasks.title") }
     /// Approve
@@ -825,17 +879,17 @@ enum HRStrings {
     static var teamNothingToApprove: String { tr("team.nothingToApprove") }
     /// New requests show up here as soon as they are sent.
     static var teamNothingToApproveDescription: String { tr("team.nothingToApproveDescription") }
-    /// Decline
+    /// Reject
     static var teamReject: String { tr("team.reject") }
-    /// Decline
+    /// Reject
     static var teamRejectConfirm: String { tr("team.rejectConfirm") }
     /// Reason
     static var teamRejectNote: String { tr("team.rejectNote") }
     /// Optional, shown to the employee
     static var teamRejectNotePlaceholder: String { tr("team.rejectNotePlaceholder") }
-    /// Decline request
+    /// Reject request
     static var teamRejectTitle: String { tr("team.rejectTitle") }
-    /// Declined
+    /// Rejected
     static var teamRejected: String { tr("team.rejected") }
     /// Cancel request
     static var timeOffCancelConfirm: String { tr("timeOff.cancelConfirm") }

@@ -144,12 +144,16 @@ struct ScanView: View {
     private var choices: some View {
         VStack(spacing: Tokens.Spacing.s) {
             Spacer(minLength: Tokens.Spacing.l)
+            // The icon in a muted rounded square, as the platform's empty states.
             Image(systemName: "doc.text.viewfinder")
-                .font(.system(size: 48))
-                .foregroundStyle(Color.secondary)
+                .font(.system(size: 22))
+                .foregroundStyle(Tokens.Palette.mutedForeground)
+                .frame(width: 48, height: 48)
+                .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: Tokens.Radius.large))
                 .accessibilityHidden(true)
             Text(BooksStrings.scanAlignHint)
-                .font(.subheadline)
+                .font(.inter(.subheadline))
+                .foregroundStyle(Tokens.Palette.mutedForeground)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, Tokens.Spacing.l)
             if cameraDenied {
@@ -176,10 +180,14 @@ struct ScanView: View {
     private func choiceButton(systemImage: String, label: String, tag: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(label, systemImage: systemImage)
-                .frame(maxWidth: .infinity)
+                .font(.inter(.subheadline, weight: .medium))
+                .foregroundStyle(Tokens.Palette.foreground)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(Tokens.Palette.background, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+                .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.medium).strokeBorder(Tokens.Palette.input, lineWidth: 1))
+                .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.medium))
         }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
+        .buttonStyle(.plain)
         .tagged(tag)
     }
 
@@ -230,7 +238,7 @@ struct ScanView: View {
                     .accessibilityHidden(true)
                 Text(BooksStrings.scanPdfSelected)
             }
-            .foregroundStyle(Color.secondary)
+            .foregroundStyle(Tokens.Palette.mutedForeground)
         } else if let image = capture.preview {
             Image(uiImage: image)
                 .resizable()
@@ -672,8 +680,8 @@ struct QuickExpenseView: View {
         SectionCard {
             VStack(spacing: Tokens.Spacing.xs) {
                 Text(BooksStrings.expenseQuickAmount)
-                    .font(.caption)
-                    .foregroundStyle(Color.secondary)
+                    .font(.inter(.caption))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                 TextField(
                     Self.amountPlaceholder,
                     text: Binding(get: { amount }, set: { value in
@@ -681,14 +689,15 @@ struct QuickExpenseView: View {
                         amountError = nil
                     })
                 )
-                .font(.system(size: 44, weight: .bold))
+                .font(.inter(size: 44, weight: .bold))
+                .monospacedDigit()
                 .multilineTextAlignment(.center)
                 .keyboardType(.decimalPad)
                 .minimumScaleFactor(0.5)
                 .tagged("expense-amount")
                 Text(amountHint)
-                    .font(.footnote)
-                    .foregroundStyle(amountError == nil ? Color.secondary : Tokens.Status.danger)
+                    .font(.inter(.footnote))
+                    .foregroundStyle(amountError == nil ? Tokens.Palette.mutedForeground : Tokens.Status.danger)
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
@@ -735,25 +744,26 @@ struct QuickExpenseView: View {
 
     private func categoryButton(_ key: String) -> some View {
         let selected = key == category
-        let color: Color = selected ? Accents.brand : Color.secondary
+        // The platform's toggle group: the accent fill and the foreground when on.
+        let color: Color = selected ? Tokens.Palette.foreground : Tokens.Palette.mutedForeground
         return Button {
             category = key
         } label: {
             VStack(spacing: Tokens.Spacing.xs) {
                 Image(systemName: categoryIcon(key))
-                    .font(.title3)
+                    .font(.inter(.title3))
                     .accessibilityHidden(true)
                 Text(categoryLabel(key))
-                    .font(.caption2)
+                    .font(.inter(.caption2))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
             .foregroundStyle(color)
             .frame(maxWidth: .infinity, minHeight: 68)
-            .background(selected ? Accents.brand.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+            .background(selected ? Tokens.Palette.accent : Tokens.Palette.background, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
             .overlay(
                 RoundedRectangle(cornerRadius: Tokens.Radius.medium)
-                    .stroke(selected ? Accents.brand : Color(uiColor: .separator), lineWidth: 1)
+                    .strokeBorder(selected ? Tokens.Palette.input : Tokens.Palette.border, lineWidth: 1)
             )
             .contentShape(Rectangle())
         }

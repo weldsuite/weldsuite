@@ -182,7 +182,7 @@ struct PendingFilesBar: View {
                         HStack(spacing: Tokens.Spacing.xs) {
                             Image(systemName: file.isImage ? "photo" : "doc")
                                 .foregroundStyle(.secondary)
-                            Text(file.name).font(.caption).lineLimit(1).frame(maxWidth: 140)
+                            Text(file.name).font(.inter(.caption)).lineLimit(1).frame(maxWidth: 140)
                             Button {
                                 onRemove(file)
                             } label: {

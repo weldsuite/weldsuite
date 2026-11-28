@@ -180,6 +180,8 @@ struct BankTransaction: Identifiable, Hashable, Sendable {
     var amount: Decimal
     var status: String
     var counterpartyName: String?
+    /// The bank's reference (payment reference, end-to-end id), as the platform's Reference column.
+    var reference: String? = nil
 }
 
 struct MatchSuggestion: Identifiable, Hashable, Sendable {
@@ -235,6 +237,41 @@ struct ContactBalance: Hashable, Sendable {
     var payable: Decimal
 }
 
+/// An invoice to be paid or a bill to pay, on the dashboard's "Due this week".
+struct DueItem: Hashable, Sendable, Identifiable {
+    var kind: String
+    var id: String
+    var number: String?
+    var contactName: String?
+    var dueDate: String
+    var amount: Decimal
+    var currency: String?
+
+    /// An invoice and a bill never share a row.
+    var rowId: String { "\(kind):\(id)" }
+}
+
+/// A payment on the dashboard: `received` on an invoice, `sent` on a bill.
+struct RecentPayment: Hashable, Sendable, Identifiable {
+    var id: String
+    var type: String?
+    var date: String
+    var amount: Decimal
+    var currency: String?
+    var method: String?
+    var reference: String?
+    var invoiceId: String?
+    var billId: String?
+}
+
+/// One month of the ledger: revenue, expenses and net profit; nil when nothing is known.
+struct TrendMonth: Hashable, Sendable {
+    var month: String
+    var revenue: Decimal?
+    var expenses: Decimal?
+    var profit: Decimal?
+}
+
 struct Dashboard: Hashable, Sendable {
     var currency: String
     var outstanding: Decimal
@@ -244,7 +281,94 @@ struct Dashboard: Hashable, Sendable {
     var payables: Decimal
     var payablesCount: Int
     var profitMonth: Decimal
-    var recentInvoices: [Invoice]
+    /// The ledger balance of the money accounts, or the bank accounts' sum on an older server.
+    var cashBalance: Decimal = 0
+    var bankAccountCount: Int = 0
+    var pendingDocuments: Int = 0
+    /// Invoices and bills due within the week, soonest first.
+    var dueThisWeek: [DueItem] = []
+    var recentPayments: [RecentPayment] = []
+    /// The last 24 months, oldest first.
+    var trend: [TrendMonth] = []
+}
+
+/// This year's running total of a metric against last year's, month by month (the platform's `yearToDateSeries`).
+struct YearToDate: Hashable, Sendable {
+    struct Point: Hashable, Sendable {
+        /// This year's running total; nil after this month.
+        var value: Decimal?
+        var lastYear: Decimal?
+    }
+
+    var year: Int
+    /// `YYYY-MM` of the last month with figures; nil without a trend.
+    var throughMonth: String?
+    /// Twelve points, January to December.
+    var points: [Point]
+    var total: Decimal
+    var lastYearTotal: Decimal
+}
+
+enum DashboardSeries {
+    /// Revenue, expenses or net profit of a month.
+    static func value(_ month: TrendMonth, metric: String) -> Decimal? {
+        switch metric {
+        case "expenses": return month.expenses
+        case "profit": return month.profit
+        default: return month.revenue
+        }
+    }
+
+    /// An older server returns only revenue: expenses and profit are then unknown.
+    static func hasTrend(_ months: [TrendMonth]) -> Bool {
+        !months.isEmpty && months.allSatisfy { $0.expenses != nil }
+    }
+
+    static func yearToDate(_ months: [TrendMonth], metric: String, today: Day = Days.today()) -> YearToDate {
+        let current = months.last?.month
+        let year = current.flatMap { Int($0.take(4)) } ?? today.year
+        var byMonth: [String: Decimal] = [:]
+        for month in months {
+            if let amount = Self.value(month, metric: metric) { byMonth[month.month] = amount }
+        }
+        func key(_ y: Int, _ m: Int) -> String { String(format: "%04ld-%02ld", y, m) }
+        var running: Decimal? = 0
+        var lastYearRunning: Decimal? = 0
+        var total: Decimal = 0
+        var lastYearTotal: Decimal = 0
+        var points: [YearToDate.Point] = []
+        for m in 1...12 {
+            let month = key(year, m)
+            let inRange = current.map { month <= $0 } ?? false
+            if inRange, let sum = running, let value = byMonth[month] {
+                running = sum + value
+            } else {
+                running = nil
+            }
+            if let sum = lastYearRunning, let value = byMonth[key(year - 1, m)] {
+                lastYearRunning = sum + value
+            } else {
+                lastYearRunning = nil
+            }
+            if month == current {
+                total = running ?? 0
+                lastYearTotal = lastYearRunning ?? 0
+            }
+            points.append(YearToDate.Point(value: inRange ? running : nil, lastYear: lastYearRunning))
+        }
+        return YearToDate(year: year, throughMonth: current, points: points, total: total, lastYearTotal: lastYearTotal)
+    }
+
+    /// Invoices and bills due by the end of the week (overdue ones too), soonest first, at most `limit`.
+    static func dueThisWeek(_ items: [DueItem], today: Day = Days.today(), limit: Int = 10) -> [DueItem] {
+        let end = today.adding(days: 7).iso
+        return Array(
+            items
+                .filter { !$0.dueDate.take(10).isEmpty && $0.dueDate.take(10) <= end }
+                .sorted { $0.dueDate.take(10) < $1.dueDate.take(10) }
+                .prefix(limit)
+        )
+    }
 }
 
 struct ProfitLoss: Hashable, Sendable {

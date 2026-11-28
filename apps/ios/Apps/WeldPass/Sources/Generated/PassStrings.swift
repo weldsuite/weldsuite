@@ -63,13 +63,17 @@ enum PassStrings {
     static var errorsOffline: String { tr("errors.offline") }
     /// You can view this vault, not change it.
     static var errorsViewerOnly: String { tr("errors.viewerOnly") }
+    /// Choose what to store and where to keep it.
+    static var formAddDescription: String { tr("form.addDescription") }
+    /// Add item
+    static var formAddTitle: String { tr("form.addTitle") }
     /// Android apps
     static var formApps: String { tr("form.apps") }
     /// Package names, one per line (e.g. com.example.app). Your Android phone offers this login in those apps.
     static var formAppsHelp: String { tr("form.appsHelp") }
     /// Not an Android package name: {apps}
     static func formAppsInvalid(apps: String) -> String { tr("form.appsInvalid", apps) }
-    /// Name on card
+    /// Cardholder
     static var formCardholder: String { tr("form.cardholder") }
     /// Note
     static var formContent: String { tr("form.content") }
@@ -77,20 +81,18 @@ enum PassStrings {
     static var formCreated: String { tr("form.created") }
     /// Security code
     static var formCvc: String { tr("form.cvc") }
-    /// Edit item
-    static var formEditTitle: String { tr("form.editTitle") }
-    /// Expires (MM/YY)
+    /// Saving replaces the item and keeps the earlier version in its history.
+    static var formEditDescription: String { tr("form.editDescription") }
+    /// Edit “{title}”
+    static func formEditTitle(title: String) -> String { tr("form.editTitle", title) }
+    /// Expiry
     static var formExpiry: String { tr("form.expiry") }
+    /// MM/YY
+    static var formExpiryPlaceholder: String { tr("form.expiryPlaceholder") }
     /// Save the login you just used
     static var formFromAutofill: String { tr("form.fromAutofill") }
     /// Generate
     static var formGenerate: String { tr("form.generate") }
-    /// New card
-    static var formNewTitleCard: String { tr("form.newTitle.card") }
-    /// New login
-    static var formNewTitleLogin: String { tr("form.newTitle.login") }
-    /// New secure note
-    static var formNewTitleNote: String { tr("form.newTitle.note") }
     /// You can’t add items to any vault.
     static var formNoWritableVault: String { tr("form.noWritableVault") }
     /// Notes
@@ -99,73 +101,73 @@ enum PassStrings {
     static var formNumber: String { tr("form.number") }
     /// Password
     static var formPassword: String { tr("form.password") }
-    /// Saved
+    /// Item saved
     static var formSaved: String { tr("form.saved") }
+    /// Everyone in this vault will be able to see this item.
+    static var formSharedVaultHint: String { tr("form.sharedVaultHint") }
     /// Title
     static var formTitle: String { tr("form.title") }
-    /// e.g. GitHub
-    static var formTitlePlaceholder: String { tr("form.titlePlaceholder") }
-    /// Give the item a title.
+    /// Enter a title.
     static var formTitleRequired: String { tr("form.titleRequired") }
-    /// Two-factor secret
+    /// 2FA code
     static var formTotp: String { tr("form.totp") }
-    /// The setup key or the otpauth:// link a site shows when you turn on two-factor sign-in.
+    /// Paste the setup key (base32) or the otpauth:// link from the site.
     static var formTotpHelp: String { tr("form.totpHelp") }
+    /// JBSWY3DPEHPK3PXP · otpauth://totp/…
+    static var formTotpPlaceholder: String { tr("form.totpPlaceholder") }
     /// Type
     static var formType: String { tr("form.type") }
+    /// The type can’t be changed after creating the item.
+    static var formTypeLocked: String { tr("form.typeLocked") }
     /// Website
     static var formUrl: String { tr("form.url") }
-    /// example.com
+    /// https://example.com
     static var formUrlPlaceholder: String { tr("form.urlPlaceholder") }
-    /// Username or email
+    /// Username
     static var formUsername: String { tr("form.username") }
     /// Vault
     static var formVault: String { tr("form.vault") }
     /// Copy password
     static var generatorCopy: String { tr("generator.copy") }
-    /// Digits (2–9)
+    /// Digits
     static var generatorDigits: String { tr("generator.digits") }
     /// Look-alike characters (l, 1, I, O, 0) are left out, so it can be read out or typed from a screen.
     static var generatorHint: String { tr("generator.hint") }
-    /// Length
-    static var generatorLength: String { tr("generator.length") }
-    /// Longer
-    static var generatorLonger: String { tr("generator.longer") }
-    /// New password
+    /// Length: {count}
+    static func generatorLength(count: Int) -> String { tr("generator.length", count) }
+    /// Generate another
     static var generatorRegenerate: String { tr("generator.regenerate") }
-    /// Shorter
-    static var generatorShorter: String { tr("generator.shorter") }
-    /// Symbols (!@#…)
+    /// Symbols
     static var generatorSymbols: String { tr("generator.symbols") }
     /// Generator
     static var generatorTitle: String { tr("generator.title") }
-    /// Capital letters (A–Z)
+    /// Uppercase
     static var generatorUppercase: String { tr("generator.uppercase") }
     /// Use this password
     static var generatorUse: String { tr("generator.use") }
-    /// Every password is fine
-    static var healthAllGood: String { tr("health.allGood") }
-    /// No weak, reused or old passwords in the vaults you can open.
-    static var healthAllGoodDescription: String { tr("health.allGoodDescription") }
-    /// Open a login and change its password on the site, then save the new one here.
+    /// All passwords look healthy.
+    static var healthAllHealthy: String { tr("health.allHealthy") }
+    /// Needs attention
+    static var healthAttentionTitle: String { tr("health.attentionTitle") }
+    /// Add logins with a password and they will be checked here.
+    static var healthEmptyDescription: String { tr("health.emptyDescription") }
+    /// Weakest first. Open a login to change its password.
     static var healthFixHint: String { tr("health.fixHint") }
-    /// No logins with a password yet.
-    static var healthNothingChecked: String { tr("health.nothingChecked") }
-    /// Older than a year
+    /// Old
     static var healthOld: String { tr("health.old") }
     /// Reused
     static var healthReused: String { tr("health.reused") }
-    /// Used {count} more times
-    static func healthReusedCount(_ count: Int) -> String { tr("health.reusedCount", count) }
-    /// {healthy} of {checked} logins are fine
-    static func healthSummary(healthy: Int, checked: Int) -> String { tr("health.summary", healthy, checked) }
+    /// Reused on {count} logins
+    static func healthReusedOn(_ count: Int) -> String { tr("health.reusedOn", count) }
     /// Password health
     static var healthTitle: String { tr("health.title") }
     /// Weak
     static var healthWeak: String { tr("health.weak") }
     /// Android apps
     static var itemApps: String { tr("item.apps") }
-    /// Name on card
+    /// Revealing or copying a secret is recorded in the vault activity.
+    static var itemAuditNote: String { tr("item.auditNote") }
+    /// Cardholder
     static var itemCardholder: String { tr("item.cardholder") }
     /// Note
     static var itemContent: String { tr("item.content") }
@@ -173,15 +175,25 @@ enum PassStrings {
     static func itemCopied(field: String) -> String { tr("item.copied", field) }
     /// {field} copied. It’s cleared from the clipboard in 30 seconds.
     static func itemCopiedSecret(field: String) -> String { tr("item.copiedSecret", field) }
+    /// Copy code
+    static var itemCopyCode: String { tr("item.copyCode") }
+    /// Copy security code
+    static var itemCopyCvc: String { tr("item.copyCvc") }
+    /// Copy card number
+    static var itemCopyNumber: String { tr("item.copyNumber") }
+    /// Copy password
+    static var itemCopyPassword: String { tr("item.copyPassword") }
+    /// Copy username
+    static var itemCopyUsername: String { tr("item.copyUsername") }
     /// Security code
     static var itemCvc: String { tr("item.cvc") }
-    /// It’s removed for everyone in the vault.
+    /// This removes the item for everyone who can see it in this vault. This cannot be undone.
     static var itemDeleteMessage: String { tr("item.deleteMessage") }
     /// Delete “{title}”?
     static func itemDeleteTitle(title: String) -> String { tr("item.deleteTitle", title) }
     /// Item deleted
     static var itemDeleted: String { tr("item.deleted") }
-    /// Expires
+    /// Expiry
     static var itemExpiry: String { tr("item.expiry") }
     /// Hidden
     static var itemHidden: String { tr("item.hidden") }
@@ -197,45 +209,49 @@ enum PassStrings {
     static var itemOpenWebsite: String { tr("item.openWebsite") }
     /// Password
     static var itemPassword: String { tr("item.password") }
-    /// Show the hidden fields
-    static var itemReveal: String { tr("item.reveal") }
-    /// Show
+    /// Reveal
     static var itemShow: String { tr("item.show") }
-    /// Two-factor code
+    /// Show code
+    static var itemShowCode: String { tr("item.showCode") }
+    /// 2FA code
     static var itemTotp: String { tr("item.totp") }
-    /// Changes in {count} seconds
+    /// Code expired.
+    static var itemTotpExpired: String { tr("item.totpExpired") }
+    /// {count}s left
     static func itemTotpExpires(_ count: Int) -> String { tr("item.totpExpires", count) }
+    /// Could not generate a code.
+    static var itemTotpFailed: String { tr("item.totpFailed") }
     /// Needs a connection
     static var itemTotpOffline: String { tr("item.totpOffline") }
-    /// Updated {date}
-    static func itemUpdated(date: String) -> String { tr("item.updated", date) }
+    /// Updated {time} · v{version}
+    static func itemUpdatedMeta(time: String, version: String) -> String { tr("item.updatedMeta", time, version) }
     /// Username
     static var itemUsername: String { tr("item.username") }
     /// Vault
     static var itemVault: String { tr("item.vault") }
     /// Website
     static var itemWebsite: String { tr("item.website") }
-    /// New item
+    /// Add item
     static var itemsAdd: String { tr("items.add") }
     /// All
     static var itemsAll: String { tr("items.all") }
-    /// What do you want to add?
-    static var itemsChooseType: String { tr("items.chooseType") }
     /// {count} items
     static func itemsCount(_ count: Int) -> String { tr("items.count", count) }
-    /// No items yet
+    /// No passwords yet
     static var itemsEmpty: String { tr("items.empty") }
     /// Add a login, a secure note or a card. It’s saved in your personal vault unless you pick a shared one.
     static var itemsEmptyDescription: String { tr("items.emptyDescription") }
+    /// Has a 2FA code
+    static var itemsHasTotp: String { tr("items.hasTotp") }
     /// Nothing matches
     static var itemsNoMatches: String { tr("items.noMatches") }
-    /// Try another word, or clear the search.
+    /// Try a different search or filter.
     static var itemsNoMatchesDescription: String { tr("items.noMatchesDescription") }
     /// Offline · showing the copy from {time}
     static func itemsOfflineBanner(time: String) -> String { tr("items.offlineBanner", time) }
-    /// Search titles, usernames and sites
+    /// Search passwords
     static var itemsSearch: String { tr("items.search") }
-    /// All items
+    /// Passwords
     static var itemsTitle: String { tr("items.title") }
     /// English
     static var languageNamesEn: String { tr("languageNames.en") }
@@ -365,19 +381,15 @@ enum PassStrings {
     static func settingsVersion(version: String) -> String { tr("settings.version", version) }
     /// Workspace
     static var settingsWorkspace: String { tr("settings.workspace") }
-    /// {bits} bits
-    static func strengthBits(bits: Int) -> String { tr("strength.bits", bits) }
     /// Fair
     static var strengthFair: String { tr("strength.fair") }
-    /// Strength
-    static var strengthLabel: String { tr("strength.label") }
     /// Strong
     static var strengthStrong: String { tr("strength.strong") }
     /// Weak
     static var strengthWeak: String { tr("strength.weak") }
     /// Generator
     static var tabsGenerator: String { tr("tabs.generator") }
-    /// Items
+    /// Passwords
     static var tabsItems: String { tr("tabs.items") }
     /// Settings
     static var tabsSettings: String { tr("tabs.settings") }
@@ -395,7 +407,7 @@ enum PassStrings {
     static var typesNote: String { tr("types.note") }
     /// Notes
     static var typesNotePlural: String { tr("types.notePlural") }
-    /// No vaults
+    /// No vaults yet
     static var vaultsEmpty: String { tr("vaults.empty") }
     /// Your personal vault appears here once WeldPass has set it up.
     static var vaultsEmptyDescription: String { tr("vaults.emptyDescription") }
@@ -405,19 +417,23 @@ enum PassStrings {
     static var vaultsNoItems: String { tr("vaults.noItems") }
     /// Items added here are shared with everyone in the vault.
     static var vaultsNoItemsDescription: String { tr("vaults.noItemsDescription") }
-    /// You manage this vault as a workspace admin, but you’re not in it, so you can’t see its items.
+    /// As a workspace admin you can manage who has access to this vault, but you can’t see the passwords in it. Add yourself as a member to open them.
     static var vaultsNotMember: String { tr("vaults.notMember") }
+    /// You’re not a member of this vault
+    static var vaultsNotMemberTitle: String { tr("vaults.notMemberTitle") }
     /// Personal
     static var vaultsPersonal: String { tr("vaults.personal") }
     /// Only you can see this vault.
     static var vaultsPersonalDescription: String { tr("vaults.personalDescription") }
     /// You can view this vault, not change it.
     static var vaultsReadOnly: String { tr("vaults.readOnly") }
-    /// Can edit
+    /// Editor
     static var vaultsRolesEditor: String { tr("vaults.roles.editor") }
     /// Manager
     static var vaultsRolesManager: String { tr("vaults.roles.manager") }
-    /// Can view
+    /// Not a member
+    static var vaultsRolesNone: String { tr("vaults.roles.none") }
+    /// Viewer
     static var vaultsRolesViewer: String { tr("vaults.roles.viewer") }
     /// Shared
     static var vaultsShared: String { tr("vaults.shared") }

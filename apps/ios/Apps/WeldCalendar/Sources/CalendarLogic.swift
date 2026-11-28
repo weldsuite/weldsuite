@@ -167,56 +167,101 @@ func relativeDay(_ day: Day, today: Day, _ calendar: Calendar) -> RelativeDay {
     return day.year == today.year ? .thisYear : .otherYear
 }
 
-/// Events under one day's heading.
-struct DaySection: Identifiable {
-    let day: Day
+/// The groups of the platform's schedule list (`getDateGroup`), in their
+/// order. Weeks run Monday to Sunday, as the calendar's own week does.
+enum ScheduleGroup: Int, Comparable, CaseIterable {
+    case earlier, yesterday, today, tomorrow, thisWeek, nextWeek, thisMonth, later
+
+    static func < (lhs: ScheduleGroup, rhs: ScheduleGroup) -> Bool { lhs.rawValue < rhs.rawValue }
+}
+
+/// Yesterday, today and tomorrow win; then the rest of this week, the whole
+/// of next week, the rest of this month, and earlier or later.
+func scheduleGroup(_ day: Day, today: Day, _ calendar: Calendar) -> ScheduleGroup {
+    if day == today.adding(days: -1, calendar) { return .yesterday }
+    if day == today { return .today }
+    if day == today.adding(days: 1, calendar) { return .tomorrow }
+    let weekday = calendar.component(.weekday, from: today.start(calendar)) // 1 = Sunday
+    let weekStart = today.adding(days: -((weekday - 2 + 7) % 7), calendar)
+    if day >= weekStart, day <= weekStart.adding(days: 6, calendar) { return .thisWeek }
+    let nextWeekStart = weekStart.adding(days: 7, calendar)
+    if day >= nextWeekStart, day <= nextWeekStart.adding(days: 6, calendar) { return .nextWeek }
+    if day < weekStart { return .earlier }
+    if YearMonth(day) == YearMonth(today) { return .thisMonth }
+    return .later
+}
+
+/// The events of one schedule group, by start.
+struct ScheduleSection: Identifiable {
+    let group: ScheduleGroup
     let events: [CalendarEvent]
-    var id: String { day.key }
-}
-
-/// What a day square of the month grid shows: up to three colours and how many events in all.
-struct DayDots: Equatable {
-    let colors: [String]
-    let total: Int
-    var overflow: Int { total - colors.count }
-}
-
-/// The agenda's numbers.
-struct AgendaCounts: Equatable {
-    let today: Int
-    let nextSevenDays: Int
+    var id: Int { group.rawValue }
 }
 
 /// Lists of events as the agenda and the month grid read them.
 enum EventLists {
-    static let maxDots = 3
+    /// A very long event is walked for this many days at most, as on the platform.
+    private static let maxCoveredDays = 400
 
     private static func byStart(_ a: CalendarEvent, _ b: CalendarEvent) -> Bool {
         a.start == b.start ? a.title < b.title : a.start < b.start
     }
 
-    /// Day sections in order, each sorted by start. A multi-day event is listed under its start day only.
-    static func groupByDay(_ events: [CalendarEvent], _ calendar: Calendar) -> [DaySection] {
-        Dictionary(grouping: events) { Day($0.start, calendar: calendar) }
+    /// The agenda's groups in order, each sorted by start. An event is listed
+    /// once, under the group of its start day, as the platform's schedule does.
+    static func scheduleSections(_ events: [CalendarEvent], today: Day, _ calendar: Calendar) -> [ScheduleSection] {
+        Dictionary(grouping: events.sorted(by: byStart)) { scheduleGroup(Day($0.start, calendar: calendar), today: today, calendar) }
             .sorted { $0.key < $1.key }
-            .map { DaySection(day: $0.key, events: $0.value.sorted(by: byStart)) }
+            .map { ScheduleSection(group: $0.key, events: $0.value) }
     }
 
+    /// The first and last day an event covers. An end exactly on midnight is
+    /// exclusive (how synced all-day events are stored), and a missing or
+    /// backwards end covers the start day only.
+    static func dayRange(_ event: CalendarEvent, _ calendar: Calendar) -> (first: Day, last: Day) {
+        let end = event.end.flatMap { $0 >= event.start ? $0 : nil } ?? event.start
+        let atMidnight = calendar.startOfDay(for: end) == end
+        let last = atMidnight && end > event.start ? end.addingTimeInterval(-0.001) : end
+        let first = Day(event.start, calendar: calendar)
+        let lastDay = Day(last, calendar: calendar)
+        return (first, lastDay < first ? first : lastDay)
+    }
+
+    /// Every day an event covers.
+    static func coveredDays(_ event: CalendarEvent, _ calendar: Calendar) -> [Day] {
+        let range = dayRange(event, calendar)
+        var days: [Day] = []
+        var day = range.first
+        while day <= range.last, days.count < maxCoveredDays {
+            days.append(day)
+            day = day.adding(days: 1, calendar)
+        }
+        return days
+    }
+
+    /// All day, or 24 hours and longer: the platform lists these with their dates rather than a time.
+    static func spansDays(_ event: CalendarEvent) -> Bool {
+        if event.allDay { return true }
+        guard let end = event.end else { return false }
+        return end.timeIntervalSince(event.start) >= 24 * 3600
+    }
+
+    /// The events on `day`, multi-day ones on every day they cover, by start.
     static func on(_ day: Day, _ events: [CalendarEvent], _ calendar: Calendar) -> [CalendarEvent] {
-        events.filter { Day($0.start, calendar: calendar) == day }.sorted(by: byStart)
+        events.filter { event in
+            let range = dayRange(event, calendar)
+            return day >= range.first && day <= range.last
+        }
+        .sorted(by: byStart)
     }
 
-    static func dots(_ events: [CalendarEvent], _ calendar: Calendar) -> [Day: DayDots] {
-        Dictionary(grouping: events.sorted(by: byStart)) { Day($0.start, calendar: calendar) }
-            .mapValues { list in DayDots(colors: list.prefix(maxDots).map { eventColor($0.color, $0.type) }, total: list.count) }
-    }
-
-    static func counts(_ events: [CalendarEvent], today: Day, _ calendar: Calendar) -> AgendaCounts {
-        let weekEnd = CalendarDates.endOf(today.adding(days: 6, calendar), calendar)
-        return AgendaCounts(
-            today: events.filter { Day($0.start, calendar: calendar) == today }.count,
-            nextSevenDays: events.filter { $0.start <= weekEnd }.count
-        )
+    /// How many events each day has, a multi-day event counting on every day it covers: the month grid's dots.
+    static func dayCounts(_ events: [CalendarEvent], _ calendar: Calendar) -> [Day: Int] {
+        var counts: [Day: Int] = [:]
+        for event in events {
+            for day in coveredDays(event, calendar) { counts[day, default: 0] += 1 }
+        }
+        return counts
     }
 
     /// Over: its end (or start, when open-ended) has passed.
@@ -261,8 +306,11 @@ enum Visibility {
     }
 }
 
-/// The brand colour, for a calendar without one.
-let brandHex = "#E5375E"
+/// The colour of a calendar without one: the platform's default blue.
+let defaultCalendarHex = "#3B82F6"
+
+/// The blue the platform marks today with on every calendar surface (`TODAY_BLUE`).
+let todayHex = "#3073F1"
 
 /// Type colours, the same as the web app's `EVENT_TYPE_COLORS`.
 func typeColor(_ type: EventType) -> String {
@@ -276,18 +324,28 @@ func typeColor(_ type: EventType) -> String {
     }
 }
 
-/// The colour of a task placed in the calendar.
-let taskHex = "#6366F1"
+/// The swatches offered for a new calendar, as in the platform's dialog, blue first and the default.
+enum CalendarSwatch: String, CaseIterable, Identifiable {
+    case blue = "#3B82F6"
+    case red = "#EF4444"
+    case green = "#22C55E"
+    case amber = "#F59E0B"
+    case violet = "#8B5CF6"
+    case pink = "#EC4899"
+    case cyan = "#06B6D4"
+    case orange = "#F97316"
+    case teal = "#14B8A6"
+    case indigo = "#6366F1"
 
-/// The palette offered for a new calendar, as on the web.
-let calendarColors = [
-    "#FE466C", "#EF4444", "#F59E0B", "#EAB308", "#22C55E", "#10B981",
-    "#06B6D4", "#3B82F6", "#6366F1", "#8B5CF6", "#EC4899", "#6B7280",
-]
+    var id: String { rawValue }
+    var hex: String { rawValue }
+}
 
-/// An event's own colour when it has a valid one, else its type's.
-func eventColor(_ color: String?, _ type: EventType) -> String {
+/// The colour an event is drawn in, as the platform's `getEventColor`: its
+/// own, else its calendar's, else its type's.
+func eventColor(_ color: String?, _ type: EventType, calendarColor: String? = nil) -> String {
     if let color, parseHex(color) != nil { return color }
+    if let calendarColor, parseHex(calendarColor) != nil { return calendarColor }
     return typeColor(type)
 }
 
@@ -379,12 +437,16 @@ func isValidEmail(_ text: String) -> Bool {
     text.trimmingCharacters(in: .whitespaces).range(of: #"^[^\s@]+@[^\s@]+\.[^\s@]+$"#, options: .regularExpression) != nil
 }
 
-/// An http(s) link, as the server requires for a meeting link.
+/// A meeting link the platform takes: a URL that parses (the form's
+/// `z.string().url()`) whose scheme is http or https (the API's `isHttpUrl`,
+/// on both backends), with a host. A space or a missing host doesn't parse.
 func isHTTPURL(_ text: String) -> Bool {
-    let value = text.trimmingCharacters(in: .whitespaces).lowercased()
-    guard value.hasPrefix("http://") || value.hasPrefix("https://") else { return false }
-    let afterScheme = value.components(separatedBy: "://").dropFirst().first ?? ""
-    return !(afterScheme.split(separator: "/", omittingEmptySubsequences: false).first ?? "").isEmpty
+    // Without the encoding iOS 17 applies by default, a space stays an error rather than becoming %20.
+    guard let url = URL(string: text.trimmingCharacters(in: .whitespaces), encodingInvalidCharacters: false),
+          let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+          let host = url.host(), !host.isEmpty
+    else { return false }
+    return true
 }
 
 /// How many guests answered which way.

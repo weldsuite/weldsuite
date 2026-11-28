@@ -72,6 +72,10 @@ final class EventFormTests: XCTestCase {
         var good = EventDraft.new(calendars: [mine], start: start)
         good.title = "Review"
         XCTAssertTrue(problems(of: good).isEmpty)
+        good.meetingURL = "http://meet.example.com/abc"
+        XCTAssertTrue(problems(of: good).isEmpty)
+        good.meetingURL = "mailto:ann@example.com"
+        XCTAssertTrue(problems(of: good).badMeetingURL)
         var nowhere = EventDraft.new(calendars: [], start: start)
         nowhere.title = "x"
         XCTAssertTrue(problems(of: nowhere).noCalendar)

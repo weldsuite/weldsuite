@@ -4,29 +4,33 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.BeachAccess
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.EditCalendar
-import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.Button
+import org.weldsuite.ui.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import org.weldsuite.ui.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.NavigationBar
+import org.weldsuite.ui.ModalBottomSheet
+import org.weldsuite.ui.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -134,12 +138,13 @@ object Routes {
     fun expenseNew(receipt: String = "") = "expense-new?receipt=$receipt"
 }
 
+/** The tabs, with the icons the platform's My HR sidebar gives these pages (CalendarRange, Palmtree, Wallet, Newspaper). */
 private enum class Tab(val route: String, val label: Int, val icon: ImageVector, val tag: String) {
     Home(Routes.HOME, R.string.weldhr_tabs_home, Icons.Filled.Home, "tab-home"),
-    Schedule(Routes.SCHEDULE, R.string.weldhr_tabs_schedule, Icons.Filled.CalendarMonth, "tab-schedule"),
-    Absence(Routes.ABSENCE, R.string.weldhr_tabs_absence, Icons.Filled.EventBusy, "tab-absence"),
-    Expenses(Routes.EXPENSES, R.string.weldhr_tabs_expenses, Icons.Filled.Receipt, "tab-expenses"),
-    Announcements(Routes.ANNOUNCEMENTS, R.string.weldhr_tabs_news, Icons.Filled.Campaign, "tab-announcements"),
+    Schedule(Routes.SCHEDULE, R.string.weldhr_tabs_schedule, Icons.Filled.DateRange, "tab-schedule"),
+    Absence(Routes.ABSENCE, R.string.weldhr_tabs_absence, Icons.Filled.BeachAccess, "tab-absence"),
+    Expenses(Routes.EXPENSES, R.string.weldhr_tabs_expenses, Icons.Filled.AccountBalanceWallet, "tab-expenses"),
+    Announcements(Routes.ANNOUNCEMENTS, R.string.weldhr_tabs_news, Icons.Filled.Newspaper, "tab-announcements"),
 }
 
 /** WeldHR once signed in, in a workspace and unlocked. */
@@ -186,11 +191,14 @@ fun WeldHRApp(
 
     CompositionLocalProvider(LocalHr provides hr) {
         ToastHost(toaster) {
+            // The screens' own top bars take the status bar (as in the other apps); the
+            // Scaffold only makes room for the tab bar, or the top inset is applied twice.
             Scaffold(
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 bottomBar = { TabBar(nav, tabs, accessNow, self is SelfState.Ready) },
                 floatingActionButton = { AddButton(nav, self, accessNow) },
             ) { padding ->
-                NavHost(nav, startDestination = Routes.HOME, modifier = Modifier.padding(padding)) {
+                NavHost(nav, startDestination = Routes.HOME, modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
                     composable(Routes.HOME) { HomeScreen() }
                     composable(Routes.SCHEDULE) { ScheduleScreen() }
                     composable(Routes.ABSENCE) { AbsenceScreen() }
@@ -392,8 +400,4 @@ private fun describe(action: AddAction, sick: Boolean): Triple<String, String?, 
     AddAction.UPLOAD_RECEIPT -> Triple(stringResource(R.string.weldhr_home_upload_receipt), stringResource(R.string.weldhr_home_upload_receipt_hint), Icons.Filled.PhotoLibrary)
     AddAction.NEW_ANNOUNCEMENT -> Triple(stringResource(R.string.weldhr_announcement_form_title), null, Icons.Filled.Campaign)
 }
-
-/** The tint for text on the brand. */
-@Composable
-fun brand() = Tokens.Brand.weldhr.current()
 

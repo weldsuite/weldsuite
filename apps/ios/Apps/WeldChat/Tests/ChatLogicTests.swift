@@ -176,10 +176,40 @@ final class ChatLogicTests: XCTestCase {
         XCTAssertEqual(groups[2].name, "Channels")
     }
 
-    func testASectionCalledChannelsReplacesTheDefaultGroupAsInTheExpoApp() {
+    func testNextToASectionCalledChannelsTheRestAreOtherChannelsAsOnThePlatform() {
         let sections = [ChatSection(id: "s1", name: "Channels", position: 0)]
-        let groups = ChatLogic.groupSections(channels: [channel("c")], sections: sections, defaultName: "Kanalen")
-        XCTAssertEqual(groups.map(\.id), ["s1"])
+        let groups = ChatLogic.groupSections(channels: [channel("c")], sections: sections, defaultName: "Kanalen", otherName: "Overige kanalen")
+        XCTAssertEqual(groups.map(\.id), ["s1", ChatLogic.unsectionedID])
+        XCTAssertEqual(groups[1].name, "Overige kanalen")
+    }
+
+    func testAWorkspaceWithoutSectionsAlwaysHasTheChannelsGroup() {
+        let groups = ChatLogic.groupSections(channels: [], sections: [], defaultName: "Channels")
+        XCTAssertEqual(groups.map(\.id), [ChatLogic.unsectionedID])
+        XCTAssertTrue(groups[0].channels.isEmpty)
+    }
+
+    func testActivityHoldsMentionsRepliesAndMissedCallsOnly() {
+        XCTAssertTrue(ChatLogic.isActivityItem(category: "weldchat", type: "chat_mention"))
+        XCTAssertTrue(ChatLogic.isActivityItem(category: "weldchat", type: "chat_thread_reply"))
+        XCTAssertTrue(ChatLogic.isActivityItem(category: "weldchat", type: "chat_missed_call"))
+        XCTAssertFalse(ChatLogic.isActivityItem(category: "weldchat", type: "chat_dm"), "a DM's message shows in the DM")
+        XCTAssertFalse(ChatLogic.isActivityItem(category: "welddesk", type: "ticket_assigned"), "another app's notification")
+        XCTAssertEqual(ChatLogic.activityCategory("chat_thread_reply"), .replies)
+        XCTAssertEqual(ChatLogic.activityCategory("chat_missed_call"), .calls)
+    }
+
+    func testMentionsOfYouOrEveryoneAreHighlighted() {
+        XCTAssertTrue(ChatLogic.mentionsUser("hi <@u_1>", userID: "u_1"))
+        XCTAssertTrue(ChatLogic.mentionsUser("hi <@u_1:Ann>", userID: "u_1"))
+        XCTAssertTrue(ChatLogic.mentionsUser("all <@everyone>", userID: "u_1"))
+        XCTAssertFalse(ChatLogic.mentionsUser("hi <@u_10>", userID: "u_1"))
+    }
+
+    func testTheAvatarFallbackIsTheFirstLetterAsOnThePlatform() {
+        XCTAssertEqual(ChatAvatar.initial(of: "Gert van den Berg"), "G")
+        XCTAssertEqual(ChatAvatar.initial(of: "  ann"), "A")
+        XCTAssertEqual(ChatAvatar.initial(of: nil), "?")
     }
 
     func testNoDefaultGroupWithoutUnsectionedChannels() {

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
@@ -43,18 +45,18 @@ import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import org.weldsuite.ui.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
+import org.weldsuite.ui.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import org.weldsuite.ui.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
@@ -74,6 +76,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -86,6 +89,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.weldsuite.weldchat.ChannelRules
@@ -123,6 +127,9 @@ import org.weldsuite.core.AppEnvironment
 import org.weldsuite.ui.Tokens
 import org.weldsuite.ui.tagged
 import org.weldsuite.core.R as CoreR
+
+/** The platform's Join button on a running call (`bg-green-600`). */
+internal val JoinGreen = Color(0xFF16A34A)
 
 /** A sheet over a conversation: a held message's actions, the full reaction list, or the pin steps. */
 private sealed interface MessageSheet {
@@ -478,7 +485,13 @@ fun ChannelScreen(
                     onJoinCall = { callType -> startOrJoinCall(callType, activeCall) },
                 )
                 if (rows.isEmpty()) {
-                    EmptyConversation(loading = model.loading || (model.channel == null && displayName.isEmpty()), kind = kind, name = displayName)
+                    EmptyConversation(
+                        loading = model.loading || (model.channel == null && displayName.isEmpty()),
+                        kind = kind,
+                        name = displayName,
+                        model = model,
+                        entityType = currentEntityType,
+                    )
                 }
                 if (showScrollToLatest && rows.isNotEmpty()) {
                     val label = stringResource(R.string.weldchat_channel_scroll_to_latest)
@@ -688,14 +701,16 @@ private fun MessageList(
                     val entry = timeline.calls[message.id]
                     if (entry != null) {
                         val ongoing = entry.outcome == null && timeline.openCallId == message.id && activeCall != null
-                        CallLogCard(
+                        CallNoticeRow(
                             entry = entry,
+                            selfId = selfId,
                             ongoing = ongoing,
                             joinable = ongoing && joinable != null,
                             createdAt = message.createdAt,
+                            compact = false,
                         ) { onJoinCall(if (entry.isVideo) CallType.VIDEO else CallType.VOICE) }
                     } else {
-                        SystemMessageRow(MentionText.plainText(message.content, names))
+                        SystemMessageRow(MentionText.plainText(message.content, names), message.createdAt)
                     }
                 } else {
                     MessageRow(
@@ -715,30 +730,52 @@ private fun MessageList(
     }
 }
 
-/** No messages yet: a spinner while loading, else the conversation's welcome. */
+/**
+ * No messages yet: a spinner while loading, else the platform's intro at
+ * the top of the conversation: the # (or lock, or the person) in a muted
+ * tile next to the name, and a muted line under it.
+ */
 @Composable
-private fun EmptyConversation(loading: Boolean, kind: ConversationKind, name: String) {
-    Column(
-        Modifier.fillMaxSize().padding(horizontal = Tokens.Spacing.xl, vertical = 48.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.s, Alignment.CenterVertically),
-    ) {
-        if (loading) {
+private fun EmptyConversation(loading: Boolean, kind: ConversationKind, name: String, model: ChannelModel, entityType: String?) {
+    if (loading) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(Modifier.tagged("channel-loading"))
-        } else {
+        }
+        return
+    }
+    Column(
+        Modifier.fillMaxSize().padding(start = Tokens.Spacing.m, end = Tokens.Spacing.m, top = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.s),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
+            val dm = model.dm
+            when {
+                kind == ConversationKind.DM && dm != null && !dm.isGroup -> ChatAvatar(dm.name, dm.picture, 24.dp)
+                else -> Box(
+                    Modifier.size(24.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(Tokens.Radius.medium)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val icon = when (kind) {
+                        ConversationKind.PRIVATE_CHANNEL -> Icons.Filled.Lock
+                        ConversationKind.RECORD -> recordIcon(entityType)
+                        ConversationKind.DM -> Icons.Filled.Forum
+                        ConversationKind.CHANNEL -> Icons.Filled.Tag
+                    }
+                    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
+                }
+            }
             Text(
-                ChannelRules.welcome(kind, name).text(),
+                if (kind == ConversationKind.CHANNEL || kind == ConversationKind.PRIVATE_CHANNEL) ChannelRules.welcome(kind, name).text() else name,
                 style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                stringResource(R.string.weldchat_channel_start_of_conversation),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
+        Text(
+            stringResource(R.string.weldchat_channel_start_of_conversation),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -753,48 +790,55 @@ private fun PinnedBar(
     onUnpin: () -> Unit,
 ) {
     val brand = MaterialTheme.colorScheme.primary
-    Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth().clickable(onClick = onTap).tagged("pinned-bar")) {
-        Column {
-            Row(
-                Modifier.padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
-            ) {
-                Column(Modifier.height(32.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    val positionLabel = stringResource(R.string.weldchat_channel_pin_position, (position + 1).toString(), count)
+    // The platform's pinned bar: a faint muted band with a line under it, the
+    // dots for which pin (with more than one), the pin and the message.
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            .clickable(onClick = onTap)
+            .semantics { if (count > 1) contentDescription = positionLabel }
+            .tagged("pinned-bar"),
+    ) {
+        Row(
+            Modifier.padding(start = Tokens.Spacing.l, end = Tokens.Spacing.xs, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
+        ) {
+            if (count > 1) {
+                Column(Modifier.height(20.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     repeat(count) { index ->
                         Box(
                             Modifier
                                 .width(3.dp)
-                                .weight(1f)
-                                .background(if (index == position) brand else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(2.dp)),
+                                .weight(if (index == position) 2f else 1f)
+                                .background(
+                                    if (index == position) brand else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                    RoundedCornerShape(50),
+                                ),
                         )
                     }
                 }
-                Icon(Icons.Filled.PushPin, contentDescription = null, tint = brand, modifier = Modifier.size(16.dp))
-                Column(Modifier.weight(1f)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s), verticalAlignment = Alignment.CenterVertically) {
-                        Text(message.authorName, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (count > 1) {
-                            Text(
-                                stringResource(R.string.weldchat_channel_pin_position, (position + 1).toString(), count),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    Text(MentionText.plainText(message.content, names), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                IconButton(onClick = onUnpin, modifier = Modifier.size(32.dp).tagged("pinned-unpin")) {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = stringResource(R.string.weldchat_channel_unpin),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
             }
-            HorizontalDivider()
+            Icon(Icons.Filled.PushPin, contentDescription = null, tint = brand, modifier = Modifier.size(16.dp))
+            Text(
+                MentionText.plainText(message.content, names).ifEmpty { message.authorName },
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onUnpin, modifier = Modifier.size(40.dp).tagged("pinned-unpin")) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = stringResource(R.string.weldchat_channel_unpin),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 
@@ -903,6 +947,7 @@ private fun IdentityLabel(
             Text(
                 name.ifEmpty { stringResource(R.string.weldchat_channel_loading_title) },
                 style = MaterialTheme.typography.titleMedium,
+                fontSize = 15.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -928,20 +973,21 @@ private fun HeaderIcon(kind: ConversationKind, name: String, model: ChannelModel
     when (kind) {
         ConversationKind.DM -> Box {
             val dm = model.dm
-            if (dm != null) DmAvatar(dm, 30.dp) else ChatAvatar(name, null, 30.dp)
+            if (dm != null) DmAvatar(dm, 26.dp) else ChatAvatar(name, null, 26.dp)
             if (peerUserId != null && store.memberStatus(peerUserId)?.uppercase() == "ACTIVE") {
                 Box(
                     Modifier
                         .align(Alignment.BottomEnd)
+                        .offset(x = 2.dp, y = 2.dp)
                         .size(10.dp)
                         .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
                         .background(Tokens.Status.success.current(), CircleShape),
                 )
             }
         }
-        ConversationKind.RECORD -> Icon(recordIcon(entityType), contentDescription = null, modifier = Modifier.size(20.dp))
-        ConversationKind.PRIVATE_CHANNEL -> Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(20.dp))
-        ConversationKind.CHANNEL -> Icon(Icons.Filled.Tag, contentDescription = null, modifier = Modifier.size(20.dp))
+        ConversationKind.RECORD -> Icon(recordIcon(entityType), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        ConversationKind.PRIVATE_CHANNEL -> Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        ConversationKind.CHANNEL -> Icon(Icons.Filled.Tag, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -963,7 +1009,8 @@ private fun JoinCallButton(callType: CallType, onClick: () -> Unit) {
     val join = stringResource(R.string.weldchat_channel_join_call)
     Button(
         onClick = onClick,
-        colors = ButtonDefaults.buttonColors(containerColor = Tokens.Status.success.current()),
+        // The platform's Join on a running call: `bg-green-600`, white.
+        colors = ButtonDefaults.buttonColors(containerColor = JoinGreen, contentColor = Color.White),
         modifier = Modifier
             .padding(end = Tokens.Spacing.xs)
             .semantics { contentDescription = "$join: $kindLabel" }

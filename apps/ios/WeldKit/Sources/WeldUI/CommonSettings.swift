@@ -126,7 +126,7 @@ public struct CommonSettingsSections: View {
             VStack(alignment: .leading) {
                 Text(person.name ?? person.email ?? "")
                 if person.name != nil, let email = person.email {
-                    Text(email).font(.footnote).foregroundStyle(.secondary)
+                    Text(email).font(.inter(.footnote)).foregroundStyle(.secondary)
                 }
             }
             LabeledContent(CoreStrings.settingsServer, value: env.serverName)

@@ -55,8 +55,6 @@ final class MailStore {
     private(set) var inbox = InboxState()
     /// Changes waiting in the outbox.
     private(set) var pending = 0
-    /// Pinned messages: kept on the phone (the server has no pin), as on the web.
-    private(set) var pinned: Set<String> = []
     /// The message a notification opened, until the inbox lists it.
     private(set) var expected: String?
 
@@ -87,7 +85,6 @@ final class MailStore {
         cache = MailCache(directory: caches.appendingPathComponent("weldmail-cache", isDirectory: true))
         outbox = OutboxStore(directory: support.appendingPathComponent("weldmail-outbox", isDirectory: true))
         defaults = UserDefaults(suiteName: Self.defaultsSuite) ?? .standard
-        pinned = Set(defaults.stringArray(forKey: "pinned") ?? [])
         // Back online: what waited in the outbox goes out.
         connectivity.onOnline = { [weak self] in
             Task { await self?.flush() }
@@ -128,6 +125,7 @@ final class MailStore {
             await reloadList()
             await loadLabels()
             await flush()
+            await migrateLocalPins()
         }
     }
 
@@ -138,7 +136,6 @@ final class MailStore {
         accounts = []
         inbox = InboxState()
         labels = LabelState()
-        pinned = []
         pending = 0
         subscriptionCache = [:]
         lastDraft = nil
@@ -425,9 +422,53 @@ final class MailStore {
         } }
     }
 
-    func togglePin(_ id: String) {
-        if pinned.contains(id) { pinned.remove(id) } else { pinned.insert(id) }
-        defaults.set(Array(pinned), forKey: "pinned")
+    /// Pins or unpins a message with the server's `PINNED` label, as the
+    /// platform does, so the pin shows on the web and on every device. The
+    /// list and the cache change at once; a refused change puts them back and
+    /// throws. Returns the message's labels as the server has them.
+    @discardableResult
+    func setPinned(_ id: String, labels: [String], on: Bool) async throws -> [String] {
+        await applyLabels(id, MailLogic.withPinned(labels, on: on))
+        do {
+            let pin = [MailLogic.pinnedLabel]
+            let next = try await repository.changeLabels(id, add: on ? pin : [], remove: on ? [] : pin, current: labels)
+            await applyLabels(id, next)
+            return next
+        } catch {
+            await applyLabels(id, labels)
+            throw error
+        }
+    }
+
+    private func applyLabels(_ id: String, _ labels: [String]) async {
+        labelsChanged(id, labels)
+        guard let ws = workspace, var cached = await cache.message(ws, id: id) else { return }
+        cached.labels = labels
+        await cache.putMessage(ws, cached)
+    }
+
+    /// Where the phone-only pins were kept, before pins moved to the server.
+    private static let localPinsKey = "pinned"
+
+    /// Pins used to be kept on the phone only. Those are pinned on the server
+    /// once; a message that is gone is let go, one that fails for another
+    /// reason (offline) is tried again next time.
+    private func migrateLocalPins() async {
+        guard let ids = defaults.stringArray(forKey: Self.localPinsKey) else { return }
+        var left: [String] = []
+        for id in ids {
+            do {
+                _ = try await repository.changeLabels(id, add: [MailLogic.pinnedLabel], remove: [], current: [])
+            } catch {
+                if APIError.from(error).status != 404 { left.append(id) }
+            }
+        }
+        if left.isEmpty {
+            defaults.removeObject(forKey: Self.localPinsKey)
+        } else {
+            defaults.set(left, forKey: Self.localPinsKey)
+        }
+        if left.count < ids.count { await refresh() }
     }
 
     /// A send made offline: it goes out when the phone is back online, once (its idempotency key).

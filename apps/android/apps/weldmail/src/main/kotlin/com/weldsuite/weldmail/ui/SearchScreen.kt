@@ -1,35 +1,37 @@
 package com.weldsuite.weldmail.ui
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
+import org.weldsuite.ui.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,15 +47,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.weldsuite.weldmail.MailLogic
 import com.weldsuite.weldmail.MailMessage
 import com.weldsuite.weldmail.MailStore
 import com.weldsuite.weldmail.R
@@ -62,7 +61,6 @@ import com.weldsuite.weldmail.SearchLogic
 import com.weldsuite.weldmail.SystemLabel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import org.weldsuite.ui.EmptyState
 import org.weldsuite.ui.Tokens
 import org.weldsuite.ui.tagged
 
@@ -148,52 +146,58 @@ fun SearchScreen(store: MailStore, onOpen: (String) -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        OutlinedTextField(
+    val labelState by store.labels.collectAsStateWithLifecycle()
+    val labelColors = remember(labelState.custom) { labelState.custom.associate { it.name to it.color } }
+    // This tab has no top bar to take the status bar: the column does.
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        SearchInput(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text(stringResource(R.string.weldmail_search_placeholder)) },
-            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-            trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = { query = "" }) { Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.weldmail_search_clear)) }
-                }
-            },
-            singleLine = true,
             modifier = Modifier
-                .fillMaxWidth()
                 .padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s)
                 .focusRequester(focus)
                 .tagged("search-input"),
         )
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s),
-            modifier = Modifier.padding(horizontal = Tokens.Spacing.l),
+            contentPadding = PaddingValues(horizontal = Tokens.Spacing.l),
+            modifier = Modifier.padding(bottom = Tokens.Spacing.s),
         ) {
             items(FilterKind.entries) { kind ->
                 val value = chosenLabel(kind, filters)
-                FilterChip(
+                FilterPill(
+                    text = value ?: stringResource(kind.label),
                     selected = value != null,
                     onClick = { editing = kind },
-                    label = { Text(value ?: stringResource(kind.label)) },
                     modifier = Modifier.tagged("search-filter-${kind.name.lowercase()}"),
                 )
             }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         when {
-            !active -> EmptyState(
-                title = stringResource(R.string.weldmail_search_hint),
-                icon = { Icon(Icons.Outlined.Search, contentDescription = null, modifier = Modifier.size(40.dp)) },
-            )
-            searching && results.isEmpty() -> Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            shown.isEmpty() -> EmptyState(
+            !active -> MailEmptyState(icon = Icons.Outlined.Search, title = stringResource(R.string.weldmail_search_hint))
+            searching && results.isEmpty() -> Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            }
+            shown.isEmpty() -> MailEmptyState(
+                icon = Icons.Outlined.Search,
                 title = stringResource(R.string.weldmail_search_no_results),
                 description = stringResource(R.string.weldmail_search_no_results_hint),
             )
             else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize().tagged("search-results")) {
-                items(shown, key = { it.id }) { message -> ResultRow(message, query) { onOpen(message.id) } }
+                items(shown, key = { it.id }) { message ->
+                    MessageRow(
+                        message = message,
+                        pinned = MailLogic.isPinned(message),
+                        outgoing = false,
+                        labelColors = labelColors,
+                        query = query,
+                        modifier = Modifier.clickable { onOpen(message.id) }.tagged("search-result"),
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
                 if (loadingMore) {
-                    item { Box(Modifier.fillMaxWidth().padding(Tokens.Spacing.l), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp)) } }
+                    item { Box(Modifier.fillMaxWidth().padding(Tokens.Spacing.l), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) } }
                 }
             }
         }
@@ -282,58 +286,39 @@ private fun options(kind: FilterKind): List<Pair<String, (SearchFilters) -> Sear
     )
 }
 
+/** The platform's search input: bordered, `rounded-md`, the icon inside, a clear button once there is text. */
 @Composable
-private fun ResultRow(message: MailMessage, query: String, onOpen: () -> Unit) {
-    val sender = message.senderName ?: stringResource(R.string.weldmail_common_unknown)
-    val highlight = MaterialTheme.colorScheme.primary
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpen)
-            .padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.m)
-            .tagged("search-result"),
-        horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
-    ) {
-        SenderAvatar(sender)
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    highlighted(sender, query, highlight),
-                    fontWeight = if (message.isRead) FontWeight.Normal else FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(rowTime(message.listDate), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (message.hasAttachments) Icon(Icons.Outlined.AttachFile, contentDescription = null, modifier = Modifier.size(14.dp))
-                if (message.isStarred) Icon(Icons.Filled.Star, contentDescription = null, tint = MailColors.star, modifier = Modifier.size(14.dp))
+private fun SearchInput(value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
+    val shape = MaterialTheme.shapes.small
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        modifier = modifier.fillMaxWidth(),
+        decorationBox = { field ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+                    .padding(start = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.Search, contentDescription = null, tint = muted, modifier = Modifier.size(16.dp))
+                Box(Modifier.weight(1f).padding(horizontal = Tokens.Spacing.s)) {
+                    if (value.isEmpty()) Text(stringResource(R.string.weldmail_search_placeholder), style = MaterialTheme.typography.bodyMedium, color = muted)
+                    field()
+                }
+                if (value.isNotEmpty()) {
+                    IconButton(onClick = { onValueChange("") }, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.weldmail_search_clear), tint = muted, modifier = Modifier.size(16.dp))
+                    }
+                }
             }
-            Text(
-                highlighted(message.subject?.takeIf { it.isNotBlank() } ?: stringResource(R.string.weldmail_common_no_subject), query, highlight),
-                fontWeight = if (message.isRead) FontWeight.Normal else FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                highlighted(message.preview.orEmpty(), query, highlight),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-}
-
-/** The text with every match of the query (any case) emphasised. */
-private fun highlighted(text: String, query: String, color: Color): AnnotatedString = buildAnnotatedString {
-    val ranges = SearchLogic.matches(text, query)
-    var at = 0
-    for (range in ranges) {
-        append(text.substring(at, range.first))
-        withStyle(SpanStyle(color = color, fontWeight = FontWeight.Bold)) { append(text.substring(range.first, range.last + 1)) }
-        at = range.last + 1
-    }
-    append(text.substring(at))
+        },
+    )
 }

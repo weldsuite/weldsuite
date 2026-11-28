@@ -119,7 +119,7 @@ export const weldcalendar = {
       titleRequired: 'Titel is verplicht',
       titleTooLong: 'De titel is te lang (maximaal 255 tekens)',
       startRequired: 'Begintijd is verplicht',
-      invalidMeetingUrl: 'Vul een geldige URL in, beginnend met https://',
+      invalidMeetingUrl: 'Vul een geldige URL in, beginnend met http:// of https://',
       invalidGuestEmail: 'Vul een geldig e-mailadres in',
       descriptionLabel: 'Omschrijving',
       descriptionPlaceholder: 'Omschrijving toevoegen',

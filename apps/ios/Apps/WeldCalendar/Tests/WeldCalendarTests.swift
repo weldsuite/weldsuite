@@ -58,36 +58,53 @@ final class CalendarLogicTests: XCTestCase {
         XCTAssertEqual(YearMonth(year: 2026, month: 1).adding(months: -1), YearMonth(year: 2025, month: 12))
     }
 
-    func testEventsAreGroupedByTheirLocalStartDay() {
-        let sections = EventLists.groupByDay([
+    func testTheScheduleGroupsFollowThePlatformsWeeks() {
+        // Friday 27 November 2026; its week runs Monday 23 to Sunday 29.
+        let today = Day(year: 2026, month: 11, day: 27)
+        func group(_ day: Int, month: Int = 11) -> ScheduleGroup {
+            scheduleGroup(Day(year: 2026, month: month, day: day), today: today, amsterdam)
+        }
+        XCTAssertEqual(group(26), .yesterday)
+        XCTAssertEqual(group(27), .today)
+        XCTAssertEqual(group(28), .tomorrow)
+        XCTAssertEqual(group(29), .thisWeek)
+        XCTAssertEqual(group(23), .thisWeek)
+        XCTAssertEqual(group(30), .nextWeek)
+        XCTAssertEqual(group(6, month: 12), .nextWeek)
+        XCTAssertEqual(group(22), .earlier)
+        XCTAssertEqual(group(7, month: 12), .later)
+        // Beyond next week but still this month.
+        XCTAssertEqual(scheduleGroup(Day(year: 2026, month: 11, day: 20), today: Day(year: 2026, month: 11, day: 2), amsterdam), .thisMonth)
+    }
+
+    func testTheAgendaGroupsEventsByTheirLocalStartDay() {
+        let sections = EventLists.scheduleSections([
+            event("next", "2026-12-01T09:00:00Z"),
             event("late", "2026-11-27T22:30:00Z"),
             event("b", "2026-11-27T10:00:00Z"),
             event("a", "2026-11-27T08:00:00Z"),
-        ], amsterdam)
-        XCTAssertEqual(sections.map(\.day), [Day(year: 2026, month: 11, day: 27)])
-        XCTAssertEqual(sections.first?.events.map(\.id), ["a", "b", "late"])
-        let next = EventLists.groupByDay([event("x", "2026-11-27T23:30:00Z")], amsterdam)
-        XCTAssertEqual(next.first?.day, Day(year: 2026, month: 11, day: 28))
-    }
-
-    func testADayShowsThreeDotsAndCountsTheRest() {
-        let dots = EventLists.dots([
-            event("1", "2026-11-27T08:00:00Z", type: .call),
-            event("2", "2026-11-27T09:00:00Z", color: "#123456"),
-            event("3", "2026-11-27T10:00:00Z", type: .reminder, color: "nope"),
-            event("4", "2026-11-27T11:00:00Z"),
-        ], amsterdam)[Day(year: 2026, month: 11, day: 27)]
-        XCTAssertEqual(dots?.colors, ["#22C55E", "#123456", "#EF4444"])
-        XCTAssertEqual(dots?.overflow, 1)
-    }
-
-    func testTheAgendaCountsTodayAndTheNextSevenDays() {
-        let counts = EventLists.counts([
-            event("today", "2026-11-27T09:00:00Z"),
-            event("day6", "2026-12-03T20:00:00Z"),
-            event("day7", "2026-12-04T09:00:00Z"),
+            // 23:30 UTC is already the 28th in Amsterdam.
+            event("x", "2026-11-27T23:30:00Z"),
         ], today: Day(year: 2026, month: 11, day: 27), amsterdam)
-        XCTAssertEqual(counts, AgendaCounts(today: 1, nextSevenDays: 2))
+        XCTAssertEqual(sections.map(\.group), [.today, .tomorrow, .nextWeek])
+        XCTAssertEqual(sections.first?.events.map(\.id), ["a", "b", "late"])
+        XCTAssertEqual(sections[1].events.map(\.id), ["x"])
+    }
+
+    func testAMultiDayEventCountsOnEveryDayItCovers() {
+        let events = [
+            event("one", "2026-11-27T08:00:00Z", end: "2026-11-27T09:00:00Z"),
+            // Midnight to midnight, Amsterdam: the 28th and 29th, not the 30th.
+            event("weekend", "2026-11-27T23:00:00Z", end: "2026-11-29T23:00:00Z"),
+            event("open", "2026-11-28T10:00:00Z"),
+        ]
+        let counts = EventLists.dayCounts(events, amsterdam)
+        XCTAssertEqual(counts[Day(year: 2026, month: 11, day: 27)], 1)
+        XCTAssertEqual(counts[Day(year: 2026, month: 11, day: 28)], 2)
+        XCTAssertEqual(counts[Day(year: 2026, month: 11, day: 29)], 1)
+        XCTAssertNil(counts[Day(year: 2026, month: 11, day: 30)])
+        XCTAssertEqual(EventLists.on(Day(year: 2026, month: 11, day: 29), events, amsterdam).map(\.id), ["weekend"])
+        XCTAssertEqual(EventLists.on(Day(year: 2026, month: 11, day: 28), events, amsterdam).map(\.id), ["weekend", "open"])
     }
 
     func testPastAndOngoingFollowTheEndOrAnHour() {
@@ -160,10 +177,13 @@ final class CalendarLogicTests: XCTestCase {
         XCTAssertNil(EventStatus.of("busy"))
     }
 
-    func testColorsFallBackToTheType() {
+    func testColorsFallBackToTheCalendarThenTheType() {
         XCTAssertEqual(eventColor(nil, .meeting), "#3B82F6")
         XCTAssertEqual(eventColor("#abc", .meeting), "#abc")
         XCTAssertEqual(eventColor("blue", .other), "#6B7280")
+        XCTAssertEqual(eventColor("#abc", .meeting, calendarColor: "#14B8A6"), "#abc")
+        XCTAssertEqual(eventColor(nil, .meeting, calendarColor: "#14B8A6"), "#14B8A6")
+        XCTAssertEqual(eventColor(nil, .call, calendarColor: "teal"), "#22C55E")
         XCTAssertEqual(parseHex("#abc"), 0xAABBCC)
         XCTAssertNil(parseHex("#12345"))
     }
@@ -201,8 +221,14 @@ final class CalendarLogicTests: XCTestCase {
         XCTAssertTrue(isValidEmail(" ann@example.com "))
         XCTAssertFalse(isValidEmail("ann@example"))
         XCTAssertTrue(isHTTPURL("https://meet.example.com/abc"))
+        // The platform's API takes http as well as https.
+        XCTAssertTrue(isHTTPURL(" http://meet.example.com "))
+        XCTAssertTrue(isHTTPURL("HTTPS://Meet.Example.com/j/1?pwd=x"))
         XCTAssertFalse(isHTTPURL("meet.example.com"))
         XCTAssertFalse(isHTTPURL("https://"))
+        XCTAssertFalse(isHTTPURL("https://meet example.com"))
+        XCTAssertFalse(isHTTPURL("mailto:ann@example.com"))
+        XCTAssertFalse(isHTTPURL("ftp://files.example.com"))
     }
 
     func testGuestAnswersAreCounted() {

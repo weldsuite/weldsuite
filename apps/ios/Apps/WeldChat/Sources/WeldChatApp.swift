@@ -56,7 +56,7 @@ struct WeldChatApp: App {
             }
             .environment(calls)
             .environment(navigator)
-            .tint(Tokens.Brand.weldchat)
+            .tint(Tokens.Palette.primary)
             .preferredColorScheme(appearance.colorScheme)
             .toastOverlay(toaster)
         }

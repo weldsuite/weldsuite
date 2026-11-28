@@ -247,7 +247,8 @@ final class CalendarStore {
             guests: guests,
             sourceType: event.sourceType,
             autoScheduled: event.autoScheduled == true,
-            notes: nonBlank(event.notes)
+            notes: nonBlank(event.notes),
+            createdAt: WeldDate.parse(event.createdAt)
         )
     }
 

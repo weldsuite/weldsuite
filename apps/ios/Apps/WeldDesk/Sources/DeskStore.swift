@@ -51,16 +51,43 @@ final class DeskStore {
         }
     }
 
+    /// `getDeskConversation`, read as JSON: the generated types decode the
+    /// record, and `eventDetails` what each event's metadata adds, which the
+    /// generated Kotlin client can't type (see `DeskMessageMetadata` in
+    /// `welddesk.yaml`), so both apps read it from the JSON. Sent with the
+    /// headers the API client adds to every call, as the upload is.
     func conversation(_ id: String) async throws -> ConversationDetail {
+        var components = URLComponents(
+            url: env.serverURL.appendingPathComponent("api/desk/conversations").appendingPathComponent(id),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [URLQueryItem(name: "include", value: "messages")]
+        guard let url = components?.url else { throw APIError(status: nil, code: nil) }
+        let token = await env.session?.token()
+        var (data, status) = try await fetch(url: url, token: token)
+        if status == 401, let fresh = await env.session?.refreshedToken() {
+            (data, status) = try await fetch(url: url, token: fresh)
+        }
+        guard status == 200 else {
+            let code = (try? JSONDecoder().decode(Components.Schemas.ErrorResponse.self, from: data))?.error.code
+            throw APIError(status: status, code: code)
+        }
+        guard let detail = try? Self.detail(json: data) else { throw APIError(status: status, code: nil) }
+        return detail
+    }
+
+    private func fetch(url: URL, token: String?) async throws -> (Data, Int) {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(env.app.code, forHTTPHeaderField: "X-Weld-App")
+        if let workspace = env.session?.activeWorkspaceID { request.setValue(workspace, forHTTPHeaderField: "X-Weld-Workspace") }
+        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         do {
-            switch try await client().getDeskConversation(path: .init(id: id), query: .init(include: "messages")) {
-            case let .ok(ok):
-                return Self.detail(try ok.body.json.data)
-            case let .default(status, response):
-                throw APIError(status: status, code: try? response.body.json.error.code)
-            }
+            let (data, response) = try await URLSession.shared.data(for: request)
+            return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
         } catch {
-            throw APIError.from(error)
+            throw APIError(status: nil, code: nil)
         }
     }
 
@@ -223,17 +250,37 @@ final class DeskStore {
             waitingSince: WeldDate.parse(item.waitingSince),
             lastMessageAt: WeldDate.parse(item.lastMessageAt),
             updatedAt: WeldDate.parse(item.updatedAt),
-            lastMessagePreview: item.lastMessagePreview
+            lastMessagePreview: item.lastMessagePreview,
+            priority: item.priority,
+            tags: item.tags ?? [],
+            slaStatus: item.slaStatus,
+            slaDueAt: WeldDate.parse(item.slaDueAt),
+            slaMetric: item.slaMetric
         )
     }
 
-    /// The thread: the conversation (`allOf`'s first part) and its messages.
-    nonisolated static func detail(_ item: Components.Schemas.DeskConversationDetail) -> ConversationDetail {
-        ConversationDetail(conversation: conversation(item.value1), messages: item.value2.messages.map { message($0) })
+    /// The thread from `getDeskConversation`'s JSON: the record typed, each event's metadata read from the JSON.
+    nonisolated static func detail(json data: Data) throws -> ConversationDetail {
+        let response = try JSONDecoder().decode(Components.Schemas.DeskConversationDetailResponse.self, from: data)
+        let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let messages = (root?["data"] as? [String: Any])?["messages"] as? [[String: Any]] ?? []
+        var metadata: [String: Any] = [:]
+        for message in messages {
+            if let id = message["id"] as? String, let meta = message["metadata"] { metadata[id] = meta }
+        }
+        return detail(response.data, metadata: metadata)
     }
 
-    nonisolated static func message(_ item: Components.Schemas.DeskMessage) -> DeskMessage {
-        DeskMessage(
+    /// The thread: the conversation (`allOf`'s first part) and its messages; `metadata` is each message's metadata as JSON, by id.
+    nonisolated static func detail(_ item: Components.Schemas.DeskConversationDetail, metadata: [String: Any] = [:]) -> ConversationDetail {
+        ConversationDetail(conversation: conversation(item.value1), messages: item.value2.messages.map { message($0, metadata: metadata[$0.id]) })
+    }
+
+    /// A message; `metadata` is its metadata as JSON, when the response was read as JSON.
+    nonisolated static func message(_ item: Components.Schemas.DeskMessage, metadata: Any? = nil) -> DeskMessage {
+        var details = eventDetails(metadata)
+        if details.assigneeID == nil { details.assigneeID = item.metadata?.value1.assigneeId }
+        return DeskMessage(
             id: item.id,
             createdAt: WeldDate.parse(item.createdAt),
             conversationID: item.conversationId,
@@ -243,8 +290,71 @@ final class DeskStore {
             authorID: item.authorId,
             attachments: (item.attachments ?? []).compactMap { attachment($0) },
             eventType: item.metadata?.value1.eventType,
-            rating: item.metadata?.value1.rating
+            rating: item.metadata?.value1.rating,
+            details: details
         )
+    }
+
+    /// What an event's metadata adds to its type, read leniently from the
+    /// JSON: a key of the wrong type reads as missing, never as an error, so
+    /// one odd event can't stop the thread from loading.
+    nonisolated static func eventDetails(_ metadata: Any?) -> EventDetails {
+        guard let meta = metadata as? [String: Any] else { return EventDetails() }
+        func text(_ key: String) -> String? { meta[key] as? String }
+        func number(_ key: String) -> NSNumber? {
+            guard let value = meta[key] as? NSNumber, !isBoolean(value) else { return nil }
+            return value
+        }
+        var details = EventDetails()
+        details.assigneeID = text("assigneeId")
+        if let auto = meta["auto"] as? NSNumber, isBoolean(auto) { details.auto = auto.boolValue }
+        details.ratingComment = text("ratingComment")
+        details.metric = text("metric")
+        details.changes = (meta["changes"] as? [Any] ?? []).compactMap { entry in
+            guard let change = entry as? [String: Any], let field = change["field"] as? String else { return nil }
+            return AttributeChange(
+                field: field,
+                label: change["label"] as? String,
+                key: change["key"] as? String,
+                from: changeValue(change["from"]),
+                to: changeValue(change["to"])
+            )
+        }
+        details.condition = text("condition")
+        details.toTeamID = text("toTeamId")
+        details.linkRole = text("linkRole")
+        details.linkedNumber = number("linkedConversationNumber")?.stringValue
+        details.problemNumber = number("problemNumber")?.stringValue
+        details.stepIndex = number("stepIndex")?.intValue
+        details.stepName = text("stepName")
+        details.approverID = text("approverId")
+        details.comment = text("comment")
+        details.taskCount = (meta["taskIds"] as? [Any])?.count ?? 0
+        return details
+    }
+
+    /// A changed field's value: a text, a number, a yes/no, a list (tags), or nothing.
+    nonisolated static func changeValue(_ value: Any?) -> ChangeValue {
+        guard let value else { return .empty }
+        switch value {
+        case let text as String:
+            return .text(text)
+        case let number as NSNumber:
+            return isBoolean(number) ? .flag(number.boolValue) : .text(number.stringValue)
+        case let list as [Any]:
+            return .items(list.compactMap { item in
+                if let text = item as? String { return text }
+                if let number = item as? NSNumber, !isBoolean(number) { return number.stringValue }
+                return nil
+            })
+        default:
+            return .empty
+        }
+    }
+
+    /// JSON's `true` and `false`, which `JSONSerialization` hands over as numbers.
+    nonisolated private static func isBoolean(_ number: NSNumber) -> Bool {
+        CFGetTypeID(number) == CFBooleanGetTypeID()
     }
 
     nonisolated static func change(_ item: Components.Schemas.DeskConversationChange) -> ConversationChange {
@@ -270,7 +380,9 @@ final class DeskStore {
 
     /// A `desk_message` hub event's record, when it is one.
     nonisolated static func message(fromEvent data: Data) -> DeskMessage? {
-        (try? JSONDecoder().decode(Components.Schemas.DeskMessage.self, from: data)).map { message($0) }
+        guard let item = try? JSONDecoder().decode(Components.Schemas.DeskMessage.self, from: data) else { return nil }
+        let metadata = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["metadata"]
+        return message(item, metadata: metadata)
     }
 
     /// A `desk_conversation` hub event's record, when it is one.

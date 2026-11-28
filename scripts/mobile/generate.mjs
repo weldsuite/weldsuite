@@ -319,7 +319,7 @@ function capitalize(word) {
 
 function tokensSwift(tokens) {
   const lines = [`// ${BANNER}`, '', 'import SwiftUI', '', 'public enum Tokens {'];
-  for (const group of ['brand', 'status']) {
+  for (const group of ['palette', 'status']) {
     lines.push(`    public enum ${capitalize(group)} {`);
     for (const [name, { light, dark }] of Object.entries(tokens[group])) {
       lines.push(`        public static let ${name} = Color(light: 0x${hex(light)}, dark: 0x${hex(dark)})`);
@@ -348,7 +348,7 @@ function tokensKotlin(tokens) {
     '',
     'object Tokens {',
   ];
-  for (const group of ['brand', 'status']) {
+  for (const group of ['palette', 'status']) {
     lines.push(`    object ${capitalize(group)} {`);
     for (const [name, { light, dark }] of Object.entries(tokens[group])) {
       lines.push(`        val ${name} = DayNight(Color(0xFF${hex(light)}), Color(0xFF${hex(dark)}))`);

@@ -72,18 +72,23 @@ export function Avatar({
   );
 }
 
-/** Overlapping teammate faces, as in the messenger header. */
-export function AvatarStack({ team, size = 32, ring = '#ffffff' }: Readonly<{ team: TeamMember[]; size?: number; ring?: string }>) {
+/** Overlapping teammate faces, as in the messenger header. `overlap` is how far each face slides under the one before it. */
+export function AvatarStack({
+  team,
+  size = 32,
+  ring = '#ffffff',
+  overlap = 8,
+}: Readonly<{ team: TeamMember[]; size?: number; ring?: string; overlap?: number }>) {
   if (team.length === 0) return null;
   return (
-    <div className="flex -space-x-2">
+    <div className="flex">
       {team.slice(0, 3).map((member, i) => (
         <Avatar
           key={`${member.name}-${i}`}
           name={member.name}
           src={member.avatar}
           size={size}
-          style={{ boxShadow: `0 0 0 2px ${ring}`, zIndex: 3 - i }}
+          style={{ boxShadow: `0 0 0 2px ${ring}`, zIndex: 3 - i, marginLeft: i === 0 ? 0 : -overlap }}
         />
       ))}
     </div>

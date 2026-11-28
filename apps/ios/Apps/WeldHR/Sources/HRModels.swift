@@ -51,6 +51,22 @@ struct HROverview: Equatable {
     let toAcknowledge: Int
     let openShifts: Int
     let unreadAnnouncements: Int
+    /// The newest evaluation shared with the member; nil without one.
+    var latestEvaluation: HREvaluationSummary?
+    /// Milestones achieved, and still planned or in progress; nil when the server does not say.
+    var milestones: HRMilestoneCount?
+}
+
+/// An evaluation as the overview names it: its score (0-100), form and when it was submitted.
+struct HREvaluationSummary: Equatable {
+    let overallScore: Double?
+    let formName: String?
+    let submittedAt: String?
+}
+
+struct HRMilestoneCount: Equatable {
+    let achieved: Int
+    let open: Int
 }
 
 /// Hours clocked: the caller's own, or a teammate's (with `employeeName`).

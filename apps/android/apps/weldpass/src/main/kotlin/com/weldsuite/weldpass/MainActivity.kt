@@ -38,7 +38,7 @@ class MainActivity : FragmentActivity() {
         )
         setContent {
             val appearance by application.appearance.value.collectAsStateWithLifecycle()
-            WeldTheme(brand = Tokens.Brand.weldpass, dark = appearance.isDark()) {
+            WeldTheme(dark = appearance.isDark()) {
                 SessionGate(env = application.env, branding = branding) { ready ->
                     WeldPassApp(
                         env = application.env,

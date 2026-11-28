@@ -43,7 +43,7 @@ struct WeldDeskApp: App {
                     // Another workspace (or person) starts over: its own inbox, threads and roster.
                     .id("\(person.id):\(workspace.id)")
             }
-            .tint(Tokens.Brand.welddesk)
+            .tint(Tokens.Palette.primary)
             .preferredColorScheme(appearance.colorScheme)
             .toastOverlay(toaster)
             // The Expo app's links: welddesk://conversation/<id>, welddesk://settings, welddesk://inbox.

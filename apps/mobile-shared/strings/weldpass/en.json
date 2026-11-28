@@ -22,7 +22,7 @@
     "dash": "—"
   },
   "tabs": {
-    "items": "Items",
+    "items": "Passwords",
     "vaults": "Vaults",
     "generator": "Generator",
     "settings": "Settings"
@@ -63,32 +63,33 @@
     "cardPlural": "Cards"
   },
   "items": {
-    "title": "All items",
-    "search": "Search titles, usernames and sites",
+    "title": "Passwords",
+    "search": "Search passwords",
     "all": "All",
-    "empty": "No items yet",
+    "empty": "No passwords yet",
     "emptyDescription": "Add a login, a secure note or a card. It’s saved in your personal vault unless you pick a shared one.",
     "noMatches": "Nothing matches",
-    "noMatchesDescription": "Try another word, or clear the search.",
+    "noMatchesDescription": "Try a different search or filter.",
     "offlineBanner": "Offline · showing the copy from {time}",
-    "add": "New item",
-    "chooseType": "What do you want to add?",
+    "add": "Add item",
     "count": {
       "one": "{count} item",
       "other": "{count} items"
-    }
+    },
+    "hasTotp": "Has a 2FA code"
   },
   "vaults": {
     "title": "Vaults",
     "personal": "Personal",
     "personalDescription": "Only you can see this vault.",
     "shared": "Shared",
-    "empty": "No vaults",
+    "empty": "No vaults yet",
     "emptyDescription": "Your personal vault appears here once WeldPass has set it up.",
     "roles": {
-      "viewer": "Can view",
-      "editor": "Can edit",
-      "manager": "Manager"
+      "viewer": "Viewer",
+      "editor": "Editor",
+      "manager": "Manager",
+      "none": "Not a member"
     },
     "members": {
       "one": "{count} member",
@@ -97,106 +98,111 @@
     "noItems": "This vault is empty",
     "noItemsDescription": "Items added here are shared with everyone in the vault.",
     "readOnly": "You can view this vault, not change it.",
-    "notMember": "You manage this vault as a workspace admin, but you’re not in it, so you can’t see its items."
+    "notMember": "As a workspace admin you can manage who has access to this vault, but you can’t see the passwords in it. Add yourself as a member to open them.",
+    "notMemberTitle": "You’re not a member of this vault"
   },
   "item": {
     "username": "Username",
     "password": "Password",
     "website": "Website",
     "openWebsite": "Open website",
-    "totp": "Two-factor code",
+    "totp": "2FA code",
     "totpExpires": {
-      "one": "Changes in {count} second",
-      "other": "Changes in {count} seconds"
+      "one": "{count}s left",
+      "other": "{count}s left"
     },
     "totpOffline": "Needs a connection",
     "notes": "Notes",
     "content": "Note",
-    "cardholder": "Name on card",
+    "cardholder": "Cardholder",
     "number": "Card number",
-    "expiry": "Expires",
+    "expiry": "Expiry",
     "cvc": "Security code",
     "apps": "Android apps",
     "vault": "Vault",
-    "updated": "Updated {date}",
-    "show": "Show",
+    "show": "Reveal",
     "hide": "Hide",
     "hidden": "Hidden",
-    "reveal": "Show the hidden fields",
     "copied": "{field} copied",
     "copiedSecret": "{field} copied. It’s cleared from the clipboard in 30 seconds.",
     "deleteTitle": "Delete “{title}”?",
-    "deleteMessage": "It’s removed for everyone in the vault.",
+    "deleteMessage": "This removes the item for everyone who can see it in this vault. This cannot be undone.",
     "deleted": "Item deleted",
-    "notFound": "This item no longer exists"
+    "notFound": "This item no longer exists",
+    "totpExpired": "Code expired.",
+    "totpFailed": "Could not generate a code.",
+    "showCode": "Show code",
+    "copyCode": "Copy code",
+    "copyUsername": "Copy username",
+    "copyPassword": "Copy password",
+    "copyNumber": "Copy card number",
+    "copyCvc": "Copy security code",
+    "updatedMeta": "Updated {time} · v{version}",
+    "auditNote": "Revealing or copying a secret is recorded in the vault activity."
   },
   "form": {
-    "newTitle": {
-      "login": "New login",
-      "note": "New secure note",
-      "card": "New card"
-    },
-    "editTitle": "Edit item",
+    "editTitle": "Edit “{title}”",
     "type": "Type",
     "vault": "Vault",
     "title": "Title",
-    "titlePlaceholder": "e.g. GitHub",
-    "titleRequired": "Give the item a title.",
+    "titleRequired": "Enter a title.",
     "url": "Website",
-    "urlPlaceholder": "example.com",
-    "username": "Username or email",
+    "urlPlaceholder": "https://example.com",
+    "username": "Username",
     "password": "Password",
     "generate": "Generate",
-    "totp": "Two-factor secret",
-    "totpHelp": "The setup key or the otpauth:// link a site shows when you turn on two-factor sign-in.",
+    "totp": "2FA code",
+    "totpHelp": "Paste the setup key (base32) or the otpauth:// link from the site.",
     "notes": "Notes",
     "content": "Note",
-    "cardholder": "Name on card",
+    "cardholder": "Cardholder",
     "number": "Card number",
-    "expiry": "Expires (MM/YY)",
+    "expiry": "Expiry",
     "cvc": "Security code",
     "apps": "Android apps",
     "appsHelp": "Package names, one per line (e.g. com.example.app). Your Android phone offers this login in those apps.",
     "appsInvalid": "Not an Android package name: {apps}",
     "noWritableVault": "You can’t add items to any vault.",
-    "saved": "Saved",
+    "saved": "Item saved",
     "created": "Item added",
-    "fromAutofill": "Save the login you just used"
+    "fromAutofill": "Save the login you just used",
+    "addTitle": "Add item",
+    "addDescription": "Choose what to store and where to keep it.",
+    "editDescription": "Saving replaces the item and keeps the earlier version in its history.",
+    "typeLocked": "The type can’t be changed after creating the item.",
+    "sharedVaultHint": "Everyone in this vault will be able to see this item.",
+    "totpPlaceholder": "JBSWY3DPEHPK3PXP · otpauth://totp/…",
+    "expiryPlaceholder": "MM/YY"
   },
   "generator": {
     "title": "Generator",
-    "length": "Length",
-    "shorter": "Shorter",
-    "longer": "Longer",
-    "uppercase": "Capital letters (A–Z)",
-    "digits": "Digits (2–9)",
-    "symbols": "Symbols (!@#…)",
-    "regenerate": "New password",
+    "length": "Length: {count}",
+    "uppercase": "Uppercase",
+    "digits": "Digits",
+    "symbols": "Symbols",
+    "regenerate": "Generate another",
     "copy": "Copy password",
     "use": "Use this password",
     "hint": "Look-alike characters (l, 1, I, O, 0) are left out, so it can be read out or typed from a screen."
   },
   "strength": {
-    "label": "Strength",
     "weak": "Weak",
     "fair": "Fair",
-    "strong": "Strong",
-    "bits": "{bits} bits"
+    "strong": "Strong"
   },
   "health": {
     "title": "Password health",
-    "summary": "{healthy} of {checked} logins are fine",
-    "nothingChecked": "No logins with a password yet.",
-    "allGood": "Every password is fine",
-    "allGoodDescription": "No weak, reused or old passwords in the vaults you can open.",
     "weak": "Weak",
     "reused": "Reused",
-    "old": "Older than a year",
-    "reusedCount": {
-      "one": "Used once more",
-      "other": "Used {count} more times"
+    "old": "Old",
+    "fixHint": "Weakest first. Open a login to change its password.",
+    "reusedOn": {
+      "one": "Reused on {count} logins",
+      "other": "Reused on {count} logins"
     },
-    "fixHint": "Open a login and change its password on the site, then save the new one here."
+    "attentionTitle": "Needs attention",
+    "allHealthy": "All passwords look healthy.",
+    "emptyDescription": "Add logins with a password and they will be checked here."
   },
   "settings": {
     "title": "Settings",

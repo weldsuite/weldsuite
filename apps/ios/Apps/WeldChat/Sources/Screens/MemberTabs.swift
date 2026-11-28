@@ -39,7 +39,7 @@ struct MemberOverviewTab: View {
 
             if let week = MemberScreenRules.schedule(profile.workingHours) {
                 VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
-                    Text(ChatStrings.memberWorkingHours).font(.headline)
+                    Text(ChatStrings.memberWorkingHours).font(.inter(.headline))
                     ForEach(week, id: \.day) { entry in
                         HStack(alignment: .top) {
                             Text(MemberLogic.weekdayLabel(entry.day)).frame(width: 110, alignment: .leading)
@@ -47,19 +47,19 @@ struct MemberOverviewTab: View {
                                 .foregroundStyle(entry.hours?.isOpen == true ? Color.primary : Color.secondary)
                             Spacer(minLength: 0)
                         }
-                        .font(.subheadline)
+                        .font(.inter(.subheadline))
                     }
                 }
             }
 
             if !profile.links.isEmpty {
                 VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
-                    Text(ChatStrings.memberLinks).font(.headline)
+                    Text(ChatStrings.memberLinks).font(.inter(.headline))
                     ForEach(profile.links, id: \.self) { link in
                         Button {
                             if let url = URL(string: link.url) { openURL(url) }
                         } label: {
-                            Label(link.label, systemImage: "link").foregroundStyle(Tokens.Brand.weldchat)
+                            Label(link.label, systemImage: "link").foregroundStyle(Tokens.Palette.primary)
                         }
                         .buttonStyle(.plain)
                     }
@@ -97,7 +97,7 @@ struct MemberOverviewTab: View {
         Button {
             if let url = URL(string: "mailto:\(email)") { openURL(url) }
         } label: {
-            Text(email).foregroundStyle(Tokens.Brand.weldchat).lineLimit(1)
+            Text(email).foregroundStyle(Tokens.Palette.primary).lineLimit(1)
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -115,7 +115,7 @@ struct MemberOverviewTab: View {
             let digits = phone.filter { $0.isNumber || $0 == "+" }
             if let url = URL(string: "tel:\(digits)") { openURL(url) }
         } label: {
-            Text(phone).foregroundStyle(Tokens.Brand.weldchat)
+            Text(phone).foregroundStyle(Tokens.Palette.primary)
         }
         .buttonStyle(.plain)
     }
@@ -180,7 +180,7 @@ struct MemberPropertyRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Tokens.Spacing.m) {
             Label(label, systemImage: symbol)
-                .font(.subheadline)
+                .font(.inter(.subheadline))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .frame(width: 130, alignment: .leading)
@@ -204,7 +204,7 @@ struct MemberPropertyRow: View {
                     Text(ChatStrings.memberSetField(label: label)).foregroundStyle(.tertiary)
                 }
             }
-            .font(.subheadline)
+            .font(.inter(.subheadline))
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .onTapGesture {
@@ -245,13 +245,13 @@ struct MemberNoteView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
-            Text(ChatStrings.memberPrivateNotes).font(.headline)
+            Text(ChatStrings.memberPrivateNotes).font(.inter(.headline))
             if loadFailed {
                 HStack {
-                    Text(ChatStrings.memberNoteLoadFailed).font(.subheadline).foregroundStyle(.secondary)
+                    Text(ChatStrings.memberNoteLoadFailed).font(.inter(.subheadline)).foregroundStyle(.secondary)
                     Spacer()
                     Button(CoreStrings.commonTryAgain) { Task { await load() } }
-                        .font(.subheadline)
+                        .font(.inter(.subheadline))
                 }
             } else {
                 TextField(ChatStrings.memberNotePlaceholder, text: $draft, axis: .vertical)
@@ -259,11 +259,11 @@ struct MemberNoteView: View {
                     .focused($focused)
                     .disabled(!loaded)
                     .padding(Tokens.Spacing.m)
-                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+                    .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
                     .accessibilityIdentifier("member-note")
                 if focused {
                     Text(ChatStrings.memberNoteLength(length: String(draft.count), max: String(MemberScreenRules.noteLimit)))
-                        .font(.caption)
+                        .font(.inter(.caption))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
@@ -397,12 +397,12 @@ struct MemberCommonTab: View {
         if count > 0 {
             VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
                 HStack(spacing: 6) {
-                    Text(title).font(.headline)
+                    Text(title).font(.inter(.headline))
                     Text(verbatim: "\(count)")
-                        .font(.caption.weight(.semibold))
+                        .font(.inter(.caption, weight: .semibold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1)
-                        .background(Color(.secondarySystemBackground), in: Capsule())
+                        .background(Tokens.Palette.muted, in: Capsule())
                 }
                 content()
             }
@@ -412,14 +412,14 @@ struct MemberCommonTab: View {
     private func row(symbol: String, tint: Color, label: String, hint: String?) -> some View {
         HStack(spacing: Tokens.Spacing.m) {
             Image(systemName: symbol)
-                .font(.caption)
+                .font(.inter(.caption))
                 .foregroundStyle(tint)
                 .frame(width: 28, height: 28)
                 .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: Tokens.Radius.small))
             VStack(alignment: .leading, spacing: 1) {
-                Text(label).font(.subheadline).lineLimit(1)
+                Text(label).font(.inter(.subheadline)).lineLimit(1)
                 if let hint, !hint.isEmpty {
-                    Text(hint).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(hint).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             Spacer(minLength: 0)
@@ -471,7 +471,7 @@ struct MemberActivityTab: View {
             ForEach(days) { day in
                 VStack(alignment: .leading, spacing: Tokens.Spacing.m) {
                     Text(MemberScreenRules.dayLabel(day.date))
-                        .font(.footnote.weight(.semibold))
+                        .font(.inter(.footnote, weight: .semibold))
                         .foregroundStyle(.secondary)
                     ForEach(day.events) { event in eventRow(event) }
                 }
@@ -482,27 +482,27 @@ struct MemberActivityTab: View {
     private func eventRow(_ event: MemberLogic.TimelineEvent) -> some View {
         HStack(alignment: .top, spacing: Tokens.Spacing.m) {
             Image(systemName: MemberScreenRules.entitySymbol(event.entityType))
-                .font(.caption2)
+                .font(.inter(.caption2))
                 .foregroundStyle(.secondary)
                 .frame(width: 24, height: 24)
-                .background(Color(.secondarySystemBackground), in: Circle())
+                .background(Tokens.Palette.muted, in: Circle())
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(sentence(event)).font(.subheadline)
+                    Text(sentence(event)).font(.inter(.subheadline))
                     Spacer(minLength: Tokens.Spacing.s)
                     if let date = WeldDate.parse(event.latest.createdAt) {
-                        Text(MemberScreenRules.eventTime(date)).font(.caption).foregroundStyle(.secondary)
+                        Text(MemberScreenRules.eventTime(date)).font(.inter(.caption)).foregroundStyle(.secondary)
                     }
                 }
                 ForEach(MemberScreenRules.cards(event)) { card in
                     HStack(spacing: Tokens.Spacing.s) {
                         Image(systemName: MemberScreenRules.entitySymbol(event.entityType))
-                            .font(.caption)
+                            .font(.inter(.caption))
                             .foregroundStyle(.secondary)
-                        Text(card.title).font(.subheadline).lineLimit(1)
+                        Text(card.title).font(.inter(.subheadline)).lineLimit(1)
                         if let count = MemberScreenRules.cardCount(card) {
                             Text(verbatim: "×\(count)")
-                                .font(.caption2.weight(.semibold))
+                                .font(.inter(.caption2, weight: .semibold))
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1)
                                 .background(Color(.tertiarySystemFill), in: Capsule())
@@ -510,7 +510,7 @@ struct MemberActivityTab: View {
                         Spacer(minLength: 0)
                     }
                     .padding(Tokens.Spacing.s)
-                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: Tokens.Radius.small))
+                    .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: Tokens.Radius.small))
                 }
             }
         }

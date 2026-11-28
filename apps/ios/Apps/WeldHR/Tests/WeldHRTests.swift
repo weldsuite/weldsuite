@@ -255,6 +255,33 @@ final class WeldHRTests: XCTestCase {
         XCTAssertFalse(Swatches.prefersDarkText(0x000000))
     }
 
+    func testPlatformColoursForShiftsLeaveAndScores() {
+        // No client: WeldCalendar's default blue; a client: one of the platform's client colours.
+        XCTAssertEqual(Swatches.shiftColor(nil), Swatches.defaultShift)
+        XCTAssertEqual(Swatches.shiftColor(""), Swatches.defaultShift)
+        XCTAssertNotEqual(Swatches.shiftColor("Acme"), Swatches.defaultShift)
+        // The platform's hash: ("a" = 97) * 31 + ("b" = 98) = 3105, mod 9973.
+        XCTAssertEqual(Swatches.hash("ab"), 3105)
+        XCTAssertEqual(Swatches.dot(nil), Swatches.neutralDot)
+        XCTAssertEqual(Swatches.dot("#0D9488"), 0x0D9488)
+        XCTAssertEqual(Swatches.scoreBand(85), 0)
+        XCTAssertEqual(Swatches.scoreBand(70), 1)
+        XCTAssertEqual(Swatches.scoreBand(55), 2)
+        XCTAssertEqual(Swatches.scoreBand(54.9), 3)
+    }
+
+    func testStatusesTakeThePlatformsBadgeVariant() {
+        XCTAssertEqual(Tone.of("approved"), .primary)
+        XCTAssertEqual(Tone.of("active"), .primary)
+        XCTAssertEqual(Tone.of("pending"), .outline)
+        XCTAssertEqual(Tone.of("ongoing"), .outline)
+        XCTAssertEqual(Tone.of("rejected"), .destructive)
+        XCTAssertEqual(Tone.of("terminated"), .destructive)
+        XCTAssertEqual(Tone.of("cancelled"), .secondary)
+        XCTAssertEqual(Tone.of("paid"), .secondary)
+        XCTAssertEqual(Tone.of("something-new"), .secondary)
+    }
+
     func testClockFixesRoundTheAccuracy() {
         XCTAssertEqual(ClockLocator.toFix(latitude: 52.1, longitude: 4.3, accuracy: 12.6), HRGeoFix(latitude: 52.1, longitude: 4.3, accuracy: 13))
         XCTAssertEqual(ClockLocator.toFix(latitude: 52.1, longitude: 4.3, accuracy: -1), HRGeoFix(latitude: 52.1, longitude: 4.3, accuracy: nil))

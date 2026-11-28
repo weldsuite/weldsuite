@@ -2,8 +2,8 @@ import SwiftUI
 import WeldCore
 import WeldUI
 
-/// What a form is for: a new item of a type (in a vault, when one is chosen
-/// already) or an edit of an existing item.
+/// What a form is for: a new item (of the type it starts on, in a vault when
+/// one is chosen already) or an edit of an existing item.
 enum ItemFormMode: Hashable, Identifiable {
     case new(PassItem.Kind, vaultID: String?)
     case edit(vaultID: String, itemID: String)
@@ -16,27 +16,10 @@ enum ItemFormMode: Hashable, Identifiable {
     }
 }
 
-/// "New item": a login, a secure note or a card.
-struct NewItemMenu: View {
-    let onChoose: (PassItem.Kind) -> Void
-
-    var body: some View {
-        Menu {
-            ForEach([PassItem.Kind.login, .note, .card], id: \.self) { kind in
-                Button(typeLabel(kind)) { onChoose(kind) }
-                    .accessibilityIdentifier("new-\(kind)")
-            }
-        } label: {
-            Image(systemName: "plus")
-        }
-        .accessibilityLabel(PassStrings.itemsAdd)
-        .accessibilityIdentifier("add-item")
-    }
-}
-
-/// The item form, in a sheet. Editing starts with a reveal, which asks for
-/// Face ID and is audited, to fill in the secret fields; saving sends the
-/// whole item.
+/// The item form, in a sheet, as the platform's "Add item" and "Edit"
+/// dialogs: a new item's type is picked in the form. Editing starts with a
+/// reveal, which asks for Face ID and is audited, to fill in the secret
+/// fields; saving sends the whole item.
 struct ItemFormView: View {
     let env: AppEnvironment
     let store: PassStore
@@ -47,18 +30,21 @@ struct ItemFormView: View {
     @State private var values: ItemFormValues?
     @State private var problem: String?
     @State private var saving = false
+    @State private var showErrors = false
 
     var body: some View {
         NavigationStack {
             Group {
                 if let problem {
-                    ContentUnavailableView(problem, systemImage: "exclamationmark.triangle")
+                    EmptyMessage(systemImage: "exclamationmark.triangle", title: problem)
                 } else if values != nil {
                     form
                 } else {
                     ProgressView()
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Tokens.Palette.background)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -76,30 +62,34 @@ struct ItemFormView: View {
         .task { await load() }
     }
 
+    private var editing: Bool {
+        if case .edit = mode { return true }
+        return false
+    }
+
     private var title: String {
         switch mode {
-        case .edit: PassStrings.formEditTitle
-        case .new(.login, _): PassStrings.formNewTitleLogin
-        case .new(.note, _): PassStrings.formNewTitleNote
-        case .new(.card, _): PassStrings.formNewTitleCard
+        case let .edit(_, itemID):
+            PassStrings.formEditTitle(title: store.items.data?.first { $0.id == itemID }?.title ?? "")
+        case .new:
+            PassStrings.formAddTitle
         }
     }
 
     private var writableVaults: [PassVault] {
-        (store.vaults.data ?? []).filter { PassLogic.canEdit($0) }
+        PassLogic.sortVaults((store.vaults.data ?? []).filter { PassLogic.canEdit($0) })
     }
 
     @ViewBuilder private var form: some View {
         if let binding = Binding($values) {
             ItemFormFields(
                 values: binding,
-                vaults: { if case .new = mode { return writableVaults } else { return [] } }(),
+                editing: editing,
+                vaults: editing ? [] : writableVaults,
                 showErrors: showErrors
             )
         }
     }
-
-    @State private var showErrors = false
 
     private func load() async {
         guard values == nil else { return }
@@ -150,142 +140,230 @@ struct ItemFormView: View {
     }
 }
 
-/// The fields of the item form, per type.
+/// The fields of the item form, per type, in the platform's order and with
+/// its labels.
 private struct ItemFormFields: View {
     @Binding var values: ItemFormValues
+    let editing: Bool
     let vaults: [PassVault]
     let showErrors: Bool
 
     @State private var showPassword = false
+    @State private var generating = false
     @State private var appsText = ""
 
     var body: some View {
-        Form {
-            if vaults.count > 1 {
-                Picker(PassStrings.formVault, selection: $values.vaultID) {
-                    ForEach(vaults) { vault in Text(vaultLabel(vault)).tag(vault.id) }
+        ScrollView {
+            VStack(alignment: .leading, spacing: Tokens.Spacing.l) {
+                Text(editing ? PassStrings.formEditDescription : PassStrings.formAddDescription)
+                    .font(.inter(.subheadline))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
+
+                if editing {
+                    // The type is fixed once the item exists.
+                    HStack(spacing: Tokens.Spacing.s) {
+                        NeutralBadge(typeLabel(values.kind))
+                        Text(PassStrings.formTypeLocked)
+                            .font(.inter(.caption))
+                            .foregroundStyle(Tokens.Palette.mutedForeground)
+                    }
+                } else {
+                    LabeledField(label: PassStrings.formType) {
+                        TypePicker(selection: $values.kind)
+                    }
+                }
+
+                if !editing, !vaults.isEmpty {
+                    let selected = vaults.first { $0.id == values.vaultID }
+                    LabeledField(
+                        label: PassStrings.formVault,
+                        hint: selected?.kind == .shared ? PassStrings.formSharedVaultHint : nil
+                    ) {
+                        VaultSelect(vaults: vaults, selection: $values.vaultID)
+                    }
+                }
+
+                LabeledField(label: PassStrings.formTitle, error: titleMissing ? PassStrings.formTitleRequired : nil) {
+                    PlatformTextField(text: $values.title, isError: titleMissing)
+                        .accessibilityIdentifier("form-title")
+                }
+
+                switch values.kind {
+                case .login: loginFields
+                case .note:
+                    LabeledField(label: PassStrings.formContent) {
+                        PlatformTextField(text: $values.content, lines: 8)
+                            .accessibilityIdentifier("form-content")
+                    }
+                case .card: cardFields
                 }
             }
-            Section {
-                TextField(PassStrings.formTitle, text: $values.title, prompt: Text(PassStrings.formTitlePlaceholder))
-                    .accessibilityIdentifier("form-title")
-                if showErrors, values.title.trimmingCharacters(in: .whitespaces).isEmpty {
-                    Text(PassStrings.formTitleRequired).font(.footnote).foregroundStyle(.red)
-                }
-            } header: {
-                Text(PassStrings.formTitle)
-            }
-            switch values.kind {
-            case .note:
-                Section(PassStrings.formContent) {
-                    TextEditor(text: $values.content)
-                        .frame(minHeight: 160)
-                        .accessibilityIdentifier("form-content")
-                }
-            case .card:
-                Section {
-                    TextField(PassStrings.formCardholder, text: $values.cardholder)
-                        .textContentType(.creditCardName)
-                    TextField(PassStrings.formNumber, text: $values.number)
-                        .keyboardType(.numberPad)
-                        .textContentType(.creditCardNumber)
-                    TextField(PassStrings.formExpiry, text: $values.expiry)
-                    TextField(PassStrings.formCvc, text: $values.cvc)
-                        .keyboardType(.numberPad)
-                }
-                Section(PassStrings.formNotes) {
-                    TextEditor(text: $values.notes).frame(minHeight: 80)
-                }
-            case .login:
-                loginFields
-            }
+            .padding(Tokens.Spacing.l)
         }
+        .scrollDismissesKeyboard(.interactively)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
         .onAppear { appsText = values.apps.joined(separator: "\n") }
         .onChange(of: appsText) { _, text in values.apps = PassForms.parseAppList(text) }
     }
 
+    private var titleMissing: Bool {
+        showErrors && values.title.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     @ViewBuilder private var loginFields: some View {
-        Section {
-            TextField(PassStrings.formUrl, text: $values.url, prompt: Text(PassStrings.formUrlPlaceholder))
+        LabeledField(label: PassStrings.formUrl) {
+            PlatformTextField(text: $values.url, placeholder: PassStrings.formUrlPlaceholder)
                 .keyboardType(.URL)
                 .accessibilityIdentifier("form-url")
-            TextField(PassStrings.formUsername, text: $values.username)
+        }
+        LabeledField(label: PassStrings.formUsername) {
+            PlatformTextField(text: $values.username)
                 .textContentType(.username)
                 .accessibilityIdentifier("form-username")
-            HStack {
-                Group {
-                    if showPassword {
-                        TextField(PassStrings.formPassword, text: $values.password)
-                    } else {
-                        SecureField(PassStrings.formPassword, text: $values.password)
-                    }
-                }
-                .font(.body.monospaced())
-                .accessibilityIdentifier("form-password")
+        }
+        LabeledField(label: PassStrings.formPassword) {
+            HStack(spacing: Tokens.Spacing.s) {
+                PlatformTextField(text: $values.password, secure: !showPassword, monospaced: true)
+                    .accessibilityIdentifier("form-password")
                 Button {
                     showPassword.toggle()
                 } label: {
-                    Image(systemName: showPassword ? "eye.slash" : "eye")
+                    Image(systemName: showPassword ? "eye.slash" : "eye").font(.system(size: 14))
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.platformOutline)
                 .accessibilityLabel(showPassword ? PassStrings.itemHide : PassStrings.itemShow)
+                .accessibilityIdentifier("form-password-toggle")
+                Button {
+                    generating.toggle()
+                } label: {
+                    Label(PassStrings.formGenerate, systemImage: "wand.and.stars")
+                }
+                .buttonStyle(.platformOutline)
+                .accessibilityIdentifier("form-generate")
             }
             StrengthMeter(password: values.password)
-            Button {
-                values.password = PassForms.generatePassword()
-                showPassword = true
-            } label: {
-                Label(PassStrings.formGenerate, systemImage: "wand.and.stars")
+        }
+        if generating {
+            GeneratorPanel(
+                onUse: { generated in
+                    values.password = generated
+                    showPassword = true
+                    generating = false
+                },
+                onCancel: { generating = false }
+            )
+        }
+        LabeledField(label: PassStrings.formTotp, hint: PassStrings.formTotpHelp) {
+            PlatformTextField(text: $values.totp, placeholder: PassStrings.formTotpPlaceholder, secure: true, monospaced: true)
+                .accessibilityIdentifier("form-totp")
+        }
+        notesField
+        LabeledField(label: PassStrings.formApps, hint: PassStrings.formAppsHelp, error: appsError) {
+            PlatformTextField(text: $appsText, lines: 2, isError: appsError != nil)
+                .accessibilityIdentifier("form-apps")
+        }
+    }
+
+    @ViewBuilder private var cardFields: some View {
+        LabeledField(label: PassStrings.formCardholder) {
+            PlatformTextField(text: $values.cardholder)
+                .textContentType(.creditCardName)
+        }
+        LabeledField(label: PassStrings.formNumber) {
+            PlatformTextField(text: $values.number, monospaced: true)
+                .keyboardType(.numberPad)
+                .textContentType(.creditCardNumber)
+        }
+        HStack(alignment: .top, spacing: Tokens.Spacing.m) {
+            LabeledField(label: PassStrings.formExpiry) {
+                PlatformTextField(text: $values.expiry, placeholder: PassStrings.formExpiryPlaceholder, monospaced: true)
             }
-            .accessibilityIdentifier("form-generate")
+            LabeledField(label: PassStrings.formCvc) {
+                PlatformTextField(text: $values.cvc, monospaced: true)
+                    .keyboardType(.numberPad)
+            }
         }
-        Section {
-            SecureField(PassStrings.formTotp, text: $values.totp)
-        } footer: {
-            Text(PassStrings.formTotpHelp)
+        notesField
+    }
+
+    private var notesField: some View {
+        LabeledField(label: PassStrings.formNotes) {
+            PlatformTextField(text: $values.notes, lines: 3)
+                .accessibilityIdentifier("form-notes")
         }
-        Section(PassStrings.formNotes) {
-            TextEditor(text: $values.notes).frame(minHeight: 80)
-        }
-        Section {
-            TextEditor(text: $appsText).frame(minHeight: 60)
-        } header: {
-            Text(PassStrings.formApps)
-        } footer: {
-            let wrong = PassForms.invalidApps(values.apps)
-            if showErrors, !wrong.isEmpty {
-                Text(PassStrings.formAppsInvalid(apps: wrong.joined(separator: ", "))).foregroundStyle(.red)
-            } else {
-                Text(PassStrings.formAppsHelp)
+    }
+
+    private var appsError: String? {
+        let wrong = PassForms.invalidApps(values.apps)
+        guard showErrors, !wrong.isEmpty else { return nil }
+        return PassStrings.formAppsInvalid(apps: wrong.joined(separator: ", "))
+    }
+}
+
+/// Login, secure note or card, as the platform's three bordered choices: the
+/// chosen one outlined in the primary colour on a light wash of it.
+private struct TypePicker: View {
+    @Binding var selection: PassItem.Kind
+
+    var body: some View {
+        HStack(spacing: Tokens.Spacing.s) {
+            ForEach([PassItem.Kind.login, .note, .card], id: \.self) { kind in
+                let chosen = kind == selection
+                Button {
+                    selection = kind
+                } label: {
+                    VStack(spacing: Tokens.Spacing.xs) {
+                        Image(systemName: typeSymbol(kind)).font(.system(size: 15))
+                        Text(typeLabel(kind))
+                            .font(.inter(.subheadline, weight: chosen ? .medium : .regular))
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                    }
+                    .foregroundStyle(chosen ? Tokens.Palette.foreground : Tokens.Palette.mutedForeground)
+                    .padding(.horizontal, Tokens.Spacing.xs)
+                    .padding(.vertical, Tokens.Spacing.s)
+                    .frame(maxWidth: .infinity, minHeight: 56)
+                    .background(
+                        chosen ? Tokens.Palette.primary.opacity(0.05) : Tokens.Palette.background,
+                        in: RoundedRectangle(cornerRadius: Tokens.Radius.medium)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Tokens.Radius.medium)
+                            .stroke(chosen ? Tokens.Palette.primary : Tokens.Palette.border, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(chosen ? .isSelected : [])
+                .accessibilityIdentifier("new-\(kind)")
             }
         }
     }
 }
 
-/// How strong a password is: a bar and a word, the platform's thresholds.
-struct StrengthMeter: View {
-    let password: String
+/// The vault to add to, as the platform's select: the chosen vault and a chevron, opening a menu.
+private struct VaultSelect: View {
+    let vaults: [PassVault]
+    @Binding var selection: String
 
     var body: some View {
-        if !password.isEmpty {
-            let strength = PassForms.strength(password)
-            let bits = Int(PassForms.entropyBits(password))
-            let (color, label, fraction): (Color, String, Double) = switch strength {
-            case .weak: (Tokens.Status.danger, PassStrings.strengthWeak, 0.33)
-            case .fair: (Tokens.Status.warning, PassStrings.strengthFair, 0.66)
-            case .strong: (Tokens.Status.success, PassStrings.strengthStrong, 1)
+        Menu {
+            ForEach(vaults) { vault in
+                Button(vaultLabel(vault)) { selection = vault.id }
             }
-            VStack(alignment: .leading, spacing: 4) {
-                ProgressView(value: fraction).tint(color)
-                HStack {
-                    Text("\(PassStrings.strengthLabel): \(label)").foregroundStyle(color)
-                    Spacer()
-                    Text(PassStrings.strengthBits(bits: bits)).foregroundStyle(.secondary)
-                }
-                .font(.caption)
+        } label: {
+            HStack {
+                Text(vaults.first { $0.id == selection }.map(vaultLabel) ?? "")
+                    .font(.inter(.subheadline))
+                    .foregroundStyle(Tokens.Palette.foreground)
+                    .lineLimit(1)
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
             }
+            .modifier(InputBox())
         }
+        .accessibilityIdentifier("form-vault")
     }
 }

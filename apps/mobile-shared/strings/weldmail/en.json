@@ -37,7 +37,7 @@
   },
   "drawer": {
     "title": "Mailboxes",
-    "allInboxes": "All inboxes",
+    "allInboxes": "All accounts",
     "accounts": {
       "one": "{count} account",
       "other": "{count} accounts"
@@ -50,7 +50,8 @@
     "addAccount": "Add account",
     "otherWorkspaces": "In other workspaces",
     "inWorkspace": "In {workspace}",
-    "noLabels": "No labels yet"
+    "noLabels": "No labels yet",
+    "addLabel": "Add label"
   },
   "inbox": {
     "searchMail": "Search mail",
@@ -61,8 +62,14 @@
     "filterStarred": "Starred",
     "filterAttachments": "Attachments",
     "pinned": "Pinned",
-    "thisWeek": "This week",
-    "older": "Older",
+    "lastWeek": "Last week",
+    "weeksAgo": {
+      "one": "{count} week ago",
+      "other": "{count} weeks ago"
+    },
+    "toPrefix": "To:",
+    "noRecipient": "No recipient",
+    "isImportant": "Important",
     "unreadInThread": {
       "one": "{count} unread",
       "other": "{count} unread"
@@ -122,13 +129,12 @@
   "message": {
     "to": "to {recipients}",
     "toMe": "to me",
-    "from": "From",
-    "toLabel": "To",
-    "cc": "Cc",
-    "date": "Date",
-    "encryption": "Standard encryption (TLS)",
     "showDetails": "Show details",
     "hideDetails": "Hide details",
+    "recipients": {
+      "one": "Recipients ({count})",
+      "other": "Recipients ({count})"
+    },
     "attachments": {
       "one": "{count} attachment",
       "other": "{count} attachments"
@@ -144,15 +150,14 @@
     "archive": "Archive",
     "snooze": "Snooze",
     "labels": "Labels",
+    "labelAs": "Label as",
     "more": "More",
     "markUnread": "Mark as unread",
     "delete": "Delete",
     "markSpam": "Mark as spam",
-    "reportPhishing": "Report phishing",
-    "reportedTitle": "Reported",
-    "reportedMessage": "This message has been reported as phishing.",
     "archiveAndNext": "Archive and open the next email",
     "next": "Open the next email",
+    "markDone": "Mark as done",
     "notFound": "Email not found",
     "loadFailed": "Couldn’t load this email",
     "conversation": {
@@ -190,7 +195,6 @@
     "nextMonday": "Next Monday"
   },
   "sendLater": {
-    "sendLaterTitle": "Send later",
     "scheduleTitle": "Schedule send",
     "inOneHour": "In 1 hour",
     "inTwoHours": "In 2 hours",
@@ -243,9 +247,7 @@
     "cc": "Cc",
     "bcc": "Bcc",
     "subject": "Subject",
-    "bodyPlaceholder": "Compose email",
-    "showCcBcc": "Show Cc and Bcc",
-    "hideCcBcc": "Hide Cc and Bcc",
+    "bodyPlaceholder": "Write your message…",
     "removeRecipient": "Remove {email}",
     "recipientRequired": "Add at least one recipient",
     "sendWithoutBodyTitle": "Send without text?",
@@ -281,13 +283,14 @@
     "bulletList": "Bulleted list",
     "numberedList": "Numbered list",
     "schedule": "Schedule send",
-    "sendLater": "Send later",
     "ai": "Write with AI",
     "aiUnavailable": "AI is currently unavailable",
     "queued": "You’re offline. The email goes out when you’re back online.",
     "sent": "Email sent",
     "scheduled": "Email scheduled for {time}",
-    "sending": "Sending…"
+    "sending": "Sending…",
+    "formatting": "Formatting",
+    "scheduleFor": "Schedule · {time}"
   },
   "sendError": {
     "hourlyTitle": "Hourly limit reached",

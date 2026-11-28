@@ -454,7 +454,11 @@ final class HRStore {
                 openTasks: data.openTasks,
                 toAcknowledge: data.toAcknowledge.coaching + data.toAcknowledge.evaluations,
                 openShifts: data.openShifts,
-                unreadAnnouncements: data.unreadAnnouncements
+                unreadAnnouncements: data.unreadAnnouncements,
+                latestEvaluation: data.latestEvaluation.map {
+                    HREvaluationSummary(overallScore: $0.value1.overallScore, formName: $0.value1.formName, submittedAt: $0.value1.submittedAt)
+                },
+                milestones: data.milestones.map { HRMilestoneCount(achieved: $0.achieved, open: $0.open) }
             )
         case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }

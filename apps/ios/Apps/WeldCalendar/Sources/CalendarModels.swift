@@ -63,7 +63,7 @@ struct CalendarInfo: Identifiable, Equatable, Hashable {
     let id: String
     let name: String
     let description: String?
-    /// `#RRGGBB`, or nil for the brand colour.
+    /// `#RRGGBB`, or nil for the platform's default blue.
     let color: String?
     let isDefault: Bool
     /// False for a calendar shared with the person.
@@ -118,6 +118,8 @@ struct CalendarEvent: Identifiable, Equatable {
     let sourceType: String?
     let autoScheduled: Bool
     let notes: String?
+    /// When it was made; the detail's "Created".
+    var createdAt: Date? = nil
 
     var isTask: Bool { sourceType == "task" }
     var isCancelled: Bool { status == .cancelled }

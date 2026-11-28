@@ -177,6 +177,7 @@ class CalendarRepository(private val env: AppEnvironment, context: Context) {
                 sourceType = event.sourceType,
                 autoScheduled = event.autoScheduled == true,
                 notes = event.notes?.takeIf { it.isNotBlank() },
+                createdAt = WeldDate.parse(event.createdAt),
             )
         }
 

@@ -114,21 +114,21 @@ struct ContentView: View {
             }
             if tabs.absence {
                 stack(.absence) { AbsenceView() }
-                    .tabItem { Label(HRStrings.tabsAbsence, systemImage: "calendar.badge.minus") }
+                    .tabItem { Label(HRStrings.tabsAbsence, systemImage: "beach.umbrella") }
                     .tag(HRTab.absence)
                     .badge(access.approveLeave ? store.pendingLeave.data?.count ?? 0 : 0)
                     .accessibilityIdentifier("tab-absence")
             }
             if tabs.expenses {
                 stack(.expenses) { ExpensesView() }
-                    .tabItem { Label(HRStrings.tabsExpenses, systemImage: "receipt") }
+                    .tabItem { Label(HRStrings.tabsExpenses, systemImage: "wallet.bifold") }
                     .tag(HRTab.expenses)
                     .badge(access.approveExpenses ? store.pendingExpenses.data?.count ?? 0 : 0)
                     .accessibilityIdentifier("tab-expenses")
             }
             if tabs.announcements {
                 stack(.announcements) { AnnouncementsView() }
-                    .tabItem { Label(HRStrings.tabsNews, systemImage: "megaphone") }
+                    .tabItem { Label(HRStrings.tabsNews, systemImage: "newspaper") }
                     .tag(HRTab.announcements)
                     .badge(ready ? store.announcements.data?.unread ?? 0 : 0)
                     .accessibilityIdentifier("tab-announcements")

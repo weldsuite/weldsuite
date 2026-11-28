@@ -292,12 +292,37 @@ final class BooksStore {
 
     // MARK: - Dashboard and reports
 
+    /// The dashboard's figures, plus the approved bills (first page) whose due
+    /// date falls in the week: the platform's "Due this week" where the server
+    /// has no to-process list.
     func dashboard() async throws -> Dashboard {
         try await call {
             async let figures = dashboardFigures()
-            async let recent = invoices(page: 1, pageSize: 5, search: nil, status: nil)
+            async let approved = try? bills(page: 1, pageSize: 50, search: nil, status: "approved")
             let data = try await figures
-            let page = try await recent
+            let approvedBills = await approved?.items ?? []
+            let accounts = data.bankAccounts
+            // The ledger balance when the server has it; else the bank accounts in the base currency.
+            let cash: Decimal
+            if let balance = data.cashBalance {
+                cash = Amounts.of(balance)
+            } else {
+                cash = accounts
+                    .filter { $0.currency == nil || $0.currency == data.currency }
+                    .reduce(Decimal(0)) { $0 + Amounts.of($1.currentBalance) }
+            }
+            let invoicesDue = (data.upcomingDue ?? []).map { row in
+                DueItem(
+                    kind: "invoice", id: row.id, number: row.invoiceNumber, contactName: row.contactName,
+                    dueDate: row.dueDate, amount: Amounts.of(row.balanceDue), currency: data.currency
+                )
+            }
+            let billsDue = approvedBills.filter { $0.balanceDue > 0 }.map { bill in
+                DueItem(
+                    kind: "bill", id: bill.id, number: bill.number, contactName: bill.contactName,
+                    dueDate: bill.dueDate, amount: bill.balanceDue, currency: bill.currency
+                )
+            }
             return Dashboard(
                 currency: data.currency,
                 outstanding: Amounts.of(data.receivables.outstanding),
@@ -307,7 +332,24 @@ final class BooksStore {
                 payables: Amounts.of(data.payables.outstanding),
                 payablesCount: data.payables.outstandingCount,
                 profitMonth: Amounts.of(data.profit.month),
-                recentInvoices: page.items
+                cashBalance: cash,
+                bankAccountCount: accounts.count,
+                pendingDocuments: data.pendingDocuments,
+                dueThisWeek: DashboardSeries.dueThisWeek(invoicesDue + billsDue),
+                recentPayments: (data.recentPayments ?? []).map { row in
+                    RecentPayment(
+                        id: row.id, type: row._type, date: row.date, amount: Amounts.of(row.amount), currency: row.currency,
+                        method: row.paymentMethod, reference: row.reference, invoiceId: row.invoiceId, billId: row.billId
+                    )
+                },
+                trend: (data.monthlyTrend ?? []).map { row in
+                    TrendMonth(
+                        month: row.month,
+                        revenue: row.revenue.map { Amounts.of($0) },
+                        expenses: row.expenses.map { Amounts.of($0) },
+                        profit: row.profit.map { Amounts.of($0) }
+                    )
+                }
             )
         }
     }
@@ -1274,7 +1316,8 @@ final class BooksStore {
             description: row.description?.nilIfBlank,
             amount: Amounts.of(row.amount),
             status: row.status,
-            counterpartyName: row.counterpartyName?.nilIfBlank
+            counterpartyName: row.counterpartyName?.nilIfBlank,
+            reference: row.reference?.nilIfBlank
         )
     }
 

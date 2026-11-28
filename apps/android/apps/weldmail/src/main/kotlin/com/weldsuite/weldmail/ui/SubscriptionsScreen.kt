@@ -16,7 +16,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Unsubscribe
-import androidx.compose.material3.Button
+import org.weldsuite.ui.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -24,7 +24,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import org.weldsuite.ui.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -247,7 +247,7 @@ private fun SubscriptionRow(item: MailSubscription, onUnsubscribe: () -> Unit) {
         Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.m).tagged("subscription-row"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SenderAvatar(item.senderLabel)
+        MailAvatar(item.senderLabel, size = 36.dp)
         Column(Modifier.weight(1f).padding(horizontal = Tokens.Spacing.m)) {
             Text(item.senderLabel, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             item.lastSubject?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }

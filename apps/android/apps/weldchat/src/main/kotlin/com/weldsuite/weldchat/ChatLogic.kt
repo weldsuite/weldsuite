@@ -62,19 +62,27 @@ object ChatLogic {
     data class ChannelGroup(val id: String, val name: String, val channels: List<ChatChannel>)
 
     /**
-     * Regular channels by section, the unsectioned ones in a "Channels" group
-     * (unless a section is called that). Sections keep their order.
+     * Regular channels by section, as the platform's sidebar: the sections
+     * in their order, then the default group with the unsectioned ones. The
+     * default group is always there while there are no sections (so a new
+     * workspace still sees "Channels" and its "Add channel"), and whenever a
+     * channel has no section (or one that is gone); it is called
+     * [otherName] when a section already has the name "Channels".
      */
-    fun groupSections(channels: List<ChatChannel>, sections: List<ChatSection>, defaultName: String): List<ChannelGroup> {
+    fun groupSections(channels: List<ChatChannel>, sections: List<ChatSection>, defaultName: String, otherName: String = defaultName): List<ChannelGroup> {
         val groups = sections.map { section -> ChannelGroup(section.id, section.name, channels.filter { it.sectionId == section.id }) }.toMutableList()
         val known = sections.map { it.id }.toSet()
         val unsectioned = channels.filter { it.sectionId == null || it.sectionId !in known }
-        if (unsectioned.isNotEmpty() && sections.none { it.name == "Channels" }) {
-            groups.add(ChannelGroup(UNSECTIONED_ID, defaultName, unsectioned))
+        if (sections.isEmpty() || unsectioned.isNotEmpty()) {
+            val name = if (sections.any { it.name == "Channels" }) otherName else defaultName
+            groups.add(ChannelGroup(UNSECTIONED_ID, name, unsectioned))
         }
         return groups
     }
 
+    /** Whether [content] mentions [userId], by name or with @everyone (the platform's highlight). */
+    fun mentionsUser(content: String, userId: String): Boolean =
+        userId.isNotEmpty() && ("<@$userId>" in content || "<@$userId:" in content || "<@everyone>" in content)
     /** "12 items", or "50+ items" at the cap; null while unknown. */
     fun countLabel(count: Int?, cap: Int? = null): UiText? {
         count ?: return null
@@ -142,6 +150,26 @@ object ChatLogic {
 
     /** Activity lists WeldChat's notifications only. */
     fun isChatNotification(category: String, type: String): Boolean = category == "weldchat" || type.startsWith("chat_")
+
+    /** What the Activity tab lists and its badge counts: the server's chat activity feed (`/chat-activity`). */
+    val ACTIVITY_TYPES = listOf("chat_mention", "chat_thread_reply", "chat_missed_call")
+
+    /** Whether a notification belongs on Activity: a mention, a reply in your thread or a missed call (a DM's message shows in the DM). */
+    fun isActivityItem(category: String, type: String): Boolean = category == "weldchat" && type in ACTIVITY_TYPES
+
+    /** Activity's groups, in the platform's order. */
+    enum class ActivityCategory { MENTIONS, REPLIES, CALLS, OTHER }
+
+    /** Which group an activity item goes in (the platform's `activityCategory`). */
+    fun activityCategory(type: String): ActivityCategory {
+        val lower = type.lowercase()
+        return when {
+            "mention" in lower -> ActivityCategory.MENTIONS
+            "reply" in lower || "thread" in lower -> ActivityCategory.REPLIES
+            "call" in lower -> ActivityCategory.CALLS
+            else -> ActivityCategory.OTHER
+        }
+    }
 
     data class ConversationRef(val channelId: String, val isDm: Boolean)
 
@@ -537,6 +565,10 @@ object ChatDates {
     /** A message's time of day. */
     fun time(instant: Instant?, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault()): String =
         instant?.atZone(zone)?.format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale)).orEmpty()
+
+    /** When a thread's last reply came in, after its count: the time today, else the day ("21:45", "20 Nov"). */
+    fun lastReply(instant: Instant, now: Instant = Instant.now(), zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault()): String =
+        if (sameDay(instant, now, zone)) time(instant, zone, locale) else instant.atZone(zone).format(DateTimeFormatter.ofPattern("d MMM", locale))
 
     /** Whether two instants fall on the same day on the phone's calendar. */
     fun sameDay(a: Instant, b: Instant, zone: ZoneId = ZoneId.systemDefault()): Boolean =

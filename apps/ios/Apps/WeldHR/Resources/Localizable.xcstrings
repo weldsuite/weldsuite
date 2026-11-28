@@ -92,13 +92,64 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Time off balances"
+            "value": "Leave balances"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
             "value": "Verlofsaldo"
+          }
+        }
+      }
+    },
+    "absence.groups.approved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approved"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Goedgekeurd"
+          }
+        }
+      }
+    },
+    "absence.groups.pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pending"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In behandeling"
+          }
+        }
+      }
+    },
+    "absence.groups.rejectedCancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejected & cancelled"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afgewezen & geannuleerd"
           }
         }
       }
@@ -817,6 +868,23 @@
         }
       }
     },
+    "announcements.new": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieuw"
+          }
+        }
+      }
+    },
     "announcements.notFound": {
       "extractionState": "manual",
       "localizations": {
@@ -1038,6 +1106,23 @@
         }
       }
     },
+    "balance.allowance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allowance %@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tegoed %@"
+          }
+        }
+      }
+    },
     "balance.days": {
       "extractionState": "manual",
       "localizations": {
@@ -1130,6 +1215,23 @@
         }
       }
     },
+    "balance.pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pending %@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In aanvraag %@"
+          }
+        }
+      }
+    },
     "balance.prorated": {
       "extractionState": "manual",
       "localizations": {
@@ -1153,13 +1255,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No limit"
+            "value": "Unlimited"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Geen limiet"
+            "value": "Onbeperkt"
+          }
+        }
+      }
+    },
+    "balance.used": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used %@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opgenomen %@"
           }
         }
       }
@@ -1601,7 +1720,7 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingetrokken"
+            "value": "Geannuleerd"
           }
         }
       }
@@ -1629,13 +1748,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Awaiting approval"
+            "value": "Pending"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wacht op goedkeuring"
+            "value": "In afwachting"
           }
         }
       }
@@ -1646,7 +1765,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Declined"
+            "value": "Rejected"
           }
         },
         "nl": {
@@ -1884,13 +2003,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Leaving"
+            "value": "Offboarding"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vertrekt"
+            "value": "Uitdiensttreding"
           }
         }
       }
@@ -2394,13 +2513,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Awaiting approval"
+            "value": "Awaiting a decision"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wacht op goedkeuring"
+            "value": "Wacht op een beslissing"
           }
         }
       }
@@ -2469,6 +2588,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Declaraties"
+          }
+        }
+      }
+    },
+    "expenses.groups.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overig"
+          }
+        }
+      }
+    },
+    "expenses.groups.paid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paid"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uitbetaald"
+          }
+        }
+      }
+    },
+    "expenses.groups.rejectedCancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejected & cancelled"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afgewezen en geannuleerd"
           }
         }
       }
@@ -2626,6 +2796,23 @@
         }
       }
     },
+    "expenses.reviewGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To review"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te beoordelen"
+          }
+        }
+      }
+    },
     "expenses.search": {
       "extractionState": "manual",
       "localizations": {
@@ -2683,7 +2870,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approved, to be paid"
+            "value": "Approved, to be paid out"
           }
         },
         "nl": {
@@ -2813,6 +3000,23 @@
         }
       }
     },
+    "home.evaluation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evaluation"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beoordeling"
+          }
+        }
+      }
+    },
     "home.imBetter": {
       "extractionState": "manual",
       "localizations": {
@@ -2847,6 +3051,57 @@
         }
       }
     },
+    "home.milestones": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Milestones"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mijlpalen"
+          }
+        }
+      }
+    },
+    "home.milestonesOpen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ still open"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nog open"
+          }
+        }
+      }
+    },
+    "home.milestonesValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ of %2$@ achieved"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ van %2$@ behaald"
+          }
+        }
+      }
+    },
     "home.myAbsences": {
       "extractionState": "manual",
       "localizations": {
@@ -2870,13 +3125,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "My schedule"
+            "value": "Upcoming shifts"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mijn rooster"
+            "value": "Komende diensten"
           }
         }
       }
@@ -2932,6 +3187,23 @@
         }
       }
     },
+    "home.noEvaluation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No evaluation yet"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nog geen beoordeling"
+          }
+        }
+      }
+    },
     "home.noOtherShifts": {
       "extractionState": "manual",
       "localizations": {
@@ -2972,13 +3244,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No shifts planned"
+            "value": "No upcoming shifts"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Geen diensten gepland"
+            "value": "Geen komende diensten"
+          }
+        }
+      }
+    },
+    "home.nothingToConfirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing to confirm"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niets te bevestigen"
           }
         }
       }
@@ -3061,6 +3350,23 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "home.openTasksLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open tasks"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Openstaande taken"
           }
         }
       }
@@ -3289,6 +3595,23 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "home.toConfirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To confirm"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te bevestigen"
           }
         }
       }
@@ -3931,7 +4254,7 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "In behandeling"
+            "value": "In afwachting"
           }
         }
       }
@@ -3942,7 +4265,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Declined"
+            "value": "Rejected"
           }
         },
         "nl": {
@@ -4055,6 +4378,23 @@
         }
       }
     },
+    "me.email": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Email"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "E-mail"
+          }
+        }
+      }
+    },
     "me.employeeNumberLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -4072,6 +4412,23 @@
         }
       }
     },
+    "me.location": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Location"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locatie"
+          }
+        }
+      }
+    },
     "me.manager": {
       "extractionState": "manual",
       "localizations": {
@@ -4085,6 +4442,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Leidinggevende"
+          }
+        }
+      }
+    },
+    "me.myHr": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My HR"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mijn HR"
+          }
+        }
+      }
+    },
+    "me.phone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telefoon"
           }
         }
       }
@@ -6244,13 +6635,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Waiting for approval"
+            "value": "Pending"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wacht op goedkeuring"
+            "value": "In afwachting"
           }
         }
       }
@@ -6986,6 +7377,23 @@
         }
       }
     },
+    "tasks.progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ of %2$@ done"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ van %2$@ gedaan"
+          }
+        }
+      }
+    },
     "tasks.roles.employee": {
       "extractionState": "manual",
       "localizations": {
@@ -7067,6 +7475,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "iemand anders"
+          }
+        }
+      }
+    },
+    "tasks.state.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klaar"
+          }
+        }
+      }
+    },
+    "tasks.state.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To do"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te doen"
+          }
+        }
+      }
+    },
+    "tasks.state.overdue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overdue"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te laat"
           }
         }
       }
@@ -7162,7 +7621,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Decline"
+            "value": "Reject"
           }
         },
         "nl": {
@@ -7179,7 +7638,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Decline"
+            "value": "Reject"
           }
         },
         "nl": {
@@ -7230,7 +7689,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Decline request"
+            "value": "Reject request"
           }
         },
         "nl": {
@@ -7247,7 +7706,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Declined"
+            "value": "Rejected"
           }
         },
         "nl": {

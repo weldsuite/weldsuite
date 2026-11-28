@@ -16,6 +16,8 @@ struct PassVault: Identifiable, Equatable {
     let role: Role?
     let itemCount: Int?
     let memberCount: Int?
+    /// What the vault is for, shown under its name.
+    var description: String? = nil
 }
 
 /// What a list shows of an item. Nothing here is secret.
@@ -32,6 +34,8 @@ struct PassItem: Identifiable, Equatable {
     let host: String?
     let hasTotp: Bool
     let updatedAt: String
+    /// Goes up with every save; the item screen shows it ("v3").
+    var version: Int = 1
 }
 
 /// An item's secret fields, once revealed.
@@ -51,6 +55,8 @@ struct PassFields: Equatable {
 struct PassTotp: Equatable {
     let code: String
     let expiresAt: String
+    /// How long a code lasts, in seconds, for the countdown bar.
+    var period: Int = 30
 }
 
 /// A login with something to fix, from the password health report.
@@ -179,7 +185,7 @@ final class PassStore {
             switch try await client().generateTotp(path: .init(vaultId: vaultID, itemId: itemID)) {
             case let .ok(ok):
                 let code = try ok.body.json.data
-                return PassTotp(code: code.code, expiresAt: code.expiresAt)
+                return PassTotp(code: code.code, expiresAt: code.expiresAt, period: code.period)
             case let .default(status, response):
                 throw APIError(status: status, code: try? response.body.json.error.code)
             }
@@ -308,7 +314,8 @@ final class PassStore {
             url: item.url,
             host: item.host,
             hasTotp: item.hasTotp,
-            updatedAt: item.updatedAt
+            updatedAt: item.updatedAt,
+            version: item.version
         )
     }
 
@@ -343,7 +350,8 @@ final class PassStore {
                 }
             },
             itemCount: vault.itemCount,
-            memberCount: vault.memberCount
+            memberCount: vault.memberCount,
+            description: vault.description
         )
     }
 

@@ -75,13 +75,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat"
+            "value": "Messenger"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat"
+            "value": "Messenger"
           }
         }
       }
@@ -132,7 +132,7 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sms"
+            "value": "SMS"
           }
         }
       }
@@ -154,19 +154,19 @@
         }
       }
     },
-    "common.dash": {
+    "conversation.addNote": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "—"
+            "value": "Add note"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "—"
+            "value": "Notitie toevoegen"
           }
         }
       }
@@ -177,13 +177,47 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You"
+            "value": "Agent"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jij"
+            "value": "Medewerker"
+          }
+        }
+      }
+    },
+    "conversation.ai": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI"
+          }
+        }
+      }
+    },
+    "conversation.assign": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assign"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toewijzen"
           }
         }
       }
@@ -194,13 +228,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not update the assignee."
+            "value": "Failed to assign conversation"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toewijzen mislukt."
+            "value": "Gesprek toewijzen mislukt"
           }
         }
       }
@@ -239,23 +273,6 @@
         }
       }
     },
-    "conversation.assignedEvent": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Assigned"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toegewezen"
-          }
-        }
-      }
-    },
     "conversation.assignedToYou": {
       "extractionState": "manual",
       "localizations": {
@@ -273,36 +290,19 @@
         }
       }
     },
-    "conversation.assignee": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Assignee:"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toegewezen aan:"
-          }
-        }
-      }
-    },
     "conversation.attach": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attach"
+            "value": "Attach file"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bijlage toevoegen"
+            "value": "Bestand toevoegen"
           }
         }
       }
@@ -337,40 +337,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Bijlage openen mislukt."
-          }
-        }
-      }
-    },
-    "conversation.bot": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bot"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bot"
-          }
-        }
-      }
-    },
-    "conversation.changeAssignee": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Assign to…"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toewijzen aan…"
           }
         }
       }
@@ -426,36 +392,36 @@
         }
       }
     },
-    "conversation.closedEvent": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conversation closed"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gesprek gesloten"
-          }
-        }
-      }
-    },
     "conversation.emptyThread": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No messages yet."
+            "value": "No messages yet"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nog geen berichten."
+            "value": "Nog geen berichten"
+          }
+        }
+      }
+    },
+    "conversation.internalNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internal note"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interne notitie"
           }
         }
       }
@@ -466,13 +432,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not load this conversation."
+            "value": "Failed to load conversation"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dit gesprek laden mislukt."
+            "value": "Gesprek laden mislukt"
           }
         }
       }
@@ -483,13 +449,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not update the conversation."
+            "value": "Failed to update conversation"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gesprek bijwerken mislukt."
+            "value": "Gesprek bijwerken mislukt"
           }
         }
       }
@@ -517,7 +483,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No team members found."
+            "value": "No teammates found."
           }
         },
         "nl": {
@@ -551,30 +517,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add an internal note…"
+            "value": "Leave an internal note…"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Interne notitie…"
+            "value": "Laat een interne notitie achter…"
           }
         }
       }
     },
-    "conversation.ratedEvent": {
+    "conversation.online": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Customer rated this %@/5"
+            "value": "Online"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klant gaf dit gesprek een %@/5"
+            "value": "Online"
           }
         }
       }
@@ -613,23 +579,6 @@
         }
       }
     },
-    "conversation.reopenedEvent": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conversation reopened"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gesprek heropend"
-          }
-        }
-      }
-    },
     "conversation.reply": {
       "extractionState": "manual",
       "localizations": {
@@ -653,13 +602,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Write a reply…"
+            "value": "Type a reply to the customer…"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Schrijf een antwoord…"
+            "value": "Typ een antwoord aan de klant…"
           }
         }
       }
@@ -681,53 +630,36 @@
         }
       }
     },
-    "conversation.send": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Send"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Versturen"
-          }
-        }
-      }
-    },
     "conversation.sendError": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not send your message."
+            "value": "Failed to send reply"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bericht versturen mislukt."
+            "value": "Antwoord versturen mislukt"
           }
         }
       }
     },
-    "conversation.system": {
+    "conversation.sendReply": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "System"
+            "value": "Send reply"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Systeem"
+            "value": "Antwoord versturen"
           }
         }
       }
@@ -745,6 +677,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Foto maken"
+          }
+        }
+      }
+    },
+    "conversation.timeDays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@d"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ d"
+          }
+        }
+      }
+    },
+    "conversation.timeHours": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@h"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ u"
+          }
+        }
+      }
+    },
+    "conversation.timeMinutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@min"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ min"
+          }
+        }
+      }
+    },
+    "conversation.timeNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Now"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nu"
           }
         }
       }
@@ -795,7 +795,7 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ typt…"
+            "value": "%@ is aan het typen…"
           }
         }
       }
@@ -834,36 +834,19 @@
         }
       }
     },
-    "conversation.unassignedEvent": {
+    "conversation.untitled": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unassigned"
+            "value": "Untitled conversation"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Niet toegewezen"
-          }
-        }
-      }
-    },
-    "conversation.unassignedLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unassigned"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Niet toegewezen"
+            "value": "Naamloos gesprek"
           }
         }
       }
@@ -874,13 +857,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not upload %@."
+            "value": "Failed to upload %@"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ uploaden mislukt."
+            "value": "Uploaden van %@ mislukt"
           }
         }
       }
@@ -891,13 +874,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ is larger than 10 MB."
+            "value": "%@ is larger than 10 MB"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ is groter dan 10 MB."
+            "value": "%@ is groter dan 10 MB"
           }
         }
       }
@@ -970,23 +953,6 @@
         }
       }
     },
-    "conversation.visitorOnline": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Online"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Online"
-          }
-        }
-      }
-    },
     "inbox.all": {
       "extractionState": "manual",
       "localizations": {
@@ -1021,53 +987,53 @@
         }
       }
     },
-    "inbox.emptyClosed": {
+    "inbox.empty": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No closed conversations"
+            "value": "No conversations here"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Geen gesloten gesprekken"
+            "value": "Geen gesprekken hier"
           }
         }
       }
     },
-    "inbox.emptyHint": {
+    "inbox.emptyDescription": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Visitor chat and support email land here."
+            "value": "Conversations matching this view will show up here."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bezoekerschat en supportmail komen hier binnen."
+            "value": "Gesprekken die aan deze weergave voldoen, verschijnen hier."
           }
         }
       }
     },
-    "inbox.emptyOpen": {
+    "inbox.lastWeek": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No open conversations"
+            "value": "Last week"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Geen open gesprekken"
+            "value": "Vorige week"
           }
         }
       }
@@ -1078,13 +1044,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not load conversations."
+            "value": "Failed to load conversations"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gesprekken laden mislukt."
+            "value": "Gesprekken laden mislukt"
           }
         }
       }
@@ -1112,13 +1078,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mine"
+            "value": "Your inbox"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Van mij"
+            "value": "Jouw inbox"
           }
         }
       }
@@ -1180,13 +1146,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation"
+            "value": "(no subject)"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gesprek"
+            "value": "(geen onderwerp)"
           }
         }
       }
@@ -1310,19 +1276,36 @@
         }
       }
     },
-    "inbox.waiting": {
+    "inbox.unassignedBadge": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Waiting"
+            "value": "Unassigned"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wachtend"
+            "value": "Niet toegewezen"
+          }
+        }
+      }
+    },
+    "inbox.waitingBadge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for reply"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wacht op antwoord"
           }
         }
       }
@@ -1344,6 +1327,23 @@
         }
       }
     },
+    "inbox.weeksAgo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld weeks ago"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld weken geleden"
+          }
+        }
+      }
+    },
     "notifications.channel": {
       "extractionState": "manual",
       "localizations": {
@@ -1357,6 +1357,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Helpdesk-meldingen"
+          }
+        }
+      }
+    },
+    "priority.high": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoog"
+          }
+        }
+      }
+    },
+    "priority.low": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laag"
+          }
+        }
+      }
+    },
+    "priority.medium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medium"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normaal"
+          }
+        }
+      }
+    },
+    "priority.urgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Urgent"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Urgent"
           }
         }
       }
@@ -1412,6 +1480,142 @@
         }
       }
     },
+    "sla.achieved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SLA met"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SLA gehaald"
+          }
+        }
+      }
+    },
+    "sla.breached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SLA breached"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SLA overschreden"
+          }
+        }
+      }
+    },
+    "sla.dueIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ in %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ over %2$@"
+          }
+        }
+      }
+    },
+    "sla.firstResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First response"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eerste reactie"
+          }
+        }
+      }
+    },
+    "sla.nextResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next response"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volgende reactie"
+          }
+        }
+      }
+    },
+    "sla.overdue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ overdue %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ te laat"
+          }
+        }
+      }
+    },
+    "sla.paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SLA paused"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SLA gepauzeerd"
+          }
+        }
+      }
+    },
+    "sla.resolution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolution"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oplossing"
+          }
+        }
+      }
+    },
     "tabs.inbox": {
       "extractionState": "manual",
       "localizations": {
@@ -1442,6 +1646,907 @@
           "stringUnit": {
             "state": "translated",
             "value": "Instellingen"
+          }
+        }
+      }
+    },
+    "timeline.approvalApproved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ approved %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft %2$@ goedgekeurd"
+          }
+        }
+      }
+    },
+    "timeline.approvalRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ rejected %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft %2$@ afgewezen"
+          }
+        }
+      }
+    },
+    "timeline.approvalRequested": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approval requested from %1$@ (%2$@)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Goedkeuring gevraagd aan %1$@ (%2$@)"
+          }
+        }
+      }
+    },
+    "timeline.approvalRequestedNobody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approval requested (%@). No approver, a catalogue manager decides."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Goedkeuring gevraagd (%@). Geen goedkeurder, een catalogusbeheerder beslist."
+          }
+        }
+      }
+    },
+    "timeline.assigned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ assigned this to %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft dit toegewezen aan %2$@"
+          }
+        }
+      }
+    },
+    "timeline.autoAssigned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically assigned to %@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch toegewezen aan %@"
+          }
+        }
+      }
+    },
+    "timeline.closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ closed this conversation"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ heeft dit gesprek gesloten"
+          }
+        }
+      }
+    },
+    "timeline.escalatedNoTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An escalation rule fired because %@, but there was nobody to escalate to"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een escalatieregel ging af omdat %@, maar er was niemand om naar te escaleren"
+          }
+        }
+      }
+    },
+    "timeline.escalatedTo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escalated to %1$@ because %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geëscaleerd naar %1$@ omdat %2$@"
+          }
+        }
+      }
+    },
+    "timeline.escalatedToNextTeam": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escalated to the next team because %@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geëscaleerd naar het volgende team omdat %@"
+          }
+        }
+      }
+    },
+    "timeline.fieldCleared": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ cleared %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft %2$@ gewist"
+          }
+        }
+      }
+    },
+    "timeline.fieldSet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ set %2$@ to %3$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft %2$@ op %3$@ gezet"
+          }
+        }
+      }
+    },
+    "timeline.fulfilmentStartedOne": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fulfilment started: 1 task created"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uitvoering gestart: 1 taak aangemaakt"
+          }
+        }
+      }
+    },
+    "timeline.fulfilmentStartedOther": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fulfilment started: %lld tasks created"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uitvoering gestart: %lld taken aangemaakt"
+          }
+        }
+      }
+    },
+    "timeline.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@"
+          }
+        }
+      }
+    },
+    "timeline.impactCleared": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ cleared the impact"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ heeft de impact gewist"
+          }
+        }
+      }
+    },
+    "timeline.impactSet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ set the impact to %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft de impact op %2$@ gezet"
+          }
+        }
+      }
+    },
+    "timeline.incidentMarked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ marked this ticket as a major incident"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ heeft dit ticket gemarkeerd als groot incident"
+          }
+        }
+      }
+    },
+    "timeline.incidentUnmarked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ removed the major incident mark"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ heeft de markering groot incident verwijderd"
+          }
+        }
+      }
+    },
+    "timeline.levelHigh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoog"
+          }
+        }
+      }
+    },
+    "timeline.levelLow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laag"
+          }
+        }
+      }
+    },
+    "timeline.levelMedium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medium"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemiddeld"
+          }
+        }
+      }
+    },
+    "timeline.linkedChild": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ linked #%2$@ to this ticket"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft #%2$@ aan dit ticket gekoppeld"
+          }
+        }
+      }
+    },
+    "timeline.linkedToParent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ linked this ticket to #%2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft dit ticket gekoppeld aan #%2$@"
+          }
+        }
+      }
+    },
+    "timeline.mergedFrom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ merged #%2$@ into this ticket"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft #%2$@ met dit ticket samengevoegd"
+          }
+        }
+      }
+    },
+    "timeline.mergedInto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ merged this ticket into #%2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft dit ticket samengevoegd met #%2$@"
+          }
+        }
+      }
+    },
+    "timeline.no": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nee"
+          }
+        }
+      }
+    },
+    "timeline.priorityCleared": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ removed the priority"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ heeft de prioriteit verwijderd"
+          }
+        }
+      }
+    },
+    "timeline.prioritySet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ set the priority to %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft de prioriteit op %2$@ gezet"
+          }
+        }
+      }
+    },
+    "timeline.problemLinked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ linked this ticket to problem #%2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft dit ticket aan probleem #%2$@ gekoppeld"
+          }
+        }
+      }
+    },
+    "timeline.problemUnlinked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ unlinked this ticket from problem #%2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft dit ticket van probleem #%2$@ ontkoppeld"
+          }
+        }
+      }
+    },
+    "timeline.rated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ rated this conversation %2$@/5"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft dit gesprek beoordeeld met %2$@/5"
+          }
+        }
+      }
+    },
+    "timeline.reasonNoResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the customer waited too long"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "de klant te lang wachtte"
+          }
+        }
+      }
+    },
+    "timeline.reasonSlaBreach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "an SLA target was breached"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "een SLA-doel werd overschreden"
+          }
+        }
+      }
+    },
+    "timeline.reasonUnassigned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nobody picked it up"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "niemand het oppakte"
+          }
+        }
+      }
+    },
+    "timeline.reopened": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ reopened this conversation"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ heeft dit gesprek heropend"
+          }
+        }
+      }
+    },
+    "timeline.slaBreached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ target was missed"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: het doel is niet gehaald"
+          }
+        }
+      }
+    },
+    "timeline.slaWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ target is due soon"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: het doel verloopt bijna"
+          }
+        }
+      }
+    },
+    "timeline.someone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Someone"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iemand"
+          }
+        }
+      }
+    },
+    "timeline.step": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "step %@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "stap %@"
+          }
+        }
+      }
+    },
+    "timeline.tagsAdded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ added %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft %2$@ toegevoegd"
+          }
+        }
+      }
+    },
+    "timeline.tagsRemoved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ removed %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft %2$@ verwijderd"
+          }
+        }
+      }
+    },
+    "timeline.teamCleared": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ removed the team"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ heeft het team verwijderd"
+          }
+        }
+      }
+    },
+    "timeline.teamSet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ moved this to %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft dit naar %2$@ verplaatst"
+          }
+        }
+      }
+    },
+    "timeline.typeCleared": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ removed the type"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ heeft het type verwijderd"
+          }
+        }
+      }
+    },
+    "timeline.typeSet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ set the type to %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft het type op %2$@ gezet"
+          }
+        }
+      }
+    },
+    "timeline.unassigned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ unassigned this conversation"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ heeft de toewijzing van dit gesprek opgeheven"
+          }
+        }
+      }
+    },
+    "timeline.unlinkedChild": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ unlinked #%2$@ from this ticket"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft #%2$@ van dit ticket losgekoppeld"
+          }
+        }
+      }
+    },
+    "timeline.unlinkedFromParent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ unlinked this ticket from #%2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft dit ticket losgekoppeld van #%2$@"
+          }
+        }
+      }
+    },
+    "timeline.urgencyCleared": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ cleared the urgency"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ heeft de urgentie gewist"
+          }
+        }
+      }
+    },
+    "timeline.urgencySet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ set the urgency to %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ heeft de urgentie op %2$@ gezet"
+          }
+        }
+      }
+    },
+    "timeline.withComment": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: “%2$@”"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: “%2$@”"
+          }
+        }
+      }
+    },
+    "timeline.yes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yes"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ja"
           }
         }
       }

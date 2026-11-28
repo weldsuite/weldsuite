@@ -14,15 +14,16 @@ struct SettingsView: View {
         Form {
             Section(DeskStrings.settingsChannels) {
                 HStack(alignment: .top, spacing: Tokens.Spacing.m) {
-                    let violet = Color(red: 0.55, green: 0.36, blue: 0.96)
+                    // The platform's neutral icon square, not an app colour.
                     Image(systemName: "bubble.left.and.bubble.right")
-                        .foregroundStyle(violet)
+                        .font(.system(size: 15))
+                        .foregroundStyle(Tokens.Palette.mutedForeground)
                         .frame(width: 36, height: 36)
-                        .background(violet.opacity(0.12), in: RoundedRectangle(cornerRadius: Tokens.Radius.small))
+                        .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
                         .accessibilityHidden(true)
                     Text(DeskStrings.settingsChannelsHint)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(.inter(.subheadline))
+                        .foregroundStyle(Tokens.Palette.mutedForeground)
                 }
                 .accessibilityIdentifier("channels-hint")
             }

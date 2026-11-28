@@ -201,7 +201,7 @@ struct AudioPlayerView: View {
                     .font(.system(size: 16))
                     .frame(width: 34, height: 34)
                     .foregroundStyle(.white)
-                    .background(Tokens.Brand.weldchat, in: Circle())
+                    .background(Tokens.Palette.primary, in: Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(playback.isPlaying ? ChatStrings.composerPause : ChatStrings.composerPlay)
@@ -211,7 +211,7 @@ struct AudioPlayerView: View {
                 HStack(alignment: .center, spacing: 2) {
                     ForEach(Array(bars.enumerated()), id: \.offset) { index, height in
                         Capsule()
-                            .fill(Double(index) / Double(bars.count) <= progress ? Tokens.Brand.weldchat : Color.secondary.opacity(0.4))
+                            .fill(Double(index) / Double(bars.count) <= progress ? Tokens.Palette.primary : Color.secondary.opacity(0.4))
                             .frame(width: 3, height: max(4, geometry.size.height * height))
                     }
                 }
@@ -224,14 +224,14 @@ struct AudioPlayerView: View {
             .frame(height: 28)
 
             Text(ChatLogic.clock(playback.isPlaying || playback.position > 0 ? playback.position : playback.duration))
-                .font(.caption.monospacedDigit())
+                .font(.inter(.caption).monospacedDigit())
                 .foregroundStyle(.secondary)
 
             Button {
                 playback.cycleSpeed()
             } label: {
                 Text(ChatStrings.composerPlaybackSpeed(speed: speedText))
-                    .font(.caption.weight(.semibold))
+                    .font(.inter(.caption, weight: .semibold))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(.quaternary, in: Capsule())
@@ -270,10 +270,10 @@ struct RecordingBar: View {
 
             Circle().fill(Tokens.Status.danger).frame(width: 8, height: 8)
             Text(ChatLogic.clock(frozenDuration ?? recorder.duration))
-                .font(.body.monospacedDigit())
+                .font(.inter(.body).monospacedDigit())
             GeometryReader { geometry in
                 Capsule()
-                    .fill(Tokens.Brand.weldchat.opacity(0.5))
+                    .fill(Tokens.Palette.primary.opacity(0.5))
                     .frame(width: max(6, geometry.size.width * recorder.level), height: 6)
                     .frame(maxHeight: .infinity, alignment: .center)
             }
@@ -289,7 +289,7 @@ struct RecordingBar: View {
                 }
                 .frame(width: 34, height: 34)
                 .foregroundStyle(.white)
-                .background(Tokens.Brand.weldchat, in: Circle())
+                .background(Tokens.Palette.primary, in: Circle())
             }
             .disabled(sending)
             .accessibilityLabel(ChatStrings.composerSend)

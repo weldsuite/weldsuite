@@ -10,38 +10,36 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tag
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.Forum
+import androidx.compose.material.icons.outlined.Phone
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import org.weldsuite.ui.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -55,7 +53,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -75,7 +72,6 @@ import com.weldsuite.weldchat.RecordChatPatch
 import com.weldsuite.weldchat.RecordChatRules
 import com.weldsuite.weldchat.RecordRefreshKind
 import com.weldsuite.weldchat.calls.CallManager
-import com.weldsuite.weldchat.text
 import kotlinx.coroutines.launch
 import org.weldsuite.core.AppEnvironment
 import org.weldsuite.core.SessionState
@@ -84,9 +80,11 @@ import org.weldsuite.ui.tagged
 import java.time.Instant
 
 /**
- * Home: the workspace (tap to switch), search, Calls / Saved / Drafts, what
- * is unread, the channel sections, the record chats followed (one group per
- * type) and the latest direct messages; the compose button.
+ * Home, laid out as the platform's WeldChat sidebar: the workspace (tap to
+ * switch), search, the top rows (Calls, Drafts, Record chats, Saved items),
+ * what is unread, Direct Messages, the record chats followed (one group per
+ * type) and the channel sections, each with "Add channel" while empty; the
+ * compose button.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -106,8 +104,12 @@ fun HomeScreen(env: AppEnvironment, store: ChatStore, calls: CallManager, sessio
     }
     LaunchedEffect(session.workspace.id) { reload() }
 
-    val defaultGroup = stringResource(R.string.weldchat_home_channels_group)
-    val groups = ChatLogic.groupSections(store.channels, store.sections, defaultGroup)
+    val groups = ChatLogic.groupSections(
+        store.channels,
+        store.sections,
+        stringResource(R.string.weldchat_home_channels_group),
+        stringResource(R.string.weldchat_home_other_channels_group),
+    )
     val recordRows = RecordChatRules.types.flatMap { store.recordRows[it].orEmpty() }
     val now = Instant.now()
     val recordGroups = RecordChatRules.groups(store.recordSummary, store.recordRows, { "record:$it" in collapsed }, now)
@@ -117,7 +119,6 @@ fun HomeScreen(env: AppEnvironment, store: ChatStore, calls: CallManager, sessio
     val unreadRecords = recordRows.filter { RecordChatRules.needsAttention(it) }.sortedByDescending { DmLogic.time(it.lastMessageAt) }
     val unreadTotal = unreadDms.size + unreadChannels.size + unreadRecords.size
     val recentDms = DmLogic.recent(store.dms).take(ChatLogic.RECENT_DM_COUNT)
-    val showEmpty = store.homeLoaded && store.channels.isEmpty() && store.dms.isEmpty() && !followsRecords
 
     fun toggle(key: String) {
         collapsed = if (key in collapsed) collapsed - key else collapsed + key
@@ -164,106 +165,116 @@ fun HomeScreen(env: AppEnvironment, store: ChatStore, calls: CallManager, sessio
                 item("search") {
                     SearchButton(onClick = { nav.openSearch() }, modifier = Modifier.padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s).tagged("home-search"))
                 }
-                item("tiles") {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.xs),
-                        horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s),
-                    ) {
-                        if (callsAvailable) {
-                            Tile(
-                                stringResource(R.string.weldchat_tabs_calls),
-                                Icons.Filled.Call,
-                                if (liveCalls.isEmpty()) null else pluralStringResource(R.plurals.weldchat_home_live_count, liveCalls.size, liveCalls.size),
-                                "home-tile-calls",
-                                Modifier.weight(1f),
-                            ) { nav.selectTab(ChatTab.CALLS) }
+                // The platform sidebar's top rows.
+                if (callsAvailable) {
+                    item("nav-calls") {
+                        NavRow(stringResource(R.string.weldchat_tabs_calls), Icons.Outlined.Phone, "home-tile-calls", onClick = { nav.selectTab(ChatTab.CALLS) }) {
+                            if (liveCalls.isNotEmpty()) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Icon(Icons.Filled.Call, contentDescription = null, tint = ChatColors.callGreen.current(), modifier = Modifier.size(14.dp))
+                                    Text(
+                                        pluralStringResource(R.plurals.weldchat_home_live_count, liveCalls.size, liveCalls.size),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = ChatColors.callGreen.current(),
+                                    )
+                                }
+                            }
                         }
-                        Tile(
-                            stringResource(R.string.weldchat_home_saved),
-                            Icons.Filled.Bookmark,
-                            ChatLogic.countLabel(store.savedCount, ChatLogic.SAVED_CAP)?.text(),
-                            "home-tile-saved",
-                            Modifier.weight(1f),
-                        ) { nav.openSaved() }
-                        Tile(
-                            stringResource(R.string.weldchat_home_drafts),
-                            Icons.AutoMirrored.Filled.Send,
-                            ChatLogic.countLabel(store.draftCount)?.text(),
-                            "home-tile-drafts",
-                            Modifier.weight(1f),
-                        ) { nav.openDrafts() }
                     }
                 }
+                item("nav-drafts") {
+                    val drafts = store.draftCount ?: 0
+                    NavRow(stringResource(R.string.weldchat_home_drafts), Icons.Outlined.EditNote, "home-tile-drafts", bold = drafts > 0, onClick = { nav.openDrafts() }) {
+                        CountBadge(drafts)
+                    }
+                }
+                if (followsRecords) {
+                    item("nav-records") {
+                        NavRow(stringResource(R.string.weldchat_record_chats_title), Icons.Outlined.Forum, "home-records", onClick = { nav.openRecords() })
+                    }
+                }
+                item("nav-saved") {
+                    NavRow(stringResource(R.string.weldchat_home_saved), Icons.Outlined.BookmarkBorder, "home-tile-saved", onClick = { nav.openSaved() })
+                }
 
-                when {
-                    !store.homeLoaded && store.channels.isEmpty() -> item("loading") {
+                if (!store.homeLoaded && store.channels.isEmpty()) {
+                    item("loading") {
                         Box(Modifier.fillMaxWidth().padding(Tokens.Spacing.xl), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
                         }
                     }
-                    showEmpty -> item("empty") { HomeEmpty(nav) }
-                    else -> {
-                        if (unreadTotal > 0) {
-                            item("unread-header") {
-                                ListHeader(stringResource(R.string.weldchat_home_unreads), trailing = { CountBadge(unreadTotal) })
-                            }
-                            items(unreadDms, key = { "unread-dm-${it.id}" }) { dm -> HomeDmRow(dm, nav) { menuTarget = it } }
-                            items(unreadChannels, key = { "unread-channel-${it.id}" }) { channel -> HomeChannelRow(channel, nav) { menuTarget = it } }
-                            items(unreadRecords, key = { "unread-record-${it.id}" }) { chat -> HomeRecordRow(chat, nav) { menuTarget = it } }
-                        }
+                } else {
+                    if (unreadTotal > 0) {
+                        item("unread-header") { SidebarGroupHeader(stringResource(R.string.weldchat_home_unreads), unread = unreadTotal) }
+                        items(unreadDms, key = { "unread-dm-${it.id}" }) { dm -> HomeDmRow(dm, nav) { menuTarget = it } }
+                        items(unreadChannels, key = { "unread-channel-${it.id}" }) { channel -> HomeChannelRow(channel, nav) { menuTarget = it } }
+                        items(unreadRecords, key = { "unread-record-${it.id}" }) { chat -> HomeRecordRow(chat, nav) { menuTarget = it } }
+                    }
 
-                        groups.forEach { group ->
-                            item("group-${group.id}") {
-                                SectionHeaderWithMenu(
-                                    title = group.name,
-                                    collapsed = group.id in collapsed,
-                                    tag = "section-${group.id}",
-                                    onToggle = { toggle(group.id) },
-                                    onCreateChannel = { nav.newChannel(group.id.takeIf { it != ChatLogic.UNSECTIONED_ID }) },
-                                )
+                    // Direct Messages, always, as on the platform.
+                    item("dms-header") {
+                        SidebarGroupHeader(
+                            stringResource(R.string.weldchat_tabs_direct_messages),
+                            trailing = {
+                                TextButton(onClick = { nav.selectTab(ChatTab.DMS) }, modifier = Modifier.tagged("home-see-all-dms")) {
+                                    Text(stringResource(R.string.weldchat_home_see_all), style = MaterialTheme.typography.labelMedium)
+                                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, modifier = Modifier.size(16.dp))
+                                }
+                            },
+                        )
+                    }
+                    if (recentDms.isEmpty()) {
+                        item("dms-add") {
+                            AddPlaceholderRow(stringResource(R.string.weldchat_home_empty_start_dm), Modifier.tagged("home-empty-start-dm")) { nav.newDm(group = false) }
+                        }
+                    } else {
+                        items(recentDms, key = { "recent-dm-${it.id}" }) { dm -> HomeDmRow(dm, nav) { menuTarget = it } }
+                    }
+
+                    recordGroups.forEach { group ->
+                        item("records-${group.type}") {
+                            SidebarGroupHeader(
+                                RecordChatRules.groupLabel(group.type)?.let { stringResource(it) } ?: group.type,
+                                modifier = Modifier.clickable { toggle("record:${group.type}") },
+                                collapsed = group.collapsed,
+                                unread = group.unread,
+                                mentions = group.mentions,
+                            )
+                        }
+                        items(group.rows, key = { "record-${group.type}-${it.id}" }) { chat -> HomeRecordRow(chat, nav) { menuTarget = it } }
+                        if (group.showAll) {
+                            item("records-all-${group.type}") {
+                                LinkRow(stringResource(R.string.weldchat_record_chats_show_all, group.followed)) { nav.openRecords(group.type) }
                             }
-                            if (group.id !in collapsed) {
+                        }
+                    }
+
+                    groups.forEach { group ->
+                        val isCollapsed = group.id in collapsed
+                        item("group-${group.id}") {
+                            SectionHeaderWithMenu(
+                                title = group.name,
+                                collapsed = isCollapsed,
+                                unread = group.channels.count { ChatLogic.isChannelUnread(it) },
+                                mentions = group.channels.sumOf { it.unreadMentionCount },
+                                tag = "section-${group.id}",
+                                onToggle = { toggle(group.id) },
+                                onCreateChannel = { nav.newChannel(group.id.takeIf { it != ChatLogic.UNSECTIONED_ID }) },
+                            )
+                        }
+                        if (!isCollapsed) {
+                            if (group.channels.isEmpty()) {
+                                item("group-add-${group.id}") {
+                                    AddPlaceholderRow(stringResource(R.string.weldchat_home_add_channel), Modifier.tagged("home-add-channel-${group.id}")) {
+                                        nav.newChannel(group.id.takeIf { it != ChatLogic.UNSECTIONED_ID })
+                                    }
+                                }
+                            } else {
                                 items(group.channels, key = { "channel-${group.id}-${it.id}" }) { channel -> HomeChannelRow(channel, nav) { menuTarget = it } }
                             }
                         }
-
-                        recordGroups.forEach { group ->
-                            item("records-${group.type}") {
-                                CollapsibleHeader(
-                                    title = RecordChatRules.groupLabel(group.type)?.let { stringResource(it) } ?: group.type,
-                                    collapsed = group.collapsed,
-                                    count = group.unread.takeIf { it > 0 },
-                                    mentions = group.mentions,
-                                    onToggle = { toggle("record:${group.type}") },
-                                )
-                            }
-                            items(group.rows, key = { "record-${group.type}-${it.id}" }) { chat -> HomeRecordRow(chat, nav) { menuTarget = it } }
-                            if (group.showAll) {
-                                item("records-all-${group.type}") {
-                                    LinkRow(stringResource(R.string.weldchat_record_chats_show_all, group.followed)) { nav.openRecords(group.type) }
-                                }
-                            }
-                        }
-
-                        if (followsRecords) {
-                            item("records-link") {
-                                LinkRow(stringResource(R.string.weldchat_record_chats_title), Modifier.tagged("home-records")) { nav.openRecords() }
-                            }
-                        }
-
-                        if (recentDms.isNotEmpty()) {
-                            item("dms-header") {
-                                ListHeader(stringResource(R.string.weldchat_tabs_direct_messages)) {
-                                    TextButton(onClick = { nav.selectTab(ChatTab.DMS) }, modifier = Modifier.tagged("home-see-all-dms")) {
-                                        Text(stringResource(R.string.weldchat_home_see_all))
-                                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            }
-                            items(recentDms, key = { "recent-dm-${it.id}" }) { dm -> HomeDmRow(dm, nav) { menuTarget = it } }
-                        }
-                        item("fab-space") { Box(Modifier.padding(40.dp)) }
                     }
+                    item("fab-space") { Box(Modifier.height(88.dp)) }
                 }
             }
         }
@@ -317,10 +328,10 @@ private fun WorkspaceMenu(env: AppEnvironment, session: SessionState.Ready, nav:
             modifier = Modifier.clickable { open = true }.tagged("home-workspace"),
         ) {
             Box(
-                Modifier.size(28.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(7.dp)),
+                Modifier.size(28.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(Tokens.Radius.medium)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(workspace.name.take(1).uppercase(), color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                Text(workspace.name.take(1).uppercase(), color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold)
             }
             Text(
                 workspace.name.ifEmpty { stringResource(R.string.weldchat_home_workspace_fallback) },
@@ -328,7 +339,7 @@ private fun WorkspaceMenu(env: AppEnvironment, session: SessionState.Ready, nav:
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = switchLabel, modifier = Modifier.size(18.dp))
+            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = switchLabel, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             (session.person.email ?: session.person.name)?.let { label ->
@@ -377,57 +388,46 @@ private fun ComposeItem(label: Int, hint: Int?, icon: ImageVector, tag: String, 
     )
 }
 
+/** One of the sidebar's top rows (Drafts, Saved items, …): the icon, the label, what it holds. */
 @Composable
-private fun Tile(title: String, icon: ImageVector, subtitle: String?, tag: String, modifier: Modifier, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(Tokens.Radius.medium),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = modifier.tagged(tag),
-    ) {
-        Column(Modifier.padding(Tokens.Spacing.m)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
-                Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Text(subtitle ?: " ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-        }
+private fun NavRow(
+    title: String,
+    icon: ImageVector,
+    tag: String,
+    bold: Boolean = false,
+    onClick: () -> Unit,
+    trailing: @Composable () -> Unit = {},
+) {
+    Box(Modifier.clickable(onClick = onClick).tagged(tag)) {
+        SidebarRow(title, unread = bold, muted = false, mentions = 0) { SidebarIcon(icon, bold) }
+        Box(Modifier.align(Alignment.CenterEnd).padding(end = Tokens.Spacing.l)) { trailing() }
     }
 }
 
-@Composable
-private fun HomeEmpty(nav: ChatNavigator) {
-    Column(
-        Modifier.fillMaxWidth().padding(Tokens.Spacing.xl),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
-    ) {
-        Icon(Icons.Filled.Forum, contentDescription = null, modifier = Modifier.size(54.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(stringResource(R.string.weldchat_home_empty_title), style = MaterialTheme.typography.titleMedium)
-        Text(stringResource(R.string.weldchat_home_empty_hint), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-        Button(onClick = { nav.newChannel() }, modifier = Modifier.fillMaxWidth().tagged("home-empty-create-channel")) {
-            Icon(Icons.Filled.Add, contentDescription = null)
-            Text(stringResource(R.string.weldchat_home_empty_create_channel), modifier = Modifier.padding(start = Tokens.Spacing.s))
-        }
-        OutlinedButton(onClick = { nav.newDm(group = false) }, modifier = Modifier.fillMaxWidth().tagged("home-empty-start-dm")) {
-            Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null)
-            Text(stringResource(R.string.weldchat_home_empty_start_dm), modifier = Modifier.padding(start = Tokens.Spacing.s))
-        }
-    }
-}
-
-/** A group's header: tap to fold it; a channel section's also offers "Create channel" on a long press. */
+/** A channel section's header: tap to fold it; a long press offers "Create channel". */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SectionHeaderWithMenu(title: String, collapsed: Boolean, tag: String, onToggle: () -> Unit, onCreateChannel: () -> Unit) {
+private fun SectionHeaderWithMenu(
+    title: String,
+    collapsed: Boolean,
+    unread: Int,
+    mentions: Int,
+    tag: String,
+    onToggle: () -> Unit,
+    onCreateChannel: () -> Unit,
+) {
     var menu by remember { mutableStateOf(false) }
     Box {
-        Box(Modifier.combinedClickable(onClick = onToggle, onLongClick = { menu = true }).tagged(tag)) {
-            CollapsibleHeaderContent(title, collapsed, null, 0)
-        }
+        SidebarGroupHeader(
+            title,
+            modifier = Modifier.combinedClickable(onClick = onToggle, onLongClick = { menu = true }).tagged(tag),
+            collapsed = collapsed,
+            unread = unread,
+            mentions = mentions,
+        )
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem(
-                text = { Text(stringResource(R.string.weldchat_home_create_channel)) },
+                text = { Text(stringResource(R.string.weldchat_home_add_channel)) },
                 leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
                 onClick = {
                     menu = false
@@ -439,39 +439,9 @@ private fun SectionHeaderWithMenu(title: String, collapsed: Boolean, tag: String
 }
 
 @Composable
-private fun CollapsibleHeader(title: String, collapsed: Boolean, count: Int?, mentions: Int, onToggle: () -> Unit) {
-    Box(Modifier.clickable(onClick = onToggle)) { CollapsibleHeaderContent(title, collapsed, count, mentions) }
-}
-
-@Composable
-private fun CollapsibleHeaderContent(title: String, collapsed: Boolean, count: Int?, mentions: Int) {
-    Row(
-        Modifier.fillMaxWidth().padding(start = Tokens.Spacing.l, end = Tokens.Spacing.l, top = Tokens.Spacing.m, bottom = Tokens.Spacing.xs),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        count?.let { CountBadge(it) }
-        if (mentions > 0) CountBadge(mentions, prefix = "@")
-        Icon(
-            Icons.Filled.KeyboardArrowDown,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp).rotate(if (collapsed) -90f else 0f),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
 private fun LinkRow(title: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Row(
-        modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = Tokens.Spacing.l, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
-    ) {
-        Icon(Icons.Filled.MoreHoriz, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-        Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+    Box(modifier.clickable(onClick = onClick)) {
+        SidebarRow(title, unread = false, muted = false, mentions = 0) { SidebarIcon(Icons.Filled.MoreHoriz) }
     }
 }
 

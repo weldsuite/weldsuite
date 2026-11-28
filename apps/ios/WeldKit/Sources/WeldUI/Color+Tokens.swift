@@ -3,7 +3,7 @@ import UIKit
 
 extension Color {
     /// A colour with a light and a dark variant (`0xRRGGBB`), as the design tokens define them.
-    init(light: UInt32, dark: UInt32) {
+    public init(light: UInt32, dark: UInt32) {
         self.init(uiColor: UIColor { traits in
             UIColor(rgb: traits.userInterfaceStyle == .dark ? dark : light)
         })

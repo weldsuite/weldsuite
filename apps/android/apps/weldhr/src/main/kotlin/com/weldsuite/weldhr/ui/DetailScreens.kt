@@ -16,10 +16,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.FreeBreakfast
 import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.Button
+import org.weldsuite.ui.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -36,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -52,7 +49,7 @@ import com.weldsuite.weldhr.ShiftMath
 import com.weldsuite.weldhr.Standing
 import com.weldsuite.weldhr.Swatches
 import org.weldsuite.core.WeldDate
-import org.weldsuite.ui.EmptyState
+import com.weldsuite.weldhr.Tone
 import org.weldsuite.ui.Tokens
 import org.weldsuite.ui.tagged
 import org.weldsuite.core.R as CoreR
@@ -104,7 +101,7 @@ fun ShiftScreen(id: String, day: String) {
                 val shift = data.shifts.firstOrNull { it.id == id }
                 val loose = if (shift == null) data.records.firstOrNull { it.id == id } else null
                 if (shift == null && loose == null) {
-                    EmptyState(stringResource(R.string.weldhr_shift_not_found))
+                    HrEmpty(stringResource(R.string.weldhr_shift_not_found))
                     return@item
                 }
                 val worked = if (shift != null) ShiftMath.byClockIn(data.records.filter { ShiftMath.shiftOf(it, data.shifts, now)?.id == shift.id }) else listOfNotNull(loose)
@@ -120,35 +117,34 @@ private fun ShiftDetail(shift: Shift?, loose: ClockRecord?, worked: List<ClockRe
     val open = worked.firstOrNull(ShiftMath::isOpen)
     val started = shift == null || (WeldDate.parse(shift.startsAt)?.toEpochMilli() ?: 0) <= now
     val workedMinutes = worked.sumOf { ShiftMath.minutesOf(it, now) }
-    val (status, tint) = when {
-        open != null -> stringResource(R.string.weldhr_timesheet_clocked_in) to Tokens.Status.success.current()
-        worked.isNotEmpty() && worked.all { it.approved } -> stringResource(R.string.weldhr_timesheet_approved) to Tokens.Status.success.current()
-        worked.isNotEmpty() -> stringResource(R.string.weldhr_timesheet_pending_approval) to Tokens.Status.warning.current()
-        started -> stringResource(R.string.weldhr_schedule_not_clocked_in) to Tokens.Status.warning.current()
-        else -> stringResource(R.string.weldhr_shift_planned) to MaterialTheme.colorScheme.onSurfaceVariant
+    val (status, tone) = when {
+        open != null -> stringResource(R.string.weldhr_timesheet_clocked_in) to Tone.DEFAULT
+        worked.isNotEmpty() && worked.all { it.approved } -> stringResource(R.string.weldhr_timesheet_approved) to Tone.DEFAULT
+        worked.isNotEmpty() -> stringResource(R.string.weldhr_timesheet_pending_approval) to Tone.OUTLINE
+        started -> stringResource(R.string.weldhr_schedule_not_clocked_in) to Tone.OUTLINE
+        else -> stringResource(R.string.weldhr_shift_planned) to Tone.SECONDARY
     }
     val place = if (shift != null) listOfNotNull(shift.workType, company).joinToString(" · ").ifEmpty { workspace } else stringResource(R.string.weldhr_schedule_without_shift)
     val minutes: @Composable (Double) -> String = { value -> if (value >= 60) hm(value) else stringResource(R.string.weldhr_shift_minutes, value.toLong().toString()) }
     Column {
         Row(Modifier.padding(Tokens.Spacing.l).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m)) {
-            Box(Modifier.width(5.dp).fillMaxHeight().background(Color(Swatches.shift(company ?: workspace).toInt()), RoundedCornerShape(3.dp)))
-            Column(Modifier.weight(1f)) {
+            Box(Modifier.width(4.dp).fillMaxHeight().background(Color(Swatches.shift(company).toInt()), RoundedCornerShape(2.dp)))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         if (shift != null) Fmt.timeRange(shift.startsAt, shift.endsAt) else Fmt.timeRange(loose?.clockIn, loose?.clockOut),
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f),
                     )
                     Text(if (shift != null) hm(ShiftMath.plannedMinutes(shift).toDouble()) else hm(workedMinutes), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text(place, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                Text(status, color = tint, modifier = Modifier.tagged("shift-status"))
+                Text(place, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                ToneBadge(status, tone, Modifier.padding(top = Tokens.Spacing.xs).tagged("shift-status"))
             }
         }
         shift?.notes?.let {
             SectionHead(stringResource(R.string.weldhr_shift_notes))
-            Text(it, modifier = Modifier.padding(horizontal = Tokens.Spacing.l))
+            Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(Tokens.Spacing.l))
         }
         // Breaks: the planned one, time clocked out in between, and break minutes recorded.
         val planned = shift?.let(ShiftMath::plannedBreak)
@@ -156,18 +152,17 @@ private fun ShiftDetail(shift: Shift?, loose: ClockRecord?, worked: List<ClockRe
         val recorded = worked.filter { (it.breakMinutes ?: 0) > 0 }
         SectionHead(stringResource(R.string.weldhr_shift_breaks))
         if (planned == null && gaps.isEmpty() && recorded.isEmpty()) {
-            HrRow(leading = { PlainTile(Icons.Filled.FreeBreakfast) }, title = stringResource(R.string.weldhr_shift_no_break), muted = true)
+            HrRow(title = stringResource(R.string.weldhr_shift_no_break), muted = true)
         } else {
             val unpaid = stringResource(R.string.weldhr_shift_unpaid)
             planned?.let { (start, end) ->
-                HrRow(leading = { PlainTile(Icons.Filled.FreeBreakfast) }, title = Fmt.timeRange(start, end), subtitle = stringResource(R.string.weldhr_shift_planned_break), value = minutes(ShiftMath.minutesBetween(start, end).toDouble()), detail = unpaid)
+                HrRow(title = Fmt.timeRange(start, end), subtitle = stringResource(R.string.weldhr_shift_planned_break), value = minutes(ShiftMath.minutesBetween(start, end).toDouble()), detail = unpaid)
             }
             gaps.forEach { (start, end) ->
-                HrRow(leading = { PlainTile(Icons.Filled.FreeBreakfast) }, title = Fmt.timeRange(start, end), subtitle = stringResource(R.string.weldhr_shift_clocked_out), value = minutes(ShiftMath.minutesBetween(start, end).toDouble()), detail = unpaid)
+                HrRow(title = Fmt.timeRange(start, end), subtitle = stringResource(R.string.weldhr_shift_clocked_out), value = minutes(ShiftMath.minutesBetween(start, end).toDouble()), detail = unpaid)
             }
             recorded.forEach { record ->
                 HrRow(
-                    leading = { PlainTile(Icons.Filled.FreeBreakfast) },
                     title = stringResource(R.string.weldhr_shift_recorded_break),
                     subtitle = if (record.clockIn != null) Fmt.timeRange(record.clockIn, record.clockOut) else null,
                     value = minutes((record.breakMinutes ?: 0).toDouble()),
@@ -178,19 +173,19 @@ private fun ShiftDetail(shift: Shift?, loose: ClockRecord?, worked: List<ClockRe
         }
         if (worked.isNotEmpty() || started) {
             SectionHead(stringResource(R.string.weldhr_shift_worked))
-            if (worked.isEmpty()) HrRow(leading = { PlainTile(Icons.Filled.Schedule) }, title = stringResource(R.string.weldhr_schedule_not_clocked_in), muted = true)
+            if (worked.isEmpty()) HrRow(title = stringResource(R.string.weldhr_schedule_not_clocked_in), muted = true)
             worked.forEach { record ->
                 val since = if (ShiftMath.isOpen(record)) record.clockIn else null
                 HrRow(
-                    leading = { PlainTile(Icons.Filled.Schedule) },
                     title = if (record.clockIn != null) Fmt.timeRange(record.clockIn, record.clockOut) else attendanceStatusLabel(record.status),
                     subtitle = listOfNotNull(
                         sourceLabel(record.source),
                         record.lateMinutes?.takeIf { it > 0 }?.let { stringResource(R.string.weldhr_timesheet_late, it.toString()) },
                     ).joinToString(" · "),
                     value = if (since != null) ShiftMath.timer(now - (WeldDate.parse(since)?.toEpochMilli() ?: now)) else hm(ShiftMath.minutesOf(record, now)),
-                    detail = if (since != null) stringResource(R.string.weldhr_timesheet_clocked_in) else attendanceStatusLabel(record.status),
-                    detailColor = if (since != null) Tokens.Status.success.current() else statusColor(record.status),
+                    detail = if (since != null) stringResource(R.string.weldhr_timesheet_clocked_in) else null,
+                    detailColor = if (since != null) Tokens.Status.success.current() else null,
+                    badge = if (since == null) ({ StatusTag(record.status, attendanceStatusLabel(record.status)) }) else null,
                 )
             }
             worked.mapNotNull { it.notes }.forEach { DetailRow(stringResource(R.string.weldhr_shift_notes), it) }
@@ -231,7 +226,7 @@ fun ShiftRequestScreen(id: String, day: String) {
             item("request") {
                 val request = data.requests.firstOrNull { it.id == id }
                 if (request == null) {
-                    EmptyState(stringResource(R.string.weldhr_shift_request_not_found))
+                    HrEmpty(stringResource(R.string.weldhr_shift_request_not_found))
                     return@item
                 }
                 val range = Fmt.timeRange(request.startsAt, request.endsAt)
@@ -241,10 +236,8 @@ fun ShiftRequestScreen(id: String, day: String) {
                 HrRow(
                     leading = { ShiftBar(null) },
                     title = range,
-                    subtitle = shiftRequestStatusLabel(request.status),
-                    subtitleColor = statusColor(request.status),
-                    value = hours,
-                    detail = request.workType,
+                    subtitle = listOfNotNull(hours, request.workType).joinToString(" · "),
+                    badge = { StatusTag(request.status, shiftRequestStatusLabel(request.status)) },
                 )
                 SectionHead(stringResource(R.string.weldhr_shift_details))
                 facts(
@@ -298,7 +291,7 @@ fun OpenShiftScreen(id: String) {
             item("open-shift") {
                 val shift = list.firstOrNull { it.id == id }
                 if (shift == null) {
-                    EmptyState(stringResource(R.string.weldhr_open_shifts_not_found))
+                    HrEmpty(stringResource(R.string.weldhr_open_shifts_not_found))
                     return@item
                 }
                 val now = rememberNow(60_000)
@@ -306,18 +299,12 @@ fun OpenShiftScreen(id: String) {
                 val range = Fmt.timeRange(shift.startsAt, shift.endsAt)
                 val dayText = Fmt.longDay(HrDays.dayOf(shift.startsAt))
                 val hours = hm(ShiftMath.plannedMinutes(shift.startsAt, shift.endsAt, shift.breakStartsAt, shift.breakEndsAt).toDouble())
-                val standingText = if (standing == Standing.OPEN) {
-                    pluralStringResource(R.plurals.weldhr_open_shifts_spots_left, shift.spotsLeft, shift.spotsLeft)
-                } else {
-                    standingLabel(standing)
-                }
                 HrRow(
-                    leading = { ShiftBar(shift.workType ?: shift.companyName) },
+                    leading = { ShiftBar(shift.companyName) },
                     title = range,
-                    subtitle = standingText,
-                    subtitleColor = standingColor(standing),
-                    value = hours,
-                    detail = shift.workType,
+                    subtitle = listOfNotNull(hours, shift.workType).joinToString(" · "),
+                    detail = spotsText(shift.spotsLeft),
+                    badge = standingBadge(standing),
                 )
                 val signedUp = stringResource(R.string.weldhr_open_shifts_signed_up)
                 if (OpenShiftRules.canSignUp(shift, now)) {
@@ -394,7 +381,7 @@ fun LeaveScreen(id: String) {
             item("leave") {
                 val request = data.requests.firstOrNull { it.id == id }
                 if (request == null) {
-                    EmptyState(stringResource(R.string.weldhr_leave_detail_not_found))
+                    HrEmpty(stringResource(R.string.weldhr_leave_detail_not_found))
                     return@item
                 }
                 val today = HrDays.today()
@@ -402,14 +389,12 @@ fun LeaveScreen(id: String) {
                 val paid = data.balances.firstOrNull { it.leaveTypeId == request.leaveTypeId }?.isPaid
                 val balance = LeaveRules.balanceForStart(data.balances, request.leaveTypeId, request.startDate, today)
                 val reviewed = request.reviewedAt?.let(Fmt::date)
+                // The platform panel's title: the type's dot and name, with the status badge.
                 HrRow(
-                    leading = { LeaveTypeTile(request.leaveTypeColor ?: type?.color) },
+                    marker = { ColorDot(request.leaveTypeColor ?: type?.color) },
                     title = request.leaveTypeName ?: type?.name ?: stringResource(R.string.weldhr_absence_leave),
-                    subtitle = leaveStatusLabel(request.status),
-                    subtitleColor = statusColor(request.status),
-                    value = Fmt.span(request.startDate, request.endDate),
-                    detail = daysText(request.days),
-                    muted = request.status == "cancelled",
+                    subtitle = "${Fmt.span(request.startDate, request.endDate)} · ${daysText(request.days)}",
+                    badge = { StatusTag(request.status, leaveStatusLabel(request.status)) },
                 )
                 SectionHead(stringResource(R.string.weldhr_absence_leave))
                 facts(
@@ -461,7 +446,7 @@ fun SickReportScreen(id: String) {
             item("sick") {
                 val report = (listOfNotNull(data.current) + data.history).firstOrNull { it.id == id }
                 if (report == null) {
-                    EmptyState(stringResource(R.string.weldhr_sick_detail_not_found))
+                    HrEmpty(stringResource(R.string.weldhr_sick_detail_not_found))
                     return@item
                 }
                 val ongoing = report.status == "ongoing"
@@ -503,7 +488,7 @@ fun ExpenseScreen(id: String) {
             item("expense") {
                 val declaration = data.declarations.firstOrNull { it.id == id }
                 if (declaration == null) {
-                    EmptyState(stringResource(R.string.weldhr_expense_detail_not_found))
+                    HrEmpty(stringResource(R.string.weldhr_expense_detail_not_found))
                     return@item
                 }
                 val amount = Fmt.money(declaration.amount, declaration.currency)
@@ -521,7 +506,7 @@ fun ExpenseScreen(id: String) {
                 SectionHead(stringResource(R.string.weldhr_expense_form_receipt))
                 if (declaration.hasReceipt) {
                     HrRow(
-                        leading = { PlainTile(Icons.Filled.AttachFile) },
+                        leading = { Icon(Icons.Filled.AttachFile, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) },
                         title = stringResource(R.string.weldhr_expenses_view_receipt),
                         subtitle = declaration.receiptFileName,
                         valueContent = if (opening) ({ CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) }) else null,
@@ -542,7 +527,7 @@ fun ExpenseScreen(id: String) {
                         }),
                     )
                 } else {
-                    HrRow(leading = { PlainTile(Icons.Filled.AttachFile) }, title = stringResource(R.string.weldhr_expenses_no_receipt), muted = true)
+                    HrRow(title = stringResource(R.string.weldhr_expenses_no_receipt), muted = true)
                 }
                 if (declaration.status == "pending") DangerButton(stringResource(R.string.weldhr_expenses_cancel_confirm), "expense-cancel") { confirming = true }
                 if (confirming) {
@@ -584,7 +569,7 @@ fun AnnouncementScreen(id: String) {
             item("announcement") {
                 val item = data.announcements.firstOrNull { it.id == id }
                 if (item == null) {
-                    EmptyState(stringResource(R.string.weldhr_announcements_not_found))
+                    HrEmpty(stringResource(R.string.weldhr_announcements_not_found))
                     return@item
                 }
                 Column(Modifier.padding(Tokens.Spacing.l), verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
@@ -594,7 +579,7 @@ fun AnnouncementScreen(id: String) {
                             Text(stringResource(R.string.weldhr_announcements_pinned), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    Text(item.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.tagged("announcement-title"))
+                    Text(item.title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.tagged("announcement-title"))
                     Text(
                         listOfNotNull(
                             item.createdByName?.let { stringResource(R.string.weldhr_announcements_by, it) },

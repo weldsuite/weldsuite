@@ -262,6 +262,26 @@ components:
         priority:
           type: string
           nullable: true
+          description: urgent, high, medium or low.
+        tags:
+          type: array
+          nullable: true
+          items:
+            type: string
+        slaStatus:
+          type: string
+          nullable: true
+          description: |
+            The SLA clock: active, warning, breached, paused or achieved; null
+            without a policy.
+        slaDueAt:
+          type: string
+          nullable: true
+          description: When the running SLA target (`slaMetric`) is due.
+        slaMetric:
+          type: string
+          nullable: true
+          description: The target that is due next, first_response, next_response or resolution.
         waitingSince:
           type: string
           nullable: true
@@ -304,7 +324,13 @@ components:
           format: double
     DeskMessageMetadata:
       type: object
-      description: What an event entry (`kind` `event`) records.
+      description: |
+        What an event entry (`kind` `event`) records. Each event type adds
+        its own keys (`auto`, `ratingComment`, `metric`, `changes`, …), and
+        an `attributes_changed` event's `changes[].from` and `.to` are a
+        string, a list of strings or a boolean, which the generated Kotlin
+        client can't type; the apps read those keys from the response's JSON
+        themselves (`DeskRepository` / `DeskStore`).
       properties:
         eventType:
           type: string

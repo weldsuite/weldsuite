@@ -2,6 +2,8 @@ package com.weldsuite.weldchat.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -30,7 +33,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
+import org.weldsuite.ui.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -51,6 +54,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.weldsuite.weldchat.ChatDates
 import com.weldsuite.weldchat.ChatStore
 import com.weldsuite.weldchat.ConversationPatch
@@ -187,7 +191,11 @@ fun DmsScreen(store: ChatStore, nav: ChatNavigator) {
                         Box(Modifier.fillMaxWidth().padding(Tokens.Spacing.xl), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                     }
                     rows.isEmpty() -> item("empty") {
-                        EmptyState(stringResource(R.string.weldchat_dms_empty_title), stringResource(R.string.weldchat_dms_empty_hint))
+                        EmptyState(
+                            stringResource(R.string.weldchat_dms_empty_title),
+                            stringResource(R.string.weldchat_dms_empty_hint),
+                            icon = { EmptyIcon(Icons.AutoMirrored.Filled.Chat) },
+                        )
                     }
                     else -> items(rows, key = { it.id }) { dm ->
                         SwipeActions(
@@ -229,7 +237,12 @@ fun DmsScreen(store: ChatStore, nav: ChatNavigator) {
                                         onLongClick = { menuTarget = ConversationTarget.Dm(dm) },
                                     )
                                     .tagged("dm-row-${dm.id}"),
-                            ) { DmRow(dm, names) }
+                            ) {
+                                Column {
+                                    DmRow(dm, names)
+                                    RowDivider(Modifier.padding(start = 72.dp))
+                                }
+                            }
                         }
                     }
                 }
@@ -254,12 +267,17 @@ fun DmsScreen(store: ChatStore, nav: ChatNavigator) {
 /** A row of the DM list: avatar(s) with a pin, name and time, the latest message. */
 @Composable
 private fun DmRow(dm: DmConversation, names: Map<String, String>) {
+    // The platform's DM row (its sidebar: avatar, name bold while unread, the
+    // red count), with the time and the latest message under the name as a
+    // phone's DM list has them.
+    val unread = dm.hasUnread
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = 10.dp),
+        Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.m),
         horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box {
-            DmAvatar(dm, 44.dp)
+            DmAvatar(dm, 40.dp)
             if (dm.isPinned) {
                 Icon(
                     Icons.Filled.PushPin,
@@ -267,40 +285,43 @@ private fun DmRow(dm: DmConversation, names: Map<String, String>) {
                     tint = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .size(14.dp)
+                        .offset(x = 3.dp, y = 3.dp)
+                        .size(16.dp)
+                        .border(2.dp, MaterialTheme.colorScheme.background, CircleShape)
                         .background(MaterialTheme.colorScheme.primary, CircleShape)
-                        .padding(2.dp),
+                        .padding(3.dp),
                 )
             }
         }
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
                 Text(
                     dm.name,
-                    fontWeight = if (dm.hasUnread) FontWeight.Bold else FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
                     ChatDates.listTime(dm.lastMessageAt).text(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (dm.hasUnread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Row(verticalAlignment = Alignment.Top) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
                 Text(
                     dm.lastMessagePreview?.let { MentionText.plainText(it, names) } ?: stringResource(R.string.weldchat_dms_no_messages_preview),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (dm.hasUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
+                    color = if (unread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
                 if (dm.isMuted) {
                     Icon(Icons.Filled.NotificationsOff, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (dm.hasUnread && dm.unreadCount > 0) CountBadge(dm.unreadCount)
+                if (unread) CountBadge(dm.unreadCount)
             }
         }
     }

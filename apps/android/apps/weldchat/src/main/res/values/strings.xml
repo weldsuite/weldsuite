@@ -3,12 +3,17 @@
 <resources>
     <string name="weldchat_activity_days_short">%1$dd</string>
     <string name="weldchat_activity_earlier_this_month">Earlier this month</string>
-    <string name="weldchat_activity_empty_hint">Mentions, thread replies, and DMs will show up here.</string>
+    <string name="weldchat_activity_empty_hint">Mentions, replies in your threads and missed calls show up here.</string>
     <string name="weldchat_activity_empty_title">No activity yet</string>
     <string name="weldchat_activity_hours_short">%1$dh</string>
+    <string name="weldchat_activity_in_channel">in #%1$s</string>
     <string name="weldchat_activity_mark_all_read">Mark all as read</string>
+    <string name="weldchat_activity_mentions">Mentions</string>
     <string name="weldchat_activity_minutes_short">%1$dm</string>
+    <string name="weldchat_activity_missed_calls">Missed calls</string>
     <string name="weldchat_activity_now">now</string>
+    <string name="weldchat_activity_other">Other</string>
+    <string name="weldchat_activity_replies">Replies</string>
     <string name="weldchat_activity_this_week">This week</string>
     <string name="weldchat_app_name">WeldChat</string>
     <string name="weldchat_auth_subtitle">Team communication for your workspace</string>
@@ -76,6 +81,7 @@
     </plurals>
     <string name="weldchat_channel_call_ongoing">Ongoing call</string>
     <string name="weldchat_channel_call_started">Call started</string>
+    <string name="weldchat_channel_called_no_answer">Called, but there was no answer.</string>
     <string name="weldchat_channel_cancel_reply">Cancel reply</string>
     <string name="weldchat_channel_channel_details">Channel details</string>
     <string name="weldchat_channel_copied">Copied</string>
@@ -89,6 +95,7 @@
     <string name="weldchat_channel_edited">(edited)</string>
     <string name="weldchat_channel_editing_message">Editing message</string>
     <string name="weldchat_channel_join_call">Join</string>
+    <string name="weldchat_channel_join_call_link">Join call</string>
     <string name="weldchat_channel_loading_title">Loading…</string>
     <string name="weldchat_channel_mention_author">Mention %1$s</string>
     <string name="weldchat_channel_missed_call">Missed call</string>
@@ -123,6 +130,8 @@
     <string name="weldchat_channel_start_of_conversation">This is the start of the conversation.</string>
     <string name="weldchat_channel_start_video_call">Start video call</string>
     <string name="weldchat_channel_start_voice_call">Start voice call</string>
+    <string name="weldchat_channel_started_call">Started a call.</string>
+    <string name="weldchat_channel_started_call_lasted">Started a call that lasted %1$s.</string>
     <string name="weldchat_channel_thread_suggestion">Looks like a conversation. Continue it in a thread?</string>
     <string name="weldchat_channel_typing_many">%1$s and %2$d others are typing…</string>
     <string name="weldchat_channel_typing_one">%1$s is typing…</string>
@@ -138,6 +147,7 @@
     <string name="weldchat_channel_visual_shown">%1$s “%2$s”: open it on the web to see it</string>
     <string name="weldchat_channel_welcome">Welcome to #%1$s</string>
     <string name="weldchat_channel_you">You</string>
+    <string name="weldchat_channel_you_missed_call">You missed the call.</string>
     <string name="weldchat_channel_info_actions">Actions</string>
     <string name="weldchat_channel_info_delete">Delete channel</string>
     <string name="weldchat_channel_info_delete_body">This removes the channel for everyone. This cannot be undone.</string>
@@ -173,6 +183,7 @@
     <string name="weldchat_composer_attach_title">Attach</string>
     <string name="weldchat_composer_delete_recording">Delete recording</string>
     <string name="weldchat_composer_file">File</string>
+    <string name="weldchat_composer_mention_someone">Mention someone</string>
     <string name="weldchat_composer_message_channel">Message #%1$s</string>
     <string name="weldchat_composer_message_dm">Message...</string>
     <string name="weldchat_composer_mic_permission_body">Allow WeldChat to use the microphone in Settings to record voice messages.</string>
@@ -233,6 +244,7 @@
     <string name="weldchat_drafts_just_now">just now</string>
     <string name="weldchat_drafts_minutes_ago">%1$dm ago</string>
     <string name="weldchat_drafts_title">Drafts</string>
+    <string name="weldchat_home_add_channel">Add channel</string>
     <plurals name="weldchat_home_channel_count">
         <item quantity="one">%1$d channel</item>
         <item quantity="other">%1$d channels</item>
@@ -260,8 +272,9 @@
         <item quantity="other">%1$d live</item>
     </plurals>
     <string name="weldchat_home_new_item">New</string>
+    <string name="weldchat_home_other_channels_group">Other Channels</string>
     <string name="weldchat_home_profile_and_settings">Profile and settings</string>
-    <string name="weldchat_home_saved">Saved</string>
+    <string name="weldchat_home_saved">Saved items</string>
     <string name="weldchat_home_section_actions">Section actions</string>
     <string name="weldchat_home_see_all">See all</string>
     <string name="weldchat_home_switch_workspace">Switch workspace</string>

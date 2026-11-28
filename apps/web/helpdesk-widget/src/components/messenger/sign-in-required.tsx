@@ -31,9 +31,9 @@ export function SignInRequired({
               onClick={onClose}
               aria-label="Close"
               data-testid="close-button"
-              className="rounded-xl p-1.5 opacity-80 hover:opacity-100 hover:bg-white/15 transition"
+              className="rounded-xl p-2 opacity-80 hover:opacity-100 hover:bg-white/15 transition"
             >
-              <X className="h-5 w-5" />
+              <X className="h-[18px] w-[18px]" />
             </button>
           )}
         </div>

@@ -58,15 +58,14 @@ extension CalendarStore {
     }
 }
 
-/// The home tab: everything in the next two weeks, by day, under the day's
-/// numbers. It reads the range rather than "upcoming" so the meeting you're
-/// in and tentative holds show too, and the hidden calendars stay out.
+/// The home tab: the next two weeks as the platform's schedule list, in its
+/// groups (today, tomorrow, this week, next week, …). It reads the range
+/// rather than "upcoming" so the meeting you're in and tentative holds show
+/// too, and the hidden calendars stay out.
 struct AgendaView: View {
     let env: AppEnvironment
     let store: CalendarStore
-    let title: String
     let onNew: () -> Void
-    let onCalendars: () -> Void
 
     @State private var window = EventWindow()
 
@@ -85,8 +84,8 @@ struct AgendaView: View {
                 list(today: today, state: state)
             }
         }
-        .navigationTitle(title.isEmpty ? CalendarStrings.agendaTitle : title)
-        .navigationBarTitleDisplayMode(.inline)
+        // The platform's name for this view, left-aligned like its page headers (and the other apps' tabs).
+        .navigationTitle(CalendarStrings.agendaTitle)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button(action: onNew) { Image(systemName: "plus") }
@@ -115,33 +114,15 @@ struct AgendaView: View {
     private func list(today: Day, state: WindowState) -> some View {
         let events = state.events.data ?? []
         let calendars = state.calendars.data ?? []
-        let names = Dictionary(calendars.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
-        let sections = EventLists.groupByDay(events, calendar)
-        let counts = EventLists.counts(events, today: today, calendar)
-        let now = Date()
+        let colors = Dictionary(calendars.map { ($0.id, $0.color) }, uniquingKeysWith: { first, _ in first })
+        let sections = EventLists.scheduleSections(events, today: today, calendar)
         let range = CalendarDates.agendaWindow(today: today, calendar)
         return List {
-            Section {
-                HStack(spacing: Tokens.Spacing.s) {
-                    Kpi(label: CalendarStrings.agendaToday, value: counts.today, sub: CalendarStrings.agendaEventCount(counts.today))
-                        .accessibilityIdentifier("kpi-today")
-                    Kpi(label: CalendarStrings.agendaNext7Days, value: counts.nextSevenDays, sub: CalendarStrings.agendaEventCount(counts.nextSevenDays))
-                        .accessibilityIdentifier("kpi-week")
-                    Button(action: onCalendars) {
-                        Kpi(label: CalendarStrings.tabsCalendars, value: calendars.count, sub: CalendarStrings.agendaCalendarCount(calendars.count))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("kpi-calendars")
-                }
-                .listRowInsets(EdgeInsets(top: Tokens.Spacing.s, leading: Tokens.Spacing.l, bottom: Tokens.Spacing.s, trailing: Tokens.Spacing.l))
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-            }
             if sections.isEmpty {
-                ContentUnavailableView(
-                    CalendarStrings.agendaEmptyTitle,
+                CalendarEmptyState(
                     systemImage: "calendar",
-                    description: Text(CalendarStrings.agendaEmptyDescription)
+                    title: CalendarStrings.agendaEmptyTitle,
+                    description: CalendarStrings.agendaEmptyDescription
                 )
                 .listRowSeparator(.hidden)
             }
@@ -149,42 +130,23 @@ struct AgendaView: View {
                 Section {
                     ForEach(section.events) { event in
                         NavigationLink(value: Route.event(event.id)) {
-                            EventRow(event: event, calendarName: calendars.count > 1 ? names[event.calendarID] : nil, now: now)
+                            EventRow(
+                                event: event,
+                                color: Color(hex: eventColor(event.color, event.type, calendarColor: colors[event.calendarID] ?? nil)),
+                                // Today, tomorrow and yesterday are named in the heading; the other groups span days.
+                                showDate: ![ScheduleGroup.yesterday, .today, .tomorrow].contains(section.group)
+                            )
                         }
+                        .platformRow()
                     }
                 } header: {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(CalendarText.dayHeading(section.day, today: today, calendar))
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(section.day == today ? Tokens.Brand.weldcalendar : .primary)
-                        Spacer()
-                        Text(CalendarStrings.agendaEventCount(section.events.count)).font(.caption).foregroundStyle(.secondary)
-                    }
-                    .textCase(nil)
+                    GroupHeader(label: CalendarText.scheduleGroup(section.group, today: today, calendar), count: section.events.count)
+                        .listRowInsets(EdgeInsets())
                 }
             }
         }
         .listStyle(.plain)
         .accessibilityIdentifier("agenda-list")
         .refreshable { await reload(range) }
-    }
-}
-
-/// One of the agenda's numbers.
-struct Kpi: View {
-    let label: String
-    let value: Int
-    let sub: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            Text("\(value)").font(.title2.weight(.bold))
-            Text(sub).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Tokens.Spacing.m)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
-        .accessibilityElement(children: .combine)
     }
 }

@@ -74,7 +74,6 @@ class MailStore(
     private val labelsState = MutableStateFlow(LabelState())
     private val inboxState = MutableStateFlow(InboxState())
     private val pendingState = MutableStateFlow(0)
-    private val pinnedState = MutableStateFlow(prefs.getStringSet(PINNED, emptySet()).orEmpty())
     private val expectedState = MutableStateFlow<String?>(null)
 
     /** The active workspace's mailboxes first, then those of the person's other workspaces. */
@@ -89,9 +88,6 @@ class MailStore(
 
     /** Changes waiting in the outbox. */
     val pending: StateFlow<Int> = pendingState.asStateFlow()
-
-    /** Pinned messages: kept on the phone (the server has no pin), as on the web. */
-    val pinned: StateFlow<Set<String>> = pinnedState.asStateFlow()
 
     /** The message a notification opened, until the inbox lists it. */
     val expected: StateFlow<String?> = expectedState.asStateFlow()
@@ -137,6 +133,7 @@ class MailStore(
             reloadList()
             loadLabels()
             flush()
+            migrateLocalPins()
         }
     }
 
@@ -147,7 +144,6 @@ class MailStore(
         accountsState.value = emptyList()
         inboxState.value = InboxState()
         labelsState.value = LabelState()
-        pinnedState.value = emptySet()
         prefs.edit { clear() }
         env.scope.launch {
             cache.clearAll()
@@ -406,10 +402,48 @@ class MailStore(
         changeList { list -> list.map { if (it.id == id) it.copy(labels = labels) else it } }
     }
 
-    fun togglePin(id: String) {
-        val next = pinnedState.value.toMutableSet().apply { if (!add(id)) remove(id) }
-        pinnedState.value = next
-        prefs.edit { putStringSet(PINNED, next) }
+    /**
+     * Pins or unpins a message with the server's `PINNED` label, as the
+     * platform does, so the pin shows on the web and on every device. The list
+     * and the cache change at once; a refused change puts them back and throws.
+     * Returns the message's labels as the server has them.
+     */
+    suspend fun setPinned(id: String, labels: List<String>, on: Boolean): List<String> {
+        applyLabels(id, MailLogic.withPinned(labels, on))
+        try {
+            val pin = listOf(MailLogic.PINNED_LABEL)
+            val next = repository.changeLabels(id, if (on) pin else emptyList(), if (on) emptyList() else pin, labels)
+            applyLabels(id, next)
+            return next
+        } catch (error: Exception) {
+            applyLabels(id, labels)
+            throw error
+        }
+    }
+
+    private suspend fun applyLabels(id: String, labels: List<String>) {
+        labelsChanged(id, labels)
+        val ws = workspace ?: return
+        cache.message(ws, id)?.let { cache.putMessage(ws, it.copy(labels = labels)) }
+    }
+
+    /**
+     * Pins used to be kept on the phone only. Those are pinned on the server
+     * once; a message that is gone is let go, one that fails for another
+     * reason (offline) is tried again next time.
+     */
+    private suspend fun migrateLocalPins() {
+        val ids = prefs.getStringSet(LOCAL_PINS, null) ?: return
+        val left = ids.filterNot { id ->
+            try {
+                repository.changeLabels(id, listOf(MailLogic.PINNED_LABEL), emptyList(), emptyList())
+                true
+            } catch (error: Exception) {
+                (error as? ApiException)?.status == 404
+            }
+        }.toSet()
+        prefs.edit { if (left.isEmpty()) remove(LOCAL_PINS) else putStringSet(LOCAL_PINS, left) }
+        if (left.size < ids.size) refresh()
     }
 
     /** A send made offline: it goes out when the phone is back online, once (its idempotency key). */
@@ -528,7 +562,8 @@ class MailStore(
 
     private companion object {
         const val UNIFIED = "unified"
-        const val PINNED = "pinned"
+        /** Where the phone-only pins were kept, before pins moved to the server. */
+        const val LOCAL_PINS = "pinned"
         const val SUBSCRIPTIONS_TTL = 60_000L
     }
 }

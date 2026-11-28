@@ -511,6 +511,40 @@
         }
       }
     },
+    "form.addDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose what to store and where to keep it."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kies wat je wilt bewaren en waar."
+          }
+        }
+      }
+    },
+    "form.addTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add item"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Item toevoegen"
+          }
+        }
+      }
+    },
     "form.apps": {
       "extractionState": "manual",
       "localizations": {
@@ -568,13 +602,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Name on card"
+            "value": "Cardholder"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Naam op kaart"
+            "value": "Kaarthouder"
           }
         }
       }
@@ -630,19 +664,36 @@
         }
       }
     },
+    "form.editDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saving replaces the item and keeps the earlier version in its history."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opslaan vervangt het item; de eerdere versie blijft bewaard in de geschiedenis."
+          }
+        }
+      }
+    },
     "form.editTitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit item"
+            "value": "Edit “%@”"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Item bewerken"
+            "value": "“%@” bewerken"
           }
         }
       }
@@ -653,13 +704,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Expires (MM/YY)"
+            "value": "Expiry"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Geldig tot (MM/JJ)"
+            "value": "Vervaldatum"
+          }
+        }
+      }
+    },
+    "form.expiryPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MM/YY"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MM/JJ"
           }
         }
       }
@@ -694,57 +762,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Genereren"
-          }
-        }
-      }
-    },
-    "form.newTitle.card": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New card"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nieuwe kaart"
-          }
-        }
-      }
-    },
-    "form.newTitle.login": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New login"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nieuwe login"
-          }
-        }
-      }
-    },
-    "form.newTitle.note": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New secure note"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nieuwe beveiligde notitie"
           }
         }
       }
@@ -823,13 +840,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Saved"
+            "value": "Item saved"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opgeslagen"
+            "value": "Item opgeslagen"
+          }
+        }
+      }
+    },
+    "form.sharedVaultHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everyone in this vault will be able to see this item."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iedereen in deze kluis kan dit item zien."
           }
         }
       }
@@ -851,36 +885,19 @@
         }
       }
     },
-    "form.titlePlaceholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "e.g. GitHub"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "bijv. GitHub"
-          }
-        }
-      }
-    },
     "form.titleRequired": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Give the item a title."
+            "value": "Enter a title."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Geef het item een titel."
+            "value": "Vul een titel in."
           }
         }
       }
@@ -891,13 +908,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Two-factor secret"
+            "value": "2FA code"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tweestapsgeheim"
+            "value": "2FA-code"
           }
         }
       }
@@ -908,13 +925,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The setup key or the otpauth:// link a site shows when you turn on two-factor sign-in."
+            "value": "Paste the setup key (base32) or the otpauth:// link from the site."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "De instelsleutel of de otpauth://-link die een site toont als je inloggen in twee stappen aanzet."
+            "value": "Plak de installatiesleutel (base32) of de otpauth://-link van de site."
+          }
+        }
+      }
+    },
+    "form.totpPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JBSWY3DPEHPK3PXP · otpauth://totp/…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JBSWY3DPEHPK3PXP · otpauth://totp/…"
           }
         }
       }
@@ -932,6 +966,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Soort"
+          }
+        }
+      }
+    },
+    "form.typeLocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The type can’t be changed after creating the item."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Het soort kan niet meer worden gewijzigd nadat het item is aangemaakt."
           }
         }
       }
@@ -959,13 +1010,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "example.com"
+            "value": "https://example.com"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "voorbeeld.nl"
+            "value": "https://example.com"
           }
         }
       }
@@ -976,13 +1027,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Username or email"
+            "value": "Username"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gebruikersnaam of e-mail"
+            "value": "Gebruikersnaam"
           }
         }
       }
@@ -1027,13 +1078,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Digits (2–9)"
+            "value": "Digits"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cijfers (2–9)"
+            "value": "Cijfers"
           }
         }
       }
@@ -1061,30 +1112,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Length"
+            "value": "Length: %lld"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lengte"
-          }
-        }
-      }
-    },
-    "generator.longer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Longer"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Langer"
+            "value": "Lengte: %lld"
           }
         }
       }
@@ -1095,30 +1129,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New password"
+            "value": "Generate another"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nieuw wachtwoord"
-          }
-        }
-      }
-    },
-    "generator.shorter": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shorter"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Korter"
+            "value": "Nog een genereren"
           }
         }
       }
@@ -1129,13 +1146,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Symbols (!@#…)"
+            "value": "Symbols"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Symbolen (!@#…)"
+            "value": "Symbolen"
           }
         }
       }
@@ -1163,13 +1180,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Capital letters (A–Z)"
+            "value": "Uppercase"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hoofdletters (A–Z)"
+            "value": "Hoofdletters"
           }
         }
       }
@@ -1191,36 +1208,53 @@
         }
       }
     },
-    "health.allGood": {
+    "health.allHealthy": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Every password is fine"
+            "value": "All passwords look healthy."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alle wachtwoorden zijn in orde"
+            "value": "Alle wachtwoorden zien er in orde uit."
           }
         }
       }
     },
-    "health.allGoodDescription": {
+    "health.attentionTitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No weak, reused or old passwords in the vaults you can open."
+            "value": "Needs attention"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Geen zwakke, hergebruikte of oude wachtwoorden in de kluizen die je kunt openen."
+            "value": "Aandacht nodig"
+          }
+        }
+      }
+    },
+    "health.emptyDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add logins with a password and they will be checked here."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voeg logins met een wachtwoord toe en ze worden hier gecontroleerd."
           }
         }
       }
@@ -1231,30 +1265,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a login and change its password on the site, then save the new one here."
+            "value": "Weakest first. Open a login to change its password."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open een login, wijzig het wachtwoord op de site en sla het nieuwe hier op."
-          }
-        }
-      }
-    },
-    "health.nothingChecked": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No logins with a password yet."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nog geen logins met een wachtwoord."
+            "value": "Zwakste eerst. Open een login om het wachtwoord te wijzigen."
           }
         }
       }
@@ -1265,13 +1282,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Older than a year"
+            "value": "Old"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouder dan een jaar"
+            "value": "Oud"
           }
         }
       }
@@ -1293,7 +1310,7 @@
         }
       }
     },
-    "health.reusedCount": {
+    "health.reusedOn": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1302,13 +1319,13 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Used once more"
+                  "value": "Reused on %lld logins"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Used %lld more times"
+                  "value": "Reused on %lld logins"
                 }
               }
             }
@@ -1320,33 +1337,16 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Nog één keer gebruikt"
+                  "value": "Hergebruikt bij %lld logins"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Nog %lld keer gebruikt"
+                  "value": "Hergebruikt bij %lld logins"
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "health.summary": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld of %2$lld logins are fine"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld van %2$lld logins zijn in orde"
           }
         }
       }
@@ -1402,19 +1402,36 @@
         }
       }
     },
+    "item.auditNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revealing or copying a secret is recorded in the vault activity."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Het tonen of kopiëren van een geheim wordt vastgelegd in de kluisactiviteit."
+          }
+        }
+      }
+    },
     "item.cardholder": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Name on card"
+            "value": "Cardholder"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Naam op kaart"
+            "value": "Kaarthouder"
           }
         }
       }
@@ -1470,6 +1487,91 @@
         }
       }
     },
+    "item.copyCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy code"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code kopiëren"
+          }
+        }
+      }
+    },
+    "item.copyCvc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy security code"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beveiligingscode kopiëren"
+          }
+        }
+      }
+    },
+    "item.copyNumber": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy card number"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaartnummer kopiëren"
+          }
+        }
+      }
+    },
+    "item.copyPassword": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy password"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wachtwoord kopiëren"
+          }
+        }
+      }
+    },
+    "item.copyUsername": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy username"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gebruikersnaam kopiëren"
+          }
+        }
+      }
+    },
     "item.cvc": {
       "extractionState": "manual",
       "localizations": {
@@ -1493,13 +1595,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "It’s removed for everyone in the vault."
+            "value": "This removes the item for everyone who can see it in this vault. This cannot be undone."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Het verdwijnt voor iedereen in de kluis."
+            "value": "Het item verdwijnt voor iedereen die het in deze kluis kan zien. Dit kan niet ongedaan worden gemaakt."
           }
         }
       }
@@ -1544,13 +1646,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Expires"
+            "value": "Expiry"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Geldig tot"
+            "value": "Vervaldatum"
           }
         }
       }
@@ -1674,30 +1776,13 @@
         }
       }
     },
-    "item.reveal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show the hidden fields"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verborgen velden tonen"
-          }
-        }
-      }
-    },
     "item.show": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show"
+            "value": "Reveal"
           }
         },
         "nl": {
@@ -1708,19 +1793,53 @@
         }
       }
     },
+    "item.showCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show code"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code tonen"
+          }
+        }
+      }
+    },
     "item.totp": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Two-factor code"
+            "value": "2FA code"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tweestapscode"
+            "value": "2FA-code"
+          }
+        }
+      }
+    },
+    "item.totpExpired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code expired."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code verlopen."
           }
         }
       }
@@ -1734,13 +1853,13 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Changes in %lld second"
+                  "value": "%llds left"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Changes in %lld seconds"
+                  "value": "%llds left"
                 }
               }
             }
@@ -1752,16 +1871,33 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Wijzigt over %lld seconde"
+                  "value": "nog %llds"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Wijzigt over %lld seconden"
+                  "value": "nog %llds"
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "item.totpFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not generate a code."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Er kon geen code worden gegenereerd."
           }
         }
       }
@@ -1783,19 +1919,19 @@
         }
       }
     },
-    "item.updated": {
+    "item.updatedMeta": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Updated %@"
+            "value": "Updated %1$@ · v%2$@"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bijgewerkt %@"
+            "value": "Bijgewerkt %1$@ · v%2$@"
           }
         }
       }
@@ -1857,13 +1993,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New item"
+            "value": "Add item"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nieuw item"
+            "value": "Item toevoegen"
           }
         }
       }
@@ -1881,23 +2017,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Alles"
-          }
-        }
-      }
-    },
-    "items.chooseType": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "What do you want to add?"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wat wil je toevoegen?"
           }
         }
       }
@@ -1949,13 +2068,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No items yet"
+            "value": "No passwords yet"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nog geen items"
+            "value": "Nog geen wachtwoorden"
           }
         }
       }
@@ -1973,6 +2092,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Voeg een login, een beveiligde notitie of een kaart toe. Die komt in je persoonlijke kluis, tenzij je een gedeelde kiest."
+          }
+        }
+      }
+    },
+    "items.hasTotp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Has a 2FA code"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heeft een 2FA-code"
           }
         }
       }
@@ -2000,13 +2136,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Try another word, or clear the search."
+            "value": "Try a different search or filter."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Probeer een ander woord, of wis de zoekopdracht."
+            "value": "Probeer een andere zoekopdracht of een ander filter."
           }
         }
       }
@@ -2034,13 +2170,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search titles, usernames and sites"
+            "value": "Search passwords"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zoek op titel, gebruikersnaam of site"
+            "value": "Wachtwoorden zoeken"
           }
         }
       }
@@ -2051,13 +2187,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All items"
+            "value": "Passwords"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alle items"
+            "value": "Wachtwoorden"
           }
         }
       }
@@ -3150,23 +3286,6 @@
         }
       }
     },
-    "strength.bits": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld bits"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld bits"
-          }
-        }
-      }
-    },
     "strength.fair": {
       "extractionState": "manual",
       "localizations": {
@@ -3180,23 +3299,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Redelijk"
-          }
-        }
-      }
-    },
-    "strength.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Strength"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sterkte"
           }
         }
       }
@@ -3258,13 +3360,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Items"
+            "value": "Passwords"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Items"
+            "value": "Wachtwoorden"
           }
         }
       }
@@ -3411,13 +3513,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No vaults"
+            "value": "No vaults yet"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Geen kluizen"
+            "value": "Nog geen kluizen"
           }
         }
       }
@@ -3520,13 +3622,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You manage this vault as a workspace admin, but you’re not in it, so you can’t see its items."
+            "value": "As a workspace admin you can manage who has access to this vault, but you can’t see the passwords in it. Add yourself as a member to open them."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Je beheert deze kluis als werkruimtebeheerder, maar je zit er niet in, dus je ziet de items niet."
+            "value": "Als werkruimtebeheerder kun je beheren wie toegang heeft tot deze kluis, maar je ziet de wachtwoorden erin niet. Voeg jezelf toe als lid om ze te openen."
+          }
+        }
+      }
+    },
+    "vaults.notMemberTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re not a member of this vault"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Je bent geen lid van deze kluis"
           }
         }
       }
@@ -3588,13 +3707,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can edit"
+            "value": "Editor"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mag bewerken"
+            "value": "Bewerker"
           }
         }
       }
@@ -3616,19 +3735,36 @@
         }
       }
     },
+    "vaults.roles.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not a member"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geen lid"
+          }
+        }
+      }
+    },
     "vaults.roles.viewer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can view"
+            "value": "Viewer"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mag bekijken"
+            "value": "Lezer"
           }
         }
       }

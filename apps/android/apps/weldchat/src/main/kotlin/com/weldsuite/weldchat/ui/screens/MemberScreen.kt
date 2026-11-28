@@ -69,6 +69,7 @@ import com.weldsuite.weldchat.calls.CallManager
 import com.weldsuite.weldchat.calls.CallPeer
 import com.weldsuite.weldchat.calls.CallType
 import com.weldsuite.weldchat.text
+import com.weldsuite.weldchat.ui.EmptyIcon
 import com.weldsuite.weldchat.ui.BackButton
 import com.weldsuite.weldchat.ui.ChatAvatar
 import com.weldsuite.weldchat.ui.ChatNavigator
@@ -250,13 +251,13 @@ fun MemberScreen(
                     MemberLoadState.NOT_FOUND -> EmptyState(
                         stringResource(R.string.weldchat_member_not_found_title),
                         stringResource(R.string.weldchat_member_not_found_description),
-                        icon = { Icon(Icons.Filled.PersonOff, contentDescription = null, modifier = Modifier.size(40.dp)) },
+                        icon = { EmptyIcon(Icons.Filled.PersonOff) },
                     )
                     MemberLoadState.FAILED -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                         EmptyState(
                             stringResource(R.string.weldchat_member_profile_load_failed_title),
                             stringResource(R.string.weldchat_member_profile_load_failed_description),
-                            icon = { Icon(Icons.Filled.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(40.dp)) },
+                            icon = { EmptyIcon(Icons.Filled.Warning) },
                         )
                         TextButton(onClick = { scope.launch { load() } }, modifier = Modifier.tagged("retry")) {
                             Text(stringResource(CoreR.string.core_common_try_again))

@@ -19,8 +19,9 @@ import org.weldsuite.api.weldchat.models.DmMember
 import org.weldsuite.api.weldchat.models.DraftInput
 import org.weldsuite.api.weldchat.models.MemberProfile
 import org.weldsuite.api.weldchat.models.MemberStatus
+import org.weldsuite.api.weldchat.models.MarkChatActivityReadInput
 import org.weldsuite.api.weldchat.models.Message
-import org.weldsuite.api.weldchat.models.Notification
+import org.weldsuite.api.weldchat.models.ChatActivityItem
 import org.weldsuite.api.weldchat.models.PinDmInput
 import org.weldsuite.api.weldchat.models.PinInput
 import org.weldsuite.api.weldchat.models.ReactionInput
@@ -281,17 +282,22 @@ class ChatRepository(private val env: AppEnvironment, private val dmTexts: () ->
 
     // Notifications (Activity)
 
-    suspend fun listNotifications(): List<ActivityNotification> = apiCall { api.listNotifications(limit = 50) }.data.map { it.toActivity() }
+    /** The Activity tab: the caller's chat activity (mentions, thread replies, missed calls), newest first, as the platform's. */
+    suspend fun listActivity(limit: Int = 50): List<ActivityNotification> = apiCall { api.listChatActivity(limit = limit) }.data.map { it.toActivity() }
 
-    suspend fun unreadNotificationCount(): Int = apiCall { api.getUnreadNotificationCount() }.data.count
+    /** The Activity badge: unread mentions, thread replies and missed calls, as the platform's (not other apps' notifications). */
+    suspend fun unreadActivityCount(): Int = apiCall { api.getChatActivityUnreadCount() }.data.count
 
-    suspend fun markNotificationRead(id: String) {
-        apiCall { api.markNotificationRead(id) }
+    /** Marks every activity item read (other apps' notifications stay unread). */
+    suspend fun markAllActivityRead() {
+        apiCallNoContent { api.markChatActivityRead(MarkChatActivityReadInput()) }
     }
 
-    suspend fun markAllNotificationsRead() {
-        apiCall { api.markAllNotificationsRead() }
+    /** Marks one activity item read. */
+    suspend fun markActivityRead(id: String) {
+        apiCallNoContent { api.markChatActivityRead(MarkChatActivityReadInput(notificationId = id)) }
     }
+
 }
 
 // Mapping: the generated types to the app's, pure (ChatRepositoryTest).
@@ -370,6 +376,7 @@ internal fun Message.toChatMessage(): ChatMessage {
         type = type,
         parentId = parentId,
         threadReplyCount = threadReplyCount ?: 0,
+        threadLastReplyAt = threadLastReplyAt,
         editedAt = editedAt,
         isPinned = isPinned ?: false,
         hasAttachments = hasAttachments ?: false,
@@ -506,17 +513,19 @@ internal fun CommonConcepts.toCommon() = CommonConceptsInfo(
     helpdesk = helpdesk.map { CommonConceptsInfo.Helpdesk(it.id, it.kind, it.subject, it.status.orEmpty()) },
 )
 
-internal fun Notification.toActivity() = ActivityNotification(
+internal fun ChatActivityItem.toActivity() = ActivityNotification(
     id = id,
     title = title,
     body = body,
-    category = category,
-    notificationType = notificationType,
-    entityType = entityType,
-    entityId = entityId,
+    category = "weldchat",
+    notificationType = type,
+    entityId = messageId,
     actionUrl = actionUrl,
-    isRead = isRead,
+    isRead = readAt != null,
     createdAt = createdAt,
     actorName = actorName,
-    actorAvatar = actorAvatar,
+    actorAvatar = actorAvatarUrl,
+    actorId = actorId,
+    channelId = channelId,
+    channelName = channelName,
 )

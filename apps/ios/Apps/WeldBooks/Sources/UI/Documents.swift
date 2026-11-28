@@ -3,54 +3,73 @@ import SwiftUI
 import WeldCore
 import WeldUI
 
-// The parts the invoice and bill detail screens share (Android `ui/Documents.kt`).
+// The parts the invoice and bill detail screens share (Android `ui/Documents.kt`),
+// laid out as the platform's invoice and bill panels: property rows, the line
+// items, the totals.
 
-/// The open balance (or the total), the status and how far off the due date is.
-struct DocumentSummary: View {
-    let balanceDue: Decimal
+/// "Overdue by 3 days", "Due today", "Due in 5 days" (and whether it is late); nil when nothing is open or there is no due date.
+func dueNote(balanceDue: Decimal, dueDate: String, isInvoice: Bool) -> (text: String, late: Bool)? {
+    guard balanceDue > 0, let days = Days.until(Days.of(dueDate)) else { return nil }
+    if days < 0 {
+        return (isInvoice ? BooksStrings.invoiceDetailOverdueBy(-days) : BooksStrings.billDetailOverdueBy(-days), true)
+    }
+    if days == 0 {
+        return (isInvoice ? BooksStrings.invoiceDetailDueToday : BooksStrings.billDetailDueToday, false)
+    }
+    return (isInvoice ? BooksStrings.invoiceDetailDueIn(days) : BooksStrings.billDetailDueIn(days), false)
+}
+
+/// The figures at the top of an invoice's or bill's details, as the platform's
+/// panel lists them: total, paid, balance due and the status chip.
+struct DocumentFigures: View {
     let total: Decimal
+    let amountPaid: Decimal
+    let balanceDue: Decimal
     let currency: String
-    let dueDate: String
     let status: String
-    let balanceLabel: String
-    let totalLabel: String
     let isInvoice: Bool
 
     @Environment(Books.self) private var books
 
     var body: some View {
-        let hasBalance = balanceDue > 0
-        let due = Days.until(Days.of(dueDate))
-        SectionCard {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(hasBalance ? balanceLabel : totalLabel).font(.footnote).foregroundStyle(Color.secondary)
-                    Text(books.money(hasBalance ? balanceDue : total, currency: currency)).font(.title2.bold())
-                }
-                Spacer()
-                StatusPill(status)
-            }
-            if hasBalance, let days = due {
-                Text(dueText(days))
-                    .font(.footnote)
-                    .foregroundStyle(days < 0 ? Tokens.Status.danger : Color.secondary)
-                    .padding(.top, Tokens.Spacing.s)
-            }
+        PropertyRow("banknote", isInvoice ? BooksStrings.invoiceDetailTotal : BooksStrings.billDetailTotal, books.money(total, currency: currency))
+        PropertyRow("wallet.pass", isInvoice ? BooksStrings.invoiceDetailPaid : BooksStrings.billDetailPaid, books.money(amountPaid, currency: currency))
+        PropertyRow(
+            "scalemass",
+            isInvoice ? BooksStrings.invoiceDetailBalanceDue : BooksStrings.billDetailBalanceDue,
+            books.money(max(balanceDue, 0), currency: currency)
+        )
+        .tagged("balance-due")
+        PropertyRow("smallcircle.filled.circle", BooksStrings.documentStatus) {
+            StatusPill(status)
         }
-    }
-
-    private func dueText(_ days: Int) -> String {
-        if days < 0 {
-            return isInvoice ? BooksStrings.invoiceDetailOverdueBy(-days) : BooksStrings.billDetailOverdueBy(-days)
-        }
-        if days == 0 {
-            return isInvoice ? BooksStrings.invoiceDetailDueToday : BooksStrings.billDetailDueToday
-        }
-        return isInvoice ? BooksStrings.invoiceDetailDueIn(days) : BooksStrings.billDetailDueIn(days)
     }
 }
 
-/// A document's lines: "2 × €10.00 · 21% VAT", the line total.
+/// The due date, with how far off it is under it (red once it has passed).
+struct DueDateRow: View {
+    let label: String
+    let dueDate: String
+    let balanceDue: Decimal
+    let isInvoice: Bool
+
+    @Environment(Books.self) private var books
+
+    var body: some View {
+        PropertyRow("calendar.badge.clock", label) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(books.date(dueDate)).font(.inter(.subheadline)).monospacedDigit()
+                if let note = dueNote(balanceDue: balanceDue, dueDate: dueDate, isInvoice: isInvoice) {
+                    Text(note.text)
+                        .font(.inter(.caption))
+                        .foregroundStyle(note.late ? Tokens.Status.danger : Tokens.Palette.mutedForeground)
+                }
+            }
+        }
+    }
+}
+
+/// A document's lines, as the platform's line items: the description, "2 × €10.00 · 21% VAT" under it, the line total.
 struct DocumentLines: View {
     let lines: [DocumentLine]
     let currency: String
@@ -61,39 +80,46 @@ struct DocumentLines: View {
 
     var body: some View {
         if !lines.isEmpty {
-            SectionCard(title: title) {
+            PanelSection(title: title) {
                 ForEach(lines.indices, id: \.self) { index in
                     let line = lines[index]
-                    if index > 0 { Divider().padding(.vertical, Tokens.Spacing.s) }
-                    Text(line.description).font(.subheadline)
+                    Hairline()
                     HStack(alignment: .firstTextBaseline, spacing: Tokens.Spacing.m) {
-                        Text(detail(line))
-                            .font(.footnote)
-                            .foregroundStyle(Color.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Text(books.money(line.lineTotal, currency: currency)).font(.subheadline.weight(.semibold))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(line.description).font(.inter(.subheadline))
+                            Text(detail(line))
+                                .font(.inter(.caption))
+                                .monospacedDigit()
+                                .foregroundStyle(Tokens.Palette.mutedForeground)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(books.money(line.lineTotal, currency: currency))
+                            .font(.inter(.subheadline, weight: .medium))
+                            .monospacedDigit()
                     }
-                    .padding(.top, 4)
+                    .padding(.vertical, Tokens.Spacing.m)
+                    .accessibilityElement(children: .combine)
                 }
+                Hairline()
             }
         }
     }
 
     private func detail(_ line: DocumentLine) -> String {
-        var parts: [String] = []
+        var parts = ["\(Amounts.plain(line.quantity)) × \(books.money(line.unitPrice, currency: currency))"]
         if books.isUs && isInvoice {
             if let code = line.taxCode { parts.append(taxCodeLabel(code)) }
         } else {
             if line.taxRate > 0 { parts.append(books.labels.taxRate(Amounts.percent(line.taxRate))) }
             if books.isUs && line.accrueUseTax { parts.append(BooksStrings.salesTaxUseTaxAccrued) }
         }
-        let suffix = parts.isEmpty ? "" : "  ·  " + parts.joined(separator: "  ·  ")
-        return "\(Amounts.plain(line.quantity)) × \(books.money(line.unitPrice, currency: currency))\(suffix)"
+        return parts.joined(separator: " · ")
     }
 }
 
-/// Subtotal, tax, payments and what is open. A Brazilian document's tax row
-/// becomes the taxes added on top and the withholdings taken off.
+/// Subtotal, tax and the total, then what has been paid (green) and what is
+/// still due, as the platform's totals. A Brazilian document's tax row becomes
+/// the taxes added on top and the withholdings taken off.
 struct DocumentTotals: View {
     let subtotal: Decimal
     let taxTotal: Decimal
@@ -109,23 +135,19 @@ struct DocumentTotals: View {
     @Environment(Books.self) private var books
 
     var body: some View {
-        let hasPayments = amountPaid > 0
         let labels = isInvoice
-            ? (BooksStrings.invoiceDetailTotals, BooksStrings.invoiceDetailSubtotal, BooksStrings.invoiceDetailTotal, BooksStrings.invoiceDetailPaid, BooksStrings.invoiceDetailBalanceDue)
-            : (BooksStrings.billDetailTotals, BooksStrings.billDetailSubtotal, BooksStrings.billDetailTotal, BooksStrings.billDetailPaid, BooksStrings.billDetailBalanceDue)
-        var rows: [(String, String)] = [(labels.1, books.money(subtotal, currency: currency))]
+            ? (BooksStrings.invoiceDetailSubtotal, BooksStrings.invoiceDetailTotal, BooksStrings.invoiceDetailPaid, BooksStrings.invoiceDetailBalanceDue)
+            : (BooksStrings.billDetailSubtotal, BooksStrings.billDetailTotal, BooksStrings.billDetailPaid, BooksStrings.billDetailBalanceDue)
+        var rows: [(String, String)] = [(labels.0, books.money(subtotal, currency: currency))]
         rows += taxRows
         rows += extraRows
-        if hasPayments {
-            rows.append((labels.2, books.money(total, currency: currency)))
-            rows.append((labels.3, "−" + books.money(amountPaid, currency: currency)))
-        }
-        let totalRow = hasPayments
-            ? (labels.4, books.money(max(balanceDue, 0), currency: currency))
-            : (labels.2, books.money(total, currency: currency))
-        return SectionCard(title: labels.0) {
-            TotalsBlock(rows: rows, total: totalRow)
-        }
+        var after: [(String, String, Color?)] = []
+        if amountPaid > 0 { after.append((labels.2, "−" + books.money(amountPaid, currency: currency), Tones.paid)) }
+        if balanceDue > 0 { after.append((labels.3, books.money(balanceDue, currency: currency), nil)) }
+        return TotalsBlock(rows: rows, total: (labels.1, books.money(total, currency: currency)), after: after)
+            .padding(.horizontal, Tokens.Spacing.l)
+            .padding(.vertical, Tokens.Spacing.m)
+            .tagged("document-totals")
     }
 
     private var taxRows: [(String, String)] {
@@ -138,7 +160,7 @@ struct DocumentTotals: View {
     }
 }
 
-/// Runs a document action, then reloads; a refusal stays on screen until the
+// Runs a document action, then reloads; a refusal stays on screen until the
 /// next attempt (Android `Mutations`). Keep it in `@State private var mutations = Mutations()`.
 @MainActor
 @Observable

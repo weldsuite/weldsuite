@@ -4,7 +4,7 @@ import type { MessageAttachment, ThreadMessage, WidgetConfigResponse } from '@/l
 import { DRAFT_ID, type Messenger } from '@/hooks/use-messenger';
 import { useAvailability } from '@/hooks/use-availability';
 import { useArticleSuggestions } from '@/hooks/use-self-service';
-import { fill, t } from '@/lib/i18n';
+import { fill, sentAgoText, t } from '@/lib/i18n';
 import { cn } from '@/lib/utils/cn';
 import {
   ATTACHMENT_ACCEPT,
@@ -33,6 +33,12 @@ interface ConversationViewProps {
 
 const GROUP_WINDOW_MS = 5 * 60_000;
 const STICK_THRESHOLD_PX = 100;
+/**
+ * How far above the panel's bottom the thread stops: the reply field's 16px
+ * bottom padding plus its 23px corner radius. Messages pass behind the field's
+ * top corners only, and the scrollbar ends beside the field, not behind it.
+ */
+const THREAD_BOTTOM_GAP = 39;
 
 function groupedWith(a: ThreadMessage | undefined, b: ThreadMessage | undefined): boolean {
   if (!a || !b || a.kind === 'event' || b.kind === 'event') return false;
@@ -49,14 +55,44 @@ interface MessageRowProps {
   onColor: string;
   /** The conversation's rating, for the "You rated…" line of a `rated` event. */
   rating: number | null;
+  /** The newest message in the thread: it alone shows who sent it and when. */
+  latest: boolean;
   onRetry: (message: ThreadMessage) => void;
+}
+
+/** The current time, ticking every 30s so "2m ago" keeps up while the thread is open. */
+function useNow(intervalMs = 30_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(timer);
+  }, [intervalMs]);
+  return now;
+}
+
+/** "Sophie Bakker · 2m ago" (or "You · Just now") under the newest message. */
+function SentLine({ message, who }: Readonly<{ message: ThreadMessage; who: string }>) {
+  const now = useNow();
+  return (
+    <p className="mt-1.5 text-[11px] leading-[14px] text-gray-500">
+      {who} · <time dateTime={message.createdAt}>{sentAgoText(message.createdAt, now)}</time>
+    </p>
+  );
 }
 
 function MessageStatus({
   message,
   lastInGroup,
+  latest,
+  who,
   onRetry,
-}: Readonly<{ message: ThreadMessage; lastInGroup: boolean; onRetry: (message: ThreadMessage) => void }>) {
+}: Readonly<{
+  message: ThreadMessage;
+  lastInGroup: boolean;
+  latest: boolean;
+  who: string;
+  onRetry: (message: ThreadMessage) => void;
+}>) {
   if (message.status === 'failed') {
     return (
       <button type="button" onClick={() => onRetry(message)} className="mt-1 text-[11px] text-red-500 hover:underline">
@@ -64,8 +100,10 @@ function MessageStatus({
       </button>
     );
   }
-  if (!lastInGroup || message.status !== 'sending') return null;
-  return <span className="mt-1 mx-1 text-[11px] text-gray-400">Sending…</span>;
+  if (message.status === 'sending') {
+    return lastInGroup ? <span className="mt-1 mx-1 text-[11px] text-gray-400">Sending…</span> : null;
+  }
+  return latest ? <SentLine message={message} who={who} /> : null;
 }
 
 /**
@@ -91,7 +129,7 @@ function EventDivider({
   );
 }
 
-function MessageRow({ message, prev, next, color, onColor, rating, onRetry }: Readonly<MessageRowProps>) {
+function MessageRow({ message, prev, next, color, onColor, rating, latest, onRetry }: Readonly<MessageRowProps>) {
   if (message.kind === 'event') return <EventDivider message={message} prev={prev} rating={rating} />;
   const mine = message.authorType === 'visitor';
   const grouped = groupedWith(prev, message);
@@ -126,10 +164,23 @@ function MessageRow({ message, prev, next, color, onColor, rating, onRetry }: Re
             <MessageAttachments attachments={attachments} className={message.body ? 'mt-2' : undefined} />
           )}
         </div>
-        <MessageStatus message={message} lastInGroup={lastInGroup} onRetry={onRetry} />
+        <MessageStatus
+          message={message}
+          lastInGroup={lastInGroup}
+          latest={latest}
+          who={mine ? t.thread.you : author}
+          onRetry={onRetry}
+        />
       </div>
     </div>
   );
+}
+
+function newestMessage(messages: ThreadMessage[]): ThreadMessage | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].kind === 'message') return messages[i];
+  }
+  return undefined;
 }
 
 function eventText(message: ThreadMessage, rating: number | null): string {
@@ -165,6 +216,8 @@ export function ConversationView({
   const isDraft = conversationId === DRAFT_ID;
   const conversation = messenger.conversations.find((c) => c.id === conversationId) ?? null;
   const messages = messenger.threads[conversationId] ?? [];
+  // The newest real message (not an event): it shows who sent it and when.
+  const latestMessage = newestMessage(messages);
   const loading = messenger.loadingThread === conversationId && messages.length === 0;
   const agentTyping = messenger.typing[conversationId] ?? null;
   const assignee = conversation?.assignee ?? null;
@@ -184,7 +237,7 @@ export function ConversationView({
   // The reply field floats over the bottom of the thread, so the thread keeps
   // that much room free below its last message.
   const composerRef = useRef<HTMLFormElement>(null);
-  const [composerHeight, setComposerHeight] = useState(58);
+  const [composerHeight, setComposerHeight] = useState(62);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior) => {
     const el = scrollRef.current;
@@ -300,13 +353,13 @@ export function ConversationView({
 
   return (
     <div className="relative flex-1 min-h-0 flex flex-col" data-testid="chat-view">
-      <header className="flex items-center gap-2 px-2 h-16 flex-shrink-0 border-b border-gray-100 bg-white text-gray-900">
+      <header className="flex items-center gap-2 px-2 h-14 flex-shrink-0 border-b border-gray-100 bg-white text-gray-900">
         <button
           type="button"
           onClick={onBack}
           aria-label="Back"
           data-testid="back-button"
-          className="rounded-xl p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+          className="rounded-xl p-[7px] text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
         >
           <ChevronLeft className="h-5 w-5" />
         </button>
@@ -327,9 +380,9 @@ export function ConversationView({
             onClick={onClose}
             aria-label="Close"
             data-testid="close-button"
-            className="rounded-xl p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+            className="rounded-xl p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
           >
-            <X className="h-5 w-5" />
+            <X className="h-[18px] w-[18px]" />
           </button>
         )}
       </header>
@@ -341,7 +394,9 @@ export function ConversationView({
           if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD_PX;
         }}
         className="widget-scrollbar flex-1 min-h-0 overflow-y-auto pt-3"
-        style={{ paddingBottom: composerHeight + 12 }}
+        // Ends THREAD_BOTTOM_GAP above the panel's bottom, then keeps room so
+        // the last message sits 12px above the reply field.
+        style={{ marginBottom: THREAD_BOTTOM_GAP, paddingBottom: composerHeight + 12 - THREAD_BOTTOM_GAP }}
         data-testid="message-list"
       >
         {loading ? (
@@ -368,6 +423,7 @@ export function ConversationView({
                 color={color}
                 onColor={onColor}
                 rating={rating}
+                latest={message === latestMessage}
                 onRetry={(m) => void retry(m)}
               />
             ))}
@@ -404,10 +460,9 @@ export function ConversationView({
           e.preventDefault();
           void submit();
         }}
-        className="absolute inset-x-0 bottom-0 px-3 pb-3"
-        // Messages show around the field's top corners only: white below it and
-        // around its bottom corners (12px padding + 23px corner radius).
-        style={{ background: 'linear-gradient(to top, #ffffff 35px, transparent 35px)' }}
+        // Clicks on the empty space around the field reach the thread (and its
+        // scrollbar) behind it; the field, chips and suggestions take their own.
+        className="pointer-events-none absolute inset-x-0 bottom-0 px-4 pb-4 [&>*]:pointer-events-auto"
       >
         <ArticleSuggestions hits={suggestions} color={color} />
         {pending.length > 0 && (

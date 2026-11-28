@@ -10,7 +10,7 @@ import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
+import org.weldsuite.ui.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -114,10 +114,8 @@ fun WeldCalendarApp(
                         AgendaScreen(
                             env = env,
                             repository = repository,
-                            title = session.workspace.name,
                             onOpen = { nav.navigate("event/$it") },
                             onNew = { nav.navigate("event/new?date=") },
-                            onCalendars = { nav.openTab(Tab.Calendars) },
                         )
                     }
                     composable(Tab.Month.route) {
@@ -129,7 +127,7 @@ fun WeldCalendarApp(
                         )
                     }
                     composable(Tab.Calendars.route) {
-                        CalendarsScreen(env = env, repository = repository, workspaceName = session.workspace.name)
+                        CalendarsScreen(env = env, repository = repository)
                     }
                     composable(Tab.More.route) {
                         SettingsScreen(env = env, session = session, appearance = appearance)

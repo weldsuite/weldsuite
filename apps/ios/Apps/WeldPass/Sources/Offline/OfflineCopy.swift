@@ -88,7 +88,7 @@ enum CopyRules {
             let vault = PassStore.vault(copied.vault)
             return PassVault(
                 id: vault.id, kind: vault.kind, name: vault.name, role: vault.role,
-                itemCount: copied.items.count, memberCount: vault.memberCount
+                itemCount: copied.items.count, memberCount: vault.memberCount, description: vault.description
             )
         }
     }

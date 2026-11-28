@@ -125,8 +125,8 @@ struct RecordsView: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Text(title).font(.headline).foregroundStyle(.primary).lineLimit(1)
-                Image(systemName: "chevron.down").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(title).font(.inter(.headline)).foregroundStyle(.primary).lineLimit(1)
+                Image(systemName: "chevron.down").font(.inter(.caption, weight: .semibold)).foregroundStyle(.secondary)
             }
         }
         .accessibilityLabel("\(title), \(ChatStrings.recordChatsChooseType)")
@@ -149,7 +149,7 @@ struct RecordsView: View {
                     systemImage: chat.isFollowing ? "person.badge.minus" : "plus"
                 )
             }
-            .tint(chat.isFollowing ? .gray : Tokens.Brand.weldchat)
+            .tint(chat.isFollowing ? .gray : Tokens.Palette.primary)
             if chat.isFollowing {
                 Button {
                     toggleMute(chat)
@@ -284,28 +284,28 @@ struct RecordsRow: View {
         let highlighted = RecordsRules.isHighlighted(chat)
         HStack(spacing: Tokens.Spacing.m) {
             Image(systemName: RecordChatRules.symbol(chat.entityType))
-                .font(.subheadline)
+                .font(.inter(.subheadline))
                 .frame(width: 36, height: 36)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: Tokens.Radius.small))
+                .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: Tokens.Radius.small))
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(chat.displayName)
-                        .font(highlighted ? .body.weight(.semibold) : .body)
+                        .font(.inter(.subheadline, weight: highlighted ? .semibold : .regular))
                         .lineLimit(1)
                     Spacer(minLength: Tokens.Spacing.s)
                     let time = ChatDates.listTime(chat.lastMessageAt)
                     if !time.isEmpty {
-                        Text(time).font(.caption).foregroundStyle(.secondary)
+                        Text(time).font(.inter(.caption)).foregroundStyle(.secondary)
                     }
                 }
                 HStack(spacing: Tokens.Spacing.s) {
                     Text(RecordsRules.subtitle(chat, showType: showType))
-                        .font(.subheadline)
+                        .font(.inter(.subheadline))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     if chat.isMuted {
-                        Image(systemName: "bell.slash").font(.caption).foregroundStyle(.secondary)
+                        Image(systemName: "bell.slash").font(.inter(.caption)).foregroundStyle(.secondary)
                     }
                     if chat.unreadMentionCount > 0 { CountBadge(count: chat.unreadMentionCount) }
                     if !chat.isFollowing {

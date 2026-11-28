@@ -69,7 +69,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading) {
                     Text(person.name ?? person.email ?? "")
                     if person.name != nil, let email = person.email {
-                        Text(email).font(.subheadline).foregroundStyle(.secondary)
+                        Text(email).font(.inter(.subheadline)).foregroundStyle(.secondary)
                     }
                 }
                 Button(PassStrings.settingsSignOut, role: .destructive) { confirmSignOut = true }
@@ -79,7 +79,7 @@ struct SettingsView: View {
             Section {
                 let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
                 Text(PassStrings.settingsVersion(version: version))
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
             }

@@ -1,20 +1,18 @@
 package com.weldsuite.weldpass.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Group
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -37,7 +35,7 @@ import com.weldsuite.weldpass.R
 import kotlinx.coroutines.launch
 import org.weldsuite.api.weldpass.models.Vault
 import org.weldsuite.ui.CenteredProgress
-import org.weldsuite.ui.EmptyState
+import org.weldsuite.ui.StatusBadge
 import org.weldsuite.ui.Tokens
 import org.weldsuite.ui.tagged
 
@@ -58,64 +56,103 @@ fun VaultsScreen(repository: PassRepository, onOpen: (vaultId: String) -> Unit) 
             LazyColumn(Modifier.fillMaxSize()) {
                 when {
                     state.data == null && state.error == null -> item { CenteredProgress(Modifier.padding(top = 48.dp)) }
-                    state.data == null -> item { EmptyState(stringResource(passErrorMessage(state.error))) }
-                    sorted.isEmpty() -> item {
-                        EmptyState(
-                            stringResource(R.string.weldpass_vaults_empty),
-                            stringResource(R.string.weldpass_vaults_empty_description),
+                    state.data == null -> item {
+                        EmptyMessage(
+                            icon = Icons.Outlined.ErrorOutline,
+                            title = stringResource(passErrorMessage(state.error)),
+                            action = stringResource(R.string.weldpass_common_try_again) to { scope.launch { repository.refresh() }; Unit },
+                            actionTag = "retry",
                         )
                     }
-                    else -> items(sorted, key = { it.id }) { vault -> VaultRow(vault) { onOpen(vault.id) } }
+                    sorted.isEmpty() -> item {
+                        EmptyMessage(
+                            icon = Icons.Outlined.Lock,
+                            title = stringResource(R.string.weldpass_vaults_empty),
+                            description = stringResource(R.string.weldpass_vaults_empty_description),
+                        )
+                    }
+                    else -> {
+                        item { RowDivider() }
+                        items(sorted, key = { it.id }) { vault -> VaultRow(vault) { onOpen(vault.id) } }
+                    }
                 }
             }
         }
     }
 }
 
+/**
+ * One vault, as the platform's vault list shows it: the name with its
+ * description under it, your role as a badge, and the item and member counts.
+ */
 @Composable
 private fun VaultRow(vault: Vault, onClick: () -> Unit) {
     val personal = vault.kind == Vault.Kind.PERSONAL
-    ListItem(
-        headlineContent = { Text(vaultLabel(vault), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        supportingContent = {
-            Text(
-                if (personal) stringResource(R.string.weldpass_vaults_personal_description) else vaultSummary(vault),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
-        leadingContent = {
-            Box(
-                Modifier.size(40.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(Tokens.Radius.medium)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    if (personal) Icons.Outlined.Lock else Icons.Outlined.Group,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+    val description = vault.description?.takeIf { it.isNotBlank() }
+        ?: if (personal) stringResource(R.string.weldpass_vaults_personal_description) else null
+    val counts = vaultCounts(vault)
+    Column {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.m)
+                .tagged("vault-${if (personal) "personal" else vault.name}"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(vaultLabel(vault), style = rowTitleStyle(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (description != null) {
+                    Text(
+                        description,
+                        style = secondaryTextStyle(),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (counts.isNotEmpty()) {
+                    Text(counts, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-        },
-        modifier = Modifier.clickable(onClick = onClick).tagged("vault-${if (personal) "personal" else vault.name}"),
-    )
+            RoleBadge(vault.role)
+        }
+        RowDivider()
+    }
 }
 
-/** "12 items · 4 members · Can edit" for a shared vault. */
+/** "Your role": a neutral badge, or an amber "Not a member" for an admin outside the vault. */
 @Composable
-private fun vaultSummary(vault: Vault): String {
+private fun RoleBadge(role: Vault.Role?) {
+    when (role) {
+        null -> StatusBadge(stringResource(R.string.weldpass_vaults_roles_none), Tokens.Status.warning.current())
+        Vault.Role.VIEWER -> NeutralBadge(stringResource(R.string.weldpass_vaults_roles_viewer))
+        Vault.Role.EDITOR -> NeutralBadge(stringResource(R.string.weldpass_vaults_roles_editor))
+        Vault.Role.MANAGER -> NeutralBadge(stringResource(R.string.weldpass_vaults_roles_manager))
+    }
+}
+
+/**
+ * "12 items · 4 members": the platform's Items and Members columns. A
+ * personal vault has no members to count, and an admin outside a vault sees
+ * no items.
+ */
+@Composable
+private fun vaultCounts(vault: Vault): String {
     val parts = mutableListOf<String>()
-    vault.itemCount?.let { parts += pluralStringResource(R.plurals.weldpass_items_count, it, it) }
-    vault.memberCount?.let { parts += pluralStringResource(R.plurals.weldpass_vaults_members, it, it) }
-    when (vault.role) {
-        Vault.Role.VIEWER -> parts += stringResource(R.string.weldpass_vaults_roles_viewer)
-        Vault.Role.EDITOR -> parts += stringResource(R.string.weldpass_vaults_roles_editor)
-        Vault.Role.MANAGER -> parts += stringResource(R.string.weldpass_vaults_roles_manager)
-        else -> Unit
+    if (vault.role != null) {
+        val items = vault.itemCount ?: 0
+        parts += pluralStringResource(R.plurals.weldpass_items_count, items, items)
+    }
+    if (vault.kind == Vault.Kind.SHARED) {
+        val members = vault.memberCount ?: 0
+        parts += pluralStringResource(R.plurals.weldpass_vaults_members, members, members)
     }
     return parts.joinToString(" · ")
 }
 
-/** One vault's items. */
+/** One vault's items: the platform's vault page. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VaultScreen(
@@ -127,22 +164,28 @@ fun VaultScreen(
 ) {
     val vaults by repository.vaults.collectAsStateWithLifecycle()
     val vault = vaults.data?.firstOrNull { it.id == vaultId }
+    val canAdd = PassLogic.canEditVault(vault)
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(vault?.let { vaultLabel(it) }.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { BackButton(onBack) },
-                actions = { if (PassLogic.canEditVault(vault)) AddButton({ onAdd(vaultId) }, "add-item-in-vault") },
+                actions = { if (canAdd) AddButton({ onAdd(vaultId) }, "add-item-in-vault") },
             )
         },
     ) { padding ->
         if (PassLogic.isNonMemberView(vault)) {
-            EmptyState(stringResource(R.string.weldpass_vaults_not_member), modifier = Modifier.padding(padding))
+            EmptyMessage(
+                icon = Icons.Outlined.Lock,
+                title = stringResource(R.string.weldpass_vaults_not_member_title),
+                description = stringResource(R.string.weldpass_vaults_not_member),
+                modifier = Modifier.padding(padding),
+            )
             return@Scaffold
         }
         val note = when {
             vault?.kind == Vault.Kind.PERSONAL -> stringResource(R.string.weldpass_vaults_personal_description)
-            vault != null && !PassLogic.canEditVault(vault) -> stringResource(R.string.weldpass_vaults_read_only)
+            vault != null && !canAdd -> stringResource(R.string.weldpass_vaults_read_only)
             else -> null
         }
         ItemList(
@@ -151,10 +194,11 @@ fun VaultScreen(
             emptyTitle = stringResource(R.string.weldpass_vaults_no_items),
             emptyDescription = stringResource(R.string.weldpass_vaults_no_items_description),
             onOpen = onOpen,
+            onAdd = if (canAdd) ({ onAdd(vaultId) }) else null,
             modifier = Modifier.padding(padding),
             header = note?.let {
                 {
-                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(it, style = secondaryTextStyle(), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
         )

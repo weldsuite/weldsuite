@@ -47,6 +47,11 @@ const en = {
     hideExcerpt: 'Hide summary',
     dismiss: 'Dismiss',
   },
+  thread: {
+    /** Who sent the newest message, when it's the visitor: "You · 2m ago". */
+    you: 'You',
+    justNow: 'Just now',
+  },
 };
 
 type WidgetStrings = typeof en;
@@ -90,6 +95,10 @@ const nl: WidgetStrings = {
     hideExcerpt: 'Samenvatting verbergen',
     dismiss: 'Sluiten',
   },
+  thread: {
+    you: 'Jij',
+    justNow: 'Zojuist',
+  },
 };
 
 export type WidgetLocale = 'en' | 'nl';
@@ -116,6 +125,24 @@ export const articleLocale: string = detectArticleLocale();
 
 export function fill(template: string, values: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (match: string, key: string) => (key in values ? String(values[key]) : match));
+}
+
+const relativeTime = new Intl.RelativeTimeFormat(locale, { style: 'narrow', numeric: 'auto' });
+
+/**
+ * How long ago a message was sent: "Just now", then "2m ago", "3h ago",
+ * "yesterday", "4d ago" (in Dutch "2 min. geleden", "gisteren", …), and from a
+ * week on the date, "17 Nov".
+ */
+export function sentAgoText(iso: string, now: number = Date.now()): string {
+  const minutes = Math.floor((now - new Date(iso).getTime()) / 60_000);
+  if (minutes < 1) return t.thread.justNow;
+  if (minutes < 60) return relativeTime.format(-minutes, 'minute');
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return relativeTime.format(-hours, 'hour');
+  const days = Math.floor(hours / 24);
+  if (days < 7) return relativeTime.format(-days, 'day');
+  return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }).format(new Date(iso));
 }
 
 /** "Back at 09:00" today, otherwise "Back Monday at 09:00", in the visitor's own timezone. */

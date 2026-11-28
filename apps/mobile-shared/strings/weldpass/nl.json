@@ -22,7 +22,7 @@
     "dash": "—"
   },
   "tabs": {
-    "items": "Items",
+    "items": "Wachtwoorden",
     "vaults": "Kluizen",
     "generator": "Generator",
     "settings": "Instellingen"
@@ -63,32 +63,33 @@
     "cardPlural": "Kaarten"
   },
   "items": {
-    "title": "Alle items",
-    "search": "Zoek op titel, gebruikersnaam of site",
+    "title": "Wachtwoorden",
+    "search": "Wachtwoorden zoeken",
     "all": "Alles",
-    "empty": "Nog geen items",
+    "empty": "Nog geen wachtwoorden",
     "emptyDescription": "Voeg een login, een beveiligde notitie of een kaart toe. Die komt in je persoonlijke kluis, tenzij je een gedeelde kiest.",
     "noMatches": "Niets gevonden",
-    "noMatchesDescription": "Probeer een ander woord, of wis de zoekopdracht.",
+    "noMatchesDescription": "Probeer een andere zoekopdracht of een ander filter.",
     "offlineBanner": "Offline · de kopie van {time}",
-    "add": "Nieuw item",
-    "chooseType": "Wat wil je toevoegen?",
+    "add": "Item toevoegen",
     "count": {
       "one": "{count} item",
       "other": "{count} items"
-    }
+    },
+    "hasTotp": "Heeft een 2FA-code"
   },
   "vaults": {
     "title": "Kluizen",
     "personal": "Persoonlijk",
     "personalDescription": "Alleen jij ziet deze kluis.",
     "shared": "Gedeeld",
-    "empty": "Geen kluizen",
+    "empty": "Nog geen kluizen",
     "emptyDescription": "Je persoonlijke kluis verschijnt hier zodra WeldPass hem heeft aangemaakt.",
     "roles": {
-      "viewer": "Mag bekijken",
-      "editor": "Mag bewerken",
-      "manager": "Beheerder"
+      "viewer": "Lezer",
+      "editor": "Bewerker",
+      "manager": "Beheerder",
+      "none": "Geen lid"
     },
     "members": {
       "one": "{count} lid",
@@ -97,106 +98,111 @@
     "noItems": "Deze kluis is leeg",
     "noItemsDescription": "Wat je hier toevoegt, wordt gedeeld met iedereen in de kluis.",
     "readOnly": "Je mag deze kluis bekijken, niet wijzigen.",
-    "notMember": "Je beheert deze kluis als werkruimtebeheerder, maar je zit er niet in, dus je ziet de items niet."
+    "notMember": "Als werkruimtebeheerder kun je beheren wie toegang heeft tot deze kluis, maar je ziet de wachtwoorden erin niet. Voeg jezelf toe als lid om ze te openen.",
+    "notMemberTitle": "Je bent geen lid van deze kluis"
   },
   "item": {
     "username": "Gebruikersnaam",
     "password": "Wachtwoord",
     "website": "Website",
     "openWebsite": "Website openen",
-    "totp": "Tweestapscode",
+    "totp": "2FA-code",
     "totpExpires": {
-      "one": "Wijzigt over {count} seconde",
-      "other": "Wijzigt over {count} seconden"
+      "one": "nog {count}s",
+      "other": "nog {count}s"
     },
     "totpOffline": "Heeft een verbinding nodig",
     "notes": "Notities",
     "content": "Notitie",
-    "cardholder": "Naam op kaart",
+    "cardholder": "Kaarthouder",
     "number": "Kaartnummer",
-    "expiry": "Geldig tot",
+    "expiry": "Vervaldatum",
     "cvc": "Beveiligingscode",
     "apps": "Android-apps",
     "vault": "Kluis",
-    "updated": "Bijgewerkt {date}",
     "show": "Tonen",
     "hide": "Verbergen",
     "hidden": "Verborgen",
-    "reveal": "Verborgen velden tonen",
     "copied": "{field} gekopieerd",
     "copiedSecret": "{field} gekopieerd. Het wordt na 30 seconden van het klembord gewist.",
     "deleteTitle": "“{title}” verwijderen?",
-    "deleteMessage": "Het verdwijnt voor iedereen in de kluis.",
+    "deleteMessage": "Het item verdwijnt voor iedereen die het in deze kluis kan zien. Dit kan niet ongedaan worden gemaakt.",
     "deleted": "Item verwijderd",
-    "notFound": "Dit item bestaat niet meer"
+    "notFound": "Dit item bestaat niet meer",
+    "totpExpired": "Code verlopen.",
+    "totpFailed": "Er kon geen code worden gegenereerd.",
+    "showCode": "Code tonen",
+    "copyCode": "Code kopiëren",
+    "copyUsername": "Gebruikersnaam kopiëren",
+    "copyPassword": "Wachtwoord kopiëren",
+    "copyNumber": "Kaartnummer kopiëren",
+    "copyCvc": "Beveiligingscode kopiëren",
+    "updatedMeta": "Bijgewerkt {time} · v{version}",
+    "auditNote": "Het tonen of kopiëren van een geheim wordt vastgelegd in de kluisactiviteit."
   },
   "form": {
-    "newTitle": {
-      "login": "Nieuwe login",
-      "note": "Nieuwe beveiligde notitie",
-      "card": "Nieuwe kaart"
-    },
-    "editTitle": "Item bewerken",
+    "editTitle": "“{title}” bewerken",
     "type": "Soort",
     "vault": "Kluis",
     "title": "Titel",
-    "titlePlaceholder": "bijv. GitHub",
-    "titleRequired": "Geef het item een titel.",
+    "titleRequired": "Vul een titel in.",
     "url": "Website",
-    "urlPlaceholder": "voorbeeld.nl",
-    "username": "Gebruikersnaam of e-mail",
+    "urlPlaceholder": "https://example.com",
+    "username": "Gebruikersnaam",
     "password": "Wachtwoord",
     "generate": "Genereren",
-    "totp": "Tweestapsgeheim",
-    "totpHelp": "De instelsleutel of de otpauth://-link die een site toont als je inloggen in twee stappen aanzet.",
+    "totp": "2FA-code",
+    "totpHelp": "Plak de installatiesleutel (base32) of de otpauth://-link van de site.",
     "notes": "Notities",
     "content": "Notitie",
-    "cardholder": "Naam op kaart",
+    "cardholder": "Kaarthouder",
     "number": "Kaartnummer",
-    "expiry": "Geldig tot (MM/JJ)",
+    "expiry": "Vervaldatum",
     "cvc": "Beveiligingscode",
     "apps": "Android-apps",
     "appsHelp": "Pakketnamen, één per regel (bijv. com.voorbeeld.app). Je Android-telefoon biedt deze login aan in die apps.",
     "appsInvalid": "Geen Android-pakketnaam: {apps}",
     "noWritableVault": "Je kunt in geen enkele kluis items toevoegen.",
-    "saved": "Opgeslagen",
+    "saved": "Item opgeslagen",
     "created": "Item toegevoegd",
-    "fromAutofill": "Bewaar de login die je net gebruikte"
+    "fromAutofill": "Bewaar de login die je net gebruikte",
+    "addTitle": "Item toevoegen",
+    "addDescription": "Kies wat je wilt bewaren en waar.",
+    "editDescription": "Opslaan vervangt het item; de eerdere versie blijft bewaard in de geschiedenis.",
+    "typeLocked": "Het soort kan niet meer worden gewijzigd nadat het item is aangemaakt.",
+    "sharedVaultHint": "Iedereen in deze kluis kan dit item zien.",
+    "totpPlaceholder": "JBSWY3DPEHPK3PXP · otpauth://totp/…",
+    "expiryPlaceholder": "MM/JJ"
   },
   "generator": {
     "title": "Generator",
-    "length": "Lengte",
-    "shorter": "Korter",
-    "longer": "Langer",
-    "uppercase": "Hoofdletters (A–Z)",
-    "digits": "Cijfers (2–9)",
-    "symbols": "Symbolen (!@#…)",
-    "regenerate": "Nieuw wachtwoord",
+    "length": "Lengte: {count}",
+    "uppercase": "Hoofdletters",
+    "digits": "Cijfers",
+    "symbols": "Symbolen",
+    "regenerate": "Nog een genereren",
     "copy": "Wachtwoord kopiëren",
     "use": "Dit wachtwoord gebruiken",
     "hint": "Tekens die op elkaar lijken (l, 1, I, O, 0) zitten er niet in, zodat je het kunt voorlezen of overtypen."
   },
   "strength": {
-    "label": "Sterkte",
     "weak": "Zwak",
     "fair": "Redelijk",
-    "strong": "Sterk",
-    "bits": "{bits} bits"
+    "strong": "Sterk"
   },
   "health": {
     "title": "Wachtwoordgezondheid",
-    "summary": "{healthy} van {checked} logins zijn in orde",
-    "nothingChecked": "Nog geen logins met een wachtwoord.",
-    "allGood": "Alle wachtwoorden zijn in orde",
-    "allGoodDescription": "Geen zwakke, hergebruikte of oude wachtwoorden in de kluizen die je kunt openen.",
     "weak": "Zwak",
     "reused": "Hergebruikt",
-    "old": "Ouder dan een jaar",
-    "reusedCount": {
-      "one": "Nog één keer gebruikt",
-      "other": "Nog {count} keer gebruikt"
+    "old": "Oud",
+    "fixHint": "Zwakste eerst. Open een login om het wachtwoord te wijzigen.",
+    "reusedOn": {
+      "one": "Hergebruikt bij {count} logins",
+      "other": "Hergebruikt bij {count} logins"
     },
-    "fixHint": "Open een login, wijzig het wachtwoord op de site en sla het nieuwe hier op."
+    "attentionTitle": "Aandacht nodig",
+    "allHealthy": "Alle wachtwoorden zien er in orde uit.",
+    "emptyDescription": "Voeg logins met een wachtwoord toe en ze worden hier gecontroleerd."
   },
   "settings": {
     "title": "Instellingen",

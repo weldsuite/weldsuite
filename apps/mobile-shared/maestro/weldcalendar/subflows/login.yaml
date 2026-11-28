@@ -53,5 +53,5 @@ appId: ${APP_ID || "com.weldsuite.weldcalendar.dev"}
     optional: true
 - extendedWaitUntil:
     visible:
-      id: kpi-week
+      id: agenda-list
     timeout: 45000

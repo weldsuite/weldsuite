@@ -915,13 +915,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compose email"
+            "value": "Write your message…"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "E-mail opstellen"
+            "value": "Schrijf je bericht…"
           }
         }
       }
@@ -1045,6 +1045,23 @@
         }
       }
     },
+    "compose.formatting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Formatting"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opmaak"
+          }
+        }
+      }
+    },
     "compose.forwardTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -1092,23 +1109,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Van"
-          }
-        }
-      }
-    },
-    "compose.hideCcBcc": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hide Cc and Bcc"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cc en Bcc verbergen"
           }
         }
       }
@@ -1402,6 +1402,23 @@
         }
       }
     },
+    "compose.scheduleFor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schedule · %@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plannen · %@"
+          }
+        }
+      }
+    },
     "compose.scheduled": {
       "extractionState": "manual",
       "localizations": {
@@ -1487,23 +1504,6 @@
         }
       }
     },
-    "compose.sendLater": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Send later"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Later versturen"
-          }
-        }
-      }
-    },
     "compose.sendWithoutBodyMessage": {
       "extractionState": "manual",
       "localizations": {
@@ -1568,23 +1568,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "E-mail verstuurd"
-          }
-        }
-      }
-    },
-    "compose.showCcBcc": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Cc and Bcc"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cc en Bcc tonen"
           }
         }
       }
@@ -2276,19 +2259,36 @@
         }
       }
     },
+    "drawer.addLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add label"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Label toevoegen"
+          }
+        }
+      }
+    },
     "drawer.allInboxes": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All inboxes"
+            "value": "All accounts"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alle inboxen"
+            "value": "Alle accounts"
           }
         }
       }
@@ -3024,6 +3024,23 @@
         }
       }
     },
+    "inbox.isImportant": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Important"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Belangrijk"
+          }
+        }
+      }
+    },
     "inbox.isPinned": {
       "extractionState": "manual",
       "localizations": {
@@ -3058,6 +3075,23 @@
         }
       }
     },
+    "inbox.lastWeek": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last week"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorige week"
+          }
+        }
+      }
+    },
     "inbox.loadingMore": {
       "extractionState": "manual",
       "localizations": {
@@ -3071,6 +3105,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Meer laden…"
+          }
+        }
+      }
+    },
+    "inbox.noRecipient": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No recipient"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geen ontvanger"
           }
         }
       }
@@ -3105,23 +3156,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Je bent offline. Dit is de e-mail die je het laatst hebt geladen."
-          }
-        }
-      }
-    },
-    "inbox.older": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Older"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ouder"
           }
         }
       }
@@ -3235,19 +3269,19 @@
         }
       }
     },
-    "inbox.thisWeek": {
+    "inbox.toPrefix": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This week"
+            "value": "To:"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deze week"
+            "value": "Aan:"
           }
         }
       }
@@ -3303,6 +3337,47 @@
                 "stringUnit": {
                   "state": "translated",
                   "value": "%lld ongelezen"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "inbox.weeksAgo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld week ago"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld weeks ago"
+                }
+              }
+            }
+          }
+        },
+        "nl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld week geleden"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld weken geleden"
                 }
               }
             }
@@ -3691,23 +3766,6 @@
         }
       }
     },
-    "message.cc": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cc"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cc"
-          }
-        }
-      }
-    },
     "message.conversation": {
       "extractionState": "manual",
       "localizations": {
@@ -3745,23 +3803,6 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "message.date": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Date"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Datum"
           }
         }
       }
@@ -3817,23 +3858,6 @@
         }
       }
     },
-    "message.encryption": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standard encryption (TLS)"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standaardversleuteling (TLS)"
-          }
-        }
-      }
-    },
     "message.forward": {
       "extractionState": "manual",
       "localizations": {
@@ -3851,23 +3875,6 @@
         }
       }
     },
-    "message.from": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "From"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Van"
-          }
-        }
-      }
-    },
     "message.hideDetails": {
       "extractionState": "manual",
       "localizations": {
@@ -3881,6 +3888,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Details verbergen"
+          }
+        }
+      }
+    },
+    "message.labelAs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Label as"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Label als"
           }
         }
       }
@@ -3915,6 +3939,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Deze e-mail kon niet worden geladen"
+          }
+        }
+      }
+    },
+    "message.markDone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as done"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markeren als klaar"
           }
         }
       }
@@ -4055,6 +4096,47 @@
         }
       }
     },
+    "message.recipients": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Recipients (%lld)"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Recipients (%lld)"
+                }
+              }
+            }
+          }
+        },
+        "nl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Ontvangers (%lld)"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Ontvangers (%lld)"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "message.reply": {
       "extractionState": "manual",
       "localizations": {
@@ -4085,57 +4167,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Allen beantwoorden"
-          }
-        }
-      }
-    },
-    "message.reportPhishing": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Report phishing"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Phishing melden"
-          }
-        }
-      }
-    },
-    "message.reportedMessage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This message has been reported as phishing."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dit bericht is gemeld als phishing."
-          }
-        }
-      }
-    },
-    "message.reportedTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reported"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gemeld"
           }
         }
       }
@@ -4204,23 +4235,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "aan %@"
-          }
-        }
-      }
-    },
-    "message.toLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "To"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aan"
           }
         }
       }
@@ -5823,23 +5837,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ingepland voor %@"
-          }
-        }
-      }
-    },
-    "sendLater.sendLaterTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Send later"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Later versturen"
           }
         }
       }

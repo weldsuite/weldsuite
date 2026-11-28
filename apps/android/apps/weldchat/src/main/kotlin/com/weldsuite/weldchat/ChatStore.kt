@@ -128,8 +128,9 @@ class ChatStore(val env: AppEnvironment, val repository: ChatRepository) {
         quietly { repository.listDrafts(null) }?.let { draftCount = it.size }
     }
 
+    /** The Activity tab's badge: unread chat activity only, as the platform's (`/chat-activity/unread-count`). */
     suspend fun loadActivityUnread() {
-        quietly { repository.unreadNotificationCount() }?.let { activityUnread = it }
+        quietly { repository.unreadActivityCount() }?.let { activityUnread = it }
     }
 
     fun updateActivityUnread(count: Int) {

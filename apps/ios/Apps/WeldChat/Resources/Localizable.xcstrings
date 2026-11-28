@@ -41,13 +41,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mentions, thread replies, and DMs will show up here."
+            "value": "Mentions, replies in your threads and missed calls show up here."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vermeldingen, antwoorden in threads en DM's verschijnen hier."
+            "value": "Vermeldingen, antwoorden in je threads en gemiste oproepen verschijnen hier."
           }
         }
       }
@@ -86,6 +86,23 @@
         }
       }
     },
+    "activity.inChannel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in #%@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in #%@"
+          }
+        }
+      }
+    },
     "activity.markAllRead": {
       "extractionState": "manual",
       "localizations": {
@@ -99,6 +116,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Alles als gelezen markeren"
+          }
+        }
+      }
+    },
+    "activity.mentions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mentions"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vermeldingen"
           }
         }
       }
@@ -120,6 +154,23 @@
         }
       }
     },
+    "activity.missedCalls": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missed calls"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemiste oproepen"
+          }
+        }
+      }
+    },
     "activity.now": {
       "extractionState": "manual",
       "localizations": {
@@ -133,6 +184,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "nu"
+          }
+        }
+      }
+    },
+    "activity.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overig"
+          }
+        }
+      }
+    },
+    "activity.replies": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replies"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwoorden"
           }
         }
       }
@@ -1195,6 +1280,23 @@
         }
       }
     },
+    "channel.calledNoAnswer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Called, but there was no answer."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Belde, maar er werd niet opgenomen."
+          }
+        }
+      }
+    },
     "channel.cancelReply": {
       "extractionState": "manual",
       "localizations": {
@@ -1412,6 +1514,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Deelnemen"
+          }
+        }
+      }
+    },
+    "channel.joinCallLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Join call"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deelnemen aan gesprek"
           }
         }
       }
@@ -1967,6 +2086,40 @@
         }
       }
     },
+    "channel.startedCall": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Started a call."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heeft een gesprek gestart."
+          }
+        }
+      }
+    },
+    "channel.startedCallLasted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Started a call that lasted %@."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heeft een gesprek gestart dat %@ duurde."
+          }
+        }
+      }
+    },
     "channel.threadSuggestion": {
       "extractionState": "manual",
       "localizations": {
@@ -2218,6 +2371,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Jij"
+          }
+        }
+      }
+    },
+    "channel.youMissedCall": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You missed the call."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Je hebt het gesprek gemist."
           }
         }
       }
@@ -2786,6 +2956,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Bestand"
+          }
+        }
+      }
+    },
+    "composer.mentionSomeone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mention someone"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iemand vermelden"
           }
         }
       }
@@ -3810,6 +3997,23 @@
         }
       }
     },
+    "home.addChannel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add channel"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kanaal toevoegen"
+          }
+        }
+      }
+    },
     "home.channelCount": {
       "extractionState": "manual",
       "localizations": {
@@ -4188,6 +4392,23 @@
         }
       }
     },
+    "home.otherChannelsGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other Channels"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overige kanalen"
+          }
+        }
+      }
+    },
     "home.profileAndSettings": {
       "extractionState": "manual",
       "localizations": {
@@ -4211,13 +4432,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Saved"
+            "value": "Saved items"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bewaard"
+            "value": "Opgeslagen items"
           }
         }
       }

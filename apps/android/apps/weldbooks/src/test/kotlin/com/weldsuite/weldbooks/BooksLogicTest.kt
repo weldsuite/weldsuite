@@ -10,7 +10,11 @@ import com.weldsuite.weldbooks.logic.BillPrefill
 import com.weldsuite.weldbooks.logic.CompanyDraft
 import com.weldsuite.weldbooks.logic.CompanyForm
 import com.weldsuite.weldbooks.logic.ContactIdentityDraft
+import com.weldsuite.weldbooks.logic.DashboardSeries
 import com.weldsuite.weldbooks.logic.Days
+import com.weldsuite.weldbooks.logic.DocumentHtml
+import com.weldsuite.weldbooks.logic.DueItem
+import com.weldsuite.weldbooks.logic.TrendMonth
 import com.weldsuite.weldbooks.logic.Entity
 import com.weldsuite.weldbooks.logic.ExpenseCategories
 import com.weldsuite.weldbooks.logic.GlAccount
@@ -107,8 +111,11 @@ class BooksLogicTest {
         assertEquals("overdue", Statuses.bill("approved", "approved", "2026-11-01", d("5"), today))
         assertEquals("approved", Statuses.bill("approved", "approved", "2026-12-01", d("5"), today))
         assertEquals("submitted", Statuses.vatReturn("filed"))
-        assertEquals("danger", Statuses.tone("overdue"))
-        assertEquals("success", Statuses.tone("paid"))
+        assertEquals("red", Statuses.tone("overdue"))
+        assertEquals("green", Statuses.tone("paid"))
+        assertEquals("blue", Statuses.tone("approved"))
+        assertEquals("amber", Statuses.tone("partially_paid"))
+        assertEquals("gray", Statuses.tone("draft"))
     }
 
     @Test
@@ -510,5 +517,42 @@ class BooksLogicTest {
         assertEquals("contacts/new", DeepLinks.routeFor("contacts", listOf("new")))
         assertEquals("vat/v1", DeepLinks.routeFor("vat", listOf("v1")))
         assertNull(DeepLinks.routeFor("sso-callback", emptyList()))
+    }
+
+    @Test
+    fun `the dashboard adds this year up to this month and last year up to the same month`() {
+        val months = listOf(
+            TrendMonth("2025-01", d("100"), d("40"), d("60")),
+            TrendMonth("2025-02", d("50"), d("10"), d("40")),
+            TrendMonth("2025-03", d("999"), d("0"), d("999")),
+            TrendMonth("2026-01", d("200"), d("20"), d("180")),
+            TrendMonth("2026-02", d("30"), d("5"), d("25")),
+        )
+        val revenue = DashboardSeries.yearToDate(months, "revenue")
+        assertEquals(2026, revenue.year)
+        assertEquals("2026-02", revenue.throughMonth)
+        assertEquals(d("230"), revenue.total)
+        assertEquals(d("150"), revenue.lastYearTotal)
+        assertEquals(12, revenue.points.size)
+        assertEquals(null, revenue.points[2].first)
+        assertEquals(d("205"), DashboardSeries.yearToDate(months, "profit").total)
+        assertTrue(DashboardSeries.hasTrend(months))
+    }
+
+    @Test
+    fun `due this week keeps what falls due within seven days, late ones too, soonest first`() {
+        val today = LocalDate.of(2026, 11, 27)
+        fun item(id: String, due: String) = DueItem("invoice", id, id, null, due, d("1"), "EUR")
+        val rows = DashboardSeries.dueThisWeek(listOf(item("late", "2026-11-20T00:00:00.000Z"), item("later", "2026-12-10"), item("soon", "2026-12-03")), today)
+        assertEquals(listOf("late", "soon"), rows.map { it.id })
+    }
+
+    @Test
+    fun `the printable invoice is laid out at its page width, not the phone's`() {
+        val page = "<html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"></head><body></body></html>"
+        val fitted = DocumentHtml.fitToPage(page)
+        assertTrue(fitted.contains("<meta name=\"viewport\" content=\"width=800\">"))
+        assertTrue(!fitted.contains("device-width"))
+        assertTrue(DocumentHtml.fitToPage("<html><head><title>x</title></head></html>").startsWith("<html><head><meta name=\"viewport\""))
     }
 }

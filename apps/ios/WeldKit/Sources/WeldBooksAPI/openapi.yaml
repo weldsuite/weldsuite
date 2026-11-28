@@ -1323,6 +1323,69 @@ components:
         currency:
           type: string
           nullable: true
+    DashboardDueInvoice:
+      type: object
+      description: An open invoice that falls due in the next 30 days; the balance in the base currency.
+      required: [id, dueDate]
+      properties:
+        id:
+          type: string
+        invoiceNumber:
+          type: string
+          nullable: true
+        contactName:
+          type: string
+          nullable: true
+        dueDate:
+          type: string
+        balanceDue:
+          type: string
+          nullable: true
+    DashboardPayment:
+      type: object
+      description: 'A payment, latest first: `received` on an invoice, `sent` on a bill.'
+      required: [id, date, amount]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          nullable: true
+        date:
+          type: string
+        amount:
+          type: string
+        currency:
+          type: string
+          nullable: true
+        paymentMethod:
+          type: string
+          nullable: true
+        reference:
+          type: string
+          nullable: true
+        invoiceId:
+          type: string
+          nullable: true
+        billId:
+          type: string
+          nullable: true
+    DashboardTrendMonth:
+      type: object
+      description: One month's ledger revenue, expenses and net profit (decimal strings; null when nothing is known).
+      required: [month]
+      properties:
+        month:
+          type: string
+        revenue:
+          type: string
+          nullable: true
+        expenses:
+          type: string
+          nullable: true
+        profit:
+          type: string
+          nullable: true
     Dashboard:
       type: object
       required: [currency, revenue, expenses, profit, receivables, payables, pendingDocuments, bankAccounts]
@@ -1345,6 +1408,23 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DashboardBankAccount'
+        cashBalance:
+          type: string
+          nullable: true
+          description: The ledger balance of the money accounts (bank, cash), in the base currency.
+        upcomingDue:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardDueInvoice'
+        recentPayments:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardPayment'
+        monthlyTrend:
+          type: array
+          description: The last 24 months, oldest first.
+          items:
+            $ref: '#/components/schemas/DashboardTrendMonth'
     DashboardResponse:
       type: object
       required: [data]

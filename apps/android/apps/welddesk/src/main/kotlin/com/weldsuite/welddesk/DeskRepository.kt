@@ -3,12 +3,19 @@ package com.weldsuite.welddesk
 import android.content.Context
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.weldsuite.api.welddesk.apis.DefaultApi
 import org.weldsuite.api.welddesk.models.DeskConversationDetail
+import org.weldsuite.api.welddesk.models.DeskConversationDetailResponse
 import org.weldsuite.api.welddesk.models.DeskManageInput
 import org.weldsuite.api.welddesk.models.DeskMessageAttachment
 import org.weldsuite.api.welddesk.models.DeskReplyInput
@@ -22,10 +29,12 @@ import org.weldsuite.core.server.ConfigResult
 import org.weldsuite.core.server.ServerConfigLoader
 import org.weldsuite.core.storage.PreferencesStore
 import retrofit2.Response
+import retrofit2.http.GET
 import retrofit2.http.Multipart
 import retrofit2.http.POST
 import retrofit2.http.Part
 import retrofit2.http.Path
+import retrofit2.http.Query
 import org.weldsuite.api.welddesk.models.DeskConversation as ApiConversation
 import org.weldsuite.api.welddesk.models.DeskMessage as ApiMessage
 
@@ -38,6 +47,17 @@ internal interface AttachmentUploadApi {
     @Multipart
     @POST("api/desk/conversations/{id}/attachments")
     suspend fun upload(@Path("id") id: String, @Part file: MultipartBody.Part): Response<DeskUploadedAttachmentResponse>
+}
+
+/**
+ * `getDeskConversation`, answered as JSON: the generated types read the
+ * record, and [DeskRepository.eventDetails] what each event's metadata adds,
+ * which the generated client can't type (see `DeskMessageMetadata` in
+ * `welddesk.yaml`). Same client, same headers.
+ */
+internal interface ThreadApi {
+    @GET("api/desk/conversations/{id}")
+    suspend fun conversation(@Path("id") id: String, @Query("include") include: String): Response<JsonElement>
 }
 
 /** A file the agent picked, read into memory (at most 10 MB). */
@@ -73,7 +93,7 @@ class DeskRepository(private val env: AppEnvironment, context: Context) {
     }
 
     suspend fun conversation(id: String): ConversationDetail =
-        detail(apiCall { api.getDeskConversation(id, include = "messages") }.data)
+        detail(apiCall { env.api.create<ThreadApi>().conversation(id, include = "messages") })
 
     /** A reply or a note, with files uploaded to the conversation first. */
     suspend fun reply(id: String, kind: MessageKind, body: String, attachments: List<Attachment>): ConversationChange {
@@ -164,9 +184,25 @@ class DeskRepository(private val env: AppEnvironment, context: Context) {
             lastMessageAt = WeldDate.parse(item.lastMessageAt),
             updatedAt = WeldDate.parse(item.updatedAt),
             lastMessagePreview = item.lastMessagePreview,
+            priority = item.priority,
+            tags = item.tags.orEmpty(),
+            slaStatus = item.slaStatus,
+            slaDueAt = WeldDate.parse(item.slaDueAt),
+            slaMetric = item.slaMetric,
         )
 
-        fun detail(item: DeskConversationDetail): ConversationDetail = ConversationDetail(
+        /** The thread from `getDeskConversation`'s JSON: the record typed, each event's metadata read from the JSON. */
+        fun detail(json: JsonElement): ConversationDetail {
+            val item = WeldJson.decodeFromJsonElement(DeskConversationDetailResponse.serializer(), json).data
+            val metadata = ((json as? JsonObject)?.get("data") as? JsonObject)?.get("messages") as? JsonArray
+            val byId = metadata.orEmpty()
+                .mapNotNull { it as? JsonObject }
+                .mapNotNull { message -> message.text("id")?.let { it to message["metadata"] } }
+                .toMap()
+            return detail(item, byId)
+        }
+
+        fun detail(item: DeskConversationDetail, metadata: Map<String, JsonElement?> = emptyMap()): ConversationDetail = ConversationDetail(
             conversation = Conversation(
                 id = item.id,
                 number = item.conversationNumber,
@@ -182,11 +218,17 @@ class DeskRepository(private val env: AppEnvironment, context: Context) {
                 lastMessageAt = WeldDate.parse(item.lastMessageAt),
                 updatedAt = WeldDate.parse(item.updatedAt),
                 lastMessagePreview = item.lastMessagePreview,
+                priority = item.priority,
+                tags = item.tags.orEmpty(),
+                slaStatus = item.slaStatus,
+                slaDueAt = WeldDate.parse(item.slaDueAt),
+                slaMetric = item.slaMetric,
             ),
-            messages = item.messages.map(::message),
+            messages = item.messages.map { message(it, metadata[it.id]) },
         )
 
-        fun message(item: ApiMessage): Message = Message(
+        /** A message; [metadata] is its metadata as JSON, when the response was read as JSON. */
+        fun message(item: ApiMessage, metadata: JsonElement? = null): Message = Message(
             id = item.id,
             createdAt = WeldDate.parse(item.createdAt),
             conversationId = item.conversationId,
@@ -197,7 +239,63 @@ class DeskRepository(private val env: AppEnvironment, context: Context) {
             attachments = item.attachments.orEmpty().mapNotNull(::attachment),
             eventType = item.metadata?.eventType,
             rating = item.metadata?.rating,
+            details = eventDetails(metadata).let { details ->
+                if (details.assigneeId == null) details.copy(assigneeId = item.metadata?.assigneeId) else details
+            },
         )
+
+        /**
+         * What an event's metadata adds to its type, read leniently from
+         * the JSON: a key of the wrong type reads as missing, never as an
+         * error, so one odd event can't stop the thread from loading.
+         */
+        fun eventDetails(metadata: JsonElement?): EventDetails {
+            val meta = metadata as? JsonObject ?: return EventDetails()
+            val task = meta["taskIds"] as? JsonArray
+            return EventDetails(
+                assigneeId = meta.text("assigneeId"),
+                auto = (meta["auto"] as? JsonPrimitive)?.booleanOrNull == true,
+                ratingComment = meta.text("ratingComment"),
+                metric = meta.text("metric"),
+                changes = (meta["changes"] as? JsonArray).orEmpty().mapNotNull { entry ->
+                    val change = entry as? JsonObject ?: return@mapNotNull null
+                    val field = change.text("field") ?: return@mapNotNull null
+                    AttributeChange(field, change.text("label"), change.text("key"), changeValue(change["from"]), changeValue(change["to"]))
+                },
+                condition = meta.text("condition"),
+                toTeamId = meta.text("toTeamId"),
+                linkRole = meta.text("linkRole"),
+                linkedNumber = meta.number("linkedConversationNumber"),
+                problemNumber = meta.number("problemNumber"),
+                stepIndex = (meta["stepIndex"] as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull?.toInt(),
+                stepName = meta.text("stepName"),
+                approverId = meta.text("approverId"),
+                comment = meta.text("comment"),
+                taskCount = task?.size ?: 0,
+            )
+        }
+
+        /** A changed field's value: a text, a number, a yes/no, a list (tags), or nothing. */
+        private fun changeValue(value: JsonElement?): ChangeValue = when (value) {
+            null, JsonNull -> ChangeValue.Empty
+            is JsonArray -> ChangeValue.Items(value.mapNotNull { (it as? JsonPrimitive)?.takeIf { item -> item !is JsonNull }?.content })
+            is JsonPrimitive -> when {
+                value.isString -> ChangeValue.Text(value.content)
+                value.booleanOrNull != null -> ChangeValue.Flag(value.booleanOrNull == true)
+                else -> ChangeValue.Text(value.content)
+            }
+            is JsonObject -> ChangeValue.Text(value.toString())
+        }
+
+        /** A string key; null when it is missing, null or not a string. */
+        private fun JsonObject.text(key: String): String? =
+            (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+        /** A number key as text (`12`); null when it isn't a number. */
+        private fun JsonObject.number(key: String): String? =
+            (this[key] as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull?.let { number ->
+                if (number == Math.floor(number)) number.toLong().toString() else number.toString()
+            }
 
         /** An attachment without a URL can't be shown or opened, so it's left out. */
         fun attachment(item: DeskMessageAttachment): Attachment? {
@@ -216,7 +314,7 @@ class DeskRepository(private val env: AppEnvironment, context: Context) {
 
         /** A `desk_message` hub event's record, when it is one. */
         fun messageFromEvent(data: JsonElement): Message? =
-            runCatching { message(WeldJson.decodeFromJsonElement(ApiMessage.serializer(), data)) }.getOrNull()
+            runCatching { message(WeldJson.decodeFromJsonElement(ApiMessage.serializer(), data), (data as? JsonObject)?.get("metadata")) }.getOrNull()
 
         /** A `desk_conversation` hub event's record, when it is one. */
         fun conversationFromEvent(data: JsonElement): Conversation? =

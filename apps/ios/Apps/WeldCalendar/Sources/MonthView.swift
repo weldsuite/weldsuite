@@ -2,9 +2,8 @@ import SwiftUI
 import WeldCore
 import WeldUI
 
-/// The month grid over the chosen day's events. It asks for the whole grid,
-/// not just the month: the first and last rows spill into the neighbouring
-/// months, and their squares should show their dots too.
+/// The month as the platform's phone month view draws it, over the chosen
+/// day's events. It asks for the whole six-week grid, with a day of slack.
 struct MonthView: View {
     let env: AppEnvironment
     let store: CalendarStore
@@ -39,13 +38,20 @@ struct MonthView: View {
             }
         }
         .navigationTitle(CalendarText.monthTitle(month, calendar))
-        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(CoreStrings.commonToday) {
+                    month = YearMonth(today)
+                    selected = today
+                }
+                .foregroundStyle(Tokens.Palette.foreground)
+                .accessibilityIdentifier("month-today")
+            }
             ToolbarItemGroup(placement: .primaryAction) {
-                Button { month = month.adding(months: -1) } label: { Image(systemName: "chevron.left") }
+                Button { show(month.adding(months: -1), today: today) } label: { Image(systemName: "chevron.left") }
                     .accessibilityLabel(CalendarStrings.monthPreviousMonth)
                     .accessibilityIdentifier("month-previous")
-                Button { month = month.adding(months: 1) } label: { Image(systemName: "chevron.right") }
+                Button { show(month.adding(months: 1), today: today) } label: { Image(systemName: "chevron.right") }
                     .accessibilityLabel(CalendarStrings.monthNextMonth)
                     .accessibilityIdentifier("month-next")
                 Button { onNew(selected) } label: { Image(systemName: "plus") }
@@ -65,6 +71,12 @@ struct MonthView: View {
         }
     }
 
+    /// Paging moves the selection into the new month: today there, else its first day.
+    private func show(_ next: YearMonth, today: Day) {
+        month = next
+        selected = YearMonth(today) == next ? today : next.firstDay
+    }
+
     private func reload(_ range: (start: Date, end: Date)) async {
         await store.refreshCalendars()
         guard store.calendars.data != nil else { return }
@@ -74,54 +86,42 @@ struct MonthView: View {
     private func list(today: Day, state: WindowState, range: (start: Date, end: Date)) -> some View {
         let events = state.events.data ?? []
         let calendars = state.calendars.data ?? []
-        let names = Dictionary(calendars.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        let colors = Dictionary(calendars.map { ($0.id, $0.color) }, uniquingKeysWith: { first, _ in first })
         let dayEvents = EventLists.on(selected, events, calendar)
-        let now = Date()
         return List {
             MonthGrid(
                 month: month,
                 selected: selected,
                 today: today,
-                dots: EventLists.dots(events, calendar),
+                counts: EventLists.dayCounts(events, calendar),
                 calendar: calendar
-            ) { day in
-                selected = day
-                // A spill-over square moves the grid to its month.
-                if YearMonth(day) != month { month = YearMonth(day) }
-            }
-            .listRowInsets(EdgeInsets(top: Tokens.Spacing.s, leading: Tokens.Spacing.s, bottom: Tokens.Spacing.s, trailing: Tokens.Spacing.s))
+            ) { day in selected = day }
+            .listRowInsets(EdgeInsets())
             .listRowSeparator(.hidden)
 
             Section {
                 if dayEvents.isEmpty {
-                    ContentUnavailableView(
-                        CalendarStrings.monthNoEventsTitle,
+                    CalendarEmptyState(
                         systemImage: "calendar",
-                        description: Text(CalendarStrings.monthNoEventsDescription)
+                        title: CalendarStrings.monthNoEventsTitle,
+                        description: CalendarStrings.monthNoEventsDescription
                     )
                     .listRowSeparator(.hidden)
                 }
                 ForEach(dayEvents) { event in
                     NavigationLink(value: Route.event(event.id)) {
-                        EventRow(event: event, calendarName: calendars.count > 1 ? names[event.calendarID] : nil, now: now)
+                        EventRow(
+                            event: event,
+                            color: Color(hex: eventColor(event.color, event.type, calendarColor: colors[event.calendarID] ?? nil)),
+                            // The heading names the day.
+                            showDate: false
+                        )
                     }
+                    .platformRow()
                 }
             } header: {
-                HStack {
-                    Text(CalendarText.dayHeading(selected, today: today, calendar))
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    if selected != today {
-                        Button(CoreStrings.commonToday) {
-                            selected = today
-                            month = YearMonth(today)
-                        }
-                        .font(.subheadline.weight(.semibold))
-                        .accessibilityIdentifier("month-today")
-                    }
-                }
-                .textCase(nil)
+                GroupHeader(label: CalendarText.dayLabel(selected, today: today, calendar), count: dayEvents.count)
+                    .listRowInsets(EdgeInsets())
             }
         }
         .listStyle(.plain)
@@ -129,76 +129,83 @@ struct MonthView: View {
     }
 }
 
-/// Monday-first, six rows always, at most three dots a day and a "+n".
+/// Monday-first weeks of `month`, as the platform's phone month: the
+/// neighbouring months' days left blank, today in the platform's blue, the
+/// selected day filled (blue when it's today), and a muted dot under a day
+/// with events.
 struct MonthGrid: View {
     let month: YearMonth
     let selected: Day
     let today: Day
-    let dots: [Day: DayDots]
+    let counts: [Day: Int]
     let calendar: Calendar
     let onSelect: (Day) -> Void
 
+    @Environment(\.displayScale) private var displayScale
+
     var body: some View {
-        let weeks = CalendarDates.monthMatrix(month, calendar)
+        let weeks = CalendarDates.monthMatrix(month, calendar).filter { week in week.contains { YearMonth($0) == month } }
         let symbols = calendar.veryShortWeekdaySymbols
         // Monday first: Calendar's symbols start on Sunday.
         let headers = Array(symbols.dropFirst()) + Array(symbols.prefix(1))
-        VStack(spacing: 2) {
+        VStack(spacing: 0) {
             HStack(spacing: 0) {
                 ForEach(Array(headers.enumerated()), id: \.offset) { _, symbol in
                     Text(symbol.uppercased())
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.secondary)
+                        .font(.inter(.caption2, weight: .medium))
+                        .foregroundStyle(Tokens.Palette.mutedForeground)
                         .frame(maxWidth: .infinity)
                 }
             }
-            .padding(.bottom, 4)
-            ForEach(weeks, id: \.first) { week in
-                HStack(spacing: 0) {
-                    ForEach(week) { day in
-                        cell(day)
+            .padding(.vertical, Tokens.Spacing.s)
+            Rectangle().fill(Tokens.Palette.border).frame(height: 1 / displayScale)
+            VStack(spacing: 0) {
+                ForEach(weeks, id: \.first) { week in
+                    HStack(spacing: 0) {
+                        ForEach(week) { day in
+                            if YearMonth(day) == month {
+                                cell(day)
+                            } else {
+                                Color.clear.frame(maxWidth: .infinity).frame(height: 48)
+                            }
+                        }
                     }
                 }
             }
+            .padding(.vertical, Tokens.Spacing.xs)
         }
         .accessibilityIdentifier("month-grid")
     }
 
     private func cell(_ day: Day) -> some View {
-        let inMonth = YearMonth(day) == month
         let isSelected = day == selected
         let isToday = day == today
-        let entry = dots[day]
+        let count = counts[day] ?? 0
+        let date = day.start(calendar).formatted(.dateTime.weekday(.wide).day().month(.wide))
+        let fill: Color = isSelected ? (isToday ? .todayBlue : Tokens.Palette.foreground) : .clear
+        let text: Color = isSelected ? (isToday ? .white : Tokens.Palette.background) : (isToday ? .todayBlue : Tokens.Palette.foreground)
         return Button { onSelect(day) } label: {
-            VStack(spacing: 2) {
+            ZStack(alignment: .top) {
                 Text("\(day.day)")
-                    .font(.system(size: 15, weight: isSelected || isToday ? .bold : .regular))
-                    .foregroundStyle(isSelected ? Color.white : isToday ? Tokens.Brand.weldcalendar : inMonth ? Color.primary : Color.secondary)
-                    .opacity(!inMonth && !isSelected ? 0.45 : 1)
+                    .font(.inter(size: 14, weight: isToday && !isSelected ? .semibold : .regular))
+                    .foregroundStyle(text)
                     .frame(width: 32, height: 32)
-                    .background {
-                        if isSelected {
-                            Circle().fill(Tokens.Brand.weldcalendar)
-                        } else if isToday {
-                            Circle().stroke(Tokens.Brand.weldcalendar, lineWidth: 1.5)
-                        }
-                    }
-                HStack(spacing: 3) {
-                    ForEach(Array((entry?.colors ?? []).enumerated()), id: \.offset) { _, hex in
-                        Circle().fill(Color(hex: hex)).frame(width: 5, height: 5)
-                    }
-                    if let entry, entry.overflow > 0 {
-                        Text("+\(entry.overflow)").font(.system(size: 8, weight: .semibold)).foregroundStyle(.secondary)
-                    }
+                    .background(fill, in: Circle())
+                    .padding(.top, 6)
+                if count > 0 {
+                    Circle()
+                        .fill(Tokens.Palette.mutedForeground)
+                        .frame(width: 4, height: 4)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 4)
                 }
-                .frame(height: 8)
-                .opacity(inMonth ? 1 : 0.35)
             }
-            .frame(maxWidth: .infinity, minHeight: 46)
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(day.start(calendar).formatted(.dateTime.weekday(.wide).day().month(.wide)))
+        .accessibilityLabel(count > 0 ? "\(date), \(CalendarStrings.agendaEventCount(count))" : date)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("month-day-\(day.key)")
     }

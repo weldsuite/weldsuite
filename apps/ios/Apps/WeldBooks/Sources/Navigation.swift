@@ -63,13 +63,15 @@ import WeldUI
 // Loading: `Loaded<T>` + `LoadedContent` (Common.swift), `PagedList<T>` + `SearchAndFilters` for the long lists.
 // Realtime: `.realtimeRefresh(books.env, topics: BooksTopics.…) { await reload() }`.
 // Identifiers: `.tagged("invoice-row")` — the Android test tag, the same string.
-// Shared already (don't declare again): Choice, Accents, SectionCard, DetailRow, TotalsBlock, IconTile, RecordRow,
-// StatusPill, statusLabel, statusColor, Banner, GroupLabel, HintText, FeatureUnavailableView, SearchAndFilters,
-// Loaded, LoadedContent, PagedList, FormField, Dropdown, SwitchRow, DateField, View.confirmDialog,
-// View.debounced, View.tagged, View.groupedBackground, AddressFields, ServerTax, LineItemsEditor, taxCodeLabel,
-// taxLevelLabel, taxWarningLabel, TaxBreakdownCard, TreatmentBreakdownCard, PaymentSheet, paymentMethodLabel,
-// DocumentSummary, DocumentLines, DocumentTotals, Mutations, invoiceFieldNames, formatMoney, formatCompact,
-// formatDay, formatShortDay, and the String helpers in Logic/TextHelpers.swift.
+// Shared already (don't declare again): Choice, Tones, SectionCard, PanelSection, Hairline, DetailRow, PropertyRow,
+// KpiCard, TotalsBlock, RowAvatar, ListIcon, RecordRow, GroupHeader, BooksEmptyState, StatusPill, statusLabel,
+// statusColor, Banner, GroupLabel, HintText, FeatureUnavailableView, FilterChipView, SearchAndFilters,
+// Loaded, LoadedContent, PagedList, FormField, FieldLabel, Dropdown, SwitchRow, DateField, View.confirmDialog,
+// View.debounced, View.tagged, View.groupedBackground, View.platformList, View.platformRow, AddressFields,
+// ServerTax, LineItemsEditor, taxCodeLabel, taxLevelLabel, taxWarningLabel, TaxBreakdownCard,
+// TreatmentBreakdownCard, PaymentSheet, paymentMethodLabel, DocumentFigures, DueDateRow, DocumentLines,
+// DocumentTotals, Mutations, invoiceFieldNames, formatMoney, formatCompact, formatDay, formatShortDay, and the
+// String helpers in Logic/TextHelpers.swift.
 // Each screen file keeps its own labels (entityTypeLabel, taxClassificationLabel, bankAccountTypeLabel,
 // contactRoleLabel, categoryLabel): each is used by one Kotlin screen file only.
 

@@ -23,13 +23,13 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Apartment
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material3.Button
+import org.weldsuite.ui.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
+import org.weldsuite.ui.ModalBottomSheet
+import org.weldsuite.ui.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -65,6 +65,8 @@ import kotlinx.coroutines.launch
 import org.weldsuite.core.AppEnvironment
 import org.weldsuite.core.SessionState
 import org.weldsuite.ui.AppearancePreference
+import androidx.compose.foundation.background
+import androidx.compose.ui.unit.sp
 import org.weldsuite.ui.Tokens
 import org.weldsuite.ui.commonSettingsItems
 import org.weldsuite.ui.tagged
@@ -453,7 +455,6 @@ fun EntityEmptyState(session: SessionState.Ready, onSwitchWorkspace: () -> Unit)
     var checking by remember { mutableStateOf(false) }
     var confirmSignOut by remember { mutableStateOf(false) }
     val signOutFailed = stringResource(R.string.weldbooks_settings_sign_out_failed)
-    val brand = Brand.current()
 
     BooksScaffold(title = stringResource(R.string.weldbooks_app_name)) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).padding(Tokens.Spacing.xl), contentAlignment = Alignment.Center) {
@@ -462,10 +463,13 @@ fun EntityEmptyState(session: SessionState.Ready, onSwitchWorkspace: () -> Unit)
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.s),
             ) {
-                IconTile(Icons.Outlined.Apartment, brand, size = 96.dp)
+                Box(
+                    Modifier.size(48.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(Tokens.Radius.large)),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Outlined.Apartment, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp)) }
                 Text(
                     stringResource(R.string.weldbooks_entity_setup_empty_title),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall.copy(fontSize = 15.sp),
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = Tokens.Spacing.m),
                 )
@@ -547,7 +551,6 @@ fun AdministrationSheet() {
     val scope = rememberCoroutineScope()
     val snapshot by books.entities.snapshot.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf(false) }
-    val brand = Brand.current()
     val defaultLabel = stringResource(R.string.weldbooks_common_default)
 
     if (snapshot.switcherOpen) {
@@ -555,11 +558,12 @@ fun AdministrationSheet() {
             Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = Tokens.Spacing.xl).tagged("administrations")) {
                 Text(
                     stringResource(R.string.weldbooks_administrations_title),
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s),
                 )
+                Hairline()
                 snapshot.entities.forEachIndexed { index, entity ->
-                    if (index > 0) HorizontalDivider(Modifier.padding(start = 68.dp))
+                    if (index > 0) Hairline(Modifier.padding(start = 48.dp))
                     val selected = entity.id == snapshot.activeId
                     Row(
                         Modifier.fillMaxWidth().clickable { books.entities.select(entity.id) }
@@ -567,20 +571,20 @@ fun AdministrationSheet() {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
                     ) {
-                        IconTile(Icons.Outlined.Apartment, Accents.settings)
-                        Column(Modifier.weight(1f)) {
-                            Text(entity.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                        ListIcon(Icons.Outlined.Apartment)
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(entity.name, style = MaterialTheme.typography.titleSmall, maxLines = 1)
                             Text(
                                 entityMeta(entity) + if (entity.isDefault) " · $defaultLabel" else "",
-                                style = MaterialTheme.typography.bodySmall,
+                                style = secondaryStyle(),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                             )
                         }
-                        if (selected) Icon(Icons.Filled.Check, contentDescription = null, tint = brand) else Box(Modifier.size(24.dp))
+                        if (selected) Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp)) else Box(Modifier.size(20.dp))
                     }
                 }
-                HorizontalDivider()
+                Hairline()
                 Row(
                     Modifier.fillMaxWidth().clickable {
                         books.entities.closeSwitcher()
@@ -589,13 +593,10 @@ fun AdministrationSheet() {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
                 ) {
-                    Box(
-                        Modifier.size(40.dp).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
-                        contentAlignment = Alignment.Center,
-                    ) { Icon(Icons.Filled.Add, contentDescription = null, tint = brand) }
-                    Column(Modifier.weight(1f)) {
-                        Text(stringResource(R.string.weldbooks_administrations_add), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = brand)
-                        Text(stringResource(R.string.weldbooks_administrations_add_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    ListIcon(Icons.Filled.Add)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(stringResource(R.string.weldbooks_administrations_add), style = MaterialTheme.typography.titleSmall)
+                        Text(stringResource(R.string.weldbooks_administrations_add_hint), style = secondaryStyle(), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }

@@ -69,9 +69,9 @@ struct ImageViewer: View {
             if let current = state.images.first(where: { $0.url == selection }) {
                 VStack(spacing: 2) {
                     Spacer()
-                    Text(current.authorName).font(.subheadline.weight(.semibold))
+                    Text(current.authorName).font(.inter(.subheadline, weight: .semibold))
                     if let date = WeldDate.parse(current.createdAt) {
-                        Text(WeldDate.relative(date)).font(.caption)
+                        Text(WeldDate.relative(date)).font(.inter(.caption))
                     }
                 }
                 .foregroundStyle(.white)
