@@ -18,7 +18,7 @@ use weldsuite_catalogs::permission_keys::PASSWORDS_MANAGE;
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, NoContent};
 
-use crate::audit::{VaultEvent, list_vault_events, record_vault_event};
+use crate::audit::{VaultEvent, list_vault_events, record_vault_event, require_vault_event};
 use crate::health::build_health_report;
 use crate::import::parse_import;
 use crate::js::clamped_limit;
@@ -647,7 +647,7 @@ pub(crate) async fn reveal_item(
                 || "web".to_owned(),
                 |client| crate::js::utf16_slice(client, 0, 40),
             );
-            record_vault_event(
+            require_vault_event(
                 &caller.db,
                 &caller.audit,
                 VaultEvent::new(&access.vault.id, &caller.user_id, "item.revealed")
@@ -655,7 +655,7 @@ pub(crate) async fn reveal_item(
                     .label(&item.title)
                     .metadata(json!({ "client": client })),
             )
-            .await;
+            .await?;
             Ok(ok(merge(
                 item.json,
                 json!({ "fields": document.fields_json() }),
@@ -680,14 +680,14 @@ pub(crate) async fn item_totp(
             let (item, code) =
                 items::item_totp_code(&caller.db, &kek, &access.vault.id, param(&params, "itemId"))
                     .await?;
-            record_vault_event(
+            require_vault_event(
                 &caller.db,
                 &caller.audit,
                 VaultEvent::new(&access.vault.id, &caller.user_id, "item.totp_generated")
                     .item(&item.id)
                     .label(&item.title),
             )
-            .await;
+            .await?;
             Ok(ok(json!({
                 "code": code.code,
                 "period": code.period,

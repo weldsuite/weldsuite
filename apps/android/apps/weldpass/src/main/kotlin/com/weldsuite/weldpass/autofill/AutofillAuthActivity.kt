@@ -65,31 +65,34 @@ class AutofillAuthActivity : FragmentActivity() {
     }
 
     private fun showLogins(key: ByteArray) {
+        // The domain the service believed (a known browser's https page), never
+        // one an app claimed for itself.
         val webDomain = intent.getStringExtra(EXTRA_WEB_DOMAIN)
         val packageName = intent.getStringExtra(EXTRA_PACKAGE).orEmpty()
         val all = AutofillLogins.all(this, key)
         key.fill(0)
         // Matching logins first; with none, everything, so one saved under another
-        // address or without the app's package can still be picked.
-        val choices = AutofillLogins.matching(all, webDomain, packageName).ifEmpty { all }
-        when (choices.size) {
-            0 -> {
+        // address or without the app's package can still be picked: picked, never
+        // filled unasked, and each row names its site.
+        val choices = AutofillLogins.choices(all, webDomain, packageName)
+        when {
+            choices.logins.isEmpty() -> {
                 setContentView(TextView(this).apply {
                     text = getString(R.string.weldpass_autofill_empty)
                     setPadding(48, 48, 48, 48)
                 })
                 window.decorView.postDelayed({ finishWith(null) }, 1_500)
             }
-            1 -> fill(choices.first())
+            choices.fillAtOnce -> fill(choices.logins.first())
             else -> {
                 title = getString(R.string.weldpass_autofill_choose)
                 val list = ListView(this)
                 list.adapter = ArrayAdapter(
                     this,
                     android.R.layout.simple_list_item_1,
-                    choices.map { listOf(it.title, it.username).filter(String::isNotEmpty).joinToString(" · ") },
+                    choices.logins.map(AutofillLogins::label),
                 )
-                list.setOnItemClickListener { _, _, position, _ -> fill(choices[position]) }
+                list.setOnItemClickListener { _, _, position, _ -> fill(choices.logins[position]) }
                 setContentView(list)
             }
         }

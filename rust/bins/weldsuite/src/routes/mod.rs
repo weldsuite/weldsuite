@@ -186,7 +186,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = if mounts("pass") {
         router.nest(
             "/weldpass",
-            weldsuite_pass::router(pass_state(), &state.permissions),
+            weldsuite_pass::router(pass_state(state.trusted_proxies), &state.permissions),
         )
     } else {
         router
@@ -2283,13 +2283,15 @@ fn flow_tenants(state: &AppState) -> weldsuite_flow::TenantDatabases {
 
 /// WeldPass: the root keys (`WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2`)
 /// from the environment and one HTTP client for the deploy targets, made
-/// once per process. Conformance builds take the test's keys and its
-/// `fetch` stub per request instead.
-fn pass_state() -> weldsuite_pass::PassState {
+/// once per process, and `TRUSTED_PROXIES` for the addresses in its trails.
+/// Conformance builds take the test's keys and its `fetch` stub per request
+/// instead.
+fn pass_state(trusted_proxies: usize) -> weldsuite_pass::PassState {
     static STATE: OnceLock<weldsuite_pass::PassState> = OnceLock::new();
     STATE
         .get_or_init(|| {
             let mut state = weldsuite_pass::PassState::from_env();
+            state.trusted_proxies = trusted_proxies;
             // The hosted EU install pushes no secrets to Cloudflare or Vercel
             // for now (weldsuite-documentation `plans/weldpass-eu.md`,
             // decision 3); `/config.json` lists `weldpass-sync` as

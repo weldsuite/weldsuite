@@ -61,6 +61,24 @@ final class OfflineCopyTests: XCTestCase {
         XCTAssertEqual(CopyRules.apply(wipe, to: CopyRules.empty(owner)), .wiped(reason: .revoked))
     }
 
+    func testACopyGoesWhenItsWorkspaceLeavesTheList() {
+        XCTAssertEqual(CopyRules.copiesToDrop(onPhone: ["ws_1", "ws_gone"], workspaces: ["ws_1", "ws_2"]), ["ws_gone"])
+        XCTAssertEqual(CopyRules.copiesToDrop(onPhone: ["ws_1"], workspaces: ["ws_1"]), [])
+        // Removed from every workspace: every copy goes.
+        XCTAssertEqual(CopyRules.copiesToDrop(onPhone: ["ws_2", "ws_1"], workspaces: []), ["ws_1", "ws_2"])
+    }
+
+    func testASyncRefusedWith403MeansTheAccessIsGone() {
+        // Removed from the workspace, or WeldPass taken away: the server can't
+        // answer "wipe" to someone it no longer lets in.
+        XCTAssertTrue(CopyRules.lostAccess(status: 403))
+        // An expired token, a missing device, an outage, no answer: the copy stays.
+        for status in [401, 404, 500, 503, 0] {
+            XCTAssertFalse(CopyRules.lostAccess(status: status), "\(status)")
+        }
+        XCTAssertFalse(CopyRules.lostAccess(status: nil))
+    }
+
     func testListsCarryNoFieldsAndCountItems() throws {
         let copy = updated(CopyRules.apply(try result([("v1", true, [itemJSON("a", "v1"), itemJSON("b", "v1")], [])]), to: CopyRules.empty(owner)))
         XCTAssertEqual(CopyRules.vaults(copy).first?.itemCount, 2)

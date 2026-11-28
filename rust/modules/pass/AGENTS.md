@@ -19,9 +19,10 @@ WeldPass.
 - Platform UI: `apps/web/platform/app/weldpass/`, hooks
   `hooks/queries/use-weldpass-queries.ts` and
   `use-weldpass-passwords-queries.ts`.
-- Browser extension: `apps/web/weldpass-extension` (MV3, Chrome/Edge). It
-  reuses the web app's session, has no always-on content script, and touches a
-  page only on a click in its popup. Not deployed by CI.
+- Browser extension: `apps/web/weldpass-extension` (MV3, Chrome/Edge, ADR
+  PASS-009): its own WeldID client (`weldsuite-extension`), a content script
+  on https pages for inline menus and the save bar, and the popup. Its README
+  has the details. Not deployed by CI.
 - Mobile apps: the native apps in `apps/ios` and `apps/android` call these
   routes through the contract in `apps/mobile-shared/openapi/weldpass.yaml`
   (`tests/openapi_contract.rs` checks the answers against it). A change to an
@@ -78,6 +79,17 @@ AI agents, and neither secret metadata nor credential names belong there. It
 writes its own trail instead: `weldpass_audit_events` for vaults and secrets,
 `weldpass_vault_events` for the password manager, reveals and 2FA codes
 included.
+
+- **A read that discloses a value writes its row first and fails without
+  it** (`require_audit`, `require_vault_event`): a reveal, an export, a 2FA
+  code, a device's sync. Writes use the best-effort `record_*`, since their
+  change has committed already.
+- The trail's IP is the `X-Forwarded-For` entry `TRUSTED_PROXIES` from the
+  right (`audit::client_ip`), never `CF-Connecting-IP`: nothing in front sets
+  that on Kubernetes, so a client could, and a value longer than the `ip`
+  column once failed the insert while the value still went out.
+- Request values that end up in a trail row's metadata are checked against a
+  fixed list first (`format` on export): Postgres refuses a NUL in jsonb.
 
 ## Outside providers
 

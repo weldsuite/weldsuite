@@ -19,7 +19,7 @@ use weldsuite_catalogs::permission_keys::PASSWORDS_MANAGE;
 use weldsuite_kit::NoContent;
 use weldsuite_kit::validation::{Format, Issues, Presence, Text};
 
-use crate::audit::{VaultEvent, record_vault_event};
+use crate::audit::{VaultEvent, record_vault_event, require_vault_event};
 use crate::devices::{self, Device};
 use crate::password_items as items;
 use crate::password_vaults as vaults;
@@ -259,8 +259,9 @@ pub(crate) async fn sync_device(
                 &cursors,
             )
             .await?;
+            // The copy carries every item decrypted: no row, no copy.
             for sent in &synced.sent {
-                record_vault_event(
+                require_vault_event(
                     &caller.db,
                     &caller.audit,
                     VaultEvent::new(&sent.vault_id, &caller.user_id, "device.synced")
@@ -272,7 +273,7 @@ pub(crate) async fn sync_device(
                             "deleted": sent.deleted,
                         })),
                 )
-                .await;
+                .await?;
             }
             Ok(ok(synced.json))
         }

@@ -27,6 +27,7 @@ import org.weldsuite.core.WeldJson
 import org.weldsuite.core.api.ApiException
 import org.weldsuite.core.api.apiCall
 import org.weldsuite.core.api.apiCallNoContent
+import org.weldsuite.core.auth.WorkspaceRef
 import org.weldsuite.core.storage.PreferencesStore
 import java.time.Instant
 
@@ -40,9 +41,14 @@ import java.time.Instant
  *   foreground (at most every 30 s) and after every write.
  * - **Reading**: lists and item fields come from the copy while it's open, so
  *   the app works without a connection. Edits go to the server.
- * - **Wiping**: on sign-out (this phone is revoked on the server first), when
- *   the server says the phone was revoked or offline copies are off, and per
- *   vault when the person loses access.
+ * - **Wiping**: on sign-out (this phone is revoked on the server first), and
+ *   whenever the session ends some other way (WeldID refused it: a
+ *   deactivated account); when the server says the phone was revoked or
+ *   offline copies are off, or refuses the sync (403: the person was removed
+ *   from the workspace); when the workspace drops out of the person's list;
+ *   and per vault when the person loses access. Autofill reads every copy on
+ *   the phone without the network, so a copy must never outlive the access
+ *   it was made with.
  */
 class OfflineStore(context: Context, private val env: AppEnvironment, private val appVersion: String) {
     private val appContext = context.applicationContext
@@ -78,8 +84,21 @@ class OfflineStore(context: Context, private val env: AppEnvironment, private va
         })
     }
 
-    /** Follow the session and the lock: open, close or switch the copy. */
+    /** Follow the session and the lock: open, close, switch or wipe the copy. */
     private suspend fun follow(sessionState: SessionState, locked: Boolean) {
+        when (sessionState) {
+            // However the session ended: signed out here or on the "no workspaces"
+            // screen, or WeldID refused it.
+            SessionState.SignedOut -> {
+                wipeEverything()
+                session = null
+                return
+            }
+            is SessionState.Ready -> dropCopiesOutside(sessionState.person.id, sessionState.workspaces)
+            is SessionState.ChoosingWorkspace ->
+                if (!sessionState.loading) dropCopiesOutside(sessionState.person.id, sessionState.workspaces)
+            else -> Unit
+        }
         val ready = sessionState as? SessionState.Ready
         if (ready == null) {
             close(OfflineStatus.OFF)
@@ -137,7 +156,14 @@ class OfflineStore(context: Context, private val env: AppEnvironment, private va
         try {
             runSync(session, cipher)
         } catch (error: ApiException) {
-            state.update { it.copy(offline = error.isNetwork) }
+            if (CopyRules.lostAccess(error.status)) {
+                // Removed from the workspace, or WeldPass taken away: the server
+                // can't say "wipe" to someone it no longer lets in.
+                wipeWorkspace(session, forgetDevice = true)
+                close(OfflineStatus.OFF)
+            } else {
+                state.update { it.copy(offline = error.isNetwork) }
+            }
         } finally {
             lastSyncAt = System.currentTimeMillis()
             state.update { it.copy(syncing = false) }
@@ -236,10 +262,23 @@ class OfflineStore(context: Context, private val env: AppEnvironment, private va
     suspend fun signOut() {
         val deviceId = session?.let { prefs.getString(deviceKey(it), null) }
         if (deviceId != null) runCatching { revoke(deviceId) }
+        wipeEverything()
+    }
+
+    /** Every copy, the device registrations, the queued events and the copy's key. */
+    private fun wipeEverything() {
         files.deleteAll()
         prefs.edit().clear().apply()
         keys.delete()
         close(OfflineStatus.OFF)
+    }
+
+    /** The copies of workspaces no longer in [workspaces], the person's list from the server. */
+    private fun dropCopiesOutside(userId: String, workspaces: List<WorkspaceRef>) {
+        val gone = CopyRules.copiesToDrop(files.index().keys, workspaces.map { it.id })
+        for (workspaceId in gone) {
+            wipeWorkspace(Session(env.serverOrigin, userId, workspaceId), forgetDevice = true)
+        }
     }
 
     private fun wipeWorkspace(session: Session, forgetDevice: Boolean) {

@@ -61,9 +61,65 @@ object AutofillLogins {
     }
 
     /**
+     * The browsers whose page domain is believed. Any app can put a domain on
+     * its own views (`ViewStructure.setWebDomain`), so one claiming to be
+     * `yourbank.com` would be handed that login; a domain from any other app
+     * is ignored, and its screen is matched by its package name instead.
+     */
+    val BROWSERS: Set<String> = setOf(
+        "com.android.chrome",
+        "com.chrome.beta",
+        "com.chrome.dev",
+        "com.chrome.canary",
+        "org.chromium.chrome",
+        "org.mozilla.firefox",
+        "org.mozilla.firefox_beta",
+        "org.mozilla.fenix",
+        "org.mozilla.focus",
+        "org.mozilla.klar",
+        "com.microsoft.emmx",
+        "com.microsoft.emmx.beta",
+        "com.brave.browser",
+        "com.brave.browser_beta",
+        "com.sec.android.app.sbrowser",
+        "com.sec.android.app.sbrowser.beta",
+        "com.opera.browser",
+        "com.opera.browser.beta",
+        "com.opera.gx",
+        "com.vivaldi.browser",
+        "com.duckduckgo.mobile.android",
+        "com.kiwibrowser.browser",
+        "com.ecosia.android",
+        "org.torproject.torbrowser",
+    )
+
+    /**
+     * The page domain to match on: what a known browser ([BROWSERS]) reports
+     * for a page served over https (or on localhost), lower-cased and without
+     * `www.`; null for anything else. `webScheme` is null where Android
+     * doesn't report one (before Android 9, or a domain given without it).
+     */
+    fun trustedDomain(webDomain: String?, webScheme: String?, packageName: String): String? {
+        val domain = webDomain?.trim()?.lowercase()?.removePrefix("www.")?.takeIf { it.isNotEmpty() } ?: return null
+        if (packageName !in BROWSERS) return null
+        if (isInsecure(domain, webScheme)) return null
+        return domain
+    }
+
+    /** A page in a known browser that is not https (localhost aside): WeldPass offers nothing there. */
+    fun isInsecurePage(webDomain: String?, webScheme: String?, packageName: String): Boolean {
+        val domain = webDomain?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return false
+        return packageName in BROWSERS && isInsecure(domain, webScheme)
+    }
+
+    private fun isInsecure(domain: String, webScheme: String?): Boolean =
+        webScheme != null && !webScheme.equals("https", ignoreCase = true) && domain != "localhost"
+
+    /**
      * The logins for this screen: an app's own by package name (stored in the
      * sealed item, matched only here), a page's by domain, with the
-     * platform's `hostsMatch` rule.
+     * platform's `hostsMatch` rule. `webDomain` is the one [trustedDomain]
+     * believed, never a domain an app reported for itself.
      */
     fun matching(logins: List<AutofillLogin>, webDomain: String?, packageName: String): List<AutofillLogin> {
         val domain = webDomain?.removePrefix("www.")
@@ -71,6 +127,26 @@ object AutofillLogins {
             if (domain != null) login.host?.let { hostsMatch(it, domain) } ?: false else packageName in login.apps
         }
     }
+
+    /**
+     * What the unlock offers: a single login that matches this screen is
+     * filled straight away; several are listed; with none, every login is
+     * listed with its site, and one is filled only when the person picks it.
+     */
+    fun choices(logins: List<AutofillLogin>, webDomain: String?, packageName: String): Choices {
+        val matching = matching(logins, webDomain, packageName)
+        return when {
+            matching.size == 1 -> Choices(matching, fillAtOnce = true)
+            matching.isNotEmpty() -> Choices(matching, fillAtOnce = false)
+            else -> Choices(logins, fillAtOnce = false)
+        }
+    }
+
+    data class Choices(val logins: List<AutofillLogin>, val fillAtOnce: Boolean)
+
+    /** A row of the list: title, username and the login's site, so a login for another site is seen as one. */
+    fun label(login: AutofillLogin): String =
+        listOfNotNull(login.title, login.username, login.host).filter(String::isNotEmpty).joinToString(" · ")
 
     /** Same host, or one is a subdomain of the other (and the shorter has a dot). */
     fun hostsMatch(itemHost: String, pageHost: String): Boolean {

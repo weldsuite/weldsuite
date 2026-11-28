@@ -66,6 +66,7 @@ fn app(db: PgPool) -> Router {
         root_keys: RootKeyring::from_values(Some(ROOT), None),
         http: Arc::new(ReqwestTransport::new()),
         sync: false,
+        trusted_proxies: 1,
     };
     let gate = Arc::new(PermissionGate::new(|_| Ok(NoQueries)));
     let resolved = ResolvedPermissions {
