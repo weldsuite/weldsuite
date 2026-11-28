@@ -507,6 +507,7 @@ async fn try_deliver_push(
             high_priority: priority == "high",
             android_channel: channel_id,
             data: &data,
+            badge: None,
         };
         invalid.extend(send_native_alerts(notifier, &plan.native, &alert).await);
     }
@@ -709,6 +710,8 @@ pub struct NativeAlert<'a> {
     pub android_channel: Option<&'a str>,
     /// The data the Expo message carries; FCM gets it as strings.
     pub data: &'a Map<String, Value>,
+    /// The app icon's badge on iOS (the Expo message's `badge`); 1 when none is given.
+    pub badge: Option<i64>,
 }
 
 /// How one native push went.
@@ -819,7 +822,7 @@ fn apns_alert_payload(alert: &NativeAlert<'_>) -> Value {
         "aps": {
             "alert": { "title": alert.title, "body": alert.body },
             "sound": "default",
-            "badge": 1,
+            "badge": alert.badge.unwrap_or(1),
             "thread-id": alert.thread_id,
         },
         "data": alert.data,
@@ -1466,6 +1469,7 @@ mod tests {
             high_priority,
             android_channel: Some("chat"),
             data,
+            badge: None,
         }
     }
 

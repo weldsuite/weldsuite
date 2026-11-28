@@ -145,11 +145,13 @@ fn route_tokens(rows: Vec<(String, String)>) -> Routed {
 }
 
 /// The new-email alert as the native app gets it: the Expo message's title,
-/// body and data, in the `weldmail` thread on Android's `email` channel.
+/// body, data and badge (the unread inbox count), in the `weldmail` thread on
+/// Android's `email` channel.
 fn native_alert<'a>(
     title: &'a str,
     body: &'a str,
     data: &'a Map<String, Value>,
+    badge: Option<i64>,
 ) -> NativeAlert<'a> {
     NativeAlert {
         title,
@@ -158,6 +160,7 @@ fn native_alert<'a>(
         high_priority: true,
         android_channel: Some("email"),
         data,
+        badge,
     }
 }
 
@@ -299,7 +302,7 @@ pub async fn send_new_email_push(
             })
             .collect();
         let (tickets, mut invalid) = send_expo_push(ctx.http.as_ref(), &messages).await;
-        let alert = native_alert(&title, &body, &data);
+        let alert = native_alert(&title, &body, &data, badge);
         let native_sent = send_native_pushes(ctx.http.as_ref(), &native, &alert).await;
         let ok = tickets.iter().filter(|t| t["status"] == "ok").count() + native_sent.sent;
         tracing::info!(
@@ -384,7 +387,8 @@ mod tests {
         let mut data = Map::new();
         data.insert("type".to_owned(), json!("new_email"));
         data.insert("inboxUnread".to_owned(), json!("4"));
-        let alert = native_alert("New email from Ann", "Lunch?", &data);
+        let alert = native_alert("New email from Ann", "Lunch?", &data, Some(4));
+        assert_eq!(alert.badge, Some(4));
         assert_eq!(alert.title, "New email from Ann");
         assert_eq!(alert.body, "Lunch?");
         assert_eq!(alert.thread_id, "weldmail");
@@ -412,7 +416,7 @@ mod tests {
         let counter = Arc::new(Counter(Mutex::new(0)));
         let http = OutboundHttp(counter.clone());
         let data = Map::new();
-        let alert = native_alert("New email from Ann", "Lunch?", &data);
+        let alert = native_alert("New email from Ann", "Lunch?", &data, None);
         let native = vec![
             ("ab".repeat(32), "apns".to_owned()),
             ("fcm-token".to_owned(), "fcm".to_owned()),

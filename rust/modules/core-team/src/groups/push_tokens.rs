@@ -414,6 +414,7 @@ async fn send_native_tests(
         high_priority: true,
         android_channel: Some("chat"),
         data: &data,
+        badge: None,
     };
     let mut tickets = Vec::new();
     let mut invalid = Vec::new();
