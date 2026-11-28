@@ -1,37 +1,34 @@
 package com.weldsuite.weldhr.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.BedroomParent
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.Laptop
-import androidx.compose.material.icons.filled.Receipt
-import androidx.compose.material.icons.filled.Restaurant
-import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.Button
+import org.weldsuite.ui.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -40,14 +37,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import org.weldsuite.ui.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SecondaryScrollableTabRow
 import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -62,157 +59,302 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.weldsuite.weldhr.HrDays
 import com.weldsuite.weldhr.R
 import com.weldsuite.weldhr.Swatches
+import com.weldsuite.weldhr.Tone
+import com.weldsuite.weldhr.Tones
 import org.weldsuite.core.R as CoreR
+import org.weldsuite.ui.EmptyState
 import org.weldsuite.ui.Tokens
 import org.weldsuite.ui.tagged
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 
-/** The size of the tiles in front of a row. */
-val ROW_TILE = 36.dp
-
-/** A coloured tile with an icon: a leave type, a sick day, an expense category. */
-@Composable
-fun IconTile(icon: ImageVector, background: Color, tint: Color, size: Dp = ROW_TILE) {
-    Box(
-        Modifier.size(size).background(background, RoundedCornerShape(size * 0.28f)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size * 0.5f))
-    }
-}
-
-/** A plain tile in the surface's tint. */
-@Composable
-fun PlainTile(icon: ImageVector, size: Dp = ROW_TILE) =
-    IconTile(icon, MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant, size)
-
 private fun argb(value: Long) = Color(value.toInt())
 
-/** A leave type's tile: a plane on the colour HR picked, else the brand's. */
-@Composable
-fun LeaveTypeTile(color: String?, size: Dp = ROW_TILE) {
-    val hex = Swatches.hex(color)
-    val background = hex?.let(::argb) ?: Tokens.Brand.weldhr.current()
-    val tint = if (hex != null && Swatches.prefersDarkText(hex)) Color.Black else Color.White
-    IconTile(Icons.Filled.Flight, background, tint, size)
-}
+/** Secondary text under a row's title: 13sp, as the platform's list meta lines. */
+private val SubtitleSize = 13.sp
 
+/** The hairline under each list row and group head (`border-border/70`). */
 @Composable
-fun SickTile(size: Dp = ROW_TILE) = IconTile(Icons.Filled.Thermostat, Tokens.Status.danger.current(), Color.White, size)
+fun rowRule(): Color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
 
-/** An expense category's icon on its colour. */
+/** Whether the app is drawn dark (some platform colours have a dark variant). */
 @Composable
-fun CategoryTile(category: String, size: Dp = ROW_TILE) {
-    val accent = Swatches.CATEGORY[category] ?: Swatches.CATEGORY.getValue("other")
-    val icon = when (category) {
-        "travel" -> Icons.Filled.DirectionsCar
-        "meals" -> Icons.Filled.Restaurant
-        "accommodation" -> Icons.Filled.BedroomParent
-        "equipment" -> Icons.Filled.Laptop
-        "training" -> Icons.Filled.School
-        else -> Icons.Filled.Receipt
+fun isDark(): Boolean = MaterialTheme.colorScheme.background.luminance() < 0.5f
+
+/**
+ * The platform's badge (`@weldsuite/ui` Badge): a pill in one of its four
+ * variants. WeldHR's statuses use these, not tinted colours.
+ */
+@Composable
+fun ToneBadge(text: String, tone: Tone, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    val dark = isDark()
+    val fill: Color
+    val ink: Color
+    var edge: Color? = null
+    when (tone) {
+        Tone.DEFAULT -> {
+            fill = scheme.primary
+            ink = scheme.onPrimary
+        }
+        Tone.SECONDARY -> {
+            fill = Tokens.Palette.secondary.current()
+            ink = Tokens.Palette.secondaryForeground.current()
+        }
+        Tone.DESTRUCTIVE -> {
+            val danger = Tokens.Status.danger.current()
+            fill = if (dark) danger.copy(alpha = 0.6f) else danger
+            ink = Color.White
+        }
+        Tone.OUTLINE -> {
+            fill = Color.Transparent
+            ink = scheme.onSurface
+            edge = scheme.outlineVariant
+        }
     }
-    IconTile(icon, argb(accent), if (Swatches.prefersDarkText(accent)) Color.Black else Color.White, size)
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = ink,
+        maxLines = 1,
+        softWrap = false,
+        modifier = modifier
+            .background(fill, CircleShape)
+            .then(if (edge != null) Modifier.border(1.dp, edge, CircleShape) else Modifier)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    )
 }
 
-/** The coloured bar in front of a shift. */
+/** A WeldHR status as the platform's badge: its label, in the variant the platform gives it. */
 @Composable
-fun ShiftBar(key: String?) {
-    Box(Modifier.width(4.dp).height(36.dp).background(argb(Swatches.shift(key)), RoundedCornerShape(2.dp)))
+fun StatusTag(status: String, label: String, modifier: Modifier = Modifier) = ToneBadge(label, Tones.of(status), modifier)
+
+/** A leave type's colour dot (the platform's `ColorDot`); neutral grey without a colour. */
+@Composable
+fun ColorDot(color: String?, size: Dp = 8.dp) {
+    Box(Modifier.size(size).background(argb(Swatches.dot(color)), CircleShape))
+}
+
+/** An evaluation score (0-100) in its colour band, as the platform's `ScoreBadge`. */
+@Composable
+fun ScoreBadge(score: Double?) {
+    if (score == null) {
+        Text(stringResource(R.string.weldhr_common_dash), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    val dark = isDark()
+    // emerald, sky, amber and red: -100 fill and -800 text, -950 and -300 when dark.
+    val (fill, ink) = when (Swatches.scoreBand(score)) {
+        0 -> if (dark) 0xFF022C22 to 0xFF6EE7B7 else 0xFFD1FAE5 to 0xFF065F46
+        1 -> if (dark) 0xFF082F49 to 0xFF7DD3FC else 0xFFE0F2FE to 0xFF075985
+        2 -> if (dark) 0xFF451A03 to 0xFFFCD34D else 0xFFFEF3C7 to 0xFF92400E
+        else -> if (dark) 0xFF450A0A to 0xFFFCA5A5 else 0xFFFEE2E2 to 0xFF991B1B
+    }
+    Text(
+        String.format(java.util.Locale.ROOT, "%.1f", score),
+        style = MaterialTheme.typography.labelMedium,
+        color = argb(ink),
+        modifier = Modifier.background(argb(fill), RoundedCornerShape(Tokens.Radius.small)).padding(horizontal = 6.dp, vertical = 2.dp),
+    )
+}
+
+/** The coloured bar in front of a shift: its client's colour, the default blue without one. */
+@Composable
+fun ShiftBar(client: String?) {
+    Box(Modifier.width(4.dp).height(36.dp).background(argb(Swatches.shift(client)), RoundedCornerShape(2.dp)))
+}
+
+/** A count in the platform's small mono chip, beside a group head or a tab. */
+@Composable
+fun CountChip(count: Int) {
+    val shape = RoundedCornerShape(5.dp)
+    Box(
+        Modifier
+            .defaultMinSize(minWidth = 16.dp, minHeight = 16.dp)
+            .background(MaterialTheme.colorScheme.surfaceVariant, shape)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            .padding(horizontal = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(count.toString(), fontSize = 10.sp, lineHeight = 12.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 /**
- * A row of the app's lists: what is on the left, the title with a coloured
- * subtitle, and a value with a detail on the right.
+ * A row of the app's lists, as the platform's list rows: what is on the
+ * left, the title (medium, with a dot or pin in front) over a muted line,
+ * and a value, detail and badge on the right; a hairline under it.
  */
 @Composable
 fun HrRow(
     title: String,
     modifier: Modifier = Modifier,
     leading: (@Composable () -> Unit)? = null,
+    marker: (@Composable () -> Unit)? = null,
     subtitle: String? = null,
+    subtitleMarker: (@Composable () -> Unit)? = null,
     subtitleColor: Color? = null,
     subtitleLines: Int = 1,
     value: String? = null,
     valueContent: (@Composable () -> Unit)? = null,
     detail: String? = null,
     detailColor: Color? = null,
+    badge: (@Composable () -> Unit)? = null,
     muted: Boolean = false,
     strike: Boolean = false,
     unread: Boolean = false,
+    divider: Boolean = true,
     tag: String? = null,
     onClick: (() -> Unit)? = null,
 ) {
     val muteColor = MaterialTheme.colorScheme.onSurfaceVariant
-    ListItem(
-        modifier = modifier
+    Column(
+        modifier
+            .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .tagged(tag),
-        colors = if (unread) ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)) else ListItemDefaults.colors(),
-        leadingContent = leading,
-        headlineContent = {
-            Text(
-                title,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                fontWeight = FontWeight.SemiBold,
-                color = if (muted) muteColor else Color.Unspecified,
-                textDecoration = if (strike) TextDecoration.LineThrough else null,
-            )
-        },
-        supportingContent = subtitle?.takeIf { it.isNotEmpty() }?.let {
-            { Text(it, color = subtitleColor ?: muteColor, maxLines = subtitleLines, overflow = TextOverflow.Ellipsis) }
-        },
-        trailingContent = if (value != null || valueContent != null || detail != null) {
-            {
-                Column(horizontalAlignment = Alignment.End) {
-                    if (valueContent != null) valueContent() else if (value != null) Text(value, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                    if (detail != null) Text(detail, style = MaterialTheme.typography.bodySmall, color = detailColor ?: muteColor, maxLines = 1)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.m),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
+        ) {
+            leading?.invoke()
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    marker?.invoke()
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Medium,
+                        color = if (muted) muteColor else MaterialTheme.colorScheme.onSurface,
+                        textDecoration = if (strike) TextDecoration.LineThrough else null,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+                subtitle?.takeIf { it.isNotEmpty() }?.let {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        subtitleMarker?.invoke()
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = SubtitleSize, lineHeight = 18.sp),
+                            color = subtitleColor ?: muteColor,
+                            maxLines = subtitleLines,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
-        } else {
-            null
-        },
-    )
+            if (value != null || valueContent != null || detail != null || badge != null) {
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (valueContent != null) valueContent() else if (value != null) Text(value, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                    if (detail != null) Text(detail, style = MaterialTheme.typography.bodySmall, color = detailColor ?: muteColor, maxLines = 1)
+                    badge?.invoke()
+                }
+            }
+        }
+        if (divider) HorizontalDivider(color = rowRule())
+    }
 }
 
-/** A label and its value, in a list of facts. */
+/** A label and its value, as the platform's property rows: the label in a muted column, the value beside it. */
 @Composable
-fun DetailRow(label: String, value: String) {
-    ListItem(
-        headlineContent = { Text(value) },
-        overlineContent = { Text(label) },
-    )
-}
-
-/** A list section's head, with a figure on the right (a count, a total). */
-@Composable
-fun SectionHead(title: String, figure: String? = null, modifier: Modifier = Modifier) {
+fun DetailRow(label: String, value: String, valueContent: (@Composable () -> Unit)? = null) {
     Row(
-        modifier.fillMaxWidth().padding(start = Tokens.Spacing.l, end = Tokens.Spacing.l, top = Tokens.Spacing.l, bottom = Tokens.Spacing.xs),
+        Modifier.fillMaxWidth().heightIn(min = 36.dp).padding(horizontal = Tokens.Spacing.l, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
-        if (figure != null) Text(figure, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(128.dp))
+        Box(Modifier.weight(1f)) {
+            if (valueContent != null) valueContent() else Text(value, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+/**
+ * A group's head, as the platform's list groups: a small muted label with
+ * its count in a chip, and a figure on the right (a total, a range).
+ */
+@Composable
+fun SectionHead(title: String, count: Int? = null, figure: String? = null, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                .heightIn(min = 32.dp)
+                .padding(horizontal = Tokens.Spacing.l, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s),
+        ) {
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (count != null) CountChip(count)
+            }
+            if (figure != null) Text(figure, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        }
+        HorizontalDivider(color = rowRule())
     }
 }
 
 /** A day's head in a grouped list: "Ma 26 okt" and the day's figure. */
 @Composable
-fun DayHead(day: String, figure: String?) {
-    SectionHead("${Fmt.weekdayShort(day)} ${Fmt.shortDate(day)}", figure)
+fun DayHead(day: String, figure: String? = null, count: Int? = null) {
+    SectionHead("${Fmt.weekdayShort(day)} ${Fmt.shortDate(day)}", count = count, figure = figure)
+}
+
+/**
+ * An empty list, as the platform's: the icon in a muted rounded square, a
+ * semibold title and a muted description, with the action under it.
+ */
+@Composable
+fun HrEmpty(title: String, description: String? = null, icon: ImageVector? = null, action: String? = null, actionTag: String? = null, onAction: (() -> Unit)? = null) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        EmptyState(
+            title,
+            description,
+            icon = icon?.let {
+                {
+                    Box(
+                        Modifier.size(48.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(Tokens.Radius.large)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(it, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
+                    }
+                }
+            },
+        )
+        if (action != null && onAction != null) {
+            Button(onClick = onAction, modifier = Modifier.padding(bottom = Tokens.Spacing.xl).tagged(actionTag)) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(action, modifier = Modifier.padding(start = 4.dp))
+            }
+        }
+    }
 }
 
 /** A short note under the tabs ("Requesting time off from the app is turned off"). */
@@ -249,28 +391,47 @@ fun PeriodNav(label: String, sublabel: String? = null, onPrevious: () -> Unit, o
     }
 }
 
-data class Segment<T>(val value: T, val label: String, val tag: String? = null)
+/** A view of a tab; [count] is work waiting there, shown in a chip. */
+data class Segment<T>(val value: T, val label: String, val tag: String? = null, val count: Int = 0)
 
-/** The views of a tab (My week / Team); nothing when there is only one. */
+/**
+ * The views of a tab (My week / Team), as the platform's page tabs: medium
+ * labels, muted until picked, a 2dp foreground underline; nothing when
+ * there is only one.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun <T> Segments(options: List<Segment<T>>, selected: T, onSelect: (T) -> Unit) {
     if (options.size < 2) return
     val index = options.indexOfFirst { it.value == selected }.coerceAtLeast(0)
-    SecondaryScrollableTabRow(selectedTabIndex = index, edgePadding = Tokens.Spacing.l) {
+    val foreground = MaterialTheme.colorScheme.onSurface
+    SecondaryScrollableTabRow(
+        selectedTabIndex = index,
+        edgePadding = Tokens.Spacing.s,
+        containerColor = MaterialTheme.colorScheme.background,
+        contentColor = foreground,
+        indicator = {
+            TabRowDefaults.SecondaryIndicator(Modifier.tabIndicatorOffset(index, matchContentSize = true), height = 2.dp, color = foreground)
+        },
+        divider = { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) },
+    ) {
         options.forEachIndexed { position, option ->
             Tab(
                 selected = position == index,
                 onClick = { onSelect(option.value) },
-                text = { Text(option.label) },
+                selectedContentColor = foreground,
+                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
+                        Text(option.label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                        if (option.count > 0) CountChip(option.count)
+                    }
+                },
                 modifier = Modifier.tagged(option.tag),
             )
         }
     }
 }
-
-/** "Time off (2)" for a segment with work waiting. */
-fun withCount(label: String, count: Int): String = if (count > 0) "$label ($count)" else label
 
 /** The search field over a list, with the filter button beside it. */
 @Composable

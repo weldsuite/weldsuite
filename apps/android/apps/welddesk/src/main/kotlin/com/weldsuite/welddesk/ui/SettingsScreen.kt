@@ -13,13 +13,13 @@ import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.weldsuite.welddesk.R
@@ -43,15 +43,26 @@ fun SettingsScreen(env: AppEnvironment, session: SessionState.Ready, appearance:
         LazyColumn(Modifier.padding(padding).fillMaxSize().tagged("settings")) {
             item("settings-channels") {
                 SettingsHeader(stringResource(R.string.welddesk_settings_channels))
-                val violet = Color(0xFF8B5CF6)
                 ListItem(
-                    headlineContent = { Text(stringResource(R.string.welddesk_settings_channels_hint)) },
+                    headlineContent = {
+                        Text(
+                            stringResource(R.string.welddesk_settings_channels_hint),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
                     leadingContent = {
+                        // The platform's neutral icon square, not an app colour.
                         Box(
-                            Modifier.size(40.dp).background(violet.copy(alpha = 0.12f), RoundedCornerShape(Tokens.Radius.medium)),
+                            Modifier.size(36.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(Tokens.Radius.medium)),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.AutoMirrored.Outlined.Chat, contentDescription = null, tint = violet, modifier = Modifier.size(20.dp))
+                            Icon(
+                                Icons.AutoMirrored.Outlined.Chat,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
                         }
                     },
                     modifier = Modifier.tagged("channels-hint"),

@@ -48,12 +48,13 @@
     <string name="weldbooks_bank_detail_current_balance">Huidig saldo</string>
     <string name="weldbooks_bank_detail_empty_description">Importeer een bankafschrift om transacties voor deze rekening te zien.</string>
     <string name="weldbooks_bank_detail_empty_title">Geen transacties</string>
+    <string name="weldbooks_bank_detail_excluded">Uitgesloten</string>
     <string name="weldbooks_bank_detail_load_error">Deze rekening kon niet worden geladen.</string>
-    <string name="weldbooks_bank_detail_reconciled">Afgeletterd</string>
+    <string name="weldbooks_bank_detail_reconciled">Afgestemd</string>
     <string name="weldbooks_bank_detail_routing_number">Routingnummer</string>
     <string name="weldbooks_bank_detail_title">Rekening</string>
     <string name="weldbooks_bank_detail_transaction">Transactie</string>
-    <string name="weldbooks_bank_detail_unmatched">Niet gekoppeld</string>
+    <string name="weldbooks_bank_detail_unmatched">Niet afgestemd</string>
     <string name="weldbooks_bill_detail_approve">Goedkeuren</string>
     <string name="weldbooks_bill_detail_approved">Inkoopfactuur goedgekeurd</string>
     <string name="weldbooks_bill_detail_balance_due">Openstaand saldo</string>
@@ -83,8 +84,10 @@
     <string name="weldbooks_bill_detail_record_payment">Betaling vastleggen</string>
     <string name="weldbooks_bill_detail_reference">Referentie</string>
     <string name="weldbooks_bill_detail_reject">Afwijzen</string>
-    <string name="weldbooks_bill_detail_reject_message">De factuur blijft in de administratie maar wordt niet gepland voor betaling.</string>
-    <string name="weldbooks_bill_detail_reject_title">Deze inkoopfactuur afwijzen?</string>
+    <string name="weldbooks_bill_detail_reject_message">Geef een reden voor het afwijzen van deze inkoopfactuur.</string>
+    <string name="weldbooks_bill_detail_reject_reason">Reden</string>
+    <string name="weldbooks_bill_detail_reject_reason_placeholder">Voer afwijzingsreden in…</string>
+    <string name="weldbooks_bill_detail_reject_title">Inkoopfactuur afwijzen</string>
     <string name="weldbooks_bill_detail_rejected">Inkoopfactuur afgewezen</string>
     <string name="weldbooks_bill_detail_subtotal">Subtotaal</string>
     <string name="weldbooks_bill_detail_tax_paid">%1$s betaald (deel van de kosten)</string>
@@ -239,11 +242,20 @@
     <string name="weldbooks_contacts_shown">%1$d weergegeven</string>
     <string name="weldbooks_contacts_title">Contacten</string>
     <string name="weldbooks_contacts_unnamed">Naamloos contact</string>
+    <plurals name="weldbooks_dashboard_bank_account_count">
+        <item quantity="one">1 bankrekening</item>
+        <item quantity="other">%1$d bankrekeningen</item>
+    </plurals>
     <plurals name="weldbooks_dashboard_bill_count">
         <item quantity="one">%1$d inkoopfactuur</item>
         <item quantity="other">%1$d inkoopfacturen</item>
     </plurals>
+    <string name="weldbooks_dashboard_cash_balance">Banksaldo</string>
+    <string name="weldbooks_dashboard_documents">Te verwerken documenten</string>
+    <string name="weldbooks_dashboard_documents_waiting">Wachten op boeking</string>
+    <string name="weldbooks_dashboard_due_this_week">Vervalt deze week</string>
     <string name="weldbooks_dashboard_expense">Uitgave</string>
+    <string name="weldbooks_dashboard_expenses">Kosten</string>
     <string name="weldbooks_dashboard_invoice">Factuur</string>
     <plurals name="weldbooks_dashboard_invoice_count">
         <item quantity="one">%1$d factuur</item>
@@ -253,20 +265,42 @@
         <item quantity="one">%1$d item wacht op synchronisatie.</item>
         <item quantity="other">%1$d items wachten op synchronisatie.</item>
     </plurals>
+    <string name="weldbooks_dashboard_last_year">Vorig jaar</string>
+    <string name="weldbooks_dashboard_latest_payments">Laatste betalingen</string>
     <string name="weldbooks_dashboard_load_error">Dashboard kon niet worden geladen.</string>
+    <string name="weldbooks_dashboard_metric">Cijfer</string>
+    <string name="weldbooks_dashboard_net_profit">Nettowinst</string>
+    <string name="weldbooks_dashboard_no_due_this_week">Er vervalt deze week niets.</string>
     <string name="weldbooks_dashboard_no_invoices_description">Maak je eerste factuur om omzet bij te houden.</string>
     <string name="weldbooks_dashboard_no_invoices_title">Nog geen facturen</string>
+    <string name="weldbooks_dashboard_no_recent_payments">Geen recente betalingen.</string>
     <plurals name="weldbooks_dashboard_offline_queued">
         <item quantity="one">Offline. %1$d item in de wachtrij.</item>
         <item quantity="other">Offline. %1$d items in de wachtrij.</item>
     </plurals>
+    <plurals name="weldbooks_dashboard_open_bill_count">
+        <item quantity="one">1 openstaande inkoopfactuur</item>
+        <item quantity="other">%1$d openstaande inkoopfacturen</item>
+    </plurals>
+    <plurals name="weldbooks_dashboard_open_invoice_count">
+        <item quantity="one">1 openstaande factuur</item>
+        <item quantity="other">%1$d openstaande facturen</item>
+    </plurals>
     <string name="weldbooks_dashboard_outstanding">Openstaand</string>
     <string name="weldbooks_dashboard_overdue">Achterstallig</string>
+    <string name="weldbooks_dashboard_overdue_amount">%1$s vervallen</string>
     <string name="weldbooks_dashboard_payables">Te betalen</string>
+    <string name="weldbooks_dashboard_payment_received">Ontvangen</string>
+    <string name="weldbooks_dashboard_payment_sent">Betaald</string>
     <string name="weldbooks_dashboard_profit">Winst</string>
     <string name="weldbooks_dashboard_reports">Rapporten</string>
+    <string name="weldbooks_dashboard_revenue">Omzet</string>
     <string name="weldbooks_dashboard_scan">Scan</string>
     <string name="weldbooks_dashboard_this_month">Deze maand</string>
+    <string name="weldbooks_dashboard_to_pay">Te betalen</string>
+    <string name="weldbooks_dashboard_to_receive">Te ontvangen</string>
+    <string name="weldbooks_dashboard_today">Vandaag</string>
+    <string name="weldbooks_document_status">Status</string>
     <string name="weldbooks_entity_setup_add_sheet_title">Bedrijf toevoegen</string>
     <string name="weldbooks_entity_setup_address_hint">Staat op je facturen en dient als herkomst voor sales tax.</string>
     <string name="weldbooks_entity_setup_address_hint_invoice">Staat op je facturen.</string>
@@ -389,6 +423,17 @@
     <string name="weldbooks_expenses_search_placeholder">Inkoopfacturen en uitgaven zoeken</string>
     <string name="weldbooks_expenses_title">Uitgaven</string>
     <string name="weldbooks_expenses_unknown_vendor">Onbekende %1$s</string>
+    <string name="weldbooks_groups_approved">Goedgekeurd</string>
+    <string name="weldbooks_groups_draft">Concept</string>
+    <string name="weldbooks_groups_excluded">Uitgesloten</string>
+    <string name="weldbooks_groups_finalized">Gefinaliseerd</string>
+    <string name="weldbooks_groups_other">Overig</string>
+    <string name="weldbooks_groups_overdue">Achterstallig</string>
+    <string name="weldbooks_groups_paid">Betaald</string>
+    <string name="weldbooks_groups_partially_paid">Gedeeltelijk betaald</string>
+    <string name="weldbooks_groups_reconciled">Afgestemd</string>
+    <string name="weldbooks_groups_sent">Verzonden</string>
+    <string name="weldbooks_groups_unreconciled">Niet afgestemd</string>
     <string name="weldbooks_invoice_detail_actions_title">Factuuracties</string>
     <string name="weldbooks_invoice_detail_add_company_details">Bedrijfsgegevens toevoegen</string>
     <string name="weldbooks_invoice_detail_address_missing">Dit concept heeft geen afleveradres met staat en ZIP-code, dus de sales tax kan niet worden berekend en het kan niet worden afgerond. Verwijder het concept en maak de factuur opnieuw aan met het adres.</string>
@@ -514,9 +559,11 @@
     <string name="weldbooks_more_administration">Administratie</string>
     <string name="weldbooks_more_balance_sheet">Balans</string>
     <string name="weldbooks_more_balance_sheet_sub">Activa, passiva en eigen vermogen</string>
+    <string name="weldbooks_more_bank">Bank</string>
     <string name="weldbooks_more_bank_accounts">Bankrekeningen</string>
     <string name="weldbooks_more_bank_accounts_sub">Saldi en transacties</string>
     <string name="weldbooks_more_contacts">Contacten</string>
+    <string name="weldbooks_more_contacts_group">Contacten</string>
     <string name="weldbooks_more_contacts_sub">Klanten en %1$s</string>
     <string name="weldbooks_more_financial">Financieel</string>
     <string name="weldbooks_more_other">Overig</string>

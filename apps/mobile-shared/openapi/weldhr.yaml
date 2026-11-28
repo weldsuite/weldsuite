@@ -885,6 +885,39 @@ components:
         openShifts:
           type: integer
           description: Open shifts with a spot left that the caller has not signed up for.
+        latestEvaluation:
+          allOf:
+            - $ref: '#/components/schemas/LatestEvaluation'
+          nullable: true
+          description: The newest evaluation shared with the caller (submitted or acknowledged); null without one.
+        milestones:
+          $ref: '#/components/schemas/Milestones'
+    LatestEvaluation:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+        overallScore:
+          type: number
+          format: double
+          nullable: true
+          description: 0 to 100.
+        formName:
+          type: string
+          nullable: true
+        submittedAt:
+          type: string
+          nullable: true
+    Milestones:
+      type: object
+      required: [achieved, open]
+      properties:
+        achieved:
+          type: integer
+        open:
+          type: integer
+          description: Planned or in progress.
     OverviewResponse:
       type: object
       required: [data]

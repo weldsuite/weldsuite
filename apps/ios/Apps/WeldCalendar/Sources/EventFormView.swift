@@ -135,7 +135,8 @@ struct EventFormView: View {
     }
 }
 
-/// The form's fields. Dates and times use the system pickers, in the phone's zone.
+/// The form's fields, with the platform's event dialog's fields in its order.
+/// Dates and times use the system pickers, in the phone's zone.
 struct EventFormFields: View {
     @Binding var draft: EventDraft
     let calendars: [CalendarInfo]
@@ -146,6 +147,10 @@ struct EventFormFields: View {
 
     @State private var guestEmail = ""
     @State private var guestProblemShown: GuestProblem?
+    @State private var addingGuest = false
+    /// The platform's "Virtual meeting" switch: the link field shows while it's on, and turning it off clears the link.
+    @State private var virtual = false
+    @State private var virtualSet = false
     @FocusState private var titleFocused: Bool
 
     private var calendar: Calendar { CalendarDates.calendar() }
@@ -159,27 +164,42 @@ struct EventFormFields: View {
                 }
             }
 
+            if calendars.count > 1 {
+                Section(CalendarStrings.eventFormCalendarLabel) {
+                    Picker(CalendarStrings.eventFormCalendarLabel, selection: $draft.calendarID) {
+                        ForEach(calendars) { option in
+                            Text(option.name).tag(option.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .accessibilityIdentifier("event-calendar")
+                }
+            }
+
             Section {
                 TextField(CalendarStrings.eventFormTitlePlaceholder, text: $draft.title)
                     .focused($titleFocused)
                     .accessibilityIdentifier("event-title")
                 if showProblems, issues.titleMissing {
-                    Text(CalendarStrings.eventFormTitleRequired).font(.footnote).foregroundStyle(Tokens.Status.danger)
+                    Text(CalendarStrings.eventFormTitleRequired).font(.inter(.footnote)).foregroundStyle(Tokens.Status.danger)
                 }
-                Picker(CalendarStrings.eventFormCalendarLabel, selection: $draft.calendarID) {
-                    ForEach(calendars) { option in
-                        Text(option.name).tag(option.id)
-                    }
-                }
-                .accessibilityIdentifier("event-calendar")
+            } header: {
+                Text(CalendarStrings.eventFormTitleLabel)
+            }
+
+            Section {
                 Picker(CalendarStrings.eventFormTypeLabel, selection: $draft.type) {
                     ForEach(EventType.allCases) { type in
                         Text(CalendarText.type(type)).tag(type)
                     }
                 }
                 .accessibilityIdentifier("event-type")
-            } header: {
-                Text(CalendarStrings.eventFormTitleLabel)
+                Picker(CalendarStrings.eventFormPriorityLabel, selection: $draft.priority) {
+                    ForEach(EventPriority.allCases) { priority in
+                        Text(CalendarText.priority(priority)).tag(priority)
+                    }
+                }
+                .accessibilityIdentifier("event-priority")
             }
 
             Section {
@@ -213,7 +233,7 @@ struct EventFormFields: View {
                 )
                 .accessibilityIdentifier("event-end")
                 if showProblems, issues.endBeforeStart {
-                    Text(CalendarStrings.eventFormEndBeforeStart).font(.footnote).foregroundStyle(Tokens.Status.danger)
+                    Text(CalendarStrings.eventFormEndBeforeStart).font(.inter(.footnote)).foregroundStyle(Tokens.Status.danger)
                 }
                 // A stored rule a preset writes differently (no `RRULE:` prefix) selects that preset.
                 Picker(CalendarStrings.eventFormRepeatLabel, selection: Binding(
@@ -229,83 +249,93 @@ struct EventFormFields: View {
                     }
                 }
                 .accessibilityIdentifier("event-repeat")
-            } footer: {
-                Text(CalendarStrings.eventFormTimeZoneNote(zone: TimeZone.current.identifier))
             }
 
             Section {
                 TextField(CalendarStrings.eventFormLocationPlaceholder, text: $draft.location)
                     .accessibilityIdentifier("event-location")
-                TextField(CalendarStrings.eventFormMeetingUrlPlaceholder, text: $draft.meetingURL)
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .accessibilityIdentifier("event-meeting-url")
-                if showProblems, issues.badMeetingURL {
-                    Text(CalendarStrings.eventFormMeetingUrlInvalid).font(.footnote).foregroundStyle(Tokens.Status.danger)
-                }
             } header: {
                 Text(CalendarStrings.eventFormLocationLabel)
             }
 
             Section {
-                Picker(CalendarStrings.eventFormStatusLabel, selection: $draft.status) {
-                    ForEach(EventStatus.allCases) { status in
-                        Text(CalendarText.status(status)).tag(status)
+                Toggle(CalendarStrings.eventFormVirtualLabel, isOn: Binding(
+                    get: { virtual },
+                    set: { on in
+                        virtual = on
+                        if !on { draft.meetingURL = "" }
+                    }
+                ))
+                .accessibilityIdentifier("event-virtual")
+                if virtual {
+                    TextField(CalendarStrings.eventFormMeetingUrlPlaceholder, text: $draft.meetingURL)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityLabel(CalendarStrings.eventFormMeetingUrlLabel)
+                        .accessibilityIdentifier("event-meeting-url")
+                    if showProblems, issues.badMeetingURL {
+                        Text(CalendarStrings.eventFormMeetingUrlInvalid).font(.inter(.footnote)).foregroundStyle(Tokens.Status.danger)
                     }
                 }
-                .accessibilityIdentifier("event-status")
-                Picker(CalendarStrings.eventFormPriorityLabel, selection: $draft.priority) {
-                    ForEach(EventPriority.allCases) { priority in
-                        Text(CalendarText.priority(priority)).tag(priority)
-                    }
-                }
-                .accessibilityIdentifier("event-priority")
             }
 
             Section {
-                ForEach(draft.guests) { guest in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(guest.label).lineLimit(1)
-                            if guest.name != nil {
-                                Text(guest.email).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-                            }
-                        }
-                        Spacer()
-                        if guest.status != nil {
-                            StatusBadge(CalendarText.response(guest.response), color: responseColor(guest.response))
+                if !draft.guests.isEmpty {
+                    FlowLayout(spacing: 6) {
+                        ForEach(draft.guests) { guest in
+                            guestChip(guest)
                         }
                     }
-                    .accessibilityIdentifier("guest-\(guest.email)")
+                    .padding(.vertical, 2)
                 }
-                .onDelete { offsets in draft.guests.remove(atOffsets: offsets) }
-                HStack {
-                    TextField(CalendarStrings.eventFormAttendeeEmailPlaceholder, text: $guestEmail)
-                        .keyboardType(.emailAddress)
-                        .textContentType(.emailAddress)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .onSubmit(addGuest)
-                        .onChange(of: guestEmail) { guestProblemShown = nil }
-                        .accessibilityIdentifier("attendee-email")
-                    Button(CalendarStrings.eventFormAddAttendee, action: addGuest)
-                        .disabled(guestEmail.trimmingCharacters(in: .whitespaces).isEmpty)
-                        .accessibilityIdentifier("attendee-add")
-                }
-                if let problem = guestProblemShown {
-                    Text(guestProblemText(problem)).font(.footnote).foregroundStyle(Tokens.Status.danger)
+                if addingGuest {
+                    HStack {
+                        TextField(CalendarStrings.eventFormAttendeeEmailPlaceholder, text: $guestEmail)
+                            .keyboardType(.emailAddress)
+                            .textContentType(.emailAddress)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .onSubmit(addGuest)
+                            .onChange(of: guestEmail) { guestProblemShown = nil }
+                            .accessibilityIdentifier("attendee-email")
+                        Button(CalendarStrings.eventFormAddAttendee, action: addGuest)
+                            .buttonStyle(.borderless)
+                            .disabled(guestEmail.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .accessibilityIdentifier("attendee-add")
+                    }
+                    if let problem = guestProblemShown {
+                        Text(guestProblemText(problem)).font(.inter(.footnote)).foregroundStyle(Tokens.Status.danger)
+                    }
+                } else {
+                    Button { addingGuest = true } label: {
+                        Label(CalendarStrings.eventFormAddGuests, systemImage: "plus")
+                            .font(.inter(.subheadline, weight: .medium))
+                            .foregroundStyle(Tokens.Palette.foreground)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("attendees-open")
                 }
             } header: {
                 Text(CalendarStrings.eventFormAttendeesLabel)
-            } footer: {
-                Text(CalendarStrings.eventFormAttendeesHint)
             }
 
             Section(CalendarStrings.eventFormDescriptionLabel) {
                 TextField(CalendarStrings.eventFormDescriptionPlaceholder, text: $draft.description, axis: .vertical)
                     .lineLimit(3...8)
                     .accessibilityIdentifier("event-description")
+            }
+
+            // The platform offers the status once the event exists.
+            if isEdit {
+                Section {
+                    Picker(CalendarStrings.eventFormStatusLabel, selection: $draft.status) {
+                        ForEach(EventStatus.allCases) { status in
+                            Text(CalendarText.status(status)).tag(status)
+                        }
+                    }
+                    .accessibilityIdentifier("event-status")
+                }
             }
 
             if isEdit, hadGuests || !draft.guests.isEmpty {
@@ -315,7 +345,39 @@ struct EventFormFields: View {
                 }
             }
         }
-        .onAppear { if !isEdit { titleFocused = true } }
+        .onAppear {
+            if !virtualSet {
+                virtualSet = true
+                virtual = !draft.meetingURL.trimmingCharacters(in: .whitespaces).isEmpty
+            }
+            if !isEdit { titleFocused = true }
+        }
+    }
+
+    /// One guest, as the platform's dialog lists them: the name (or address) on the muted fill, with an x.
+    private func guestChip(_ guest: Guest) -> some View {
+        HStack(spacing: 2) {
+            Text(guest.label)
+                .font(.inter(.caption, weight: .medium))
+                .foregroundStyle(Tokens.Palette.foreground)
+                .lineLimit(1)
+            Button {
+                draft.guests.removeAll { $0.id == guest.id }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(CalendarStrings.eventFormRemoveAttendee(name: guest.label))
+        }
+        .padding(.leading, Tokens.Spacing.s)
+        .padding(.trailing, 2)
+        .padding(.vertical, 2)
+        .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: Tokens.Radius.small))
+        .accessibilityIdentifier("guest-\(guest.email)")
     }
 
     private func addGuest() {

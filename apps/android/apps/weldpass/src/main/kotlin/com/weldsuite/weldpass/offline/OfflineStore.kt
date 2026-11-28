@@ -252,9 +252,15 @@ class OfflineStore(context: Context, private val env: AppEnvironment, private va
 
     private fun revokedKey(session: Session) = "weldpass:offline-revoked:${session.key}"
 
-    private fun deviceName(): String =
-        (Settings.Global.getString(appContext.contentResolver, Settings.Global.DEVICE_NAME) ?: Build.MODEL ?: "Android")
-            .take(100)
+    /** The name the person gave the phone (Android 7.1+), else its model. */
+    private fun deviceName(): String {
+        val given = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+            Settings.Global.getString(appContext.contentResolver, Settings.Global.DEVICE_NAME)
+        } else {
+            null
+        }
+        return (given ?: Build.MODEL ?: "Android").take(100)
+    }
 
     private companion object {
         const val PREFS = "weldpass.offline.state"

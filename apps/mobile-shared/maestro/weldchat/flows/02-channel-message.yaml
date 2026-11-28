@@ -8,6 +8,15 @@ tags: [smoke, writes]
 - runFlow: ../subflows/login.yaml
 - evalScript: ${output.msg = 'E2E message ' + Date.now()}
 
+# Home lists the channel sections below Direct Messages and the record chats,
+# as the platform's sidebar does: scroll to the channel when it is there, so
+# "not visible" below means it doesn't exist yet.
+- scrollUntilVisible:
+    element: "e2e-maestro"
+    direction: DOWN
+    timeout: 15000
+    optional: true
+
 # First run: Home's compose menu, a public channel. Creating it opens it.
 - runFlow:
     when:

@@ -30,7 +30,7 @@ tags: [smoke, writes]
 - tapOn:
     id: event-delete
 - extendedWaitUntil:
-    visible: "Delete this event?"
+    visible: "Delete event?"
     timeout: 10000
 - tapOn:
     id: event-delete-confirm

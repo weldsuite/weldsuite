@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.weldsuite.weldchat.ui.avatarInitial
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -72,8 +73,44 @@ class ChatLogicTest {
         assertEquals(listOf("s_1", ChatLogic.UNSECTIONED_ID), groups.map { it.id })
         assertEquals(listOf("a"), groups[0].channels.map { it.id })
         assertEquals(listOf("b", "c"), groups[1].channels.map { it.id })
-        val named = ChatLogic.groupSections(listOf(channel("b")), listOf(ChatSection("s_2", "Channels", 0)), "Channels")
-        assertEquals("a section called Channels takes the place of the default group", listOf("s_2"), named.map { it.id })
+        val named = ChatLogic.groupSections(listOf(channel("b")), listOf(ChatSection("s_2", "Channels", 0)), "Channels", "Other Channels")
+        assertEquals("next to a section called Channels the rest are Other Channels", listOf("s_2", ChatLogic.UNSECTIONED_ID), named.map { it.id })
+        assertEquals("Other Channels", named[1].name)
+        val filed = ChatLogic.groupSections(listOf(channel("a", "s_1")), sections, "Channels")
+        assertEquals("no default group when every channel has a section", listOf("s_1"), filed.map { it.id })
+    }
+
+    @Test
+    fun aWorkspaceWithoutSectionsAlwaysHasTheChannelsGroup() {
+        val groups = ChatLogic.groupSections(emptyList(), emptyList(), "Channels")
+        assertEquals(listOf(ChatLogic.UNSECTIONED_ID), groups.map { it.id })
+        assertTrue(groups[0].channels.isEmpty())
+    }
+
+    @Test
+    fun activityHoldsMentionsRepliesAndMissedCallsOnly() {
+        assertTrue(ChatLogic.isActivityItem("weldchat", "chat_mention"))
+        assertTrue(ChatLogic.isActivityItem("weldchat", "chat_thread_reply"))
+        assertTrue(ChatLogic.isActivityItem("weldchat", "chat_missed_call"))
+        assertFalse("a DM's message shows in the DM", ChatLogic.isActivityItem("weldchat", "chat_dm"))
+        assertFalse("another app's notification", ChatLogic.isActivityItem("welddesk", "ticket_assigned"))
+        assertEquals(ChatLogic.ActivityCategory.REPLIES, ChatLogic.activityCategory("chat_thread_reply"))
+        assertEquals(ChatLogic.ActivityCategory.CALLS, ChatLogic.activityCategory("chat_missed_call"))
+    }
+
+    @Test
+    fun mentionsOfYouOrEveryoneAreHighlighted() {
+        assertTrue(ChatLogic.mentionsUser("hi <@u_1>", "u_1"))
+        assertTrue(ChatLogic.mentionsUser("hi <@u_1:Ann>", "u_1"))
+        assertTrue(ChatLogic.mentionsUser("all <@everyone>", "u_1"))
+        assertFalse(ChatLogic.mentionsUser("hi <@u_10>", "u_1"))
+    }
+
+    @Test
+    fun theAvatarFallbackIsTheFirstLetterAsOnThePlatform() {
+        assertEquals("G", avatarInitial("Gert van den Berg"))
+        assertEquals("A", avatarInitial("  ann"))
+        assertEquals("?", avatarInitial(null))
     }
 
     @Test

@@ -45,4 +45,5 @@ dependencies {
     api(libs.lifecycle.runtime.compose)
     api(libs.coil.compose)
     debugImplementation(libs.compose.ui.tooling)
+    testImplementation(libs.junit)
 }

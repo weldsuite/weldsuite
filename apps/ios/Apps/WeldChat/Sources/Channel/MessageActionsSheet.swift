@@ -177,10 +177,10 @@ struct PinMessageSheet: View {
     private func option(title: String, hint: String, symbol: String, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: Tokens.Spacing.m) {
-                Image(systemName: symbol).frame(width: 24).foregroundStyle(Tokens.Brand.weldchat)
+                Image(systemName: symbol).frame(width: 24).foregroundStyle(Tokens.Palette.primary)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).foregroundStyle(Color.primary)
-                    Text(hint).font(.caption).foregroundStyle(.secondary)
+                    Text(hint).font(.inter(.caption)).foregroundStyle(.secondary)
                 }
             }
         }

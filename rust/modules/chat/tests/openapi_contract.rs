@@ -74,6 +74,11 @@ delete from chat_sections where name like 'Contract chat %';
 delete from chat_bookmarks where user_id in ('user_openapi_contract_chat', 'user_openapi_contract_chat_b');
 delete from chat_drafts where user_id in ('user_openapi_contract_chat', 'user_openapi_contract_chat_b');
 delete from notifications where user_id in ('user_openapi_contract_chat', 'user_openapi_contract_chat_b');
+insert into notifications (id, user_id, title, body, category, notification_type, entity_type, actor_type, actor_id,
+        severity, is_read, delivered_in_app, delivered_email, delivered_push, created_at) values
+    ('ntf_contract_chat', 'user_openapi_contract_chat', 'Bob Contract mentioned you', 'Hello @Ann Contract',
+        'weldchat', 'chat_mention', 'chat_message', 'user', 'user_openapi_contract_chat_b',
+        'info', false, true, false, false, now());
 ";
 
 struct NoQueries;
@@ -239,6 +244,10 @@ fn app(db: PgPool) -> Router {
         .nest(
             "/api/chat-status",
             weldsuite_chat::status(state.clone(), &gate),
+        )
+        .nest(
+            "/api/chat-activity",
+            weldsuite_chat::activity(state.clone(), &gate),
         )
         .nest(
             "/api/chat-entity-channels",
@@ -1109,6 +1118,27 @@ async fn weldchat_answers_what_the_native_apps_read() {
         "{dms:?}"
     );
 
+    // The Activity tab: the mention in the fixtures, its badge, and marking
+    // it read, one item and then all of them.
+    contract
+        .success(&app, "listChatActivity", &[], &[("limit", "50")], None)
+        .await;
+    contract
+        .success(&app, "getChatActivityUnreadCount", &[], &[], None)
+        .await;
+    contract
+        .success(
+            &app,
+            "markChatActivityRead",
+            &[],
+            &[],
+            Some(&json!({ "notificationId": "ntf_contract_chat" })),
+        )
+        .await;
+    contract
+        .success(&app, "markChatActivityRead", &[], &[], Some(&json!({})))
+        .await;
+
     // Leave nothing behind: other crates' tests clear these tables whole, and a
     // read receipt left here would block their delete of `chat_messages`.
     clean(&db).await;
@@ -1169,4 +1199,7 @@ const CHAT_OPERATIONS: &[&str] = &[
     "leaveCall",
     "declineCall",
     "declineRing",
+    "listChatActivity",
+    "getChatActivityUnreadCount",
+    "markChatActivityRead",
 ];

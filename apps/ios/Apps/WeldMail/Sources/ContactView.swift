@@ -98,10 +98,10 @@ struct ContactView: View {
         List {
             Section {
                 HStack(spacing: Tokens.Spacing.m) {
-                    SenderAvatar(name: ContactLogic.displayName(contact), size: 48)
+                    MailAvatar(name: ContactLogic.displayName(contact), size: 48)
                     VStack(alignment: .leading) {
-                        Text(ContactLogic.displayName(contact)).font(.title3.weight(.semibold))
-                        if let email = contact.email { Text(email).font(.footnote).foregroundStyle(.secondary) }
+                        Text(ContactLogic.displayName(contact)).font(.inter(.title3, weight: .semibold))
+                        if let email = contact.email { Text(email).font(.inter(.footnote)).foregroundStyle(.secondary) }
                     }
                 }
                 Picker("", selection: $tab) {
@@ -152,7 +152,7 @@ struct ContactView: View {
                     HStack(alignment: .top) {
                         Image(systemName: info.systemImage).foregroundStyle(.secondary).frame(width: 24)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(info.label).font(.caption).foregroundStyle(.secondary)
+                            Text(info.label).font(.inter(.caption)).foregroundStyle(.secondary)
                             Text(shown ?? MailStrings.contactSetField(field: info.label))
                                 .foregroundStyle(shown == nil ? Color.secondary : (info.field == .email || info.field == .phone ? Color.accentColor : Color.primary))
                                 .lineLimit(info.field == .description ? 3 : 1)

@@ -84,6 +84,7 @@ import com.weldsuite.weldchat.MemberProfileInfo
 import com.weldsuite.weldchat.ProfileField
 import com.weldsuite.weldchat.R
 import com.weldsuite.weldchat.text
+import com.weldsuite.weldchat.ui.EmptyIcon
 import com.weldsuite.weldchat.ui.ChatNavigator
 import com.weldsuite.weldchat.ui.LocalNotify
 import com.weldsuite.weldchat.ui.copyText
@@ -453,7 +454,7 @@ fun MemberCommonTab(store: ChatStore, userId: String, nav: ChatNavigator) {
         current != null && MemberScreenRules.commonCount(current) == 0 -> EmptyState(
             stringResource(R.string.weldchat_member_common_empty_title),
             stringResource(R.string.weldchat_member_common_empty_description),
-            icon = { Icon(Icons.Filled.Group, contentDescription = null, modifier = Modifier.size(40.dp)) },
+            icon = { EmptyIcon(Icons.Filled.Group) },
         )
         current != null -> Column(verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.l)) {
             CommonSection(stringResource(R.string.weldchat_member_common_channels), current.channels.size) {
@@ -495,7 +496,7 @@ fun MemberCommonTab(store: ChatStore, userId: String, nav: ChatNavigator) {
         failed -> EmptyState(
             stringResource(R.string.weldchat_member_common_load_failed_title),
             stringResource(R.string.weldchat_member_common_load_failed_description),
-            icon = { Icon(Icons.Filled.Warning, contentDescription = null, modifier = Modifier.size(40.dp)) },
+            icon = { EmptyIcon(Icons.Filled.Warning) },
         )
         else -> Spinner()
     }
@@ -561,7 +562,7 @@ fun MemberActivityTab(store: ChatStore, userId: String, memberName: String?) {
         current != null && current.isEmpty() -> EmptyState(
             stringResource(R.string.weldchat_member_activity_empty_title),
             stringResource(R.string.weldchat_member_activity_empty_description),
-            icon = { Icon(Icons.Filled.MonitorHeart, contentDescription = null, modifier = Modifier.size(40.dp)) },
+            icon = { EmptyIcon(Icons.Filled.MonitorHeart) },
         )
         current != null -> {
             val today = LocalDate.now()
@@ -583,7 +584,7 @@ fun MemberActivityTab(store: ChatStore, userId: String, memberName: String?) {
         failed -> EmptyState(
             stringResource(R.string.weldchat_member_activity_load_failed_title),
             stringResource(R.string.weldchat_member_activity_load_failed_description),
-            icon = { Icon(Icons.Filled.Warning, contentDescription = null, modifier = Modifier.size(40.dp)) },
+            icon = { EmptyIcon(Icons.Filled.Warning) },
         )
         else -> Spinner()
     }

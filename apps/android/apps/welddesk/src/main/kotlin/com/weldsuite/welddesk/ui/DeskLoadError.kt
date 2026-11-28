@@ -1,49 +1,42 @@
 package com.weldsuite.welddesk.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material3.Button
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import org.weldsuite.core.api.ApiException
 import org.weldsuite.core.apiErrorMessage
+import org.weldsuite.ui.OutlinedButton
 import org.weldsuite.ui.Tokens
 import org.weldsuite.ui.tagged
 
 /**
- * What couldn't load, in WeldDesk's words ("Could not load conversations."),
- * why, and a way to try again. The core's `LoadErrorState` with the app's
- * own title.
+ * What couldn't load, in the platform's words ("Failed to load
+ * conversations"), why, and a way to try again: the warning on a red-tinted
+ * square, as the platform's list shows a failed load.
  */
 @Composable
 fun DeskLoadError(title: String, error: Throwable?, onRetry: () -> Unit, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.fillMaxSize().padding(Tokens.Spacing.xl).tagged("load-error"),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.m, Alignment.CenterVertically),
-    ) {
+    Box(modifier.fillMaxSize().tagged("load-error"), contentAlignment = Alignment.Center) {
         val offline = (error as? ApiException)?.isNetwork == true
-        Icon(if (offline) Icons.Filled.CloudOff else Icons.Filled.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
-        Text(
-            stringResource(apiErrorMessage(error)),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
+        val danger = Tokens.Status.danger.current()
+        DeskEmptyState(
+            icon = if (offline) Icons.Outlined.CloudOff else Icons.Outlined.WarningAmber,
+            title = title,
+            description = stringResource(apiErrorMessage(error)),
+            iconTint = danger,
+            iconBackground = danger.copy(alpha = 0.12f),
+            action = {
+                OutlinedButton(onClick = onRetry, modifier = Modifier.tagged("retry")) {
+                    Text(stringResource(org.weldsuite.core.R.string.core_common_try_again))
+                }
+            },
         )
-        Button(onClick = onRetry, modifier = Modifier.tagged("retry")) {
-            Text(stringResource(org.weldsuite.core.R.string.core_common_try_again))
-        }
     }
 }

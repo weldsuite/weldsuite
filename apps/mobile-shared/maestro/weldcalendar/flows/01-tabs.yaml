@@ -4,8 +4,7 @@ tags: [smoke]
 ---
 - runFlow: ../subflows/login.yaml
 - assertVisible:
-    id: kpi-today
-- assertVisible: "Next 7 days"
+    id: agenda-list
 # Month: the grid, a step forward and back, and today again.
 - tapOn:
     id: tab-month
@@ -15,12 +14,13 @@ tags: [smoke]
     id: month-next
 - tapOn:
     id: month-previous
-- assertVisible: "Today"
-# Calendars: the person's own calendars and the visibility hint.
+- tapOn:
+    id: month-today
+# Calendars: the person's own calendars.
 - tapOn:
     id: tab-calendars
 - extendedWaitUntil:
-    visible: "Hidden calendars stay out of the agenda and the month grid."
+    visible: "My Calendars"
     timeout: 15000
 # More: the privacy links and the shared settings with sign-out.
 - tapOn:
@@ -32,4 +32,5 @@ tags: [smoke]
       id: sign-out
 - tapOn:
     id: tab-agenda
-- assertVisible: "Next 7 days"
+- assertVisible:
+    id: agenda-list

@@ -55,7 +55,7 @@ struct TimeChoiceSheet: View {
                         Label {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(choice.label).foregroundStyle(.primary)
-                                Text(momentText(choice.date)).font(.caption).foregroundStyle(.secondary)
+                                Text(momentText(choice.date)).font(.inter(.caption)).foregroundStyle(.secondary)
                             }
                         } icon: {
                             Image(systemName: choice.systemImage).foregroundStyle(tint)
@@ -70,7 +70,7 @@ struct TimeChoiceSheet: View {
                         Label {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(MailStrings.sendLaterPick).foregroundStyle(.primary)
-                                Text(MailStrings.sendLaterPickHint).font(.caption).foregroundStyle(.secondary)
+                                Text(MailStrings.sendLaterPickHint).font(.inter(.caption)).foregroundStyle(.secondary)
                             }
                         } icon: {
                             Image(systemName: "calendar.badge.clock").foregroundStyle(tint)
@@ -123,7 +123,7 @@ struct DateTimeSheet: View {
                     Text(momentText(moment))
                     if !valid {
                         Text(moment > now ? MailStrings.sendLaterTooFar : MailStrings.sendLaterInPast)
-                            .font(.footnote)
+                            .font(.inter(.footnote))
                             .foregroundStyle(.red)
                     }
                 }
@@ -166,7 +166,7 @@ struct LabelPickerSheet: View {
                         if checked { selected.remove(label.name) } else { selected.insert(label.name) }
                     } label: {
                         HStack {
-                            Circle().fill(Color(mailRGB: MailLogic.labelColor(label.name, own: label.color))).frame(width: 10, height: 10)
+                            Circle().fill(labelTint(label.name, own: label.color)).frame(width: 10, height: 10)
                             Text(label.name).foregroundStyle(.primary)
                             Spacer()
                             if checked { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
@@ -240,7 +240,7 @@ struct CreateLabelSheet: View {
                                     .fill(Color(mailRGB: choice.value))
                                     .frame(width: 32, height: 32)
                                     .overlay {
-                                        if chosen { Image(systemName: "checkmark").font(.caption.bold()).foregroundStyle(.white) }
+                                        if chosen { Image(systemName: "checkmark").font(.inter(.caption, weight: .bold)).foregroundStyle(.white) }
                                     }
                                     .overlay(Circle().stroke(Color.primary, lineWidth: chosen ? 3 : 0))
                             }
@@ -252,10 +252,10 @@ struct CreateLabelSheet: View {
                     .padding(.vertical, Tokens.Spacing.s)
                 }
                 if aiAvailable {
-                    Text(MailStrings.createLabelAiNote).font(.footnote).foregroundStyle(.secondary)
+                    Text(MailStrings.createLabelAiNote).font(.inter(.footnote)).foregroundStyle(.secondary)
                 }
                 if let error {
-                    Text(error).font(.footnote).foregroundStyle(.red)
+                    Text(error).font(.inter(.footnote)).foregroundStyle(.red)
                 }
             }
             .navigationTitle(MailStrings.createLabelTitle)

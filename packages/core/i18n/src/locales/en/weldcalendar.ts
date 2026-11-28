@@ -119,7 +119,7 @@ export const weldcalendar = {
       titleRequired: 'Title is required',
       titleTooLong: 'Title is too long (255 characters at most)',
       startRequired: 'Start time is required',
-      invalidMeetingUrl: 'Enter a valid URL, starting with https://',
+      invalidMeetingUrl: 'Enter a valid URL, starting with http:// or https://',
       invalidGuestEmail: 'Enter a valid email address',
       descriptionLabel: 'Description',
       descriptionPlaceholder: 'Add description',

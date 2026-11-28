@@ -409,27 +409,59 @@ object HrRoutes {
     }
 }
 
-/** Colours for the bar in front of a shift: a stable one per client, role or department name. */
-object Swatches {
-    private val SHIFT = listOf(0xFF10B981, 0xFF8B5CF6, 0xFFF59E0B, 0xFF3B82F6, 0xFFEC4899, 0xFF14B8A6, 0xFFF97316, 0xFF6366F1)
+/**
+ * The web platform's badge variants (`@weldsuite/ui` Badge): `default` is the
+ * primary fill, `secondary` the neutral fill, `destructive` red, `outline` a
+ * border with foreground text.
+ */
+enum class Tone { DEFAULT, SECONDARY, DESTRUCTIVE, OUTLINE }
 
-    /** The Expo app's string hash (`value * 31 + char`, 32-bit). */
+/** The variant WeldHR gives a status on the platform (`STATUS_TONE` in app/weldhr/components/shared.tsx). */
+object Tones {
+    fun of(status: String): Tone = when (status) {
+        "active", "present", "approved", "acknowledged", "achieved", "completed" -> Tone.DEFAULT
+        "onboarding", "offboarding", "late", "pending", "ongoing", "open", "submitted", "in_progress", "invited" -> Tone.OUTLINE
+        "terminated", "absent", "rejected", "missed", "revoked" -> Tone.DESTRUCTIVE
+        else -> Tone.SECONDARY
+    }
+}
+
+/** The platform's colours for shifts and leave types (app/weldhr/attendance/components/schedule-model.ts). */
+object Swatches {
+    /** WeldCalendar's default blue: a shift without a client account. */
+    const val DEFAULT_SHIFT = 0xFF3B82F6
+
+    /** The dot of a leave type without a colour of its own (the platform's `ColorDot`, slate-400). */
+    const val NEUTRAL_DOT = 0xFF94A3B8
+
+    /** WeldCalendar's palette minus the default blue: one colour per client account. */
+    private val CLIENT = listOf(0xFF22C55E, 0xFF14B8A6, 0xFF8B5CF6, 0xFFF59E0B, 0xFFEC4899, 0xFF06B6D4, 0xFFF97316, 0xFF6366F1, 0xFFEF4444)
+
+    /** The platform's `shiftColor` hash (`hash * 31 + code point`, mod 9973). */
     fun hash(key: String): Int {
         var value = 0
-        for (char in key) value = value * 31 + char.code
+        var index = 0
+        while (index < key.length) {
+            val point = key.codePointAt(index)
+            value = (value * 31 + point) % 9973
+            index += Character.charCount(point)
+        }
         return abs(value)
     }
 
-    fun shift(key: String?): Long = SHIFT[hash(key.orEmpty()) % SHIFT.size]
+    /** A shift's colour by its client; the default blue without one. */
+    fun shift(client: String?): Long = if (client.isNullOrEmpty()) DEFAULT_SHIFT else CLIENT[hash(client) % CLIENT.size]
 
-    val CATEGORY = mapOf(
-        "travel" to 0xFF3B82F6,
-        "meals" to 0xFFF97316,
-        "accommodation" to 0xFF8B5CF6,
-        "equipment" to 0xFF14B8A6,
-        "training" to 0xFFEC4899,
-        "other" to 0xFF6B7280,
-    )
+    /** A leave type's dot: the colour HR picked, else the neutral grey. */
+    fun dot(color: String?): Long = hex(color) ?: NEUTRAL_DOT
+
+    /** The colour band of an evaluation score (0-100), as the platform's `ScoreBadge`. */
+    fun scoreBand(score: Double): Int = when {
+        score >= 85 -> 0
+        score >= 70 -> 1
+        score >= 55 -> 2
+        else -> 3
+    }
 
     /** A `#rgb` / `#rrggbb` colour as ARGB; null when it is not hex. */
     fun hex(color: String?): Long? {

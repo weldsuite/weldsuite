@@ -4,22 +4,8 @@ import UniformTypeIdentifiers
 import WeldCore
 import WeldUI
 
-/// The secret fields of an item, by name.
-private enum Secret: CaseIterable {
-    case password, notes, content, cardholder, number, expiry, cvc
-
-    func value(in fields: PassFields) -> String? {
-        switch self {
-        case .password: fields.password
-        case .notes: fields.notes
-        case .content: fields.content
-        case .cardholder: fields.cardholder
-        case .number: fields.number
-        case .expiry: fields.expiry
-        case .cvc: fields.cvc
-        }
-    }
-}
+/// What a hidden secret shows, as on the platform.
+private let maskedValue = "••••••••••••"
 
 /// The clipboard for WeldPass. A copied secret stays on this phone (no
 /// Universal Clipboard) and is cleared after 30 seconds; a username or a
@@ -37,10 +23,12 @@ enum PassClipboard {
     }
 }
 
-/// One item. The list's metadata shows straight away; the secret fields stay
-/// dots until the person reveals them, which asks for Face ID (or the
-/// passcode) and is a request the server audits. Revealed fields live in this
-/// screen's state only and are dropped when the app goes to the background.
+/// One item, laid out as the platform's item dialog. What the list carried
+/// (title, username, site) shows straight away; the secret fields stay
+/// masked until the person reveals them, which asks for Face ID (or the
+/// passcode) and is a request the server audits. Revealed fields live in
+/// this screen's state only: hiding them drops them, and so does the app
+/// going to the background.
 struct ItemView: View {
     let env: AppEnvironment
     let store: PassStore
@@ -50,8 +38,7 @@ struct ItemView: View {
     @Environment(ToastCenter.self) private var toast
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
-    @State private var fields: PassFields?
-    @State private var shown: Set<Secret> = []
+    @State private var revealed: PassFields?
     @State private var revealing = false
     @State private var confirmDelete = false
     @State private var deleting = false
@@ -63,9 +50,10 @@ struct ItemView: View {
             if let item {
                 detail(item, vault: vault)
             } else if !store.items.loading, !deleting {
-                ContentUnavailableView(PassStrings.itemNotFound, systemImage: "questionmark.folder")
+                EmptyMessage(systemImage: "exclamationmark.triangle", title: PassStrings.itemNotFound)
             }
         }
+        .background(Tokens.Palette.background)
         .navigationTitle(item?.title ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -73,11 +61,6 @@ struct ItemView: View {
                 ToolbarItem(placement: .primaryAction) {
                     Button(PassStrings.commonEdit, action: onEdit)
                         .accessibilityIdentifier("edit-item")
-                }
-                ToolbarItem(placement: .secondaryAction) {
-                    Button(PassStrings.commonDelete, role: .destructive) { confirmDelete = true }
-                        .disabled(deleting)
-                        .accessibilityIdentifier("delete-item")
                 }
             }
         }
@@ -94,10 +77,7 @@ struct ItemView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             // Back from the background: everything hidden again.
-            if phase == .background {
-                fields = nil
-                shown = []
-            }
+            if phase == .background { revealed = nil }
         }
         .preventsScreenCapture()
     }
@@ -117,246 +97,300 @@ struct ItemView: View {
     }
 
     private func detail(_ item: PassItem, vault: PassVault?) -> some View {
-        List {
-            Section {
-                HStack(spacing: 14) {
-                    ItemIcon(kind: item.kind, size: 56)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.title).font(.title2.bold()).lineLimit(2)
-                        Text([typeLabel(item.kind), vault.map(vaultLabel)].compactMap { $0 }.joined(separator: " · "))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .listRowBackground(Color.clear)
-
-            Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Tokens.Spacing.l) {
                 switch item.kind {
-                case .login:
-                    FieldRow(
-                        label: PassStrings.itemUsername,
-                        value: item.subtitle,
-                        onCopy: item.subtitle.flatMap { $0.isEmpty ? nil : $0 }.map { username in
-                            { copyPlain(PassStrings.itemUsername, username) }
-                        }
-                    )
-                    .accessibilityIdentifier("field-username")
-                    secretRow(.password, label: PassStrings.itemPassword, copyable: true, id: "field-password")
-                    if let url = item.url, !url.isEmpty {
-                        FieldRow(
-                            label: PassStrings.itemWebsite,
-                            value: url,
-                            onCopy: { copyPlain(PassStrings.itemWebsite, url) },
-                            onOpen: PassLogic.safeHref(url).map { href in { UIApplication.shared.open(href) } }
-                        )
-                        .accessibilityIdentifier("field-website")
+                case .login: loginFields(item)
+                case .note: noteField(item)
+                case .card: cardFields(item)
+                }
+                meta(item, vault: vault)
+                if PassLogic.canEdit(vault) {
+                    Button(role: .destructive) {
+                        confirmDelete = true
+                    } label: {
+                        Text(PassStrings.commonDelete)
+                            .font(.inter(.subheadline, weight: .medium))
+                            .foregroundStyle(Tokens.Status.danger)
                     }
-                    if item.hasTotp {
-                        TotpRow(store: store, item: item) { code in
-                            Task {
-                                guard await env.lock.confirm(reason: PassStrings.lockCopyPrompt) else { return }
-                                PassClipboard.copySecret(code)
-                                toast.show(PassStrings.itemCopiedSecret(field: PassStrings.itemTotp))
-                            }
-                        }
-                    }
-                case .card:
-                    secretRow(.cardholder, label: PassStrings.itemCardholder, copyable: false, id: "field-cardholder")
-                    secretRow(.number, label: PassStrings.itemNumber, copyable: true, id: "field-number")
-                    secretRow(.expiry, label: PassStrings.itemExpiry, copyable: false, id: "field-expiry")
-                    secretRow(.cvc, label: PassStrings.itemCvc, copyable: true, id: "field-cvc")
-                case .note:
-                    secretRow(.content, label: PassStrings.itemContent, copyable: true, id: "field-content")
+                    .buttonStyle(.borderless)
+                    .disabled(deleting)
+                    .accessibilityIdentifier("delete-item")
                 }
             }
-
-            if item.kind != .note {
-                Section {
-                    secretRow(.notes, label: PassStrings.itemNotes, copyable: false, id: "field-notes")
-                    if let apps = fields?.apps, !apps.isEmpty {
-                        FieldRow(label: PassStrings.itemApps, value: apps.joined(separator: "\n"))
-                    }
-                }
-            }
-
-            if fields == nil {
-                Section {
-                    Button(PassStrings.itemReveal) {
-                        Task { if await ensureFields(PassStrings.lockRevealPrompt, item: item) != nil { shown = Set(Secret.allCases) } }
-                    }
-                    .disabled(revealing)
-                    .accessibilityIdentifier("reveal-item")
-                }
-            }
-
-            Section {
-                Text(PassStrings.itemUpdated(date: formatDate(item.updatedAt)))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-            }
-            .listRowBackground(Color.clear)
+            .padding(Tokens.Spacing.l)
+            .padding(.bottom, 32)
         }
     }
 
-    private func secretRow(_ secret: Secret, label: String, copyable: Bool, id: String) -> some View {
-        let isShown = shown.contains(secret)
-        return FieldRow(
-            label: label,
-            value: isShown ? fields.flatMap { secret.value(in: $0) } : nil,
-            secret: true,
-            shown: isShown,
-            monospace: secret == .password || secret == .number,
-            onToggle: { toggle(secret) },
-            onCopy: copyable ? { copySecret(label, secret) } : nil
-        )
+    // MARK: - Fields per type
+
+    @ViewBuilder private func loginFields(_ item: PassItem) -> some View {
+        let username = item.subtitle ?? ""
+        ReadOnlyField(label: PassStrings.itemUsername, value: username) {
+            if !username.isEmpty {
+                // The username is on the list already: no reveal needed.
+                CopyIconButton(label: PassStrings.itemCopyUsername) {
+                    PassClipboard.copyPlain(username)
+                    toast.show(PassStrings.itemCopied(field: PassStrings.itemUsername))
+                    return true
+                }
+                .accessibilityIdentifier("field-username-copy")
+            }
+        }
+        .accessibilityIdentifier("field-username")
+
+        ReadOnlyField(label: PassStrings.itemPassword, value: revealed?.password ?? maskedValue, monospaced: true) {
+            revealButton(item, id: "field-password-toggle")
+            CopyIconButton(label: PassStrings.itemCopyPassword) {
+                await copySecret(item, label: PassStrings.itemPassword) { $0.password }
+            }
+            .accessibilityIdentifier("field-password-copy")
+        }
+        .accessibilityIdentifier("field-password")
+
+        if let href = PassLogic.safeHref(item.url) {
+            ReadOnlyField(label: PassStrings.itemWebsite, value: item.url ?? "") {
+                FieldIconButton(systemImage: "arrow.up.right.square", label: PassStrings.itemOpenWebsite) {
+                    UIApplication.shared.open(href)
+                }
+            }
+            .accessibilityIdentifier("field-website")
+        }
+
+        if item.hasTotp {
+            LabeledField(label: PassStrings.itemTotp) {
+                TotpField(store: store, item: item) { code in
+                    guard await env.lock.confirm(reason: PassStrings.lockCopyPrompt) else { return false }
+                    PassClipboard.copySecret(code)
+                    toast.show(PassStrings.itemCopiedSecret(field: PassStrings.itemTotp))
+                    return true
+                }
+            }
+            .accessibilityIdentifier("field-totp")
+        }
+
+        notesAndApps
+    }
+
+    private func noteField(_ item: PassItem) -> some View {
+        ReadOnlyField(
+            label: PassStrings.itemContent,
+            value: revealed?.content ?? maskedValue,
+            monospaced: revealed == nil,
+            multiline: revealed != nil
+        ) {
+            revealButton(item, id: "field-content-toggle")
+            CopyIconButton(label: PassStrings.commonCopy) {
+                await copySecret(item, label: PassStrings.itemContent) { $0.content }
+            }
+            .accessibilityIdentifier("field-content-copy")
+        }
+        .accessibilityIdentifier("field-content")
+    }
+
+    @ViewBuilder private func cardFields(_ item: PassItem) -> some View {
+        let listed = item.subtitle.flatMap { $0.isEmpty ? nil : $0 }
+        ReadOnlyField(label: PassStrings.itemNumber, value: revealed?.number ?? listed ?? maskedValue, monospaced: true) {
+            revealButton(item, id: "field-number-toggle")
+            CopyIconButton(label: PassStrings.itemCopyNumber) {
+                await copySecret(item, label: PassStrings.itemNumber) { $0.number }
+            }
+            .accessibilityIdentifier("field-number-copy")
+        }
+        .accessibilityIdentifier("field-number")
+
+        ReadOnlyField(label: PassStrings.itemCardholder, value: revealed?.cardholder ?? maskedValue, monospaced: revealed == nil)
+            .accessibilityIdentifier("field-cardholder")
+
+        HStack(alignment: .top, spacing: Tokens.Spacing.l) {
+            ReadOnlyField(label: PassStrings.itemExpiry, value: revealed?.expiry ?? maskedValue, monospaced: true)
+                .accessibilityIdentifier("field-expiry")
+            ReadOnlyField(label: PassStrings.itemCvc, value: revealed?.cvc ?? maskedValue, monospaced: true) {
+                CopyIconButton(label: PassStrings.itemCopyCvc) {
+                    await copySecret(item, label: PassStrings.itemCvc) { $0.cvc }
+                }
+                .accessibilityIdentifier("field-cvc-copy")
+            }
+            .accessibilityIdentifier("field-cvc")
+        }
+
+        notesAndApps
+    }
+
+    /// A revealed item's notes, and a login's Android apps, when there are any.
+    @ViewBuilder private var notesAndApps: some View {
+        if let notes = revealed?.notes, !notes.isEmpty {
+            ReadOnlyField(label: PassStrings.itemNotes, value: notes, multiline: true)
+                .accessibilityIdentifier("field-notes")
+        }
+        if let apps = revealed?.apps, !apps.isEmpty {
+            ReadOnlyField(label: PassStrings.itemApps, value: apps.joined(separator: "\n"), multiline: true)
+        }
+    }
+
+    /// The platform's footer line: type, vault, when it changed and its version, and the audit note.
+    private func meta(_ item: PassItem, vault: PassVault?) -> some View {
+        let changed = PassStrings.itemUpdatedMeta(time: formatAgo(item.updatedAt), version: "\(item.version)")
+        let line = [vault.map(vaultLabel), changed].compactMap { $0 }.joined(separator: " · ")
+        return VStack(alignment: .leading, spacing: Tokens.Spacing.xs) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                NeutralBadge(typeLabel(item.kind))
+                Text(line)
+            }
+            Text(PassStrings.itemAuditNote)
+        }
+        .font(.inter(.caption))
+        .foregroundStyle(Tokens.Palette.mutedForeground)
+    }
+
+    private func revealButton(_ item: PassItem, id: String) -> some View {
+        FieldIconButton(
+            systemImage: revealed == nil ? "eye" : "eye.slash",
+            label: revealed == nil ? PassStrings.itemShow : PassStrings.itemHide
+        ) {
+            toggleReveal(item)
+        }
+        .disabled(revealing)
         .accessibilityIdentifier(id)
     }
 
-    private var currentItem: PassItem? { store.items.data?.first { $0.id == route.itemID } }
+    // MARK: - Secrets
 
-    /// The item's fields, revealing them (after a confirmation) the first time.
-    private func ensureFields(_ reason: String, item: PassItem) async -> PassFields? {
-        if let fields { return fields }
-        guard await env.lock.confirm(reason: reason) else { return nil }
-        revealing = true
-        defer { revealing = false }
-        do {
-            let revealed = try await store.reveal(vaultID: item.vaultID, itemID: item.id)
-            fields = revealed
-            return revealed
-        } catch {
-            toast.show(passErrorMessage(error as? APIError))
-            return nil
-        }
-    }
-
-    private func toggle(_ secret: Secret) {
-        if shown.contains(secret) {
-            shown.remove(secret)
+    /// Reveal every field (after a confirmation), or hide them again and drop them.
+    private func toggleReveal(_ item: PassItem) {
+        if revealed != nil {
+            revealed = nil
             return
         }
-        guard let item = currentItem else { return }
-        Task { if await ensureFields(PassStrings.lockRevealPrompt, item: item) != nil { shown.insert(secret) } }
-    }
-
-    private func copySecret(_ label: String, _ secret: Secret) {
-        guard let item = currentItem else { return }
         Task {
-            guard await env.lock.confirm(reason: PassStrings.lockCopyPrompt),
-                  let fields = await ensureFields(PassStrings.lockCopyPrompt, item: item),
-                  let value = secret.value(in: fields), !value.isEmpty
-            else { return }
-            PassClipboard.copySecret(value)
-            store.recordCopy(vaultID: item.vaultID, itemID: item.id)
-            toast.show(PassStrings.itemCopiedSecret(field: label))
-        }
-    }
-
-    private func copyPlain(_ label: String, _ value: String) {
-        PassClipboard.copyPlain(value)
-        toast.show(PassStrings.itemCopied(field: label))
-    }
-
-    private func formatDate(_ iso: String) -> String {
-        guard let date = PassLogic.parseDate(iso) else { return iso }
-        return date.formatted(date: .long, time: .omitted)
-    }
-}
-
-/// A labelled value, with copy, open and (for a secret) show/hide. A hidden secret shows as dots.
-private struct FieldRow: View {
-    let label: String
-    let value: String?
-    var secret = false
-    var shown = false
-    var monospace = false
-    var onToggle: (() -> Void)?
-    var onCopy: (() -> Void)?
-    var onOpen: (() -> Void)?
-
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label).font(.caption).foregroundStyle(.secondary)
-                Text(display)
-                    .font(monospace && shown ? .body.monospaced() : .body)
-                    .textSelection(.disabled)
-            }
-            Spacer()
-            if secret, let onToggle {
-                Button(action: onToggle) {
-                    Image(systemName: shown ? "eye.slash" : "eye")
-                }
-                .accessibilityLabel(shown ? PassStrings.itemHide : PassStrings.itemShow)
-            }
-            if let onOpen {
-                Button(action: onOpen) { Image(systemName: "arrow.up.right.square") }
-                    .accessibilityLabel(PassStrings.itemOpenWebsite)
-            }
-            if let onCopy {
-                Button(action: onCopy) { Image(systemName: "doc.on.doc") }
-                    .accessibilityLabel(PassStrings.commonCopy)
+            guard await env.lock.confirm(reason: PassStrings.lockRevealPrompt) else { return }
+            revealing = true
+            defer { revealing = false }
+            do {
+                revealed = try await store.reveal(vaultID: item.vaultID, itemID: item.id)
+            } catch {
+                toast.show(passErrorMessage(error as? APIError))
             }
         }
-        .buttonStyle(.borderless)
     }
 
-    private var display: String {
-        if secret && !shown { return "••••••••" }
-        guard let value, !value.isEmpty else { return PassStrings.commonDash }
-        return value
+    /// Copies a secret. Read from the revealed fields when they're on
+    /// screen; otherwise fetched, copied and dropped, so the field stays masked.
+    private func copySecret(_ item: PassItem, label: String, pick: (PassFields) -> String?) async -> Bool {
+        guard await env.lock.confirm(reason: PassStrings.lockCopyPrompt) else { return false }
+        let source: PassFields
+        if let revealed {
+            source = revealed
+        } else {
+            do {
+                source = try await store.reveal(vaultID: item.vaultID, itemID: item.id)
+            } catch {
+                toast.show(passErrorMessage(error as? APIError))
+                return false
+            }
+        }
+        guard let value = pick(source), !value.isEmpty else { return false }
+        PassClipboard.copySecret(value)
+        store.recordCopy(vaultID: item.vaultID, itemID: item.id)
+        toast.show(PassStrings.itemCopiedSecret(field: label))
+        return true
     }
 }
 
 /// The current 2FA code, minted by the server (PASS-007: the seed stays in
-/// the vault), with its countdown. A new code is fetched when this one runs out.
-private struct TotpRow: View {
+/// the vault) and fetched only when asked for, as on the platform: every
+/// fetch is written to the vault's trail, so there's no polling. The code
+/// shows with a countdown, then hides; it's dropped when the app goes to the
+/// background.
+private struct TotpField: View {
     let store: PassStore
     let item: PassItem
-    let onCopy: (String) -> Void
+    let onCopy: (String) async -> Bool
 
+    @Environment(\.scenePhase) private var scenePhase
     @State private var code: PassTotp?
-    @State private var offline = false
+    @State private var now = Date()
+    @State private var loading = false
+    @State private var failure: String?
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            let left = code.map { PassLogic.secondsUntil($0.expiresAt, now: context.date) } ?? 0
-            Button {
-                if let code { onCopy(code.code) }
-            } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(PassStrings.itemTotp).font(.caption).foregroundStyle(.secondary)
-                        Text(code.map { PassLogic.formatTotpCode($0.code) } ?? PassStrings.commonDash)
-                            .font(.system(size: 26, weight: .semibold).monospacedDigit())
-                            .foregroundStyle(.primary)
-                        if code != nil {
-                            Text(PassStrings.itemTotpExpires(left)).font(.caption).foregroundStyle(.secondary)
-                        } else if offline {
-                            Text(PassStrings.itemTotpOffline).font(.caption).foregroundStyle(.secondary)
+        let left = code.map { PassLogic.secondsUntil($0.expiresAt, now: now) } ?? 0
+        Group {
+            if let code, left > 0 {
+                HStack(spacing: Tokens.Spacing.s) {
+                    Text(PassLogic.formatTotpCode(code.code))
+                        .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                        .tracking(2)
+                        .foregroundStyle(Tokens.Palette.foreground)
+                    Text(PassStrings.itemTotpExpires(left))
+                        .font(.inter(.caption))
+                        .foregroundStyle(Tokens.Palette.mutedForeground)
+                    countdown(left: left, period: code.period)
+                    CopyIconButton(label: PassStrings.itemCopyCode) { await onCopy(code.code) }
+                        .accessibilityIdentifier("field-totp-copy")
+                }
+            } else {
+                HStack(spacing: Tokens.Spacing.s) {
+                    Button(action: show) {
+                        HStack(spacing: 6) {
+                            if loading {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Image(systemName: "checkmark.shield").font(.system(size: 13))
+                            }
+                            Text(PassStrings.itemShowCode)
                         }
                     }
-                    Spacer()
-                    Image(systemName: "doc.on.doc").foregroundStyle(.secondary)
-                }
-            }
-            .disabled(code == nil)
-            .accessibilityIdentifier("field-totp")
-        }
-        .task(id: item.id) {
-            while !Task.isCancelled {
-                if code == nil || PassLogic.secondsUntil(code!.expiresAt) == 0 {
-                    do {
-                        code = try await store.totp(vaultID: item.vaultID, itemID: item.id)
-                        offline = false
-                    } catch {
-                        offline = (error as? APIError)?.isNetwork == true
-                        try? await Task.sleep(for: .seconds(5))
+                    .buttonStyle(.platformOutline)
+                    .disabled(loading)
+                    .accessibilityIdentifier("show-totp")
+                    if code != nil {
+                        Text(PassStrings.itemTotpExpired).font(.inter(.caption)).foregroundStyle(Tokens.Palette.mutedForeground)
+                    }
+                    if let failure {
+                        Text(failure).font(.inter(.caption)).foregroundStyle(Tokens.Status.danger)
                     }
                 }
-                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+        .task(id: code?.expiresAt) {
+            // Ticks while a code is on screen, then stops.
+            guard let shown = code else { return }
+            while !Task.isCancelled, PassLogic.secondsUntil(shown.expiresAt) > 0 {
+                try? await Task.sleep(for: .milliseconds(500))
+                now = Date()
+            }
+            now = Date()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { code = nil }
+        }
+    }
+
+    /// The countdown bar: how much of the code's period is left.
+    private func countdown(left: Int, period: Int) -> some View {
+        let fraction = min(1, max(0, Double(left) / Double(max(period, 1))))
+        return Capsule()
+            .fill(Tokens.Palette.muted)
+            .frame(width: 64, height: 4)
+            .overlay(alignment: .leading) {
+                Capsule().fill(Tokens.Palette.primary).frame(width: 64 * fraction, height: 4)
+            }
+            .accessibilityHidden(true)
+    }
+
+    private func show() {
+        Task {
+            failure = nil
+            loading = true
+            defer { loading = false }
+            do {
+                code = try await store.totp(vaultID: item.vaultID, itemID: item.id)
+                now = Date()
+            } catch {
+                code = nil
+                failure = (error as? APIError)?.isNetwork == true ? PassStrings.itemTotpOffline : PassStrings.itemTotpFailed
             }
         }
     }

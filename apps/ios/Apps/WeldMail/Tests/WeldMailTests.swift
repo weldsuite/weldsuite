@@ -70,26 +70,67 @@ final class MailLogicTests: XCTestCase {
         XCTAssertEqual(MailLogic.displayLabels(["INBOX", "Clients", "STARRED"]), ["Clients"])
     }
 
-    func testColorsComeFromTheLabelElseFromItsName() {
-        XCTAssertEqual(MailLogic.labelColor("Clients", own: "#3B82F6"), 0x3B82F6)
-        XCTAssertEqual(MailLogic.labelColor("Clients", own: nil), MailLogic.labelColor("Clients", own: "not a colour"))
-        // The same hash as JavaScript's, so a sender has the same colour on every platform.
-        XCTAssertEqual(MailLogic.hash("a"), 97)
-        XCTAssertEqual(MailLogic.hash("ab"), 97 * 31 + 98)
-        XCTAssertGreaterThan(MailLogic.avatarColor("Grace Hopper"), 0)
+    func testALabelsOwnColourIsReadFromItsHex() {
+        XCTAssertEqual(MailLogic.parseHex("#3B82F6"), 0x3B82F6)
+        XCTAssertNil(MailLogic.parseHex("not a colour"))
+        XCTAssertNil(MailLogic.parseHex(nil))
     }
 
-    func testMessagesGroupByCalendarDayWithPinnedFirst() {
+    func testMessagesGroupAsThePlatformsListWithPinnedFirst() {
+        // Friday 27 November 2026; the week started on Monday the 23rd.
         let list = [
             message("a", sent: "2026-11-27T08:00:00Z"),
             message("b", sent: "2026-11-26T23:30:00Z"),
             message("c", sent: "2026-11-23T10:00:00Z"),
-            message("d", sent: "2026-10-01T10:00:00Z"),
-            message("e", sent: "2026-10-02T10:00:00Z"),
+            message("d", sent: "2026-11-18T10:00:00Z"),
+            message("f", sent: "2026-11-05T10:00:00Z"),
+            message("g", sent: "2026-10-01T10:00:00Z"),
+            message("h", sent: "2025-12-24T10:00:00Z"),
+            message("e", sent: "2026-10-02T10:00:00Z", labels: ["INBOX", "PINNED"]),
         ]
-        let sections = MailLogic.sections(list, pinned: ["e"], now: now, calendar: utc)
-        XCTAssertEqual(sections.map(\.section), [.pinned, .today, .yesterday, .thisWeek, .older])
+        let sections = MailLogic.sections(list, now: now, calendar: utc)
+        XCTAssertEqual(sections.map(\.group.kind), [.pinned, .today, .yesterday, .weekday, .lastWeek, .weeksAgo, .month, .monthYear])
+        XCTAssertEqual(sections[3].group.day, date("2026-11-23T00:00:00Z"))
+        XCTAssertEqual(sections[5].group.weeks, 3)
+        XCTAssertEqual(sections[6].group.day, date("2026-10-01T00:00:00Z"))
+        XCTAssertEqual(sections[7].group.day, date("2025-12-01T00:00:00Z"))
         XCTAssertEqual(sections.first?.messages.map(\.id), ["e"])
+    }
+
+    func testAScheduledSendGetsItsOwnDayAndRowsReadTheirDateAsThePlatform() {
+        let upcoming = MailLogic.dateGroup("2026-12-03T09:00:00Z", now: now, calendar: utc)
+        XCTAssertEqual(upcoming.kind, .upcoming)
+        XCTAssertEqual(upcoming.day, date("2026-12-03T00:00:00Z"))
+        XCTAssertEqual(MailLogic.dateGroup("2026-11-27T18:00:00Z", now: now, calendar: utc).kind, .today)
+        XCTAssertEqual(MailLogic.dateStyle(date("2026-11-27T01:00:00Z"), now: now, calendar: utc), .time)
+        XCTAssertEqual(MailLogic.dateStyle(date("2026-01-02T01:00:00Z"), now: now, calendar: utc), .day)
+        XCTAssertEqual(MailLogic.dateStyle(date("2025-12-31T01:00:00Z"), now: now, calendar: utc), .dayYear)
+    }
+
+    func testOwnMailNamesItsRecipientsAndTheConversationEndsWithTheNewest() {
+        XCTAssertTrue(MailLogic.isOutgoingFolder("sent"))
+        XCTAssertFalse(MailLogic.isOutgoingFolder("INBOX"))
+        XCTAssertEqual(
+            MailLogic.recipientNames([MailAddress("jane@example.com", name: "Jane Doe"), MailAddress("bob@example.com")]),
+            "Jane Doe, bob@example.com"
+        )
+        XCTAssertNil(MailLogic.recipientNames([]))
+        let sent = message("m", to: [MailAddress("me@weld.test")], cc: [MailAddress("sanne.bakker@example.com")])
+        XCTAssertEqual(MailLogic.recipientsLine(sent, selfAddresses: ["ME@weld.test"], me: "me"), ["me", "Sanne Bakker"])
+        let older = message("x", sent: "2026-11-26T09:00:00Z")
+        let newer = message("y", sent: "2026-11-27T09:00:00Z")
+        XCTAssertEqual(MailLogic.conversation(older, others: [newer, older]).map(\.id), ["x", "y"])
+        XCTAssertTrue(MailLogic.isImportant(message("i", labels: ["IMPORTANT"])))
+    }
+
+    func testAPinIsTheServersPinnedLabel() {
+        XCTAssertTrue(MailLogic.isPinned(message("p", labels: ["pinned"])))
+        XCTAssertFalse(MailLogic.isPinned(message("q", labels: ["INBOX"])))
+        XCTAssertEqual(MailLogic.withPinned(["INBOX"], on: true), ["INBOX", "PINNED"])
+        XCTAssertEqual(MailLogic.withPinned(["INBOX", "PINNED"], on: true), ["INBOX", "PINNED"])
+        XCTAssertEqual(MailLogic.withPinned(["INBOX", "PINNED"], on: false), ["INBOX"])
+        // The pin is a system label: never a chip on the row.
+        XCTAssertEqual(MailLogic.displayLabels(["PINNED"]), [])
     }
 
     func testTheQuickFiltersPickTheirMessages() {

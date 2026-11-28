@@ -56,7 +56,7 @@
     <string name="weldmail_compose_attachments_scheduled_later">Scheduled emails can’t include attachments yet. Remove them, or send the email now.</string>
     <string name="weldmail_compose_attachments_scheduled_send">Scheduled emails can’t include attachments yet. Send now, or remove the attachments to schedule.</string>
     <string name="weldmail_compose_bcc">Bcc</string>
-    <string name="weldmail_compose_body_placeholder">Compose email</string>
+    <string name="weldmail_compose_body_placeholder">Write your message…</string>
     <string name="weldmail_compose_bold">Bold</string>
     <string name="weldmail_compose_bullet_list">Bulleted list</string>
     <string name="weldmail_compose_camera_permission">Camera permission is needed to take photos.</string>
@@ -64,10 +64,10 @@
     <string name="weldmail_compose_cc">Cc</string>
     <string name="weldmail_compose_choose_file">Choose file</string>
     <string name="weldmail_compose_close">Close</string>
+    <string name="weldmail_compose_formatting">Formatting</string>
     <string name="weldmail_compose_forward_title">Forward</string>
     <string name="weldmail_compose_forwarded_message">Forwarded message</string>
     <string name="weldmail_compose_from">From</string>
-    <string name="weldmail_compose_hide_cc_bcc">Hide Cc and Bcc</string>
     <string name="weldmail_compose_italic">Italic</string>
     <string name="weldmail_compose_new_title">New message</string>
     <string name="weldmail_compose_no_account">No email account available</string>
@@ -85,17 +85,16 @@
     <string name="weldmail_compose_reply_title">Reply</string>
     <string name="weldmail_compose_schedule">Schedule send</string>
     <string name="weldmail_compose_schedule_failed">The email could not be scheduled. Please try again.</string>
+    <string name="weldmail_compose_schedule_for">Schedule · %1$s</string>
     <string name="weldmail_compose_scheduled">Email scheduled for %1$s</string>
     <string name="weldmail_compose_send">Send</string>
     <string name="weldmail_compose_send_anyway">Send</string>
     <string name="weldmail_compose_send_failed">The email could not be sent. Please try again.</string>
     <string name="weldmail_compose_send_failed_title">Could not send</string>
-    <string name="weldmail_compose_send_later">Send later</string>
     <string name="weldmail_compose_send_without_body_message">This email has no message text. Send it anyway?</string>
     <string name="weldmail_compose_send_without_body_title">Send without text?</string>
     <string name="weldmail_compose_sending">Sending…</string>
     <string name="weldmail_compose_sent">Email sent</string>
-    <string name="weldmail_compose_show_cc_bcc">Show Cc and Bcc</string>
     <string name="weldmail_compose_show_quoted">Show quoted text</string>
     <string name="weldmail_compose_subject">Subject</string>
     <string name="weldmail_compose_take_photo">Take photo</string>
@@ -138,7 +137,8 @@
         <item quantity="other">%1$d accounts</item>
     </plurals>
     <string name="weldmail_drawer_add_account">Add account</string>
-    <string name="weldmail_drawer_all_inboxes">All inboxes</string>
+    <string name="weldmail_drawer_add_label">Add label</string>
+    <string name="weldmail_drawer_all_inboxes">All accounts</string>
     <string name="weldmail_drawer_create_label">Create label</string>
     <string name="weldmail_drawer_in_workspace">In %1$s</string>
     <string name="weldmail_drawer_labels">Labels</string>
@@ -182,12 +182,14 @@
     <string name="weldmail_inbox_filter_starred">Starred</string>
     <string name="weldmail_inbox_filter_unread">Unread</string>
     <string name="weldmail_inbox_has_attachments">Has attachments</string>
+    <string name="weldmail_inbox_is_important">Important</string>
     <string name="weldmail_inbox_is_pinned">Pinned</string>
     <string name="weldmail_inbox_is_starred">Starred</string>
+    <string name="weldmail_inbox_last_week">Last week</string>
     <string name="weldmail_inbox_loading_more">Loading more…</string>
+    <string name="weldmail_inbox_no_recipient">No recipient</string>
     <string name="weldmail_inbox_offline">No internet connection</string>
     <string name="weldmail_inbox_offline_cached">You’re offline. This is the mail you last loaded.</string>
-    <string name="weldmail_inbox_older">Older</string>
     <string name="weldmail_inbox_open_mailboxes">Mailboxes and labels</string>
     <plurals name="weldmail_inbox_outbox_waiting">
         <item quantity="one">%1$d change waits for a connection</item>
@@ -196,11 +198,15 @@
     <string name="weldmail_inbox_pinned">Pinned</string>
     <string name="weldmail_inbox_search_mail">Search mail</string>
     <string name="weldmail_inbox_snoozed">Snoozed until %1$s</string>
-    <string name="weldmail_inbox_this_week">This week</string>
+    <string name="weldmail_inbox_to_prefix">To:</string>
     <string name="weldmail_inbox_unread_dot">Unread</string>
     <plurals name="weldmail_inbox_unread_in_thread">
         <item quantity="one">%1$d unread</item>
         <item quantity="other">%1$d unread</item>
+    </plurals>
+    <plurals name="weldmail_inbox_weeks_ago">
+        <item quantity="one">%1$d week ago</item>
+        <item quantity="other">%1$d weeks ago</item>
     </plurals>
     <string name="weldmail_label_picker_empty">No labels yet. Create one from the mailbox menu.</string>
     <string name="weldmail_label_picker_title">Labels</string>
@@ -226,21 +232,19 @@
     </plurals>
     <string name="weldmail_message_blocked_link">This link can’t be opened.</string>
     <string name="weldmail_message_cannot_open_title">Cannot open attachment</string>
-    <string name="weldmail_message_cc">Cc</string>
     <plurals name="weldmail_message_conversation">
         <item quantity="one">%1$d message in this conversation</item>
         <item quantity="other">%1$d messages in this conversation</item>
     </plurals>
-    <string name="weldmail_message_date">Date</string>
     <string name="weldmail_message_delete">Delete</string>
     <string name="weldmail_message_download_failed">Could not download “%1$s”. Check your connection and try again.</string>
     <string name="weldmail_message_downloading">Downloading “%1$s”…</string>
-    <string name="weldmail_message_encryption">Standard encryption (TLS)</string>
     <string name="weldmail_message_forward">Forward</string>
-    <string name="weldmail_message_from">From</string>
     <string name="weldmail_message_hide_details">Hide details</string>
+    <string name="weldmail_message_label_as">Label as</string>
     <string name="weldmail_message_labels">Labels</string>
     <string name="weldmail_message_load_failed">Couldn’t load this email</string>
+    <string name="weldmail_message_mark_done">Mark as done</string>
     <string name="weldmail_message_mark_spam">Mark as spam</string>
     <string name="weldmail_message_mark_unread">Mark as unread</string>
     <string name="weldmail_message_more">More</string>
@@ -249,16 +253,16 @@
     <string name="weldmail_message_open_contact">Open contact</string>
     <string name="weldmail_message_open_failed">Something went wrong opening “%1$s”.</string>
     <string name="weldmail_message_pin">Pin</string>
+    <plurals name="weldmail_message_recipients">
+        <item quantity="one">Recipients (%1$d)</item>
+        <item quantity="other">Recipients (%1$d)</item>
+    </plurals>
     <string name="weldmail_message_reply">Reply</string>
     <string name="weldmail_message_reply_all">Reply all</string>
-    <string name="weldmail_message_report_phishing">Report phishing</string>
-    <string name="weldmail_message_reported_message">This message has been reported as phishing.</string>
-    <string name="weldmail_message_reported_title">Reported</string>
     <string name="weldmail_message_show_details">Show details</string>
     <string name="weldmail_message_snooze">Snooze</string>
     <string name="weldmail_message_star">Star</string>
     <string name="weldmail_message_to">to %1$s</string>
-    <string name="weldmail_message_to_label">To</string>
     <string name="weldmail_message_to_me">to me</string>
     <string name="weldmail_message_unpin">Unpin</string>
     <string name="weldmail_message_unstar">Remove star</string>
@@ -358,7 +362,6 @@
     <string name="weldmail_send_later_pick_title">Date and time</string>
     <string name="weldmail_send_later_schedule_title">Schedule send</string>
     <string name="weldmail_send_later_scheduled_for">Scheduled for %1$s</string>
-    <string name="weldmail_send_later_send_later_title">Send later</string>
     <string name="weldmail_send_later_tomorrow_afternoon">Tomorrow afternoon</string>
     <string name="weldmail_send_later_tomorrow_morning">Tomorrow morning</string>
     <string name="weldmail_send_later_too_far">Emails can be scheduled up to 365 days ahead</string>

@@ -1,34 +1,34 @@
 package com.weldsuite.weldpass.ui
 
 import androidx.activity.compose.LocalActivity
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoFixHigh
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
-import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -44,9 +44,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -55,41 +59,25 @@ import com.weldsuite.weldpass.PassForms
 import com.weldsuite.weldpass.PassLogic
 import com.weldsuite.weldpass.PassRepository
 import com.weldsuite.weldpass.R
-import com.weldsuite.weldpass.Strength
 import kotlinx.coroutines.launch
 import org.weldsuite.api.weldpass.models.Item
+import org.weldsuite.api.weldpass.models.Vault
 import org.weldsuite.core.AppEnvironment
 import org.weldsuite.core.api.ApiException
+import org.weldsuite.ui.Button
 import org.weldsuite.ui.CenteredProgress
-import org.weldsuite.ui.EmptyState
+import org.weldsuite.ui.OutlinedButton
+import org.weldsuite.ui.StatusBadge
 import org.weldsuite.ui.Tokens
 import org.weldsuite.ui.tagged
 
-/** "What do you want to add?": a login, a secure note or a card. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun NewItemSheet(onDismiss: () -> Unit, onChoose: (Item.Type) -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Text(
-            stringResource(R.string.weldpass_items_choose_type),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s),
-        )
-        listOf(Item.Type.LOGIN, Item.Type.NOTE, Item.Type.CARD).forEach { type ->
-            ListItem(
-                headlineContent = { Text(stringResource(typeLabel(type))) },
-                leadingContent = { ItemIcon(type, size = 36.dp) },
-                modifier = Modifier.clickable { onChoose(type) }.tagged("new-${type.value}"),
-            )
-        }
-        Column(Modifier.height(Tokens.Spacing.xl)) {}
-    }
-}
+private val ITEM_TYPES = listOf(Item.Type.LOGIN, Item.Type.NOTE, Item.Type.CARD)
 
 /**
- * The item form, for a new item ([itemId] null) and for an edit. Editing
- * starts with a reveal, which asks for biometrics and is audited, to fill in
- * the secret fields; saving sends the whole item.
+ * The item form, as the platform's "Add item" and "Edit" dialogs: a new item
+ * ([itemId] null, the type picked in the form) or an edit. Editing starts
+ * with a reveal, which asks for biometrics and is audited, to fill in the
+ * secret fields; saving sends the whole item.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,6 +98,7 @@ fun ItemFormScreen(
     val vaults by repository.vaults.collectAsStateWithLifecycle()
     val items by repository.items.collectAsStateWithLifecycle()
     val writable = vaults.data.orEmpty().filter(PassLogic::canEditVault)
+    val editedItem = itemId?.let { id -> items.data?.firstOrNull { it.id == id } }
     var values by remember { mutableStateOf<ItemFormValues?>(null) }
     var failed by remember { mutableStateOf<Int?>(null) }
     var saving by remember { mutableStateOf(false) }
@@ -139,25 +128,34 @@ fun ItemFormScreen(
     }
 
     val title = when {
-        itemId != null -> stringResource(R.string.weldpass_form_edit_title)
+        itemId != null -> stringResource(R.string.weldpass_form_edit_title, editedItem?.title.orEmpty())
         draft != null -> stringResource(R.string.weldpass_form_from_autofill)
-        type == Item.Type.NOTE -> stringResource(R.string.weldpass_form_new_title_note)
-        type == Item.Type.CARD -> stringResource(R.string.weldpass_form_new_title_card)
-        else -> stringResource(R.string.weldpass_form_new_title_login)
+        else -> stringResource(R.string.weldpass_form_add_title)
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text(title) }, navigationIcon = { BackButton(onDone) }) },
+        topBar = {
+            TopAppBar(
+                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = { BackButton(onDone) },
+            )
+        },
     ) { padding ->
         val current = values
         when {
-            failed != null -> EmptyState(stringResource(failed!!), modifier = Modifier.padding(padding))
+            failed != null -> EmptyMessage(
+                icon = Icons.Outlined.ErrorOutline,
+                title = stringResource(failed!!),
+                modifier = Modifier.padding(padding),
+            )
             current == null -> CenteredProgress(Modifier.padding(padding))
             else -> ItemForm(
                 initial = current,
+                editing = itemId != null,
                 vaults = if (itemId == null) writable else emptyList(),
                 saving = saving,
                 modifier = Modifier.padding(padding),
+                onCancel = onDone,
                 onSubmit = { submitted ->
                     saving = true
                     scope.launch {
@@ -186,14 +184,17 @@ fun ItemFormScreen(
 @Composable
 private fun ItemForm(
     initial: ItemFormValues,
-    vaults: List<org.weldsuite.api.weldpass.models.Vault>,
+    editing: Boolean,
+    vaults: List<Vault>,
     saving: Boolean,
     modifier: Modifier,
+    onCancel: () -> Unit,
     onSubmit: (ItemFormValues) -> Unit,
 ) {
     var values by remember { mutableStateOf(initial) }
     var appsText by rememberSaveable { mutableStateOf(initial.apps.joinToString("\n")) }
     var showPassword by rememberSaveable { mutableStateOf(false) }
+    var generating by remember { mutableStateOf(false) }
     var titleError by remember { mutableStateOf<String?>(null) }
     var appsError by remember { mutableStateOf<String?>(null) }
     val titleRequired = stringResource(R.string.weldpass_form_title_required)
@@ -210,184 +211,283 @@ private fun ItemForm(
         }
         if (titleError == null && appsError == null) onSubmit(values.copy(apps = apps))
     }
+    val plain = KeyboardOptions(autoCorrectEnabled = false)
+    val secret = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false)
 
     Column(
         modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(Tokens.Spacing.l),
-        verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
+        verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.l),
     ) {
-        if (vaults.size > 1) {
-            Text(stringResource(R.string.weldpass_form_vault), style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
-                vaults.forEach { vault ->
-                    FilterChip(
-                        selected = vault.id == values.vaultId,
-                        onClick = { values = values.copy(vaultId = vault.id) },
-                        label = { Text(vaultLabel(vault)) },
+        Text(
+            stringResource(if (editing) R.string.weldpass_form_edit_description else R.string.weldpass_form_add_description),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        if (editing) {
+            // The type is fixed once the item exists.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
+                StatusBadge(stringResource(typeLabel(values.type)), MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    stringResource(R.string.weldpass_form_type_locked),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            LabeledField(stringResource(R.string.weldpass_form_type)) {
+                TypePicker(values.type) { values = values.copy(type = it) }
+            }
+        }
+
+        if (!editing && vaults.isNotEmpty()) {
+            val selected = vaults.firstOrNull { it.id == values.vaultId }
+            LabeledField(
+                stringResource(R.string.weldpass_form_vault),
+                hint = if (selected?.kind == Vault.Kind.SHARED) stringResource(R.string.weldpass_form_shared_vault_hint) else null,
+            ) {
+                VaultSelect(vaults, values.vaultId) { values = values.copy(vaultId = it) }
+            }
+        }
+
+        LabeledField(stringResource(R.string.weldpass_form_title), error = titleError) {
+            PlatformTextField(
+                values.title,
+                { values = values.copy(title = it) },
+                isError = titleError != null,
+                modifier = Modifier.tagged("form-title"),
+            )
+        }
+
+        when (values.type) {
+            Item.Type.LOGIN -> {
+                LabeledField(stringResource(R.string.weldpass_form_url)) {
+                    PlatformTextField(
+                        values.url,
+                        { values = values.copy(url = it) },
+                        placeholder = stringResource(R.string.weldpass_form_url_placeholder),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
+                        modifier = Modifier.tagged("form-url"),
+                    )
+                }
+                LabeledField(stringResource(R.string.weldpass_form_username)) {
+                    PlatformTextField(
+                        values.username,
+                        { values = values.copy(username = it) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrectEnabled = false),
+                        modifier = Modifier.tagged("form-username"),
+                    )
+                }
+                LabeledField(stringResource(R.string.weldpass_form_password)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
+                        PlatformTextField(
+                            values.password,
+                            { values = values.copy(password = it) },
+                            monospace = true,
+                            visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                            keyboardOptions = secret,
+                            modifier = Modifier.weight(1f).tagged("form-password"),
+                        )
+                        OutlinedButton(
+                            onClick = { showPassword = !showPassword },
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                            modifier = Modifier.size(40.dp).tagged("form-password-toggle"),
+                        ) {
+                            Icon(
+                                if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                contentDescription = stringResource(if (showPassword) R.string.weldpass_item_hide else R.string.weldpass_item_show),
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = { generating = !generating },
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Tokens.Spacing.m),
+                            modifier = Modifier.heightIn(min = 40.dp).tagged("form-generate"),
+                        ) {
+                            Icon(Icons.Outlined.AutoFixHigh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Text(stringResource(R.string.weldpass_form_generate), modifier = Modifier.padding(start = 6.dp))
+                        }
+                    }
+                    StrengthMeter(values.password)
+                }
+                if (generating) {
+                    GeneratorPanel(
+                        onCancel = { generating = false },
+                        onUse = { generated ->
+                            values = values.copy(password = generated)
+                            showPassword = true
+                            generating = false
+                        },
+                    )
+                }
+                LabeledField(stringResource(R.string.weldpass_form_totp), hint = stringResource(R.string.weldpass_form_totp_help)) {
+                    PlatformTextField(
+                        values.totp,
+                        { values = values.copy(totp = it) },
+                        placeholder = stringResource(R.string.weldpass_form_totp_placeholder),
+                        monospace = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = secret,
+                        modifier = Modifier.tagged("form-totp"),
+                    )
+                }
+                NotesField(values.notes) { values = values.copy(notes = it) }
+                LabeledField(
+                    stringResource(R.string.weldpass_form_apps),
+                    hint = stringResource(R.string.weldpass_form_apps_help),
+                    error = appsError,
+                ) {
+                    PlatformTextField(
+                        appsText,
+                        { appsText = it },
+                        singleLine = false,
+                        minLines = 2,
+                        isError = appsError != null,
+                        keyboardOptions = plain,
+                        modifier = Modifier.tagged("form-apps"),
                     )
                 }
             }
-        }
-        Field(
-            label = R.string.weldpass_form_title,
-            value = values.title,
-            onChange = { values = values.copy(title = it) },
-            placeholder = R.string.weldpass_form_title_placeholder,
-            error = titleError,
-            tag = "form-title",
-        )
-        when (values.type) {
-            Item.Type.NOTE -> Field(
-                label = R.string.weldpass_form_content,
-                value = values.content,
-                onChange = { values = values.copy(content = it) },
-                multiline = true,
-                tag = "form-content",
-            )
+            Item.Type.NOTE -> LabeledField(stringResource(R.string.weldpass_form_content)) {
+                PlatformTextField(
+                    values.content,
+                    { values = values.copy(content = it) },
+                    singleLine = false,
+                    minLines = 8,
+                    modifier = Modifier.tagged("form-content"),
+                )
+            }
             Item.Type.CARD -> {
-                Field(R.string.weldpass_form_cardholder, values.cardholder, { values = values.copy(cardholder = it) })
-                Field(
-                    R.string.weldpass_form_number,
-                    values.number,
-                    { values = values.copy(number = it) },
-                    keyboard = KeyboardType.Number,
-                )
-                Field(R.string.weldpass_form_expiry, values.expiry, { values = values.copy(expiry = it) })
-                Field(R.string.weldpass_form_cvc, values.cvc, { values = values.copy(cvc = it) }, keyboard = KeyboardType.Number)
-                Field(R.string.weldpass_form_notes, values.notes, { values = values.copy(notes = it) }, multiline = true)
-            }
-            else -> {
-                Field(
-                    R.string.weldpass_form_url,
-                    values.url,
-                    { values = values.copy(url = it) },
-                    placeholder = R.string.weldpass_form_url_placeholder,
-                    keyboard = KeyboardType.Uri,
-                    tag = "form-url",
-                )
-                Field(
-                    R.string.weldpass_form_username,
-                    values.username,
-                    { values = values.copy(username = it) },
-                    keyboard = KeyboardType.Email,
-                    tag = "form-username",
-                )
-                OutlinedTextField(
-                    value = values.password,
-                    onValueChange = { values = values.copy(password = it) },
-                    label = { Text(stringResource(R.string.weldpass_form_password)) },
-                    singleLine = true,
-                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-                    trailingIcon = {
-                        IconButton(onClick = { showPassword = !showPassword }) {
-                            Icon(
-                                if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                                contentDescription = stringResource(
-                                    if (showPassword) R.string.weldpass_item_hide else R.string.weldpass_item_show,
-                                ),
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().tagged("form-password"),
-                )
-                StrengthMeter(values.password)
-                OutlinedButton(
-                    onClick = {
-                        values = values.copy(password = PassForms.generatePassword())
-                        showPassword = true
-                    },
-                    modifier = Modifier.tagged("form-generate"),
-                ) {
-                    Icon(Icons.Outlined.AutoFixHigh, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text(stringResource(R.string.weldpass_form_generate), modifier = Modifier.padding(start = Tokens.Spacing.s))
+                LabeledField(stringResource(R.string.weldpass_form_cardholder)) {
+                    PlatformTextField(values.cardholder, { values = values.copy(cardholder = it) }, keyboardOptions = plain)
                 }
-                Field(
-                    R.string.weldpass_form_totp,
-                    values.totp,
-                    { values = values.copy(totp = it) },
-                    secret = true,
-                    help = R.string.weldpass_form_totp_help,
-                )
-                Field(R.string.weldpass_form_notes, values.notes, { values = values.copy(notes = it) }, multiline = true)
-                OutlinedTextField(
-                    value = appsText,
-                    onValueChange = { appsText = it },
-                    label = { Text(stringResource(R.string.weldpass_form_apps)) },
-                    isError = appsError != null,
-                    supportingText = { Text(appsError ?: stringResource(R.string.weldpass_form_apps_help)) },
-                    minLines = 2,
-                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
-                    modifier = Modifier.fillMaxWidth(),
+                LabeledField(stringResource(R.string.weldpass_form_number)) {
+                    PlatformTextField(
+                        values.number,
+                        { values = values.copy(number = it) },
+                        monospace = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, autoCorrectEnabled = false),
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m)) {
+                    LabeledField(stringResource(R.string.weldpass_form_expiry), Modifier.weight(1f)) {
+                        PlatformTextField(
+                            values.expiry,
+                            { values = values.copy(expiry = it) },
+                            placeholder = stringResource(R.string.weldpass_form_expiry_placeholder),
+                            monospace = true,
+                            keyboardOptions = plain,
+                        )
+                    }
+                    LabeledField(stringResource(R.string.weldpass_form_cvc), Modifier.weight(1f)) {
+                        PlatformTextField(
+                            values.cvc,
+                            { values = values.copy(cvc = it) },
+                            monospace = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, autoCorrectEnabled = false),
+                        )
+                    }
+                }
+                NotesField(values.notes) { values = values.copy(notes = it) }
+            }
+        }
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s, Alignment.End)) {
+            OutlinedButton(onClick = onCancel, enabled = !saving) { Text(stringResource(R.string.weldpass_common_cancel)) }
+            Button(onClick = submit, enabled = !saving, modifier = Modifier.tagged("form-save")) {
+                Text(stringResource(if (saving) R.string.weldpass_common_saving else R.string.weldpass_common_save))
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotesField(notes: String, onChange: (String) -> Unit) {
+    LabeledField(stringResource(R.string.weldpass_form_notes)) {
+        PlatformTextField(notes, onChange, singleLine = false, minLines = 3, modifier = Modifier.tagged("form-notes"))
+    }
+}
+
+/**
+ * Login, secure note or card, as the platform's three bordered choices: the
+ * chosen one outlined in the primary colour on a light wash of it.
+ */
+@Composable
+private fun TypePicker(selected: Item.Type, onSelect: (Item.Type) -> Unit) {
+    Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
+        ITEM_TYPES.forEach { type ->
+            val chosen = type == selected
+            val primary = MaterialTheme.colorScheme.primary
+            val shape = MaterialTheme.shapes.small
+            Column(
+                Modifier
+                    .weight(1f)
+                    .heightIn(min = 56.dp)
+                    .background(if (chosen) primary.copy(alpha = 0.05f) else MaterialTheme.colorScheme.background, shape)
+                    .border(1.dp, if (chosen) primary else MaterialTheme.colorScheme.outlineVariant, shape)
+                    .selectable(selected = chosen, role = Role.RadioButton, onClick = { onSelect(type) })
+                    .padding(horizontal = Tokens.Spacing.xs, vertical = Tokens.Spacing.s)
+                    .tagged("new-${type.value}"),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.xs, Alignment.CenterVertically),
+            ) {
+                val tint = if (chosen) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                TypeIcon(type, size = 16.dp, tint = tint)
+                Text(
+                    stringResource(typeLabel(type)),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (chosen) FontWeight.Medium else FontWeight.Normal,
+                    color = tint,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
-        Button(
-            onClick = submit,
-            enabled = !saving,
-            modifier = Modifier.fillMaxWidth().padding(top = Tokens.Spacing.s).tagged("form-save"),
+    }
+}
+
+/** The vault to add to, as the platform's select: the chosen vault and a chevron, opening a menu. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VaultSelect(vaults: List<Vault>, selectedId: String, onSelect: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val selected = vaults.firstOrNull { it.id == selectedId }
+    ExposedDropdownMenuBox(expanded = open, onExpandedChange = { open = it }) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                .heightIn(min = 40.dp)
+                .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small)
+                .padding(horizontal = Tokens.Spacing.m)
+                .tagged("form-vault"),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(stringResource(if (saving) R.string.weldpass_common_saving else R.string.weldpass_common_save))
-        }
-    }
-}
-
-@Composable
-private fun Field(
-    label: Int,
-    value: String,
-    onChange: (String) -> Unit,
-    placeholder: Int? = null,
-    error: String? = null,
-    help: Int? = null,
-    multiline: Boolean = false,
-    secret: Boolean = false,
-    keyboard: KeyboardType = KeyboardType.Text,
-    tag: String? = null,
-) {
-    val supporting = error ?: help?.let { stringResource(it) }
-    OutlinedTextField(
-        value = value,
-        onValueChange = onChange,
-        label = { Text(stringResource(label)) },
-        placeholder = placeholder?.let { { Text(stringResource(it)) } },
-        isError = error != null,
-        supportingText = supporting?.let { { Text(it) } },
-        singleLine = !multiline,
-        minLines = if (multiline) 3 else 1,
-        visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
-        keyboardOptions = KeyboardOptions(
-            keyboardType = if (secret) KeyboardType.Password else keyboard,
-            autoCorrectEnabled = !secret && keyboard == KeyboardType.Text,
-        ),
-        modifier = Modifier.fillMaxWidth().tagged(tag),
-    )
-}
-
-/** How strong a password is: a bar and a word, the platform's thresholds. */
-@Composable
-fun StrengthMeter(password: String) {
-    if (password.isEmpty()) return
-    val strength = PassForms.strength(password)
-    val bits = PassForms.entropyBits(password).toInt()
-    val (color, label, fraction) = when (strength) {
-        Strength.WEAK -> Triple(Tokens.Status.danger.current(), R.string.weldpass_strength_weak, 0.33f)
-        Strength.FAIR -> Triple(Tokens.Status.warning.current(), R.string.weldpass_strength_fair, 0.66f)
-        Strength.STRONG -> Triple(Tokens.Status.success.current(), R.string.weldpass_strength_strong, 1f)
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.xs)) {
-        LinearProgressIndicator(progress = { fraction }, color = color, modifier = Modifier.fillMaxWidth())
-        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "${stringResource(R.string.weldpass_strength_label)}: ${stringResource(label)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = color,
+                selected?.let { vaultLabel(it) }.orEmpty(),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            Text(
-                stringResource(R.string.weldpass_strength_bits, bits),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Icon(
+                Icons.Outlined.KeyboardArrowDown,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
             )
+        }
+        ExposedDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            vaults.forEach { vault ->
+                DropdownMenuItem(
+                    text = { Text(vaultLabel(vault), style = MaterialTheme.typography.bodyMedium) },
+                    onClick = {
+                        onSelect(vault.id)
+                        open = false
+                    },
+                )
+            }
         }
     }
 }

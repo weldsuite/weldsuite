@@ -14,7 +14,7 @@ struct AutofillSection: View {
         Section {
             VStack(alignment: .leading, spacing: 2) {
                 Text(PassStrings.settingsAutofill)
-                Text(line).font(.subheadline).foregroundStyle(.secondary)
+                Text(line).font(.inter(.subheadline)).foregroundStyle(.secondary)
             }
             if !enabled {
                 Button(PassStrings.settingsAutofillTurnOn) {

@@ -34,15 +34,30 @@ enum InboxFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-/// Where a message falls in the inbox.
-enum DateSection: String, Hashable {
-    case pinned, today, yesterday, thisWeek, older
+/// A group of the mail list, as the platform's list groups it (Gmail and
+/// Outlook style): Today, Yesterday, a weekday of this week, Last week, two or
+/// three weeks ago, then a month (with its year once it isn't this year's).
+/// A message dated in the future (a scheduled send) gets its own day.
+struct DateGroup: Hashable {
+    enum Kind: String, Hashable {
+        case pinned, today, yesterday, weekday, lastWeek, weeksAgo, month, monthYear, upcoming, undated
+    }
+
+    let kind: Kind
+    /// The day (weekday, upcoming) or the month's first day (month, monthYear), at its start.
+    var day: Date?
+    var weeks = 0
 }
 
 struct MessageSection: Equatable, Identifiable {
-    let section: DateSection
+    let group: DateGroup
     let messages: [MailMessage]
-    var id: DateSection { section }
+    var id: DateGroup { group }
+}
+
+/// How a row shows its date: the time today, else the day, with the year once it isn't this year.
+enum DateStyle: Equatable {
+    case time, day, dayYear
 }
 
 /// Reply, reply all or forward.
@@ -114,38 +129,14 @@ enum MailLogic {
         return LabelState(systemCounts: counts, custom: custom)
     }
 
-    private static let labelColors = [
-        0xEF4444, 0xF97316, 0xF59E0B, 0xEAB308, 0x84CC16, 0x22C55E, 0x10B981, 0x14B8A6, 0x06B6D4,
-        0x0EA5E9, 0x3B82F6, 0x6366F1, 0x8B5CF6, 0xA855F7, 0xD946EF, 0xEC4899, 0xF43F5E,
-    ]
-
-    private static let avatarColors = [
-        0x3B82F6, 0x10B981, 0xF59E0B, 0x8B5CF6, 0xEF4444, 0x06B6D4, 0xEC4899, 0xF97316, 0x14B8A6, 0x6366F1,
-    ]
-
     /// The colours a new label can have.
     static let labelChoices: [(key: String, value: Int)] = [
         ("red", 0xEF4444), ("orange", 0xF97316), ("yellow", 0xEAB308), ("green", 0x22C55E),
         ("teal", 0x14B8A6), ("blue", 0x3B82F6), ("purple", 0x8B5CF6), ("pink", 0xEC4899),
     ]
 
-    /// JavaScript's `hash = codePoint + ((hash << 5) - hash)`, as the Expo app and the web compute it.
-    static func hash(_ text: String) -> Int {
-        var hash: Int32 = 0
-        for scalar in text.unicodeScalars {
-            hash = Int32(truncatingIfNeeded: Int(scalar.value)) &+ ((hash &<< 5) &- hash)
-        }
-        return hash == Int32.min ? 0 : Int(abs(hash))
-    }
-
-    /// A label's colour: its own (`#RRGGBB`), else one picked by its name.
-    static func labelColor(_ name: String, own: String?) -> Int {
-        parseHex(own) ?? labelColors[hash(name) % labelColors.count]
-    }
-
-    /// The tile colour behind a sender's initial.
-    static func avatarColor(_ name: String) -> Int { avatarColors[hash(name) % avatarColors.count] }
-
+    /// A label's own colour (`#RRGGBB`), or nil: the screens then take the
+    /// platform's colour for its name (`PlatformColors.label`).
     static func parseHex(_ value: String?) -> Int? {
         guard var text = value?.trimmingCharacters(in: .whitespaces) else { return nil }
         if text.hasPrefix("#") { text.removeFirst() }
@@ -155,26 +146,109 @@ enum MailLogic {
 
     // MARK: The list
 
-    /// The day a message falls on, as the inbox groups it.
-    static func dateSection(_ date: String, now: Date = Date(), calendar: Calendar = .current) -> DateSection {
-        guard let at = WeldDate.parse(date) else { return .older }
-        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: at), to: calendar.startOfDay(for: now)).day ?? 0
-        if days <= 0 { return .today }
-        if days == 1 { return .yesterday }
-        if days <= 7 { return .thisWeek }
-        return .older
+    /// The group a message falls in, as the platform's list groups it (weeks start on Monday).
+    static func dateGroup(_ date: String, now: Date = Date(), calendar: Calendar = .current) -> DateGroup {
+        guard let at = WeldDate.parse(date) else { return DateGroup(kind: .undated) }
+        let day = calendar.startOfDay(for: at)
+        let today = calendar.startOfDay(for: now)
+        if day == today { return DateGroup(kind: .today) }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: today), day == yesterday { return DateGroup(kind: .yesterday) }
+        if at > now { return DateGroup(kind: .upcoming, day: day) }
+        let monday = startOfWeek(today, calendar: calendar)
+        if day >= monday { return DateGroup(kind: .weekday, day: day) }
+        let weeks = (calendar.dateComponents([.day], from: startOfWeek(day, calendar: calendar), to: monday).day ?? 0) / 7
+        if weeks <= 1 { return DateGroup(kind: .lastWeek) }
+        if weeks <= 3 { return DateGroup(kind: .weeksAgo, weeks: weeks) }
+        let month = calendar.date(from: calendar.dateComponents([.year, .month], from: day)) ?? day
+        let sameYear = calendar.component(.year, from: day) == calendar.component(.year, from: today)
+        return DateGroup(kind: sameYear ? .month : .monthYear, day: month)
     }
 
-    /// Pinned first, then by day; empty sections left out.
-    static func sections(_ messages: [MailMessage], pinned: Set<String>, now: Date = Date(), calendar: Calendar = .current) -> [MessageSection] {
-        let top = messages.filter { pinned.contains($0.id) }
-        let rest = messages.filter { !pinned.contains($0.id) }
-        let byDay = Dictionary(grouping: rest) { dateSection($0.listDate, now: now, calendar: calendar) }
-        let ordered: [MessageSection] = [DateSection.today, .yesterday, .thisWeek, .older].compactMap { section in
-            guard let list = byDay[section] else { return nil }
-            return MessageSection(section: section, messages: list)
+    /// The Monday of the week `day` falls in.
+    private static func startOfWeek(_ day: Date, calendar: Calendar) -> Date {
+        let weekday = calendar.component(.weekday, from: day) // 1 is Sunday
+        let back = (weekday + 5) % 7 // Monday 0, Sunday 6
+        return calendar.date(byAdding: .day, value: -back, to: calendar.startOfDay(for: day)) ?? day
+    }
+
+    /// The system label that pins a message, as the platform pins one (`usePinThread`, the message context menu).
+    static let pinnedLabel = "PINNED"
+
+    /// Pinned on the server: it carries the `PINNED` label, so the pin shows on the web and every device.
+    static func isPinned(_ message: MailMessage) -> Bool {
+        message.labels.contains { $0.uppercased() == pinnedLabel }
+    }
+
+    /// The labels with the pin added or taken off.
+    static func withPinned(_ labels: [String], on: Bool) -> [String] {
+        let rest = labels.filter { $0.uppercased() != pinnedLabel }
+        return on ? rest + [pinnedLabel] : rest
+    }
+
+    /// Pinned first, then a group per day, week or month in the list's own order (newest first).
+    static func sections(_ messages: [MailMessage], now: Date = Date(), calendar: Calendar = .current) -> [MessageSection] {
+        let top = messages.filter(isPinned)
+        var order: [DateGroup] = []
+        var byGroup: [DateGroup: [MailMessage]] = [:]
+        for message in messages where !isPinned(message) {
+            let group = dateGroup(message.listDate, now: now, calendar: calendar)
+            if byGroup[group] == nil { order.append(group) }
+            byGroup[group, default: []].append(message)
         }
-        return top.isEmpty ? ordered : [MessageSection(section: .pinned, messages: top)] + ordered
+        let dated = order.map { MessageSection(group: $0, messages: byGroup[$0] ?? []) }
+        return top.isEmpty ? dated : [MessageSection(group: DateGroup(kind: .pinned), messages: top)] + dated
+    }
+
+    /// How a row's (or a message's) date reads: the time today, else the day, with the year when it isn't this one.
+    static func dateStyle(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> DateStyle {
+        if calendar.isDate(date, inSameDayAs: now) { return .time }
+        return calendar.component(.year, from: date) == calendar.component(.year, from: now) ? .day : .dayYear
+    }
+
+    private static let outgoingFolders: Set<String> = ["SENT", "SCHEDULED", "DRAFTS", "DRAFT"]
+
+    /// Sent, Drafts and Scheduled hold the person's own mail: a row names who it goes to, not the sender.
+    static func isOutgoingFolder(_ label: String) -> Bool { outgoingFolders.contains(label.uppercased()) }
+
+    /// "Jane Doe, bob@example.com": names where there are any, addresses otherwise; nil when nobody.
+    static func recipientNames(_ recipients: [MailAddress]) -> String? {
+        let names = recipients
+            .filter { !$0.email.trimmingCharacters(in: .whitespaces).isEmpty || !($0.name ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
+            .map(\.label)
+        return names.isEmpty ? nil : names.joined(separator: ", ")
+    }
+
+    /// The orange flag: marked important, or labelled so.
+    static func isImportant(_ message: MailMessage) -> Bool {
+        message.isImportant || message.labels.contains { $0.uppercased() == "IMPORTANT" }
+    }
+
+    /// "jane.doe@example.com" → "Jane Doe", as the platform names a recipient it only has the address of.
+    static func displayName(_ email: String) -> String {
+        let local = email.components(separatedBy: "@").first ?? email
+        return local.split(separator: ".").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
+    }
+
+    /// Who a message went to, as the platform's "to Sanne Bakker, me" line: To then Cc, the person's own addresses as `me`.
+    static func recipientsLine(_ message: MailMessage, selfAddresses: [String], me: String) -> [String] {
+        let own = Set(selfAddresses.map { $0.lowercased() })
+        return (message.to + message.cc)
+            .filter { !$0.email.isEmpty || !($0.name ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { address in
+                if own.contains(address.email.lowercased()) { return me }
+                if let name = address.name, !name.trimmingCharacters(in: .whitespaces).isEmpty { return name }
+                return displayName(address.email)
+            }
+    }
+
+    /// The conversation in the platform's order: earlier messages oldest first, the newest last (shown open).
+    static func conversation(_ current: MailMessage, others: [MailMessage]) -> [MailMessage] {
+        let all = others.filter { $0.id != current.id } + [current]
+        return all.sorted { a, b in
+            let ta = WeldDate.parse(a.listDate)?.timeIntervalSince1970 ?? 0
+            let tb = WeldDate.parse(b.listDate)?.timeIntervalSince1970 ?? 0
+            return ta == tb ? a.id < b.id : ta < tb
+        }
     }
 
     static func filter(_ messages: [MailMessage], _ filter: InboxFilter) -> [MailMessage] {
@@ -524,20 +598,6 @@ enum MailLogic {
     private static func fileExtension(_ name: String) -> String {
         guard let dot = name.lastIndex(of: ".") else { return "" }
         return String(name[name.index(after: dot)...]).lowercased()
-    }
-
-    static func attachmentColor(_ kind: AttachmentKind) -> Int {
-        switch kind {
-        case .image: return 0x8B5CF6
-        case .pdf: return 0xEF4444
-        case .doc: return 0x2563EB
-        case .sheet: return 0x16A34A
-        case .slides: return 0xF97316
-        case .archive: return 0xD97706
-        case .video: return 0xDB2777
-        case .audio: return 0x0EA5E9
-        case .file: return 0x6B7280
-        }
     }
 
     /// "2.5 MB".

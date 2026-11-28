@@ -26,7 +26,7 @@ struct ReceiptPreview: View {
 
     var body: some View {
         if image != nil || loading || pdf || failed {
-            SectionCard(title: BooksStrings.receiptTitle) {
+            PanelSection(title: BooksStrings.receiptTitle) {
                 thumbnail
             }
             .fullScreenCover(isPresented: $open) {
@@ -39,7 +39,7 @@ struct ReceiptPreview: View {
 
     @ViewBuilder
     private var thumbnail: some View {
-        let shape = RoundedRectangle(cornerRadius: Tokens.Radius.medium)
+        let shape = RoundedRectangle(cornerRadius: Tokens.Radius.large)
         if let image {
             Button {
                 open = true
@@ -49,7 +49,7 @@ struct ReceiptPreview: View {
                     .scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .frame(height: 160)
-                    .background(Color(uiColor: .tertiarySystemFill), in: shape)
+                    .background(Tokens.Palette.muted, in: shape)
                     .clipShape(shape)
                     .contentShape(shape)
             }
@@ -63,20 +63,20 @@ struct ReceiptPreview: View {
                 } else if pdf {
                     VStack(spacing: Tokens.Spacing.xs) {
                         Image(systemName: "doc.richtext")
-                            .font(.title2)
+                            .font(.inter(.title2))
                             .accessibilityHidden(true)
-                        Text(BooksStrings.receiptPdf).font(.footnote)
+                        Text(BooksStrings.receiptPdf).font(.inter(.footnote))
                     }
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                 } else {
                     Text(BooksStrings.receiptUnavailable)
-                        .font(.footnote)
-                        .foregroundStyle(Color.secondary)
+                        .font(.inter(.footnote))
+                        .foregroundStyle(Tokens.Palette.mutedForeground)
                 }
             }
             .frame(maxWidth: .infinity)
             .frame(height: 160)
-            .background(Color(uiColor: .tertiarySystemFill), in: shape)
+            .background(Tokens.Palette.muted, in: shape)
             .accessibilityElement(children: .combine)
             .tagged("receipt-preview")
         }
@@ -249,8 +249,6 @@ private enum BillConfirmKind {
     case reject, delete
 }
 
-/// The reason the server records for a bill rejected from the app (the same text Android sends).
-private let billRejectReason = "Rejected from the WeldBooks mobile app"
 
 /// One bill: approve or reject it while it awaits approval, record its payment once approved.
 struct BillDetailView: View {
@@ -264,6 +262,8 @@ struct BillDetailView: View {
     @State private var mutations = Mutations()
     @State private var paying = false
     @State private var confirm: BillConfirmKind?
+    /// Why the bill is rejected: required, as on the platform; cleared each time the dialog opens.
+    @State private var rejectReason = ""
 
     init(id: String) {
         self.id = id
@@ -279,7 +279,10 @@ struct BillDetailView: View {
                 bill: bill,
                 mutations: mutations,
                 onPay: { paying = true },
-                onReject: { confirm = .reject },
+                onReject: {
+                    rejectReason = ""
+                    confirm = .reject
+                },
                 reload: { await loaded.load() }
             )
         }
@@ -307,13 +310,18 @@ struct BillDetailView: View {
         .sheet(isPresented: $paying) {
             paymentSheet
         }
-        .confirmDialog(
-            BooksStrings.billDetailRejectTitle,
-            isPresented: confirming(.reject),
-            message: BooksStrings.billDetailRejectMessage,
-            confirm: BooksStrings.billDetailReject,
-            destructive: true
-        ) { reject() }
+        .alert(BooksStrings.billDetailRejectTitle, isPresented: confirming(.reject)) {
+            TextField(BooksStrings.billDetailRejectReasonPlaceholder, text: $rejectReason)
+                .accessibilityLabel(BooksStrings.billDetailRejectReason)
+                .accessibilityIdentifier("reject-reason")
+            Button(BooksStrings.billDetailReject, role: .destructive) { reject() }
+                .disabled(rejectReason.trimmed.isEmpty)
+                .accessibilityIdentifier("confirm")
+            Button(CoreStrings.commonCancel, role: .cancel) {}
+                .accessibilityIdentifier("cancel")
+        } message: {
+            Text(BooksStrings.billDetailRejectMessage)
+        }
         .confirmDialog(
             BooksStrings.billDetailDeleteTitle,
             isPresented: confirming(.delete),
@@ -346,9 +354,11 @@ struct BillDetailView: View {
 
     private func reject() {
         guard let bill = loaded.data else { return }
+        let reason = rejectReason.trimmed
+        guard !reason.isEmpty else { return }
         let store = books.store
         mutations.run(toaster, success: BooksStrings.billDetailRejected, reload: { await loaded.load() }) {
-            try await store.rejectBill(id: bill.id, reason: billRejectReason)
+            try await store.rejectBill(id: bill.id, reason: reason)
         }
     }
 
@@ -374,12 +384,12 @@ private struct BillNavTitle: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(title)
-                .font(.headline)
+                .font(.inter(.headline))
                 .lineLimit(1)
             if let subtitle {
                 Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(Color.secondary)
+                    .font(.inter(.caption))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                     .lineLimit(1)
             }
         }
@@ -404,20 +414,11 @@ private struct BillBodyView: View {
         let useTax: Decimal = books.isUs ? TaxBreakdown.useTaxTotal(bill.taxBreakdown) : 0
         ScrollView {
             VStack(spacing: 0) {
-                DocumentSummary(
-                    balanceDue: bill.balanceDue,
-                    total: bill.total,
-                    currency: currency,
-                    dueDate: bill.dueDate,
-                    status: bill.displayStatus(),
-                    balanceLabel: BooksStrings.billDetailBalanceDue,
-                    totalLabel: BooksStrings.billDetailTotal,
-                    isInvoice: false
-                )
+                actions
                 if let error = mutations.error {
                     Banner(error, tone: "error", onClose: { mutations.clear() })
                 }
-                details
+                details(currency: currency)
                 StoredReceiptPreview(documentId: bill.sourceDocumentId)
                 DocumentLines(lines: bill.lines, currency: currency, title: BooksStrings.billDetailLineItems, isInvoice: false)
                 DocumentTotals(
@@ -445,25 +446,31 @@ private struct BillBodyView: View {
                     )
                 }
                 notes
-                actions
             }
             .padding(.bottom, Tokens.Spacing.xl)
         }
         .tagged("bill-detail")
     }
 
-    private var details: some View {
-        SectionCard(title: BooksStrings.billDetailDetails) {
-            DetailRow(books.labels.supplier, bill.contactName ?? BooksStrings.commonDash)
-            DetailRow(BooksStrings.billDetailIssueDate, books.date(bill.issueDate))
-            DetailRow(BooksStrings.billDetailDueDate, books.date(bill.dueDate))
-            if let reference = bill.reference {
-                DetailRow(BooksStrings.billDetailReference, reference)
-            }
+    /// The platform's properties: the figures and status, the supplier, the dates, the reference.
+    private func details(currency: String) -> some View {
+        PanelSection {
+            DocumentFigures(
+                total: bill.total,
+                amountPaid: bill.amountPaid,
+                balanceDue: bill.balanceDue,
+                currency: currency,
+                status: bill.displayStatus(),
+                isInvoice: false
+            )
+            PropertyRow("building.2", books.labels.supplier, bill.contactName)
+            PropertyRow("calendar", BooksStrings.billDetailIssueDate, books.date(bill.issueDate))
+            DueDateRow(label: BooksStrings.billDetailDueDate, dueDate: bill.dueDate, balanceDue: bill.balanceDue, isInvoice: false)
+            PropertyRow("number", BooksStrings.billDetailReference, bill.reference)
             if books.isUs {
                 let delivered = Addresses.lines(bill.deliveryAddress)
                 if !delivered.isEmpty {
-                    DetailRow(BooksStrings.billDetailDeliveredTo, delivered.joined(separator: "\n"))
+                    PropertyRow("shippingbox", BooksStrings.billDetailDeliveredTo, delivered.joined(separator: "\n"))
                 }
             }
         }
@@ -472,55 +479,57 @@ private struct BillBodyView: View {
     @ViewBuilder
     private var notes: some View {
         if let notes = bill.notes {
-            SectionCard(title: BooksStrings.billDetailNotes) {
+            PanelSection(title: BooksStrings.billDetailNotes) {
                 Text(notes)
-                    .font(.subheadline)
-                    .foregroundStyle(Color.secondary)
+                    .font(.inter(.subheadline))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
-    /// Approve or reject while it awaits approval; pay once approved.
+    /// The platform's action bar under the title: approve or reject while it awaits approval; pay once approved.
+    @ViewBuilder
     private var actions: some View {
         let store = books.store
         let billId = bill.id
-        return VStack(spacing: Tokens.Spacing.s) {
-            if Statuses.billAwaitsApproval(bill) {
-                Button {
-                    mutations.run(toaster, success: BooksStrings.billDetailApproved, reload: reload) {
-                        _ = try await store.approveBill(id: billId)
+        let awaits = Statuses.billAwaitsApproval(bill)
+        let payable = Statuses.billIsPayable(bill)
+        if awaits || payable {
+            HStack(spacing: Tokens.Spacing.s) {
+                if awaits {
+                    Button {
+                        mutations.run(toaster, success: BooksStrings.billDetailApproved, reload: reload) {
+                            _ = try await store.approveBill(id: billId)
+                        }
+                    } label: {
+                        Label(BooksStrings.billDetailApprove, systemImage: "checkmark")
                     }
-                } label: {
-                    Label(BooksStrings.billDetailApprove, systemImage: "checkmark")
-                        .frame(maxWidth: .infinity)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(mutations.busy)
+                    .tagged("approve-bill")
+                    Button(action: onReject) {
+                        Label(BooksStrings.billDetailReject, systemImage: "xmark")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Tokens.Status.danger)
+                    .disabled(mutations.busy)
+                    .tagged("reject-bill")
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(mutations.busy)
-                .tagged("approve-bill")
-                Button(action: onReject) {
-                    Label(BooksStrings.billDetailReject, systemImage: "xmark")
-                        .frame(maxWidth: .infinity)
+                if payable {
+                    Button(action: onPay) {
+                        Label(BooksStrings.billDetailRecordPayment, systemImage: "banknote")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(mutations.busy)
+                    .tagged("record-bill-payment")
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .tint(Tokens.Status.danger)
-                .disabled(mutations.busy)
-                .tagged("reject-bill")
+                Spacer(minLength: 0)
             }
-            if Statuses.billIsPayable(bill) {
-                Button(action: onPay) {
-                    Label(BooksStrings.billDetailRecordPayment, systemImage: "banknote")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(mutations.busy)
-                .tagged("record-bill-payment")
-            }
+            .font(.inter(.subheadline, weight: .medium))
+            .padding(.horizontal, Tokens.Spacing.l)
+            .padding(.vertical, Tokens.Spacing.s)
         }
-        .padding(Tokens.Spacing.m)
     }
 }
 

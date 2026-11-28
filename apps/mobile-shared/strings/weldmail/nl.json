@@ -37,7 +37,7 @@
   },
   "drawer": {
     "title": "Mailboxen",
-    "allInboxes": "Alle inboxen",
+    "allInboxes": "Alle accounts",
     "accounts": {
       "one": "{count} account",
       "other": "{count} accounts"
@@ -50,7 +50,8 @@
     "addAccount": "Account toevoegen",
     "otherWorkspaces": "In andere workspaces",
     "inWorkspace": "In {workspace}",
-    "noLabels": "Nog geen labels"
+    "noLabels": "Nog geen labels",
+    "addLabel": "Label toevoegen"
   },
   "inbox": {
     "searchMail": "Zoeken in e-mail",
@@ -61,8 +62,14 @@
     "filterStarred": "Met ster",
     "filterAttachments": "Bijlagen",
     "pinned": "Vastgezet",
-    "thisWeek": "Deze week",
-    "older": "Ouder",
+    "lastWeek": "Vorige week",
+    "weeksAgo": {
+      "one": "{count} week geleden",
+      "other": "{count} weken geleden"
+    },
+    "toPrefix": "Aan:",
+    "noRecipient": "Geen ontvanger",
+    "isImportant": "Belangrijk",
     "unreadInThread": {
       "one": "{count} ongelezen",
       "other": "{count} ongelezen"
@@ -122,13 +129,12 @@
   "message": {
     "to": "aan {recipients}",
     "toMe": "aan mij",
-    "from": "Van",
-    "toLabel": "Aan",
-    "cc": "Cc",
-    "date": "Datum",
-    "encryption": "Standaardversleuteling (TLS)",
     "showDetails": "Details tonen",
     "hideDetails": "Details verbergen",
+    "recipients": {
+      "one": "Ontvangers ({count})",
+      "other": "Ontvangers ({count})"
+    },
     "attachments": {
       "one": "{count} bijlage",
       "other": "{count} bijlagen"
@@ -144,15 +150,14 @@
     "archive": "Archiveren",
     "snooze": "Snoozen",
     "labels": "Labels",
+    "labelAs": "Label als",
     "more": "Meer",
     "markUnread": "Markeren als ongelezen",
     "delete": "Verwijderen",
     "markSpam": "Markeren als spam",
-    "reportPhishing": "Phishing melden",
-    "reportedTitle": "Gemeld",
-    "reportedMessage": "Dit bericht is gemeld als phishing.",
     "archiveAndNext": "Archiveren en de volgende e-mail openen",
     "next": "De volgende e-mail openen",
+    "markDone": "Markeren als klaar",
     "notFound": "E-mail niet gevonden",
     "loadFailed": "Deze e-mail kon niet worden geladen",
     "conversation": {
@@ -190,7 +195,6 @@
     "nextMonday": "Volgende maandag"
   },
   "sendLater": {
-    "sendLaterTitle": "Later versturen",
     "scheduleTitle": "Verzending inplannen",
     "inOneHour": "Over 1 uur",
     "inTwoHours": "Over 2 uur",
@@ -243,9 +247,7 @@
     "cc": "Cc",
     "bcc": "Bcc",
     "subject": "Onderwerp",
-    "bodyPlaceholder": "E-mail opstellen",
-    "showCcBcc": "Cc en Bcc tonen",
-    "hideCcBcc": "Cc en Bcc verbergen",
+    "bodyPlaceholder": "Schrijf je bericht…",
     "removeRecipient": "{email} weghalen",
     "recipientRequired": "Voeg minstens één ontvanger toe",
     "sendWithoutBodyTitle": "Versturen zonder tekst?",
@@ -281,13 +283,14 @@
     "bulletList": "Opsomming",
     "numberedList": "Genummerde lijst",
     "schedule": "Verzending inplannen",
-    "sendLater": "Later versturen",
     "ai": "Schrijven met AI",
     "aiUnavailable": "AI is op dit moment niet beschikbaar",
     "queued": "Je bent offline. De e-mail gaat de deur uit zodra je weer online bent.",
     "sent": "E-mail verstuurd",
     "scheduled": "E-mail ingepland voor {time}",
-    "sending": "Versturen…"
+    "sending": "Versturen…",
+    "formatting": "Opmaak",
+    "scheduleFor": "Plannen · {time}"
   },
   "sendError": {
     "hourlyTitle": "Uurlimiet bereikt",

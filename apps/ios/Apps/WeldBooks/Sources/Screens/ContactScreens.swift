@@ -15,13 +15,22 @@ private func contactRoleLabel(_ role: String, labels: Labels) -> String {
     }
 }
 
-/// A building for a company, a person for a private individual; an older contact keeps the building.
+/// The platform's row avatar of a contact: a building for a company, a person for a private individual; an older contact keeps the building.
 private struct ContactKindTile: View {
     let kind: String?
-    var size: CGFloat = 40
+    var size: CGFloat = 24
 
     var body: some View {
-        IconTile(systemImage: kind == "person" ? "person" : "building.2", color: Accents.contacts, size: size)
+        RowAvatar(name: nil, systemImage: kind == "person" ? "person.fill" : "building.2", size: size)
+    }
+}
+
+/// The platform's chip colour of a role: customers blue, suppliers purple, both indigo.
+private func contactRoleTone(_ role: String) -> Color {
+    switch role {
+    case "both": return Tones.indigo
+    case "supplier": return Tones.purple
+    default: return Tones.blue
     }
 }
 
@@ -33,12 +42,12 @@ private struct ContactNavTitle: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(title)
-                .font(.headline)
+                .font(.inter(.headline))
                 .lineLimit(1)
             if let subtitle {
                 Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(Color.secondary)
+                    .font(.inter(.caption))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                     .lineLimit(1)
             }
         }
@@ -143,15 +152,15 @@ private struct ContactsList: View {
                 RecordRow(
                     title: contact.name.isBlank ? BooksStrings.contactsUnnamed : contact.name,
                     subtitle: contact.email,
-                    meta: contactRoleLabel(contact.role, labels: books.labels),
                     tag: "contact-row",
-                    onTap: { navigator.open(.contact(id: contact.id)) }
-                ) {
-                    ContactKindTile(kind: contact.kind)
-                }
+                    onTap: { navigator.open(.contact(id: contact.id)) },
+                    leading: { ContactKindTile(kind: contact.kind) },
+                    badge: { StatusBadge(contactRoleLabel(contact.role, labels: books.labels), color: contactRoleTone(contact.role)) }
+                )
+                .platformRow()
             }
         }
-        .listStyle(.plain)
+        .platformList()
         .overlay {
             if contacts.isEmpty { emptyState }
         }
@@ -161,21 +170,20 @@ private struct ContactsList: View {
     @ViewBuilder
     private var emptyState: some View {
         if searching {
-            ContentUnavailableView(
-                BooksStrings.contactsNoMatchTitle,
-                systemImage: "person.2",
-                description: Text(BooksStrings.contactsNoMatchDescription)
+            BooksEmptyState(
+                systemImage: "magnifyingglass",
+                title: BooksStrings.contactsNoMatchTitle,
+                description: BooksStrings.contactsNoMatchDescription
             )
         } else {
-            ContentUnavailableView {
-                Label(BooksStrings.contactsEmptyTitle, systemImage: "person.2")
-            } description: {
-                Text(BooksStrings.contactsEmptyDescription(suppliers: books.labels.suppliersLower))
-            } actions: {
-                Button(BooksStrings.contactsNewContact) { navigator.open(.newContact) }
-                    .buttonStyle(.borderedProminent)
-                    .tagged("contacts-empty-new")
-            }
+            BooksEmptyState(
+                systemImage: "person.2",
+                title: BooksStrings.contactsEmptyTitle,
+                description: BooksStrings.contactsEmptyDescription(suppliers: books.labels.suppliersLower),
+                action: BooksStrings.contactsNewContact,
+                actionTag: "contacts-empty-new",
+                onAction: { navigator.open(.newContact) }
+            )
         }
     }
 }
@@ -298,10 +306,10 @@ private struct ContactBody: View {
                 ContactInfoCard(contact: page.contact)
                 ContactTaxReportingCard(contact: page.contact)
                 if !page.invoices.isEmpty {
-                    invoicesCard
+                    invoicesList
                 }
                 if !page.bills.isEmpty {
-                    billsCard
+                    billsList
                 }
             }
             .padding(.bottom, Tokens.Spacing.xl)
@@ -310,73 +318,89 @@ private struct ContactBody: View {
         .tagged("contact-detail")
     }
 
+    /// The platform's page header: the avatar, the name, the kind and the role.
     private var header: some View {
         let contact = page.contact
-        return SectionCard {
-            HStack(spacing: Tokens.Spacing.m) {
-                ContactKindTile(kind: contact.kind, size: 48)
-                VStack(alignment: .leading, spacing: Tokens.Spacing.xs) {
-                    Text(contact.name)
-                        .font(.headline)
-                    HStack(spacing: 6) {
-                        if let kind = contact.kind {
-                            StatusBadge(
-                                kind == "person" ? BooksStrings.contactsKindsPerson : BooksStrings.contactsKindsCompany,
-                                color: Color.secondary
-                            )
-                        }
-                        StatusBadge(contactRoleLabel(contact.role, labels: books.labels), color: Accents.brand)
+        return HStack(spacing: Tokens.Spacing.m) {
+            ContactKindTile(kind: contact.kind, size: 40)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(contact.name)
+                    .font(.inter(.headline))
+                HStack(spacing: 6) {
+                    if let kind = contact.kind {
+                        StatusBadge(
+                            kind == "person" ? BooksStrings.contactsKindsPerson : BooksStrings.contactsKindsCompany,
+                            color: Tones.gray
+                        )
                     }
+                    StatusBadge(contactRoleLabel(contact.role, labels: books.labels), color: contactRoleTone(contact.role))
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(.horizontal, Tokens.Spacing.l)
+        .padding(.vertical, Tokens.Spacing.m)
     }
 
+    /// What they still owe and what is still to pay them, as the platform's KPI cards.
     private func balanceCard(_ balance: ContactBalance) -> some View {
-        let receivableColor: Color? = balance.receivable > 0 ? Tokens.Status.warning : nil
-        let payableColor: Color? = balance.payable > 0 ? Tokens.Status.warning : nil
-        return SectionCard(title: BooksStrings.contactDetailBalance) {
-            DetailRow(BooksStrings.contactDetailReceivable, books.money(balance.receivable), valueColor: receivableColor, strong: true)
-            DetailRow(BooksStrings.contactDetailPayable, books.money(balance.payable), valueColor: payableColor, strong: true)
+        HStack(spacing: Tokens.Spacing.m) {
+            KpiCard(
+                label: BooksStrings.contactDetailReceivable,
+                value: books.money(balance.receivable),
+                systemImage: "arrow.down",
+                tone: balance.receivable > 0 ? Tones.amber : nil,
+                tag: "contact-receivable"
+            )
+            KpiCard(
+                label: BooksStrings.contactDetailPayable,
+                value: books.money(balance.payable),
+                systemImage: "arrow.up",
+                tone: balance.payable > 0 ? Tones.amber : nil,
+                tag: "contact-payable"
+            )
         }
+        .padding(.horizontal, Tokens.Spacing.l)
+        .padding(.vertical, Tokens.Spacing.s)
     }
 
-    private var invoicesCard: some View {
-        SectionCard(title: BooksStrings.contactDetailInvoices, padded: false) {
+    private var invoicesList: some View {
+        VStack(spacing: 0) {
+            PanelSection(title: BooksStrings.contactDetailInvoices) {}
             ForEach(Array(page.invoices.prefix(5))) { invoice in
+                Hairline()
                 RecordRow(
                     title: invoice.number ?? BooksStrings.commonDraft,
-                    subtitle: books.shortDate(invoice.issueDate),
+                    meta: books.shortDate(invoice.issueDate),
                     amount: books.money(invoice.total, currency: invoice.currency),
                     tag: "contact-invoice",
-                    onTap: { navigator.open(.invoice(id: invoice.id)) }
-                ) {
-                    IconTile(systemImage: "doc.text", color: Accents.vat, size: 32)
-                } badge: {
-                    StatusPill(invoice.displayStatus())
-                }
+                    onTap: { navigator.open(.invoice(id: invoice.id)) },
+                    badge: { StatusPill(invoice.displayStatus()) }
+                )
                 .padding(.horizontal, Tokens.Spacing.l)
+                .padding(.vertical, Tokens.Spacing.s)
             }
+            Hairline()
         }
     }
 
-    private var billsCard: some View {
-        SectionCard(title: BooksStrings.contactDetailBills, padded: false) {
+    private var billsList: some View {
+        VStack(spacing: 0) {
+            PanelSection(title: BooksStrings.contactDetailBills) {}
             ForEach(Array(page.bills.prefix(5))) { bill in
+                Hairline()
                 RecordRow(
                     title: bill.number ?? BooksStrings.commonDraft,
-                    subtitle: books.shortDate(bill.issueDate),
+                    meta: books.shortDate(bill.issueDate),
                     amount: books.money(bill.total, currency: bill.currency),
                     tag: "contact-bill",
-                    onTap: { navigator.open(.bill(id: bill.id)) }
-                ) {
-                    IconTile(systemImage: "list.bullet.rectangle", color: Accents.profitLoss, size: 32)
-                } badge: {
-                    StatusPill(bill.displayStatus())
-                }
+                    onTap: { navigator.open(.bill(id: bill.id)) },
+                    badge: { StatusPill(bill.displayStatus()) }
+                )
                 .padding(.horizontal, Tokens.Spacing.l)
+                .padding(.vertical, Tokens.Spacing.s)
             }
+            Hairline()
         }
     }
 }
@@ -406,18 +430,18 @@ private struct ContactInfoCard: View {
 
     var body: some View {
         if shown {
-            SectionCard(title: BooksStrings.contactDetailDetails) {
+            PanelSection(title: BooksStrings.contactDetailDetails) {
                 if let personText {
-                    DetailRow(BooksStrings.contactDetailContactPerson, personText)
+                    PropertyRow("person", BooksStrings.contactDetailContactPerson, personText)
                 }
                 if let email = contact.email {
-                    DetailRow(BooksStrings.contactDetailEmail, email)
+                    PropertyRow("envelope", BooksStrings.contactDetailEmail, email)
                 }
                 if let phone = contact.phone {
-                    DetailRow(BooksStrings.contactDetailPhone, phone)
+                    PropertyRow("phone", BooksStrings.contactDetailPhone, phone)
                 }
                 if let vat = contact.vatNumber {
-                    DetailRow(books.labels.taxId, vat)
+                    PropertyRow("person.text.rectangle", books.labels.taxId, vat)
                 }
                 addressRows
             }
@@ -429,13 +453,13 @@ private struct ContactInfoCard: View {
     private var addressRows: some View {
         if books.isUs {
             if !billing.isEmpty {
-                DetailRow(BooksStrings.contactDetailBillingAddress, billing.joined(separator: "\n"))
+                PropertyRow("mappin.and.ellipse", BooksStrings.contactDetailBillingAddress, billing.joined(separator: "\n"))
             }
             if !shipping.isEmpty, shipping != billing {
-                DetailRow(BooksStrings.contactDetailShippingAddress, shipping.joined(separator: "\n"))
+                PropertyRow("shippingbox", BooksStrings.contactDetailShippingAddress, shipping.joined(separator: "\n"))
             }
         } else if let city = contact.city, !city.isBlank {
-            DetailRow(BooksStrings.contactDetailCity, city)
+            PropertyRow("mappin.and.ellipse", BooksStrings.contactDetailCity, city)
         }
     }
 }
@@ -461,12 +485,12 @@ private struct ContactTaxReportingCard: View {
 
     var body: some View {
         if books.isUs, contact.is1099Vendor || contact.tinLast4 != nil {
-            SectionCard(title: BooksStrings.contactDetailTaxReporting) {
+            PanelSection(title: BooksStrings.contactDetailTaxReporting) {
                 if contact.is1099Vendor {
-                    DetailRow(BooksStrings.contactDetailVendor1099, BooksStrings.contactDetailYes)
+                    PropertyRow("doc.plaintext", BooksStrings.contactDetailVendor1099, BooksStrings.contactDetailYes)
                 }
                 if let last4 = contact.tinLast4 {
-                    DetailRow(BooksStrings.contactDetailTaxpayerId, BooksStrings.contactDetailTinOnFile(type: tinType, last4: last4).trimmed)
+                    PropertyRow("person.text.rectangle", BooksStrings.contactDetailTaxpayerId, BooksStrings.contactDetailTinOnFile(type: tinType, last4: last4).trimmed)
                 }
             }
         }
@@ -573,6 +597,7 @@ struct ContactFormView: View {
             }
         }
         .tagged("contact-form")
+        .environment(\.booksPlainFields, true)
         .navigationTitle(BooksStrings.contactNewTitle)
         .navigationBarTitleDisplayMode(.inline)
     }

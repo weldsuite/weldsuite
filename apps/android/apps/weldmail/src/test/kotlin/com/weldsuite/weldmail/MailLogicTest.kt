@@ -67,27 +67,77 @@ class MailLogicTest {
     }
 
     @Test
-    fun colorsComeFromTheLabelElseFromItsName() {
-        assertEquals(0x3B82F6, MailLogic.labelColor("Clients", "#3B82F6"))
-        assertEquals(MailLogic.labelColor("Clients", null), MailLogic.labelColor("Clients", "not a colour"))
-        assertTrue(MailLogic.avatarColor("Grace Hopper") > 0)
+    fun aLabelsOwnColourIsReadFromItsHex() {
+        assertEquals(0x3B82F6, MailLogic.parseHex("#3B82F6"))
+        assertNull(MailLogic.parseHex("not a colour"))
+        assertNull(MailLogic.parseHex(null))
     }
 
     @Test
-    fun messagesGroupByCalendarDayWithPinnedFirst() {
+    fun messagesGroupAsThePlatformsListWithPinnedFirst() {
+        // Friday 27 November 2026; the week started on Monday the 23rd.
         val list = listOf(
             message("a", sent = "2026-11-27T08:00:00Z"),
             message("b", sent = "2026-11-26T23:30:00Z"),
             message("c", sent = "2026-11-23T10:00:00Z"),
-            message("d", sent = "2026-10-01T10:00:00Z"),
-            message("e", sent = "2026-10-02T10:00:00Z"),
+            message("d", sent = "2026-11-18T10:00:00Z"),
+            message("f", sent = "2026-11-05T10:00:00Z"),
+            message("g", sent = "2026-10-01T10:00:00Z"),
+            message("h", sent = "2025-12-24T10:00:00Z"),
+            message("e", sent = "2026-10-02T10:00:00Z", labels = listOf("INBOX", "PINNED")),
         )
-        val sections = MailLogic.sections(list, pinned = setOf("e"), now = now, zone = zone)
+        val sections = MailLogic.sections(list, now = now, zone = zone)
         assertEquals(
-            listOf(DateSection.PINNED, DateSection.TODAY, DateSection.YESTERDAY, DateSection.THIS_WEEK, DateSection.OLDER),
-            sections.map { it.section },
+            listOf(
+                DateGroup(DateGroup.Kind.PINNED),
+                DateGroup(DateGroup.Kind.TODAY),
+                DateGroup(DateGroup.Kind.YESTERDAY),
+                DateGroup(DateGroup.Kind.WEEKDAY, LocalDate.of(2026, 11, 23)),
+                DateGroup(DateGroup.Kind.LAST_WEEK),
+                DateGroup(DateGroup.Kind.WEEKS_AGO, weeks = 3),
+                DateGroup(DateGroup.Kind.MONTH, LocalDate.of(2026, 10, 1)),
+                DateGroup(DateGroup.Kind.MONTH_YEAR, LocalDate.of(2025, 12, 1)),
+            ),
+            sections.map { it.group },
         )
         assertEquals(listOf("e"), sections.first().messages.map { it.id })
+    }
+
+    @Test
+    fun aScheduledSendGetsItsOwnDayAndRowsReadTheirDateAsThePlatform() {
+        assertEquals(
+            DateGroup(DateGroup.Kind.UPCOMING, LocalDate.of(2026, 12, 3)),
+            MailLogic.dateGroup("2026-12-03T09:00:00Z", now, zone),
+        )
+        assertEquals(DateGroup(DateGroup.Kind.TODAY), MailLogic.dateGroup("2026-11-27T18:00:00Z", now, zone))
+        assertEquals(DateStyle.TIME, MailLogic.dateStyle(Instant.parse("2026-11-27T01:00:00Z"), now, zone))
+        assertEquals(DateStyle.DAY, MailLogic.dateStyle(Instant.parse("2026-01-02T01:00:00Z"), now, zone))
+        assertEquals(DateStyle.DAY_YEAR, MailLogic.dateStyle(Instant.parse("2025-12-31T01:00:00Z"), now, zone))
+    }
+
+    @Test
+    fun ownMailNamesItsRecipientsAndTheConversationEndsWithTheNewest() {
+        assertTrue(MailLogic.isOutgoingFolder("sent"))
+        assertFalse(MailLogic.isOutgoingFolder("INBOX"))
+        assertEquals("Jane Doe, bob@example.com", MailLogic.recipientNames(listOf(MailAddress("jane@example.com", "Jane Doe"), MailAddress("bob@example.com"))))
+        assertNull(MailLogic.recipientNames(emptyList()))
+        val sent = message("m", to = listOf(MailAddress("me@weld.test")), cc = listOf(MailAddress("sanne.bakker@example.com")))
+        assertEquals(listOf("me", "Sanne Bakker"), MailLogic.recipientsLine(sent, listOf("ME@weld.test"), "me"))
+        val older = message("x", sent = "2026-11-26T09:00:00Z")
+        val newer = message("y", sent = "2026-11-27T09:00:00Z")
+        assertEquals(listOf("x", "y"), MailLogic.conversation(older, listOf(newer, older)).map { it.id })
+        assertTrue(MailLogic.isImportant(message("i", labels = listOf("IMPORTANT"))))
+    }
+
+    @Test
+    fun aPinIsTheServersPinnedLabel() {
+        assertTrue(MailLogic.isPinned(message("p", labels = listOf("pinned"))))
+        assertFalse(MailLogic.isPinned(message("q", labels = listOf("INBOX"))))
+        assertEquals(listOf("INBOX", "PINNED"), MailLogic.withPinned(listOf("INBOX"), on = true))
+        assertEquals(listOf("INBOX", "PINNED"), MailLogic.withPinned(listOf("INBOX", "PINNED"), on = true))
+        assertEquals(listOf("INBOX"), MailLogic.withPinned(listOf("INBOX", "PINNED"), on = false))
+        // The pin is a system label: never a chip on the row.
+        assertEquals(emptyList<String>(), MailLogic.displayLabels(listOf("PINNED")))
     }
 
     @Test

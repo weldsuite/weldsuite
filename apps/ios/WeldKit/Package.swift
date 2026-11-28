@@ -91,11 +91,16 @@ let package = Package(
         ),
         .target(
             name: "WeldUI",
-            dependencies: ["WeldCore"]
+            dependencies: ["WeldCore"],
+            resources: [.process("Resources")]
         ),
         .testTarget(
             name: "WeldCoreTests",
             dependencies: ["WeldCore", "CoreAPI"]
+        ),
+        .testTarget(
+            name: "WeldUITests",
+            dependencies: ["WeldUI"]
         ),
     ],
     swiftLanguageModes: [.v5]

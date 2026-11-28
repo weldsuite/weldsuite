@@ -6,24 +6,35 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 object Tokens {
-    object Brand {
-        val weldpass = DayNight(Color(0xFF4F46E5), Color(0xFF818CF8))
-        val weldbooks = DayNight(Color(0xFF0E9F6E), Color(0xFF34D399))
-        val weldmail = DayNight(Color(0xFFE4572E), Color(0xFFFB8A6B))
-        val weldcalendar = DayNight(Color(0xFFE5375E), Color(0xFFFF7A98))
-        val weldchat = DayNight(Color(0xFF00A35A), Color(0xFF3DD68C))
-        val welddesk = DayNight(Color(0xFF1D7FE0), Color(0xFF60A5FA))
-        val weldhr = DayNight(Color(0xFF0F8A80), Color(0xFF2DD4BF))
+    object Palette {
+        val background = DayNight(Color(0xFFFFFFFF), Color(0xFF1C1D1F))
+        val foreground = DayNight(Color(0xFF0A0A0A), Color(0xFFFFFFFF))
+        val card = DayNight(Color(0xFFFFFFFF), Color(0xFF232529))
+        val primary = DayNight(Color(0xFF171717), Color(0xFF266DF0))
+        val primaryForeground = DayNight(Color(0xFFFAFAFA), Color(0xFFFFFFFF))
+        val secondary = DayNight(Color(0xFFF5F5F5), Color(0xFF2E3238))
+        val secondaryForeground = DayNight(Color(0xFF171717), Color(0xFFEDEFF3))
+        val muted = DayNight(Color(0xFFF5F5F5), Color(0xFF232529))
+        val mutedForeground = DayNight(Color(0xFF737373), Color(0xFFB5BDC9))
+        val accent = DayNight(Color(0xFFF5F5F5), Color(0xFF2E3238))
+        val accentForeground = DayNight(Color(0xFF171717), Color(0xFFEDEFF3))
+        val border = DayNight(Color(0xFFE5E5E5), Color(0xFF2E3238))
+        val input = DayNight(Color(0xFFE5E5E5), Color(0xFF383E47))
+        val ring = DayNight(Color(0xFFA1A1A1), Color(0xFF709FF5))
+        val chrome = DayNight(Color(0xFFFAFAFA), Color(0xFF1C1D1F))
+        val link = DayNight(Color(0xFF2563EB), Color(0xFF709FF5))
     }
     object Status {
-        val danger = DayNight(Color(0xFFDC2626), Color(0xFFF87171))
-        val warning = DayNight(Color(0xFFD97706), Color(0xFFFBBF24))
-        val success = DayNight(Color(0xFF059669), Color(0xFF34D399))
+        val danger = DayNight(Color(0xFFE7000B), Color(0xFFFF5B59))
+        val warning = DayNight(Color(0xFFD97706), Color(0xFFF5B900))
+        val success = DayNight(Color(0xFF059669), Color(0xFF0FC27B))
+        val info = DayNight(Color(0xFF2563EB), Color(0xFF709FF5))
     }
     object Radius {
-        val small = 8.dp
-        val medium = 12.dp
-        val large = 16.dp
+        val small = 6.dp
+        val medium = 8.dp
+        val large = 10.dp
+        val xlarge = 14.dp
     }
     object Spacing {
         val xs = 4.dp

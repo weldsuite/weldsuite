@@ -9,7 +9,6 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
-import kotlin.math.abs
 import kotlin.math.ln
 import kotlin.math.pow
 
@@ -43,10 +42,20 @@ enum class SystemLabel(val slug: String) {
 /** The inbox's quick filters. */
 enum class InboxFilter { ALL, UNREAD, STARRED, ATTACHMENTS }
 
-/** Where a message falls in the inbox. */
-enum class DateSection { PINNED, TODAY, YESTERDAY, THIS_WEEK, OLDER }
+/**
+ * A group of the mail list, as the platform's list groups it (Gmail and
+ * Outlook style): Today, Yesterday, a weekday of this week, Last week, two or
+ * three weeks ago, then a month (with its year once it isn't this year's).
+ * A message dated in the future (a scheduled send) gets its own day.
+ */
+data class DateGroup(val kind: Kind, val day: LocalDate? = null, val weeks: Int = 0) {
+    enum class Kind { PINNED, TODAY, YESTERDAY, WEEKDAY, LAST_WEEK, WEEKS_AGO, MONTH, MONTH_YEAR, UPCOMING, UNDATED }
+}
 
-data class MessageSection(val section: DateSection, val messages: List<MailMessage>)
+data class MessageSection(val group: DateGroup, val messages: List<MailMessage>)
+
+/** How a row shows its date: the time today, else the day, with the year once it isn't this year. */
+enum class DateStyle { TIME, DAY, DAY_YEAR }
 
 /** Reply, reply all or forward. */
 enum class ComposeMode { NEW, REPLY, REPLY_ALL, FORWARD }
@@ -121,40 +130,16 @@ object MailLogic {
         return LabelState(counts, custom)
     }
 
-    private val LABEL_COLORS = listOf(
-        0xEF4444, 0xF97316, 0xF59E0B, 0xEAB308, 0x84CC16, 0x22C55E, 0x10B981, 0x14B8A6, 0x06B6D4,
-        0x0EA5E9, 0x3B82F6, 0x6366F1, 0x8B5CF6, 0xA855F7, 0xD946EF, 0xEC4899, 0xF43F5E,
-    )
-
-    private val AVATAR_COLORS = listOf(
-        0x3B82F6, 0x10B981, 0xF59E0B, 0x8B5CF6, 0xEF4444, 0x06B6D4, 0xEC4899, 0xF97316, 0x14B8A6, 0x6366F1,
-    )
-
     /** The colours a new label can have. */
     val LABEL_CHOICES: List<Pair<String, Int>> = listOf(
         "red" to 0xEF4444, "orange" to 0xF97316, "yellow" to 0xEAB308, "green" to 0x22C55E,
         "teal" to 0x14B8A6, "blue" to 0x3B82F6, "purple" to 0x8B5CF6, "pink" to 0xEC4899,
     )
 
-    /** JavaScript's `hash = codePoint + ((hash << 5) - hash)`, as the Expo app and the web compute it. */
-    fun hash(text: String): Int {
-        var hash = 0
-        var index = 0
-        while (index < text.length) {
-            val codePoint = text.codePointAt(index)
-            hash = codePoint + ((hash shl 5) - hash)
-            index += Character.charCount(codePoint)
-        }
-        return if (hash == Int.MIN_VALUE) 0 else abs(hash)
-    }
-
-    /** A label's colour: its own (`#RRGGBB`), else one picked by its name. */
-    fun labelColor(name: String, own: String?): Int =
-        parseHex(own) ?: LABEL_COLORS[hash(name) % LABEL_COLORS.size]
-
-    /** The tile colour behind a sender's initial. */
-    fun avatarColor(name: String): Int = AVATAR_COLORS[hash(name) % AVATAR_COLORS.size]
-
+    /**
+     * A label's own colour (`#RRGGBB`), or null: the screens then take the
+     * platform's colour for its name (`org.weldsuite.ui.labelColor`).
+     */
     fun parseHex(value: String?): Int? {
         val text = value?.trim()?.removePrefix("#") ?: return null
         if (text.length != 6) return null
@@ -163,31 +148,101 @@ object MailLogic {
 
     // ---------------------------------------------------------------- the list
 
-    /** The day a message falls on, as the inbox groups it. */
-    fun dateSection(date: String, now: Instant = Instant.now(), zone: ZoneId = ZoneId.systemDefault()): DateSection {
-        val instant = WeldDate.parse(date) ?: return DateSection.OLDER
-        val days = ChronoUnit.DAYS.between(instant.atZone(zone).toLocalDate(), now.atZone(zone).toLocalDate())
+    /** The group a message falls in, as the platform's list groups it (weeks start on Monday). */
+    fun dateGroup(date: String, now: Instant = Instant.now(), zone: ZoneId = ZoneId.systemDefault()): DateGroup {
+        val instant = WeldDate.parse(date) ?: return DateGroup(DateGroup.Kind.UNDATED)
+        val day = instant.atZone(zone).toLocalDate()
+        val today = now.atZone(zone).toLocalDate()
+        if (day == today) return DateGroup(DateGroup.Kind.TODAY)
+        if (day == today.minusDays(1)) return DateGroup(DateGroup.Kind.YESTERDAY)
+        if (instant.isAfter(now)) return DateGroup(DateGroup.Kind.UPCOMING, day)
+        val monday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        if (!day.isBefore(monday)) return DateGroup(DateGroup.Kind.WEEKDAY, day)
+        val weeks = ChronoUnit.WEEKS.between(day.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)), monday).toInt()
         return when {
-            days <= 0 -> DateSection.TODAY
-            days == 1L -> DateSection.YESTERDAY
-            days <= 7 -> DateSection.THIS_WEEK
-            else -> DateSection.OLDER
+            weeks <= 1 -> DateGroup(DateGroup.Kind.LAST_WEEK)
+            weeks <= 3 -> DateGroup(DateGroup.Kind.WEEKS_AGO, weeks = weeks)
+            day.year == today.year -> DateGroup(DateGroup.Kind.MONTH, day.withDayOfMonth(1))
+            else -> DateGroup(DateGroup.Kind.MONTH_YEAR, day.withDayOfMonth(1))
         }
     }
 
-    /** Pinned first, then by day; empty sections left out. */
+    /** The system label that pins a message, as the platform pins one (`usePinThread`, the message context menu). */
+    const val PINNED_LABEL = "PINNED"
+
+    /** Pinned on the server: it carries the `PINNED` label, so the pin shows on the web and every device. */
+    fun isPinned(message: MailMessage): Boolean = message.labels.any { it.equals(PINNED_LABEL, ignoreCase = true) }
+
+    /** The labels with the pin added or taken off. */
+    fun withPinned(labels: List<String>, on: Boolean): List<String> {
+        val rest = labels.filterNot { it.equals(PINNED_LABEL, ignoreCase = true) }
+        return if (on) rest + PINNED_LABEL else rest
+    }
+
+    /** Pinned first, then a group per day, week or month in the list's own order (newest first). */
     fun sections(
         messages: List<MailMessage>,
-        pinned: Set<String>,
         now: Instant = Instant.now(),
         zone: ZoneId = ZoneId.systemDefault(),
     ): List<MessageSection> {
-        val (top, rest) = messages.partition { it.id in pinned }
-        val byDay = rest.groupBy { dateSection(it.listDate, now, zone) }
-        val ordered = listOf(DateSection.TODAY, DateSection.YESTERDAY, DateSection.THIS_WEEK, DateSection.OLDER)
-            .mapNotNull { section -> byDay[section]?.let { MessageSection(section, it) } }
-        return if (top.isEmpty()) ordered else listOf(MessageSection(DateSection.PINNED, top)) + ordered
+        val (top, rest) = messages.partition(::isPinned)
+        val groups = LinkedHashMap<DateGroup, MutableList<MailMessage>>()
+        rest.forEach { message -> groups.getOrPut(dateGroup(message.listDate, now, zone)) { mutableListOf() } += message }
+        val dated = groups.map { (group, list) -> MessageSection(group, list) }
+        return if (top.isEmpty()) dated else listOf(MessageSection(DateGroup(DateGroup.Kind.PINNED), top)) + dated
     }
+
+    /** How a row's (or a message's) date reads: the time today, else the day, with the year when it isn't this one. */
+    fun dateStyle(instant: Instant, now: Instant = Instant.now(), zone: ZoneId = ZoneId.systemDefault()): DateStyle {
+        val day = instant.atZone(zone).toLocalDate()
+        val today = now.atZone(zone).toLocalDate()
+        return when {
+            day == today -> DateStyle.TIME
+            day.year == today.year -> DateStyle.DAY
+            else -> DateStyle.DAY_YEAR
+        }
+    }
+
+    private val OUTGOING = setOf("SENT", "SCHEDULED", "DRAFTS", "DRAFT")
+
+    /** Sent, Drafts and Scheduled hold the person's own mail: a row names who it goes to, not the sender. */
+    fun isOutgoingFolder(label: String): Boolean = label.uppercase() in OUTGOING
+
+    /** "Jane Doe, bob@example.com": names where there are any, addresses otherwise; null when nobody. */
+    fun recipientNames(recipients: List<MailAddress>): String? =
+        recipients.filter { it.email.isNotBlank() || !it.name.isNullOrBlank() }
+            .map { it.label }
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(", ")
+
+    /** The orange flag: marked important, or labelled so. */
+    fun isImportant(message: MailMessage): Boolean = message.isImportant || message.labels.any { it.equals("IMPORTANT", ignoreCase = true) }
+
+    /** "jane.doe@example.com" → "Jane Doe", as the platform names a recipient it only has the address of. */
+    fun displayName(email: String): String =
+        email.substringBefore('@').split('.').filter { it.isNotEmpty() }.joinToString(" ") { part -> part.replaceFirstChar { it.uppercase() } }
+
+    /**
+     * Who a message went to, as the platform's "to Sanne Bakker, me" line:
+     * To then Cc, the person's own addresses as [me].
+     */
+    fun recipientsLine(message: MailMessage, selfAddresses: List<String>, me: String): List<String> {
+        val self = selfAddresses.map { it.lowercase() }.toSet()
+        return (message.to + message.cc)
+            .filter { it.email.isNotBlank() || !it.name.isNullOrBlank() }
+            .map { address ->
+                when {
+                    address.email.lowercase() in self -> me
+                    !address.name.isNullOrBlank() -> address.name
+                    else -> displayName(address.email)
+                }
+            }
+    }
+
+    /** The conversation in the platform's order: earlier messages oldest first, the newest last (shown open). */
+    fun conversation(current: MailMessage, others: List<MailMessage>): List<MailMessage> =
+        (others.filter { it.id != current.id } + current)
+            .sortedWith(compareBy<MailMessage> { WeldDate.parse(it.listDate)?.toEpochMilli() ?: 0L }.thenBy { it.id })
 
     fun filter(messages: List<MailMessage>, filter: InboxFilter): List<MailMessage> = when (filter) {
         InboxFilter.ALL -> messages
@@ -493,18 +548,6 @@ object MailLogic {
     fun extensionLabel(name: String): String = extension(name).takeIf { it.length in 1..5 }?.uppercase().orEmpty()
 
     private fun extension(name: String): String = name.substringAfterLast('.', "").lowercase()
-
-    fun attachmentColor(kind: AttachmentKind): Int = when (kind) {
-        AttachmentKind.IMAGE -> 0x8B5CF6
-        AttachmentKind.PDF -> 0xEF4444
-        AttachmentKind.DOC -> 0x2563EB
-        AttachmentKind.SHEET -> 0x16A34A
-        AttachmentKind.SLIDES -> 0xF97316
-        AttachmentKind.ARCHIVE -> 0xD97706
-        AttachmentKind.VIDEO -> 0xDB2777
-        AttachmentKind.AUDIO -> 0x0EA5E9
-        AttachmentKind.FILE -> 0x6B7280
-    }
 
     /** "2.5 MB". */
     fun fileSize(bytes: Long): String {

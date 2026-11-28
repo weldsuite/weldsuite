@@ -28,14 +28,15 @@ enum Statuses {
     /// A VAT return's: the server calls a filed return `filed`; the app calls it submitted.
     static func vatReturn(_ status: String) -> String { status == "filed" ? "submitted" : status }
 
-    /// Colour family of a status: `success`, `warning`, `danger`, `neutral` or `brand`.
+    /// The platform's chip tone of a status (`STATUS_TONES` in
+    /// `weldbooks-row-cells.tsx`): `green`, `blue`, `amber`, `red` or `gray`.
     static func tone(_ status: String) -> String {
         switch status {
-        case "paid", "accepted": return "success"
-        case "partially_paid", "pending": return "warning"
-        case "overdue", "uncollectible", "rejected": return "danger"
-        case "draft", "cancelled", "calculated", "reviewed": return "neutral"
-        default: return "brand"
+        case "paid", "posted", "reconciled", "matched", "filed", "accepted": return "green"
+        case "approved", "sent", "viewed", "finalized", "open", "submitted", "processing": return "blue"
+        case "partial", "partially_paid", "pending", "review", "needs_review", "due": return "amber"
+        case "overdue", "failed", "rejected", "error": return "red"
+        default: return "gray"
         }
     }
 
@@ -576,4 +577,24 @@ enum BooksTopics {
     static let contacts = ["accounting_contact", "accounting_entity"]
     static let vat = ["vat_return", "accounting_entity"]
     static let reports = ["invoice", "bill", "journal_entry", "account", "accounting_entity"]
+}
+
+/// The printable invoice the server renders (HTML), made to show as a page on a phone.
+enum DocumentHtml {
+    /// The width the server lays the document out at (its container is 800 px wide).
+    static let pageWidth = 800
+
+    /// The document with a viewport of the page's width instead of the phone's,
+    /// so it shows as the whole page scaled to the screen, like a PDF, and not
+    /// reflowed to phone width with its table cut off.
+    static func fitToPage(_ html: String, width: Int = pageWidth) -> String {
+        let meta = "<meta name=\"viewport\" content=\"width=\(width)\">"
+        if let range = html.range(of: #"<meta[^>]*name\s*=\s*["']?viewport["']?[^>]*>"#, options: [.regularExpression, .caseInsensitive]) {
+            return html.replacingCharacters(in: range, with: meta)
+        }
+        if let range = html.range(of: "<head[^>]*>", options: [.regularExpression, .caseInsensitive]) {
+            return html.replacingCharacters(in: range.upperBound..<range.upperBound, with: meta)
+        }
+        return meta + html
+    }
 }

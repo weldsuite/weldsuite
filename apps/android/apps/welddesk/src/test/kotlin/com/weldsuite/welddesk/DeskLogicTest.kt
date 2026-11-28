@@ -5,7 +5,11 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.DayOfWeek
 import java.time.Instant
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneOffset
 
 class DeskLogicTest {
     private fun conversation(
@@ -71,10 +75,129 @@ class DeskLogicTest {
         assertEquals("Order", DeskLogic.rowSubtitle(conversation(title = "Order", email = "a@b.test")))
         assertEquals("a@b.test", DeskLogic.rowSubtitle(conversation(email = "a@b.test")))
         assertEquals("", DeskLogic.rowSubtitle(conversation()))
-        assertEquals("#42 · Order", DeskLogic.numberLabel(conversation(title = "Order")))
-        assertEquals("#42", DeskLogic.numberLabel(conversation()))
-        assertEquals("#42", DeskLogic.threadTitle(conversation()))
+        assertEquals("Order", DeskLogic.rowSubject(conversation(title = "Order")))
+        assertEquals("#42", DeskLogic.rowSubject(conversation()))
         assertTrue(conversation(waiting = true).isWaiting)
+    }
+
+    @Test
+    fun theThreadIsTitledLikeThePlatformsHeaderWithoutSayingAnythingTwice() {
+        // The subject first, then the customer, as the platform's header.
+        assertEquals("Order", DeskLogic.threadTitle(conversation(title = "Order", name = "Ann", email = "ann@example.test")))
+        assertEquals("Ann · #42", DeskLogic.threadSubtitle(conversation(title = "Order", name = "Ann", email = "ann@example.test")))
+        // No subject: the email is the title, and isn't repeated under it.
+        assertEquals("gert@example.test", DeskLogic.threadTitle(conversation(email = "gert@example.test")))
+        assertEquals("#42", DeskLogic.threadSubtitle(conversation(email = "gert@example.test")))
+        assertNull(DeskLogic.threadTitle(conversation()))
+        assertEquals("#42", DeskLogic.threadSubtitle(conversation()))
+    }
+
+    @Test
+    fun theInboxIsGroupedByDayAsOnThePlatform() {
+        // Friday 27 November 2026; the week starts on Monday the 23rd.
+        val today = LocalDate.of(2026, 11, 27)
+        assertEquals(DeskLogic.DateGroup.Today, DeskLogic.dateGroup(today, today))
+        assertEquals(DeskLogic.DateGroup.Yesterday, DeskLogic.dateGroup(today.minusDays(1), today))
+        assertEquals(DeskLogic.DateGroup.Weekday(DayOfWeek.MONDAY), DeskLogic.dateGroup(LocalDate.of(2026, 11, 23), today))
+        assertEquals(DeskLogic.DateGroup.LastWeek, DeskLogic.dateGroup(LocalDate.of(2026, 11, 22), today))
+        assertEquals(DeskLogic.DateGroup.LastWeek, DeskLogic.dateGroup(LocalDate.of(2026, 11, 16), today))
+        assertEquals(DeskLogic.DateGroup.WeeksAgo(2), DeskLogic.dateGroup(LocalDate.of(2026, 11, 15), today))
+        assertEquals(DeskLogic.DateGroup.WeeksAgo(3), DeskLogic.dateGroup(LocalDate.of(2026, 11, 2), today))
+        assertEquals(DeskLogic.DateGroup.Month(YearMonth.of(2026, 10), withYear = false), DeskLogic.dateGroup(LocalDate.of(2026, 10, 30), today))
+        assertEquals(DeskLogic.DateGroup.Month(YearMonth.of(2025, 12), withYear = true), DeskLogic.dateGroup(LocalDate.of(2025, 12, 31), today))
+        assertEquals(DeskLogic.DateGroup.Later(today.plusDays(2)), DeskLogic.dateGroup(today.plusDays(2), today))
+
+        val now = Instant.parse("2026-11-27T12:00:00Z")
+        val first = conversation(lastMessageAt = Instant.parse("2026-11-27T10:00:00Z")).copy(id = "a")
+        val second = conversation(lastMessageAt = Instant.parse("2026-11-20T10:00:00Z")).copy(id = "b")
+        val third = conversation(lastMessageAt = Instant.parse("2026-11-27T09:00:00Z")).copy(id = "c")
+        val groups = DeskLogic.groupByDate(listOf(first, second, third), now, ZoneOffset.UTC)
+        assertEquals(listOf(DeskLogic.DateGroup.Today, DeskLogic.DateGroup.LastWeek), groups.map { it.first })
+        assertEquals(listOf("a", "c"), groups[0].second.map { it.id })
+    }
+
+    @Test
+    fun theSlaChipCountsDownAndTurnsRedWhenOverdue() {
+        val now = Instant.parse("2026-11-27T12:00:00Z")
+        fun sla(status: String?, due: Instant?, metric: String? = "first_response", state: ConversationState = ConversationState.OPEN) =
+            conversation().copy(slaStatus = status, slaDueAt = due, slaMetric = metric, state = state)
+
+        assertNull(DeskLogic.slaDisplay(sla(null, now.plusSeconds(600)), now))
+        assertEquals(
+            DeskLogic.SlaDisplay(DeskLogic.SlaLabel.DueIn("first_response", "10m"), DeskLogic.SlaTone.OK),
+            DeskLogic.slaDisplay(sla("active", now.plusSeconds(600)), now),
+        )
+        assertEquals(DeskLogic.SlaTone.WARNING, DeskLogic.slaDisplay(sla("warning", now.plusSeconds(600)), now)?.tone)
+        assertEquals(
+            DeskLogic.SlaDisplay(DeskLogic.SlaLabel.Overdue("first_response", "2h 5m"), DeskLogic.SlaTone.BREACHED),
+            DeskLogic.slaDisplay(sla("active", now.minusSeconds(7_500)), now),
+        )
+        // Closed, or no running target: only a breach shows in the list.
+        assertEquals(DeskLogic.SlaLabel.Breached, DeskLogic.slaDisplay(sla("breached", now, state = ConversationState.CLOSED), now)?.label)
+        assertNull(DeskLogic.slaDisplay(sla("paused", null), now))
+        assertEquals(DeskLogic.SlaLabel.Paused, DeskLogic.slaDisplay(sla("paused", null), now, showPaused = true)?.label)
+        assertEquals(DeskLogic.SlaLabel.Achieved, DeskLogic.slaDisplay(sla("achieved", null), now, showFinished = true)?.label)
+
+        assertEquals("1m", DeskLogic.formatSlaDuration(10_000))
+        assertEquals("45m", DeskLogic.formatSlaDuration(45 * 60_000L))
+        assertEquals("3h", DeskLogic.formatSlaDuration(3 * 3_600_000L))
+        assertEquals("2d 4h", DeskLogic.formatSlaDuration((52 * 60) * 60_000L))
+        assertEquals("2d", DeskLogic.formatSlaDuration((48 * 60) * 60_000L))
+    }
+
+    @Test
+    fun aRowsBadgesFollowThePlatformsOrder() {
+        val now = Instant.parse("2026-11-27T12:00:00Z")
+        val row = conversation(waiting = true).copy(
+            priority = "high",
+            tags = listOf("vip", "billing", "third"),
+            channel = DeskChannel.EMAIL,
+            slaStatus = "active",
+            slaDueAt = now.plusSeconds(3_600),
+            slaMetric = "resolution",
+        )
+        assertEquals(
+            listOf(
+                DeskLogic.RowBadge.Sla(DeskLogic.SlaDisplay(DeskLogic.SlaLabel.DueIn("resolution", "1h"), DeskLogic.SlaTone.OK)),
+                DeskLogic.RowBadge.Priority("high"),
+                DeskLogic.RowBadge.Tag("vip"),
+                DeskLogic.RowBadge.Tag("billing"),
+                DeskLogic.RowBadge.Channel(DeskChannel.EMAIL),
+                DeskLogic.RowBadge.Unassigned,
+                DeskLogic.RowBadge.Waiting,
+            ),
+            DeskLogic.rowBadges(row, now),
+        )
+        // Chat has no channel badge, medium no priority badge, an assignee no "Unassigned".
+        val quiet = conversation().copy(priority = "medium", assigneeId = "user_1")
+        assertEquals(emptyList<DeskLogic.RowBadge>(), DeskLogic.rowBadges(quiet, now))
+    }
+
+    @Test
+    fun theTimelineSaysHowLongAgoAndWhereADayStarts() {
+        val now = Instant.parse("2026-11-27T12:00:00Z")
+        assertEquals(DeskLogic.Ago.Now, DeskLogic.ago(now.minusSeconds(30), now, ZoneOffset.UTC))
+        assertEquals(DeskLogic.Ago.Minutes(4), DeskLogic.ago(now.minusSeconds(240), now, ZoneOffset.UTC))
+        assertEquals(DeskLogic.Ago.Hours(2), DeskLogic.ago(now.minusSeconds(7_300), now, ZoneOffset.UTC))
+        assertEquals(DeskLogic.Ago.Days(3), DeskLogic.ago(now.minusSeconds(3 * 86_400L), now, ZoneOffset.UTC))
+        assertEquals(DeskLogic.Ago.On(LocalDate.of(2026, 11, 1)), DeskLogic.ago(Instant.parse("2026-11-01T08:00:00Z"), now, ZoneOffset.UTC))
+
+        val first = message("a", "2026-11-26T09:00:00Z")
+        val second = message("b", "2026-11-26T18:00:00Z")
+        val third = message("c", "2026-11-27T08:00:00Z")
+        assertTrue(DeskLogic.startsDay(null, first, ZoneOffset.UTC))
+        assertFalse(DeskLogic.startsDay(first, second, ZoneOffset.UTC))
+        assertTrue(DeskLogic.startsDay(second, third, ZoneOffset.UTC))
+    }
+
+    @Test
+    fun aTagChangeSaysWhatWasAddedAndRemoved() {
+        val change = AttributeChange("tags", from = ChangeValue.Items(listOf("a", "b")), to = ChangeValue.Items(listOf("b", "c")))
+        assertEquals(listOf("c") to listOf("a"), DeskLogic.tagDiff(change))
+        assertTrue(DeskLogic.isCleared(ChangeValue.Empty))
+        assertTrue(DeskLogic.isCleared(ChangeValue.Items(emptyList())))
+        assertFalse(DeskLogic.isCleared(ChangeValue.Text("high")))
+        assertFalse(DeskLogic.isCleared(ChangeValue.Flag(false)))
     }
 
     @Test

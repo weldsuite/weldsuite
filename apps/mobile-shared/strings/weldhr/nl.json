@@ -41,8 +41,8 @@
     "switchHint": "Je klokt uit op deze dienst en meteen in op de dienst die je kiest.",
     "noOtherShifts": "Geen andere diensten vandaag",
     "switched": "Dienst gewisseld",
-    "mySchedule": "Mijn rooster",
-    "noShifts": "Geen diensten gepland",
+    "mySchedule": "Komende diensten",
+    "noShifts": "Geen komende diensten",
     "myAbsences": "Mijn afwezigheid {year}",
     "noAbsences": "Je hebt geen afwezigheid",
     "addAbsence": "Afwezigheid toevoegen",
@@ -74,21 +74,32 @@
     "unreadAnnouncements": {
       "one": "{count} ongelezen mededeling",
       "other": "{count} ongelezen mededelingen"
-    }
+    },
+    "openTasksLabel": "Openstaande taken",
+    "toConfirm": "Te bevestigen",
+    "nothingToConfirm": "Niets te bevestigen",
+    "evaluation": "Beoordeling",
+    "noEvaluation": "Nog geen beoordeling",
+    "milestones": "Mijlpalen",
+    "milestonesValue": "{achieved} van {total} behaald",
+    "milestonesOpen": "{open} nog open"
   },
   "balance": {
     "left": "{days} over",
     "ofAllowance": "van {days} dagen",
-    "unlimited": "Geen limiet",
+    "unlimited": "Onbeperkt",
     "prorated": "Naar rato voor dit jaar",
     "days": {
       "one": "{count} dag",
       "other": "{count} dagen"
     },
-    "daysFraction": "{days} dagen"
+    "daysFraction": "{days} dagen",
+    "used": "Opgenomen {days}",
+    "pending": "In aanvraag {days}",
+    "allowance": "Tegoed {days}"
   },
   "leaveStatus": {
-    "pending": "In behandeling",
+    "pending": "In afwachting",
     "approved": "Goedgekeurd",
     "rejected": "Afgewezen",
     "cancelled": "Geannuleerd"
@@ -140,11 +151,11 @@
     "history": "Eerdere meldingen"
   },
   "declarationStatus": {
-    "pending": "Wacht op goedkeuring",
+    "pending": "In afwachting",
     "approved": "Goedgekeurd",
     "rejected": "Afgewezen",
     "paid": "Uitbetaald",
-    "cancelled": "Ingetrokken"
+    "cancelled": "Geannuleerd"
   },
   "declarationCategory": {
     "travel": "Reiskosten",
@@ -160,7 +171,7 @@
     "toApprove": "Goedkeuren",
     "declarations": "Declaraties",
     "newExpense": "Nieuwe declaratie",
-    "awaiting": "Wacht op goedkeuring",
+    "awaiting": "Wacht op een beslissing",
     "toBePaid": "Goedgekeurd, nog uit te betalen",
     "noExpenses": "Nog geen declaraties",
     "noExpensesDescription": "Maak een foto van je bon en declareer in een paar seconden.",
@@ -174,7 +185,13 @@
     "cancelled": "Declaratie ingetrokken",
     "search": "Zoek in declaraties",
     "noResults": "Geen declaraties gevonden",
-    "noResultsDescription": "Probeer een ander woord, bedrag of categorie."
+    "noResultsDescription": "Probeer een ander woord, bedrag of categorie.",
+    "reviewGroup": "Te beoordelen",
+    "groups": {
+      "paid": "Uitbetaald",
+      "rejectedCancelled": "Afgewezen en geannuleerd",
+      "other": "Overig"
+    }
   },
   "expenseForm": {
     "title": "Nieuwe declaratie",
@@ -244,7 +261,7 @@
     "onboarding": "Inwerken",
     "active": "Actief",
     "on_leave": "Met verlof",
-    "offboarding": "Vertrekt",
+    "offboarding": "Uitdiensttreding",
     "terminated": "Uit dienst"
   },
   "me": {
@@ -256,7 +273,11 @@
     "reviews": "Beoordelingen & coaching",
     "sickLeave": "Ziekteverzuim",
     "employeeNumberLabel": "Personeelsnummer",
-    "team": "Team"
+    "team": "Team",
+    "myHr": "Mijn HR",
+    "email": "E-mail",
+    "phone": "Telefoon",
+    "location": "Locatie"
   },
   "schedule": {
     "mine": "Mijn week",
@@ -318,7 +339,7 @@
     "sent": "Aanvraag verstuurd",
     "inPast": "Kies een tijd die nog moet komen",
     "status": {
-      "pending": "Wacht op goedkeuring",
+      "pending": "In afwachting",
       "approved": "Goedgekeurd",
       "rejected": "Afgewezen",
       "cancelled": "Ingetrokken"
@@ -383,7 +404,8 @@
     "minutesAgo": "{count}m",
     "hoursAgo": "{count}u",
     "yesterday": "Gisteren",
-    "daysAgo": "{count}d"
+    "daysAgo": "{count}d",
+    "new": "Nieuw"
   },
   "announcementForm": {
     "title": "Nieuwe mededeling",
@@ -469,7 +491,12 @@
     "sickDays": "{days} ziek",
     "search": "Zoek in aanvragen",
     "noResults": "Geen aanvragen gevonden",
-    "noResultsDescription": "Probeer een andere naam, datum of verlofsoort."
+    "noResultsDescription": "Probeer een andere naam, datum of verlofsoort.",
+    "groups": {
+      "pending": "In behandeling",
+      "approved": "Goedgekeurd",
+      "rejectedCancelled": "Afgewezen & geannuleerd"
+    }
   },
   "attendanceStatus": {
     "present": "Aanwezig",
@@ -492,7 +519,13 @@
       "employee": "jou",
       "other": "iemand anders"
     },
-    "checklistDone": "Checklist afgerond"
+    "checklistDone": "Checklist afgerond",
+    "progress": "{done} van {total} gedaan",
+    "state": {
+      "open": "Te doen",
+      "overdue": "Te laat",
+      "done": "Klaar"
+    }
   },
   "reviews": {
     "title": "Beoordelingen & coaching",

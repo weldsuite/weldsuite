@@ -32,7 +32,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import org.weldsuite.ui.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
@@ -239,7 +239,7 @@ fun LabelPickerDialog(
                                 Modifier
                                     .padding(horizontal = Tokens.Spacing.s)
                                     .size(10.dp)
-                                    .background(rgb(MailLogic.labelColor(label.name, label.color)), CircleShape),
+                                    .background(labelTint(label.name, label.color), CircleShape),
                             )
                             Text(label.name, modifier = Modifier.padding(vertical = Tokens.Spacing.m))
                         }

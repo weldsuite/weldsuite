@@ -72,6 +72,68 @@ class DeskRepositoryTest {
     }
 
     @Test
+    fun aRowCarriesItsPriorityTagsAndSla() {
+        val page = WeldJson.decodeFromString(
+            DeskConversationList.serializer(),
+            """
+            {"data":[{"id":"dconv_3","createdAt":"2026-11-27T08:00:00.000Z","updatedAt":"2026-11-27T09:00:00.000Z",
+              "conversationNumber":44,"state":"open","channel":"email","priority":"urgent","tags":["vip","billing"],
+              "slaStatus":"warning","slaDueAt":"2026-11-27T10:00:00.000Z","slaMetric":"first_response"}],
+             "pagination":{"totalCount":1,"hasMore":false,"cursor":null}}
+            """.trimIndent(),
+        )
+        val row = DeskRepository.conversation(page.data[0])
+        assertEquals("urgent", row.priority)
+        assertEquals(listOf("vip", "billing"), row.tags)
+        assertEquals("warning", row.slaStatus)
+        assertEquals(Instant.parse("2026-11-27T10:00:00Z"), row.slaDueAt)
+        assertEquals("first_response", row.slaMetric)
+    }
+
+    @Test
+    fun eventsKeepWhatTheirMetadataAddsReadFromTheJson() {
+        val json = Json.parseToJsonElement(
+            """
+            {"data":{"id":"dconv_1","createdAt":"2026-11-27T08:00:00.000Z","updatedAt":"2026-11-27T09:00:00.000Z",
+              "conversationNumber":42,"state":"open","channel":"messenger","tags":null,
+              "messages":[
+                {"id":"e1","createdAt":"2026-11-27T08:30:00.000Z","conversationId":"dconv_1","kind":"event","authorType":"agent","authorId":"user_1",
+                 "metadata":{"eventType":"attributes_changed","changes":[
+                   {"field":"priority","from":null,"to":"high"},
+                   {"field":"tags","from":["a"],"to":["a","b"]},
+                   {"field":"customField","key":"vip","label":"VIP","from":false,"to":true},
+                   {"field":"customField","key":"seats","from":null,"to":12}]}},
+                {"id":"e2","createdAt":"2026-11-27T08:31:00.000Z","conversationId":"dconv_1","kind":"event","authorType":"system",
+                 "metadata":{"eventType":"assigned","assigneeId":"user_2","auto":true}},
+                {"id":"e3","createdAt":"2026-11-27T08:32:00.000Z","conversationId":"dconv_1","kind":"event","authorType":"system",
+                 "metadata":{"eventType":"sla_breached","metric":"first_response","dueAt":null}},
+                {"id":"e4","createdAt":"2026-11-27T08:33:00.000Z","conversationId":"dconv_1","kind":"event","authorType":"agent","authorId":"user_1",
+                 "metadata":{"eventType":"linked","linkRole":"parent","linkedConversationNumber":12,"stepIndex":"odd"}},
+                {"id":"e5","createdAt":"2026-11-27T08:34:00.000Z","conversationId":"dconv_1","kind":"event","authorType":"visitor",
+                 "metadata":{"eventType":"rated","rating":5,"ratingComment":"Thanks!"}}]}}
+            """.trimIndent(),
+        )
+        val (changed, assigned, breached, linked, rated) = DeskRepository.detail(json).messages
+        assertEquals(
+            listOf(
+                AttributeChange("priority", from = ChangeValue.Empty, to = ChangeValue.Text("high")),
+                AttributeChange("tags", from = ChangeValue.Items(listOf("a")), to = ChangeValue.Items(listOf("a", "b"))),
+                AttributeChange("customField", label = "VIP", key = "vip", from = ChangeValue.Flag(false), to = ChangeValue.Flag(true)),
+                AttributeChange("customField", key = "seats", from = ChangeValue.Empty, to = ChangeValue.Text("12")),
+            ),
+            changed.details.changes,
+        )
+        assertEquals("user_2", assigned.details.assigneeId)
+        assertEquals(true, assigned.details.auto)
+        assertEquals("first_response", breached.details.metric)
+        assertEquals("parent", linked.details.linkRole)
+        assertEquals("12", linked.details.linkedNumber)
+        // A key of the wrong type reads as missing.
+        assertNull(linked.details.stepIndex)
+        assertEquals("Thanks!", rated.details.ratingComment)
+    }
+
+    @Test
     fun hubEventsCarryTheRecord() {
         val message = Json.parseToJsonElement(
             """{"id":"m3","createdAt":"2026-11-27T08:32:00.000Z","conversationId":"dconv_1","kind":"note","body":"VIP","authorType":"agent","authorId":"user_1","attachments":null,"metadata":null}""",

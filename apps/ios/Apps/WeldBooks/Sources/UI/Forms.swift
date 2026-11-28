@@ -4,7 +4,80 @@ import WeldCore
 import WeldUI
 
 // Form fields and the shared form parts of the invoice, bill and payment
-// screens (Android `ui/Forms.kt` and the fields of `ui/Common.kt`).
+// screens (Android `ui/Forms.kt` and the fields of `ui/Common.kt`), drawn as
+// the platform's: the label above a bordered `rounded-md` input, the ring colour
+// while it has focus, the help or error line under it.
+
+private struct PlainFieldsKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// Fields inside a system `Form` (a sheet): the form's rows are their frame, so no border of their own.
+    var booksPlainFields: Bool {
+        get { self[PlainFieldsKey.self] }
+        set { self[PlainFieldsKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// The platform's input box around a field: bordered, `rounded-md`, 44 points high.
+    func inputChrome(focused: Bool = false, error: Bool = false, plain: Bool = false) -> some View {
+        modifier(InputChrome(focused: focused, error: error, plain: plain))
+    }
+}
+
+private struct InputChrome: ViewModifier {
+    let focused: Bool
+    let error: Bool
+    let plain: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if plain {
+            content.padding(.vertical, 6)
+        } else {
+            content
+                .padding(.horizontal, Tokens.Spacing.m)
+                .padding(.vertical, 10)
+                .frame(minHeight: 44)
+                .background(Tokens.Palette.background, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Tokens.Radius.medium)
+                        .strokeBorder(error ? Tokens.Status.danger : (focused ? Tokens.Palette.ring : Tokens.Palette.input), lineWidth: 1)
+                )
+        }
+    }
+}
+
+/// A field's label: the platform's `Label`, medium and in the foreground.
+struct FieldLabel: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.inter(.subheadline, weight: .medium))
+            .foregroundStyle(Tokens.Palette.foreground)
+    }
+}
+
+/// The line under a field: the error in the danger colour, else the help text, muted.
+private struct FieldNote: View {
+    let error: String?
+    let helper: String?
+
+    var body: some View {
+        if let error {
+            Text(error).font(.inter(.caption)).foregroundStyle(Tokens.Status.danger)
+        } else if let helper {
+            Text(helper).font(.inter(.caption)).foregroundStyle(Tokens.Palette.mutedForeground)
+        }
+    }
+}
 
 /// A text field with its label above, and an error or helper line under it.
 struct FormField: View {
@@ -18,6 +91,9 @@ struct FormField: View {
     var lines: Int
     var maxLength: Int?
     var tag: String?
+
+    @Environment(\.booksPlainFields) private var plain
+    @FocusState private var focused: Bool
 
     init(
         _ label: String,
@@ -55,20 +131,17 @@ struct FormField: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(error == nil ? Color.secondary : Tokens.Status.danger)
+        VStack(alignment: .leading, spacing: 6) {
+            FieldLabel(label)
             field
+                .font(.inter(.subheadline))
                 .keyboardType(keyboard)
+                .focused($focused)
+                .inputChrome(focused: focused, error: error != nil, plain: plain)
                 .tagged(tag)
-            if let error {
-                Text(error).font(.caption).foregroundStyle(Tokens.Status.danger)
-            } else if let helper {
-                Text(helper).font(.caption).foregroundStyle(Color.secondary)
-            }
+            FieldNote(error: error, helper: helper)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -82,7 +155,7 @@ struct FormField: View {
     }
 }
 
-/// A choice from a list, as a menu.
+/// A choice from a list: the platform's select, as a menu.
 struct Dropdown: View {
     let label: String
     let value: String?
@@ -92,6 +165,8 @@ struct Dropdown: View {
     var error: String?
     var tag: String?
     let onChange: (String) -> Void
+
+    @Environment(\.booksPlainFields) private var plain
 
     init(
         _ label: String,
@@ -119,10 +194,8 @@ struct Dropdown: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(error == nil ? Color.secondary : Tokens.Status.danger)
+        VStack(alignment: .leading, spacing: 6) {
+            FieldLabel(label)
             Menu {
                 ForEach(options) { option in
                     Button {
@@ -138,23 +211,22 @@ struct Dropdown: View {
             } label: {
                 HStack {
                     Text(current ?? placeholder ?? "")
-                        .foregroundStyle(current == nil ? Color.secondary : Color.primary)
+                        .font(.inter(.subheadline))
+                        .foregroundStyle(current == nil || !enabled ? Tokens.Palette.mutedForeground : Tokens.Palette.foreground)
                         .lineLimit(1)
                     Spacer(minLength: Tokens.Spacing.s)
                     Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption)
-                        .foregroundStyle(Color.secondary)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Tokens.Palette.mutedForeground)
                 }
-                .padding(.vertical, 6)
+                .inputChrome(error: error != nil, plain: plain)
                 .contentShape(Rectangle())
             }
             .disabled(!enabled)
             .tagged(tag)
-            if let error {
-                Text(error).font(.caption).foregroundStyle(Tokens.Status.danger)
-            }
+            FieldNote(error: error, helper: nil)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 6)
     }
 }
 
@@ -171,14 +243,16 @@ struct SwitchRow: View {
     }
 
     var body: some View {
-        Toggle(label, isOn: $isOn)
-            .tint(Accents.brand)
-            .padding(.vertical, Tokens.Spacing.xs)
-            .tagged(tag)
+        Toggle(isOn: $isOn) {
+            Text(label).font(.inter(.subheadline))
+        }
+        .tint(Tokens.Palette.primary)
+        .padding(.vertical, Tokens.Spacing.xs)
+        .tagged(tag)
     }
 }
 
-/// A calendar day, picked with the system date picker in the company's locale.
+/// A calendar day: its label above, the system's compact date picker in the company's locale.
 struct DateField: View {
     let label: String
     @Binding var value: Day
@@ -195,19 +269,20 @@ struct DateField: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
+            FieldLabel(label)
             DatePicker(
                 label,
                 selection: Binding(get: { value.date() }, set: { value = Day(date: $0) }),
                 displayedComponents: .date
             )
+            .labelsHidden()
             .environment(\.locale, books.locale)
             .tagged(tag)
-            if let error {
-                Text(error).font(.caption).foregroundStyle(Tokens.Status.danger)
-            }
+            FieldNote(error: error, helper: nil)
         }
-        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 6)
     }
 }
 
@@ -356,19 +431,19 @@ struct LineItemsEditor: View {
                     lines.append(LineItems.empty(taxRate: defaultTaxRate))
                 } label: {
                     Label(BooksStrings.lineItemsAdd, systemImage: "plus")
-                        .font(.subheadline.weight(.medium))
+                        .font(.inter(.subheadline, weight: .medium))
                 }
                 .tagged("add-line")
             } content: {
                 ForEach(lines.enumerated().map { IndexedLine(index: $0.offset, line: $0.element) }) { item in
                     if item.index > 0 {
-                        Divider().padding(.vertical, Tokens.Spacing.m)
+                        Hairline().padding(.vertical, Tokens.Spacing.m)
                     }
                     lineEditor(item.line, index: item.index)
                 }
                 if let error {
                     Text(error)
-                        .font(.footnote)
+                        .font(.inter(.footnote))
                         .foregroundStyle(Tokens.Status.danger)
                         .padding(.top, Tokens.Spacing.s)
                 }
@@ -388,8 +463,8 @@ struct LineItemsEditor: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(BooksStrings.lineItemsItem(index: number))
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(Color.secondary)
+                    .font(.inter(.caption, weight: .medium))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                 Spacer()
                 if lines.count > 1 {
                     Button {
@@ -431,8 +506,8 @@ struct LineItemsEditor: View {
                 }
             }
             Text(BooksStrings.lineItemsLineTotal(amount: books.money(LineItems.lineTotal(line, decimalPoint: books.decimalPoint), currency: currency)))
-                .font(.footnote)
-                .foregroundStyle(Color.secondary)
+                .font(.inter(.footnote))
+                .foregroundStyle(Tokens.Palette.mutedForeground)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.top, 4)
         }
@@ -544,19 +619,19 @@ struct TaxBreakdownCard: View {
                 } label: {
                     HStack(alignment: .center) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(title ?? BooksStrings.salesTaxTitle).font(.subheadline.weight(.semibold))
+                            Text(title ?? BooksStrings.salesTaxTitle).font(.inter(.subheadline, weight: .semibold))
                             if canExpand {
                                 Text(expanded ? BooksStrings.salesTaxHideBreakdown : BooksStrings.salesTaxShowBreakdown)
-                                    .font(.footnote)
-                                    .foregroundStyle(Color.secondary)
+                                    .font(.inter(.footnote))
+                                    .foregroundStyle(Tokens.Palette.mutedForeground)
                             }
                         }
                         Spacer()
-                        Text(headline(charged: charged, used: used)).font(.subheadline.weight(.semibold))
+                        Text(headline(charged: charged, used: used)).font(.inter(.subheadline, weight: .semibold))
                         if canExpand {
                             Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                                .font(.caption)
-                                .foregroundStyle(Color.secondary)
+                                .font(.inter(.caption))
+                                .foregroundStyle(Tokens.Palette.mutedForeground)
                         }
                     }
                     .contentShape(Rectangle())
@@ -565,7 +640,7 @@ struct TaxBreakdownCard: View {
                 .tagged("tax-breakdown")
 
                 if expanded, canExpand {
-                    Divider().padding(.vertical, Tokens.Spacing.s)
+                    Hairline().padding(.vertical, Tokens.Spacing.s)
                     ForEach(charged) { group in JurisdictionRow(group: group, currency: currency) }
                     if !used.isEmpty {
                         if !charged.isEmpty { HintText(BooksStrings.salesTaxUseTaxAccrued) }
@@ -576,11 +651,11 @@ struct TaxBreakdownCard: View {
                 if let footnote { HintText(footnote) }
                 if TaxBreakdown.hasExempt(rows) {
                     Banner(exemptNotice, title: BooksStrings.salesTaxExemptTitle)
-                        .padding(.horizontal, -Tokens.Spacing.m)
+                        .padding(.horizontal, -Tokens.Spacing.l)
                 }
                 if !warnings.isEmpty {
                     Banner(warningTexts.joined(separator: "\n"), tone: "warning", title: BooksStrings.salesTaxWarningsTitle)
-                        .padding(.horizontal, -Tokens.Spacing.m)
+                        .padding(.horizontal, -Tokens.Spacing.l)
                 }
             }
         }
@@ -619,13 +694,13 @@ private struct JurisdictionRow: View {
         let line = [taxLevelLabel(group.level), detail].compactMap { $0 }.joined(separator: " · ")
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(group.name).font(.subheadline)
+                Text(group.name).font(.inter(.subheadline))
                 if !line.isEmpty {
-                    Text(line).font(.footnote).foregroundStyle(Color.secondary)
+                    Text(line).font(.inter(.footnote)).foregroundStyle(Tokens.Palette.mutedForeground)
                 }
             }
             Spacer()
-            Text(books.money(group.tax, currency: currency)).font(.subheadline)
+            Text(books.money(group.tax, currency: currency)).font(.inter(.subheadline))
         }
         .padding(.vertical, 4)
     }
@@ -644,7 +719,7 @@ struct TreatmentBreakdownCard: View {
             SectionCard(title: BooksStrings.taxTreatmentTitle) {
                 ForEach(groups.indices, id: \.self) { index in
                     let group = groups[index]
-                    if index > 0 { Divider().padding(.vertical, Tokens.Spacing.s) }
+                    if index > 0 { Hairline().padding(.vertical, Tokens.Spacing.s) }
                     HintText(treatmentLabel(group.treatment))
                     ForEach(group.taxes) { tax in
                         treatmentRow(tax, group: group)
@@ -666,18 +741,18 @@ struct TreatmentBreakdownCard: View {
     private func treatmentRow(_ tax: TaxBreakdown.TreatmentTax, group: TaxBreakdown.TreatmentGroup) -> some View {
         let amount = books.money(tax.amount, currency: currency)
         let informational = group.treatment == "informational"
-        let color = informational ? Color.secondary : Color.primary
+        let color = informational ? Tokens.Palette.mutedForeground : Tokens.Palette.foreground
         return HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(tax.name).font(.subheadline).foregroundStyle(color)
+                Text(tax.name).font(.inter(.subheadline)).foregroundStyle(color)
                 if tax.rate > 0 {
                     Text(BooksStrings.salesTaxRateOn(rate: Amounts.percent(tax.rate), amount: books.money(tax.base, currency: currency)))
-                        .font(.footnote)
-                        .foregroundStyle(Color.secondary)
+                        .font(.inter(.footnote))
+                        .foregroundStyle(Tokens.Palette.mutedForeground)
                 }
             }
             Spacer()
-            Text(group.treatment == "withheld" ? "−\(amount)" : amount).font(.subheadline).foregroundStyle(color)
+            Text(group.treatment == "withheld" ? "−\(amount)" : amount).font(.inter(.subheadline)).foregroundStyle(color)
         }
         .padding(.vertical, 4)
     }
@@ -726,8 +801,8 @@ struct PaymentSheet: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(BooksStrings.paymentsOpenBalance).font(.footnote).foregroundStyle(Color.secondary)
-                        Text(books.money(balanceDue, currency: currency)).font(.title2.weight(.semibold))
+                        Text(BooksStrings.paymentsOpenBalance).font(.inter(.footnote)).foregroundStyle(Tokens.Palette.mutedForeground)
+                        Text(books.money(balanceDue, currency: currency)).font(.inter(.title2, weight: .semibold))
                     }
                 }
                 Section {
@@ -776,6 +851,8 @@ struct PaymentSheet: View {
                     .tagged("payment-submit")
                 }
             }
+            // A system form: its rows frame the fields.
+            .environment(\.booksPlainFields, true)
             .navigationTitle(BooksStrings.paymentsTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

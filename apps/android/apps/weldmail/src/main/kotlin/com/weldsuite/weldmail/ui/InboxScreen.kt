@@ -9,11 +9,13 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -23,15 +25,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Label
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Archive
-import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Drafts
 import androidx.compose.material.icons.outlined.Edit
@@ -41,22 +38,17 @@ import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.Mail
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Unsubscribe
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -72,7 +64,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -80,13 +77,15 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.weldsuite.weldmail.DateSection
+import com.weldsuite.weldmail.DateGroup
 import com.weldsuite.weldmail.InboxFilter
 import com.weldsuite.weldmail.MailAccount
 import com.weldsuite.weldmail.MailLogic
@@ -96,9 +95,9 @@ import com.weldsuite.weldmail.Mailbox
 import com.weldsuite.weldmail.R
 import com.weldsuite.weldmail.SystemLabel
 import kotlinx.coroutines.launch
-import org.weldsuite.core.R as CoreR
 import org.weldsuite.core.SessionState
-import org.weldsuite.ui.EmptyState
+import org.weldsuite.core.apiErrorMessage
+import org.weldsuite.ui.ExtendedFloatingActionButton
 import org.weldsuite.ui.Tokens
 import org.weldsuite.ui.tagged
 import kotlin.math.roundToInt
@@ -120,7 +119,6 @@ fun InboxScreen(
     val inbox by store.inbox.collectAsStateWithLifecycle()
     val label by store.label.collectAsStateWithLifecycle()
     val labels by store.labels.collectAsStateWithLifecycle()
-    val pinned by store.pinned.collectAsStateWithLifecycle()
     val online by store.connectivity.online.collectAsStateWithLifecycle()
     val accountsLoaded by store.accountsLoaded.collectAsStateWithLifecycle()
     val accounts by store.accounts.collectAsStateWithLifecycle()
@@ -132,8 +130,10 @@ fun InboxScreen(
     var snoozing by remember { mutableStateOf<MailMessage?>(null) }
 
     val visible = remember(inbox.messages, filter) { MailLogic.filter(inbox.messages, filter) }
-    val sections = remember(visible, pinned) { MailLogic.sections(visible, pinned) }
+    val sections = remember(visible) { MailLogic.sections(visible) }
     LaunchedEffect(sections) { store.visibleIds = sections.flatMap { section -> section.messages.map { it.id } } }
+    val labelColors = remember(labels.custom) { labels.custom.associate { it.name to it.color } }
+    val outgoing = MailLogic.isOutgoingFolder(label)
 
     val system = SystemLabel.of(label)
     val title = system?.let { stringResource(systemLabelName(it)) } ?: labels.custom.firstOrNull { it.slug == label }?.name ?: label
@@ -212,36 +212,52 @@ fun InboxScreen(
                         }
                         when {
                             inbox.loading && inbox.messages.isEmpty() -> item("loading") {
-                                Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                                Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                                }
                             }
                             accountsLoaded && accounts.none { it.inActiveWorkspace } && inbox.messages.isEmpty() -> item("no-mailbox") {
-                                EmptyState(
+                                MailEmptyState(
+                                    icon = Icons.Outlined.Mail,
                                     title = stringResource(R.string.weldmail_empty_no_mailbox_title),
                                     description = stringResource(R.string.weldmail_empty_no_mailbox_description),
-                                    icon = { Icon(Icons.Outlined.Mail, contentDescription = null, modifier = Modifier.size(40.dp)) },
                                 )
                             }
                             sections.isEmpty() -> item("empty") {
                                 val (emptyTitle, emptyDescription) = emptyText(system)
-                                EmptyState(
+                                MailEmptyState(
+                                    icon = emptyIcon(system),
                                     title = stringResource(emptyTitle),
                                     description = stringResource(emptyDescription),
-                                    icon = { Icon(emptyIcon(system), contentDescription = null, modifier = Modifier.size(40.dp)) },
                                 )
                             }
-                            else -> sections.forEach { section ->
-                                item("section-${section.section}") { SectionHeader(section.section) }
+                            else -> sections.forEachIndexed { index, section ->
+                                // As on the platform, today's mail at the top of the list has no header.
+                                if (index > 0 || section.group.kind != DateGroup.Kind.TODAY) {
+                                    item("group-${section.group.kind}-${section.group.day}-${section.group.weeks}") {
+                                        GroupHeader(groupTitle(section.group), section.messages.size)
+                                    }
+                                }
                                 items(section.messages, key = { "message-${it.id}" }) { message ->
-                                    MessageRow(
+                                    SwipeableMessageRow(
                                         message = message,
-                                        pinned = message.id in pinned,
-                                        customColors = labels.custom.associate { it.name to it.color },
+                                        pinned = MailLogic.isPinned(message),
+                                        outgoing = outgoing,
+                                        labelColors = labelColors,
                                         onOpen = {
                                             if (!message.isRead) scope.launch { store.setRead(message.id, true) }
                                             onOpen(message.id)
                                         },
                                         onToggleRead = { scope.launch { store.setRead(message.id, !message.isRead) } },
-                                        onPin = { store.togglePin(message.id) },
+                                        onPin = {
+                                            scope.launch {
+                                                try {
+                                                    store.setPinned(message.id, message.labels, !MailLogic.isPinned(message))
+                                                } catch (error: Exception) {
+                                                    notify.show(context.getString(apiErrorMessage(error)))
+                                                }
+                                            }
+                                        },
                                         onSnooze = { snoozing = message },
                                         onArchive = { scope.launch { store.archive(message.id) } },
                                         onDelete = { scope.launch { store.delete(message.id) } },
@@ -252,11 +268,11 @@ fun InboxScreen(
                         if (inbox.loadingMore) {
                             item("more") {
                                 Box(Modifier.fillMaxWidth().padding(Tokens.Spacing.l), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(Modifier.size(24.dp))
+                                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                                 }
                             }
                         }
-                        item("bottom") { Spacer(Modifier.size(88.dp)) }
+                        item("bottom") { FabClearance() }
                     }
                 }
             }
@@ -280,63 +296,38 @@ fun InboxScreen(
     }
 }
 
+/** Above the list: the search box and the quick filters, as the platform's list header. */
 @Composable
 private fun ListControls(filter: InboxFilter, onFilter: (InboxFilter) -> Unit, onSearch: () -> Unit) {
-    Column(Modifier.padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s)) {
-        Surface(
-            shape = RoundedCornerShape(Tokens.Radius.medium),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onSearch).tagged("search-mail"),
+    Column {
+        SearchEntry(
+            placeholder = stringResource(R.string.weldmail_inbox_search_mail),
+            onClick = onSearch,
+            modifier = Modifier.padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s).tagged("search-mail"),
+        )
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s),
+            contentPadding = PaddingValues(horizontal = Tokens.Spacing.l),
+            modifier = Modifier.padding(bottom = Tokens.Spacing.s),
         ) {
-            Row(Modifier.padding(horizontal = Tokens.Spacing.m, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(
-                    stringResource(R.string.weldmail_inbox_search_mail),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = Tokens.Spacing.s),
-                )
-            }
-        }
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s), modifier = Modifier.padding(top = Tokens.Spacing.s)) {
             items(InboxFilter.entries) { option ->
-                FilterChip(
+                FilterPill(
+                    text = stringResource(
+                        when (option) {
+                            InboxFilter.ALL -> R.string.weldmail_inbox_filter_all
+                            InboxFilter.UNREAD -> R.string.weldmail_inbox_filter_unread
+                            InboxFilter.STARRED -> R.string.weldmail_inbox_filter_starred
+                            InboxFilter.ATTACHMENTS -> R.string.weldmail_inbox_filter_attachments
+                        },
+                    ),
                     selected = filter == option,
                     onClick = { onFilter(option) },
-                    label = {
-                        Text(
-                            stringResource(
-                                when (option) {
-                                    InboxFilter.ALL -> R.string.weldmail_inbox_filter_all
-                                    InboxFilter.UNREAD -> R.string.weldmail_inbox_filter_unread
-                                    InboxFilter.STARRED -> R.string.weldmail_inbox_filter_starred
-                                    InboxFilter.ATTACHMENTS -> R.string.weldmail_inbox_filter_attachments
-                                },
-                            ),
-                        )
-                    },
                     modifier = Modifier.tagged("filter-${option.name.lowercase()}"),
                 )
             }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
-}
-
-@Composable
-private fun SectionHeader(section: DateSection) {
-    Text(
-        stringResource(
-            when (section) {
-                DateSection.PINNED -> R.string.weldmail_inbox_pinned
-                DateSection.TODAY -> CoreR.string.core_common_today
-                DateSection.YESTERDAY -> CoreR.string.core_common_yesterday
-                DateSection.THIS_WEEK -> R.string.weldmail_inbox_this_week
-                DateSection.OLDER -> R.string.weldmail_inbox_older
-            },
-        ),
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = Tokens.Spacing.l, top = Tokens.Spacing.m, bottom = Tokens.Spacing.xs),
-    )
 }
 
 /** An action behind a row, revealed by a swipe. */
@@ -390,13 +381,13 @@ private fun SwipeRow(leading: List<SwipeAction>, trailing: List<SwipeAction>, co
                         offset.animateTo(target)
                     },
                 )
-                .background(MaterialTheme.colorScheme.surface),
+                .background(MaterialTheme.colorScheme.background),
         ) { content() }
     }
 }
 
 @Composable
-private fun SwipeButton(action: SwipeAction, width: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {
+private fun SwipeButton(action: SwipeAction, width: Dp, onClick: () -> Unit) {
     Column(
         Modifier
             .width(width)
@@ -406,16 +397,18 @@ private fun SwipeButton(action: SwipeAction, width: androidx.compose.ui.unit.Dp,
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(action.icon, contentDescription = null, tint = Color.White)
+        // Light marks on the action's saturated colour, in both appearances.
+        Icon(action.icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
         Text(action.label, color = Color.White, style = MaterialTheme.typography.labelSmall, maxLines = 1)
     }
 }
 
 @Composable
-private fun MessageRow(
+private fun SwipeableMessageRow(
     message: MailMessage,
     pinned: Boolean,
-    customColors: Map<String, String?>,
+    outgoing: Boolean,
+    labelColors: Map<String, String?>,
     onOpen: () -> Unit,
     onToggleRead: () -> Unit,
     onPin: () -> Unit,
@@ -423,114 +416,38 @@ private fun MessageRow(
     onArchive: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val sender = message.senderName ?: stringResource(R.string.weldmail_common_unknown)
     val leading = listOf(
         SwipeAction(
             stringResource(if (message.isRead) R.string.weldmail_swipe_unread else R.string.weldmail_swipe_read),
             Icons.Outlined.Drafts,
-            MailColors.read,
+            MailColors.neutral,
             onToggleRead,
         ),
         SwipeAction(stringResource(if (pinned) R.string.weldmail_swipe_unpin else R.string.weldmail_swipe_pin), Icons.Outlined.PushPin, MailColors.pin, onPin),
     )
     val trailing = listOf(
         SwipeAction(stringResource(R.string.weldmail_swipe_snooze), Icons.Outlined.AccessTime, MailColors.snooze, onSnooze),
-        SwipeAction(stringResource(R.string.weldmail_swipe_archive), Icons.Outlined.Archive, MailColors.archive, onArchive),
-        SwipeAction(stringResource(R.string.weldmail_swipe_delete), Icons.Outlined.Delete, MailColors.delete, onDelete),
+        SwipeAction(stringResource(R.string.weldmail_swipe_archive), Icons.Outlined.Archive, MailColors.neutral, onArchive),
+        SwipeAction(stringResource(R.string.weldmail_swipe_delete), Icons.Outlined.Delete, Tokens.Status.danger.current(), onDelete),
     )
     SwipeRow(leading, trailing) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onOpen)
-                .padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.m)
-                .tagged("inbox-email-row"),
-            horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
-        ) {
-            Box {
-                SenderAvatar(sender)
-                if (!message.isRead) {
-                    Box(
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .size(10.dp)
-                            .background(MaterialTheme.colorScheme.primary, CircleShape),
-                    )
-                }
-            }
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        sender,
-                        fontWeight = if (message.isRead) FontWeight.Medium else FontWeight.SemiBold,
-                        color = if (message.isRead) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    if (message.threadCount > 1) {
-                        Text(
-                            message.threadCount.toString(),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .padding(start = Tokens.Spacing.xs)
-                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp))
-                                .padding(horizontal = 5.dp),
-                        )
-                    }
-                    Spacer(Modifier.weight(1f))
-                    if (message.hasAttachments) {
-                        Icon(
-                            Icons.Outlined.AttachFile,
-                            contentDescription = stringResource(R.string.weldmail_inbox_has_attachments),
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (pinned) {
-                        Icon(Icons.Filled.PushPin, contentDescription = stringResource(R.string.weldmail_inbox_is_pinned), modifier = Modifier.size(14.dp), tint = MailColors.pin)
-                    }
-                    if (message.isStarred) {
-                        Icon(Icons.Filled.Star, contentDescription = stringResource(R.string.weldmail_inbox_is_starred), modifier = Modifier.size(14.dp), tint = MailColors.star)
-                    }
-                    Text(
-                        rowTime(message.listDate),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = Tokens.Spacing.xs),
-                    )
-                }
-                Text(
-                    message.subject?.takeIf { it.isNotBlank() } ?: stringResource(R.string.weldmail_common_no_subject),
-                    fontWeight = if (message.isRead) FontWeight.Normal else FontWeight.Medium,
-                    color = if (message.isRead) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    message.preview.orEmpty(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val shown = MailLogic.displayLabels(message.labels)
-                if (shown.isNotEmpty()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.xs), modifier = Modifier.padding(top = Tokens.Spacing.xs)) {
-                        shown.take(3).forEach { name -> LabelChip(name, MailLogic.labelColor(name, customColors[name])) }
-                        if (shown.size > 3) {
-                            Text("+${shown.size - 3}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-        }
+        MessageRow(
+            message = message,
+            pinned = pinned,
+            outgoing = outgoing,
+            labelColors = labelColors,
+            modifier = Modifier.clickable(onClick = onOpen).tagged("inbox-email-row"),
+        )
     }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
-/** The mailboxes, the folders and labels of the one on screen, subscriptions. */
+/**
+ * The mailbox menu, as the platform's mail sidebar in a drawer: the
+ * mailboxes to switch between (all of them, each account, those in other
+ * workspaces), then the "Mailboxes" group (the folders, more behind More) and
+ * the "Labels" group with each label's colour and count.
+ */
 @Composable
 private fun MailboxDrawer(
     store: MailStore,
@@ -552,62 +469,84 @@ private fun MailboxDrawer(
     val others = accounts.filterNot { it.inActiveWorkspace }.groupBy { it.workspaceName.orEmpty() }
     val selected = (mailbox as? Mailbox.Account)?.let { m -> own.firstOrNull { it.id == m.id } }
 
-    ModalDrawerSheet(modifier = Modifier.tagged("mailbox-drawer")) {
-        LazyColumn(Modifier.padding(horizontal = Tokens.Spacing.m)) {
+    ModalDrawerSheet(
+        drawerContainerColor = Tokens.Palette.chrome.current(),
+        modifier = Modifier.tagged("mailbox-drawer"),
+    ) {
+        LazyColumn(contentPadding = PaddingValues(horizontal = Tokens.Spacing.s, vertical = Tokens.Spacing.s)) {
             item {
-                Column(Modifier.padding(Tokens.Spacing.l)) {
-                    Text(
-                        selected?.displayName ?: stringResource(R.string.weldmail_drawer_all_inboxes),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        selected?.email ?: pluralStringResource(R.plurals.weldmail_drawer_accounts, own.size, own.size),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(session.workspace.name, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // The scope on screen, as the platform's account switcher shows it.
+                Row(
+                    Modifier.padding(horizontal = Tokens.Spacing.s, vertical = Tokens.Spacing.m),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (selected != null) {
+                        MailAvatar(selected.displayName, size = 32.dp)
+                    } else {
+                        Box(
+                            Modifier.size(32.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Outlined.Inbox, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                    Column(Modifier.padding(start = Tokens.Spacing.m)) {
+                        Text(
+                            selected?.displayName ?: stringResource(R.string.weldmail_drawer_all_inboxes),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            selected?.email ?: pluralStringResource(R.plurals.weldmail_drawer_accounts, own.size, own.size),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(session.workspace.name, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    }
                 }
-                NavigationDrawerItem(
-                    label = { Text(stringResource(R.string.weldmail_drawer_all_inboxes)) },
-                    icon = { Icon(Icons.Outlined.Inbox, contentDescription = null) },
+                DrawerRow(
+                    label = stringResource(R.string.weldmail_drawer_all_inboxes),
                     selected = mailbox is Mailbox.Unified,
                     onClick = { onMailbox(Mailbox.Unified) },
+                    leading = { DrawerIcon(Icons.Outlined.Inbox) },
                     modifier = Modifier.tagged("mailbox-unified"),
                 )
                 own.forEach { account ->
-                    NavigationDrawerItem(
-                        label = { Text(account.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        icon = { SenderAvatar(account.displayName, size = 24.dp) },
-                        badge = { Text(account.email, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    DrawerRow(
+                        label = account.displayName,
+                        supporting = account.email.takeIf { it != account.displayName },
                         selected = selected?.id == account.id,
                         onClick = { onMailbox(Mailbox.Account(account.id)) },
+                        leading = { MailAvatar(account.displayName, size = 20.dp) },
                         modifier = Modifier.tagged("mailbox-${account.email}"),
                     )
                 }
                 others.forEach { (workspace, list) ->
-                    Text(
-                        stringResource(R.string.weldmail_drawer_in_workspace, workspace),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = Tokens.Spacing.l, top = Tokens.Spacing.m, bottom = Tokens.Spacing.xs),
-                    )
+                    GroupLabel(stringResource(R.string.weldmail_drawer_in_workspace, workspace))
                     list.forEach { account ->
-                        NavigationDrawerItem(
-                            label = { Text(account.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            icon = { SenderAvatar(account.displayName, size = 24.dp) },
+                        DrawerRow(
+                            label = account.displayName,
+                            supporting = account.email.takeIf { it != account.displayName },
                             selected = false,
                             onClick = { onOtherWorkspace(account) },
+                            leading = { MailAvatar(account.displayName, size = 20.dp) },
                         )
                     }
                 }
-                NavigationDrawerItem(
-                    label = { Text(stringResource(R.string.weldmail_drawer_add_account)) },
-                    icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                DrawerRow(
+                    label = stringResource(R.string.weldmail_drawer_add_account),
                     selected = false,
                     onClick = onAddAccount,
+                    leading = { DrawerIcon(Icons.Outlined.Add) },
+                    muted = true,
                     modifier = Modifier.tagged("add-account"),
                 )
-                HorizontalDivider(Modifier.padding(vertical = Tokens.Spacing.s))
+                HorizontalDivider(Modifier.padding(vertical = Tokens.Spacing.s), color = MaterialTheme.colorScheme.outlineVariant)
+                GroupLabel(stringResource(R.string.weldmail_drawer_title))
             }
             items(SystemLabel.MAIN) { system ->
                 FolderItem(system, labels.systemCounts[system.slug], label == system.slug) { onLabel(system.slug) }
@@ -617,49 +556,45 @@ private fun MailboxDrawer(
                     FolderItem(system, labels.systemCounts[system.slug], label == system.slug) { onLabel(system.slug) }
                 }
                 item {
-                    NavigationDrawerItem(
-                        label = { Text(stringResource(R.string.weldmail_drawer_subscriptions)) },
-                        icon = { Icon(Icons.Outlined.Unsubscribe, contentDescription = null) },
+                    DrawerRow(
+                        label = stringResource(R.string.weldmail_drawer_subscriptions),
                         selected = false,
                         onClick = onSubscriptions,
+                        leading = { DrawerIcon(Icons.Outlined.Unsubscribe) },
                         modifier = Modifier.tagged("open-subscriptions"),
                     )
                 }
             }
             item {
-                NavigationDrawerItem(
-                    label = { Text(stringResource(if (more) R.string.weldmail_drawer_less else R.string.weldmail_drawer_more)) },
-                    icon = { Icon(if (more) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, contentDescription = null) },
+                DrawerRow(
+                    label = stringResource(if (more) R.string.weldmail_drawer_less else R.string.weldmail_drawer_more),
                     selected = false,
                     onClick = { more = !more },
+                    leading = { DrawerIcon(if (more) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore) },
+                    muted = true,
                     modifier = Modifier.tagged("drawer-more"),
                 )
-                HorizontalDivider(Modifier.padding(vertical = Tokens.Spacing.s))
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = Tokens.Spacing.l)) {
-                    Text(stringResource(R.string.weldmail_drawer_labels), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-                    if (selected != null) {
-                        IconButton(onClick = { creating = true }, modifier = Modifier.tagged("create-label")) {
-                            Icon(Icons.Outlined.Add, contentDescription = stringResource(R.string.weldmail_drawer_create_label))
-                        }
-                    }
-                }
+                GroupLabel(stringResource(R.string.weldmail_drawer_labels), Modifier.padding(top = Tokens.Spacing.m))
                 if (labels.custom.isEmpty()) {
                     Text(
                         stringResource(R.string.weldmail_drawer_no_labels),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = Tokens.Spacing.l, bottom = Tokens.Spacing.m),
+                        modifier = Modifier.padding(horizontal = Tokens.Spacing.s, vertical = Tokens.Spacing.xs),
                     )
                 }
             }
             items(labels.custom, key = { "label-${it.id}" }) { custom ->
-                NavigationDrawerItem(
-                    label = { Text(custom.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    icon = { Icon(Icons.AutoMirrored.Outlined.Label, contentDescription = null, tint = rgb(MailLogic.labelColor(custom.name, custom.color))) },
-                    badge = { if (custom.count > 0) Text(custom.count.toString()) },
+                DrawerRow(
+                    label = custom.name,
                     selected = label == custom.slug,
                     onClick = { onLabel(custom.slug) },
+                    leading = { Box(Modifier.size(10.dp).background(labelTint(custom.name, custom.color), CircleShape)) },
+                    count = custom.count,
                 )
+            }
+            if (selected != null) {
+                item { AddLabelButton { creating = true } }
             }
         }
     }
@@ -670,14 +605,107 @@ private fun MailboxDrawer(
     }
 }
 
+/** A group's name in the drawer: small, medium, muted, as the platform sidebar's group labels. */
+@Composable
+private fun GroupLabel(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.padding(start = Tokens.Spacing.s, top = Tokens.Spacing.s, bottom = Tokens.Spacing.xs),
+    )
+}
+
+@Composable
+private fun DrawerIcon(icon: ImageVector) {
+    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+}
+
+/** A row of the drawer, as a platform sidebar item: `rounded-md`, the accent fill when it is the one on screen, a count at the end. */
+@Composable
+private fun DrawerRow(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    leading: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+    supporting: String? = null,
+    count: Int? = null,
+    muted: Boolean = false,
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .height(if (supporting != null) 48.dp else 40.dp)
+            .clip(MaterialTheme.shapes.small)
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+            .clickable(onClick = onClick)
+            .semantics { this.selected = selected }
+            .padding(horizontal = Tokens.Spacing.s),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) { leading() }
+        Column(Modifier.weight(1f).padding(horizontal = Tokens.Spacing.m)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                color = if (muted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (supporting != null) {
+                Text(supporting, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (count != null && count > 0) {
+            Text(count.toString(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** "Add label": the platform's dashed button under the labels. */
+@Composable
+private fun AddLabelButton(onClick: () -> Unit) {
+    val dash = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+    val density = LocalDensity.current
+    val radius = with(density) { Tokens.Radius.medium.toPx() }
+    Row(
+        Modifier
+            .padding(horizontal = Tokens.Spacing.s, vertical = Tokens.Spacing.s)
+            .fillMaxWidth()
+            .height(36.dp)
+            .clip(MaterialTheme.shapes.small)
+            .drawBehind {
+                drawRoundRect(
+                    color = dash,
+                    cornerRadius = CornerRadius(radius),
+                    style = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))),
+                )
+            }
+            .clickable(onClick = onClick)
+            .tagged("create-label"),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Outlined.Add, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
+        Text(
+            stringResource(R.string.weldmail_drawer_add_label),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 6.dp),
+        )
+    }
+}
+
 @Composable
 private fun FolderItem(system: SystemLabel, count: Int?, selected: Boolean, onClick: () -> Unit) {
-    NavigationDrawerItem(
-        label = { Text(stringResource(systemLabelName(system))) },
-        icon = { Icon(systemLabelIcon(system), contentDescription = null) },
-        badge = { if (count != null && count > 0) Text(count.toString()) },
+    DrawerRow(
+        label = stringResource(systemLabelName(system)),
         selected = selected,
         onClick = onClick,
+        leading = { DrawerIcon(systemLabelIcon(system)) },
+        count = count,
         modifier = Modifier.tagged("folder-${system.slug.lowercase()}"),
     )
 }

@@ -342,7 +342,37 @@
     "billCount": {
       "one": "{count} inkoopfactuur",
       "other": "{count} inkoopfacturen"
-    }
+    },
+    "today": "Vandaag",
+    "revenue": "Omzet",
+    "expenses": "Kosten",
+    "netProfit": "Nettowinst",
+    "lastYear": "Vorig jaar",
+    "metric": "Cijfer",
+    "cashBalance": "Banksaldo",
+    "bankAccountCount": {
+      "one": "1 bankrekening",
+      "other": "{count} bankrekeningen"
+    },
+    "toReceive": "Te ontvangen",
+    "overdueAmount": "{amount} vervallen",
+    "openInvoiceCount": {
+      "one": "1 openstaande factuur",
+      "other": "{count} openstaande facturen"
+    },
+    "toPay": "Te betalen",
+    "openBillCount": {
+      "one": "1 openstaande inkoopfactuur",
+      "other": "{count} openstaande inkoopfacturen"
+    },
+    "documents": "Te verwerken documenten",
+    "documentsWaiting": "Wachten op boeking",
+    "dueThisWeek": "Vervalt deze week",
+    "noDueThisWeek": "Er vervalt deze week niets.",
+    "latestPayments": "Laatste betalingen",
+    "noRecentPayments": "Geen recente betalingen.",
+    "paymentReceived": "Ontvangen",
+    "paymentSent": "Betaald"
   },
   "invoices": {
     "title": "Facturen",
@@ -567,8 +597,8 @@
     "rejected": "Inkoopfactuur afgewezen",
     "recordPayment": "Betaling vastleggen",
     "paymentRecorded": "Betaling vastgelegd",
-    "rejectTitle": "Deze inkoopfactuur afwijzen?",
-    "rejectMessage": "De factuur blijft in de administratie maar wordt niet gepland voor betaling.",
+    "rejectTitle": "Inkoopfactuur afwijzen",
+    "rejectMessage": "Geef een reden voor het afwijzen van deze inkoopfactuur.",
     "deleteTitle": "Deze inkoopfactuur verwijderen?",
     "deleteMessage": "De inkoopfactuur wordt verwijderd. Dit kan niet ongedaan worden gemaakt.",
     "deleted": "Inkoopfactuur verwijderd",
@@ -581,7 +611,9 @@
     "dueIn": {
       "one": "Vervalt over {count} dag",
       "other": "Vervalt over {count} dagen"
-    }
+    },
+    "rejectReason": "Reden",
+    "rejectReasonPlaceholder": "Voer afwijzingsreden in…"
   },
   "scan": {
     "cameraNeeded": "Cameratoegang nodig",
@@ -637,7 +669,9 @@
     "contacts": "Contacten",
     "contactsSub": "Klanten en {suppliers}",
     "settings": "Instellingen",
-    "settingsSub": "App- en bedrijfsvoorkeuren"
+    "settingsSub": "App- en bedrijfsvoorkeuren",
+    "bank": "Bank",
+    "contactsGroup": "Contacten"
   },
   "bank": {
     "title": "Bankrekeningen",
@@ -660,13 +694,14 @@
     "loadError": "Deze rekening kon niet worden geladen.",
     "currentBalance": "Huidig saldo",
     "transaction": "Transactie",
-    "reconciled": "Afgeletterd",
-    "unmatched": "Niet gekoppeld",
+    "reconciled": "Afgestemd",
+    "unmatched": "Niet afgestemd",
     "emptyTitle": "Geen transacties",
     "emptyDescription": "Importeer een bankafschrift om transacties voor deze rekening te zien.",
     "accountType": "Rekeningsoort",
     "routingNumber": "Routingnummer",
-    "accountNumber": "Rekeningnummer"
+    "accountNumber": "Rekeningnummer",
+    "excluded": "Uitgesloten"
   },
   "reconciliation": {
     "title": "Afstemming",
@@ -935,5 +970,21 @@
   "screen": {
     "switchAdministration": "Administratie wisselen, nu {name}",
     "goBack": "Terug"
+  },
+  "groups": {
+    "overdue": "Achterstallig",
+    "finalized": "Gefinaliseerd",
+    "sent": "Verzonden",
+    "partiallyPaid": "Gedeeltelijk betaald",
+    "approved": "Goedgekeurd",
+    "draft": "Concept",
+    "paid": "Betaald",
+    "other": "Overig",
+    "unreconciled": "Niet afgestemd",
+    "reconciled": "Afgestemd",
+    "excluded": "Uitgesloten"
+  },
+  "document": {
+    "status": "Status"
   }
 }

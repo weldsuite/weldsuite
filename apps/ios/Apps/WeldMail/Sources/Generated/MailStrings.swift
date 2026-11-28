@@ -107,7 +107,7 @@ enum MailStrings {
     static var composeAttachmentsScheduledSend: String { tr("compose.attachmentsScheduledSend") }
     /// Bcc
     static var composeBcc: String { tr("compose.bcc") }
-    /// Compose email
+    /// Write your message…
     static var composeBodyPlaceholder: String { tr("compose.bodyPlaceholder") }
     /// Bold
     static var composeBold: String { tr("compose.bold") }
@@ -123,14 +123,14 @@ enum MailStrings {
     static var composeChooseFile: String { tr("compose.chooseFile") }
     /// Close
     static var composeClose: String { tr("compose.close") }
+    /// Formatting
+    static var composeFormatting: String { tr("compose.formatting") }
     /// Forward
     static var composeForwardTitle: String { tr("compose.forwardTitle") }
     /// Forwarded message
     static var composeForwardedMessage: String { tr("compose.forwardedMessage") }
     /// From
     static var composeFrom: String { tr("compose.from") }
-    /// Hide Cc and Bcc
-    static var composeHideCcBcc: String { tr("compose.hideCcBcc") }
     /// Italic
     static var composeItalic: String { tr("compose.italic") }
     /// New message
@@ -165,6 +165,8 @@ enum MailStrings {
     static var composeSchedule: String { tr("compose.schedule") }
     /// The email could not be scheduled. Please try again.
     static var composeScheduleFailed: String { tr("compose.scheduleFailed") }
+    /// Schedule · {time}
+    static func composeScheduleFor(time: String) -> String { tr("compose.scheduleFor", time) }
     /// Email scheduled for {time}
     static func composeScheduled(time: String) -> String { tr("compose.scheduled", time) }
     /// Send
@@ -175,8 +177,6 @@ enum MailStrings {
     static var composeSendFailed: String { tr("compose.sendFailed") }
     /// Could not send
     static var composeSendFailedTitle: String { tr("compose.sendFailedTitle") }
-    /// Send later
-    static var composeSendLater: String { tr("compose.sendLater") }
     /// This email has no message text. Send it anyway?
     static var composeSendWithoutBodyMessage: String { tr("compose.sendWithoutBodyMessage") }
     /// Send without text?
@@ -185,8 +185,6 @@ enum MailStrings {
     static var composeSending: String { tr("compose.sending") }
     /// Email sent
     static var composeSent: String { tr("compose.sent") }
-    /// Show Cc and Bcc
-    static var composeShowCcBcc: String { tr("compose.showCcBcc") }
     /// Show quoted text
     static var composeShowQuoted: String { tr("compose.showQuoted") }
     /// Subject
@@ -265,7 +263,9 @@ enum MailStrings {
     static func drawerAccounts(_ count: Int) -> String { tr("drawer.accounts", count) }
     /// Add account
     static var drawerAddAccount: String { tr("drawer.addAccount") }
-    /// All inboxes
+    /// Add label
+    static var drawerAddLabel: String { tr("drawer.addLabel") }
+    /// All accounts
     static var drawerAllInboxes: String { tr("drawer.allInboxes") }
     /// Create label
     static var drawerCreateLabel: String { tr("drawer.createLabel") }
@@ -353,18 +353,22 @@ enum MailStrings {
     static var inboxFilterUnread: String { tr("inbox.filterUnread") }
     /// Has attachments
     static var inboxHasAttachments: String { tr("inbox.hasAttachments") }
+    /// Important
+    static var inboxIsImportant: String { tr("inbox.isImportant") }
     /// Pinned
     static var inboxIsPinned: String { tr("inbox.isPinned") }
     /// Starred
     static var inboxIsStarred: String { tr("inbox.isStarred") }
+    /// Last week
+    static var inboxLastWeek: String { tr("inbox.lastWeek") }
     /// Loading more…
     static var inboxLoadingMore: String { tr("inbox.loadingMore") }
+    /// No recipient
+    static var inboxNoRecipient: String { tr("inbox.noRecipient") }
     /// No internet connection
     static var inboxOffline: String { tr("inbox.offline") }
     /// You’re offline. This is the mail you last loaded.
     static var inboxOfflineCached: String { tr("inbox.offlineCached") }
-    /// Older
-    static var inboxOlder: String { tr("inbox.older") }
     /// Mailboxes and labels
     static var inboxOpenMailboxes: String { tr("inbox.openMailboxes") }
     /// {count} changes wait for a connection
@@ -375,12 +379,14 @@ enum MailStrings {
     static var inboxSearchMail: String { tr("inbox.searchMail") }
     /// Snoozed until {time}
     static func inboxSnoozed(time: String) -> String { tr("inbox.snoozed", time) }
-    /// This week
-    static var inboxThisWeek: String { tr("inbox.thisWeek") }
+    /// To:
+    static var inboxToPrefix: String { tr("inbox.toPrefix") }
     /// Unread
     static var inboxUnreadDot: String { tr("inbox.unreadDot") }
     /// {count} unread
     static func inboxUnreadInThread(_ count: Int) -> String { tr("inbox.unreadInThread", count) }
+    /// {count} weeks ago
+    static func inboxWeeksAgo(_ count: Int) -> String { tr("inbox.weeksAgo", count) }
     /// No labels yet. Create one from the mailbox menu.
     static var labelPickerEmpty: String { tr("labelPicker.empty") }
     /// Labels
@@ -423,30 +429,26 @@ enum MailStrings {
     static var messageBlockedLink: String { tr("message.blockedLink") }
     /// Cannot open attachment
     static var messageCannotOpenTitle: String { tr("message.cannotOpenTitle") }
-    /// Cc
-    static var messageCc: String { tr("message.cc") }
     /// {count} messages in this conversation
     static func messageConversation(_ count: Int) -> String { tr("message.conversation", count) }
-    /// Date
-    static var messageDate: String { tr("message.date") }
     /// Delete
     static var messageDelete: String { tr("message.delete") }
     /// Could not download “{name}”. Check your connection and try again.
     static func messageDownloadFailed(name: String) -> String { tr("message.downloadFailed", name) }
     /// Downloading “{name}”…
     static func messageDownloading(name: String) -> String { tr("message.downloading", name) }
-    /// Standard encryption (TLS)
-    static var messageEncryption: String { tr("message.encryption") }
     /// Forward
     static var messageForward: String { tr("message.forward") }
-    /// From
-    static var messageFrom: String { tr("message.from") }
     /// Hide details
     static var messageHideDetails: String { tr("message.hideDetails") }
+    /// Label as
+    static var messageLabelAs: String { tr("message.labelAs") }
     /// Labels
     static var messageLabels: String { tr("message.labels") }
     /// Couldn’t load this email
     static var messageLoadFailed: String { tr("message.loadFailed") }
+    /// Mark as done
+    static var messageMarkDone: String { tr("message.markDone") }
     /// Mark as spam
     static var messageMarkSpam: String { tr("message.markSpam") }
     /// Mark as unread
@@ -463,16 +465,12 @@ enum MailStrings {
     static func messageOpenFailed(name: String) -> String { tr("message.openFailed", name) }
     /// Pin
     static var messagePin: String { tr("message.pin") }
+    /// Recipients ({count})
+    static func messageRecipients(_ count: Int) -> String { tr("message.recipients", count) }
     /// Reply
     static var messageReply: String { tr("message.reply") }
     /// Reply all
     static var messageReplyAll: String { tr("message.replyAll") }
-    /// Report phishing
-    static var messageReportPhishing: String { tr("message.reportPhishing") }
-    /// This message has been reported as phishing.
-    static var messageReportedMessage: String { tr("message.reportedMessage") }
-    /// Reported
-    static var messageReportedTitle: String { tr("message.reportedTitle") }
     /// Show details
     static var messageShowDetails: String { tr("message.showDetails") }
     /// Snooze
@@ -481,8 +479,6 @@ enum MailStrings {
     static var messageStar: String { tr("message.star") }
     /// to {recipients}
     static func messageTo(recipients: String) -> String { tr("message.to", recipients) }
-    /// To
-    static var messageToLabel: String { tr("message.toLabel") }
     /// to me
     static var messageToMe: String { tr("message.toMe") }
     /// Unpin
@@ -663,8 +659,6 @@ enum MailStrings {
     static var sendLaterScheduleTitle: String { tr("sendLater.scheduleTitle") }
     /// Scheduled for {time}
     static func sendLaterScheduledFor(time: String) -> String { tr("sendLater.scheduledFor", time) }
-    /// Send later
-    static var sendLaterSendLaterTitle: String { tr("sendLater.sendLaterTitle") }
     /// Tomorrow afternoon
     static var sendLaterTomorrowAfternoon: String { tr("sendLater.tomorrowAfternoon") }
     /// Tomorrow morning

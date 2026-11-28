@@ -91,6 +91,14 @@ data class Conversation(
     val lastMessageAt: Instant?,
     val updatedAt: Instant?,
     val lastMessagePreview: String?,
+    /** urgent, high, medium or low. */
+    val priority: String? = null,
+    val tags: List<String> = emptyList(),
+    /** The SLA clock: active, warning, breached, paused or achieved; null without a policy. */
+    val slaStatus: String? = null,
+    val slaDueAt: Instant? = null,
+    /** first_response, next_response or resolution. */
+    val slaMetric: String? = null,
 ) {
     val isWaiting: Boolean get() = waitingSince != null
 }
@@ -118,7 +126,61 @@ data class Message(
     /** For an event: closed, reopened, assigned, unassigned, rated, … */
     val eventType: String?,
     val rating: Int?,
+    /** What else an event records, for its line in the timeline. */
+    val details: EventDetails = EventDetails(),
 )
+
+/**
+ * What an event's metadata says beyond its type, as the platform's timeline
+ * reads it. Each event type has its own keys; [DeskRepository.eventDetails]
+ * reads them from the response's JSON.
+ */
+data class EventDetails(
+    /** assigned, escalated: who it went to. */
+    val assigneeId: String? = null,
+    /** assigned: by the workspace's assignment rules, not a person. */
+    val auto: Boolean = false,
+    /** rated: the customer's comment. */
+    val ratingComment: String? = null,
+    /** sla_warning, sla_breached: first_response, next_response or resolution. */
+    val metric: String? = null,
+    /** attributes_changed: one entry per field. */
+    val changes: List<AttributeChange> = emptyList(),
+    /** escalated: unassigned, no_response or sla_breach. */
+    val condition: String? = null,
+    val toTeamId: String? = null,
+    /** linked, unlinked, merged_*: the other ticket, and whether it is the parent. */
+    val linkRole: String? = null,
+    val linkedNumber: String? = null,
+    /** problem_linked, problem_unlinked. */
+    val problemNumber: String? = null,
+    /** approval_*: the step of the service request. */
+    val stepIndex: Int? = null,
+    val stepName: String? = null,
+    val approverId: String? = null,
+    val comment: String? = null,
+    /** fulfilment_started: the tasks created. */
+    val taskCount: Int = 0,
+)
+
+/** One field an `attributes_changed` event changed. */
+data class AttributeChange(
+    /** ticketType, team, priority, tags, impact, urgency or customField. */
+    val field: String,
+    /** A custom field's label, else its [key]. */
+    val label: String? = null,
+    val key: String? = null,
+    val from: ChangeValue = ChangeValue.Empty,
+    val to: ChangeValue = ChangeValue.Empty,
+)
+
+/** A changed field's value: text, a list (tags), a yes/no, or nothing. */
+sealed interface ChangeValue {
+    data object Empty : ChangeValue
+    data class Text(val text: String) : ChangeValue
+    data class Items(val items: List<String>) : ChangeValue
+    data class Flag(val on: Boolean) : ChangeValue
+}
 
 data class ConversationDetail(val conversation: Conversation, val messages: List<Message>)
 

@@ -188,18 +188,18 @@ private struct SubscriptionRow: View {
 
     var body: some View {
         HStack(spacing: Tokens.Spacing.m) {
-            SenderAvatar(name: item.senderLabel)
+            MailAvatar(name: item.senderLabel, size: 36)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.senderLabel).fontWeight(.semibold).lineLimit(1)
-                if let subject = item.lastSubject { Text(subject).font(.footnote).lineLimit(1) }
+                if let subject = item.lastSubject { Text(subject).font(.inter(.footnote)).lineLimit(1) }
                 Text("\(MailStrings.subscriptionsEmails(item.messageCount)) · \(MailStrings.subscriptionsLast(date: rowTime(item.lastReceivedAt)))")
-                    .font(.caption)
+                    .font(.inter(.caption))
                     .foregroundStyle(.secondary)
             }
             Spacer()
             if !item.active {
                 Text(MailLogic.stillSending(item) ? MailStrings.unsubscribeStillSending : MailStrings.unsubscribeUnsubscribed)
-                    .font(.caption)
+                    .font(.inter(.caption))
                     .foregroundStyle(.secondary)
             } else if MailLogic.canUnsubscribe(item) {
                 Button(MailStrings.unsubscribeButton, action: onUnsubscribe)

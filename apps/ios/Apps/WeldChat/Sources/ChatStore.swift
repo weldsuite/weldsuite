@@ -140,6 +140,8 @@ struct ChatMessage: Identifiable, Equatable {
     var type: String
     var parentID: String?
     var threadReplyCount: Int
+    /// When the thread's last reply came in.
+    var threadLastReplyAt: String? = nil
     var editedAt: String?
     var isPinned: Bool
     var hasAttachments: Bool
@@ -210,6 +212,10 @@ struct ActivityNotification: Identifiable, Equatable {
     var createdAt: String
     var actorName: String?
     var actorAvatar: String?
+    var actorID: String? = nil
+    /// The conversation it happened in, and its name (a channel's; a DM's is who it is with).
+    var channelID: String? = nil
+    var channelName: String? = nil
 }
 
 struct ChatDraft: Identifiable, Equatable {
@@ -227,6 +233,7 @@ struct ChatBookmark: Identifiable, Equatable {
     var createdAt: String
     var messageContent: String?
     var messageAuthorName: String?
+    var messageAuthorAvatar: String? = nil
     var channelName: String?
     var channelType: String?
 }
@@ -445,7 +452,7 @@ final class ChatStore {
     }
 
     func loadActivityUnread() async {
-        if let count = try? await unreadNotificationCount() { activityUnread = count }
+        if let count = try? await unreadActivityCount() { activityUnread = count }
     }
 
     func setActivityUnread(_ count: Int) {
@@ -1037,6 +1044,7 @@ final class ChatStore {
                         createdAt: row.createdAt,
                         messageContent: row.messageContent,
                         messageAuthorName: row.messageAuthorName,
+                        messageAuthorAvatar: row.messageAuthorAvatar,
                         channelName: row.channelName,
                         channelType: row.channelType
                     )
@@ -1269,24 +1277,28 @@ final class ChatStore {
 
     // MARK: Notifications (Activity)
 
-    func listNotifications() async throws -> [ActivityNotification] {
+    /// The Activity tab: the caller's chat activity (mentions, thread replies, missed calls), newest first, as the platform's.
+    func listActivity(limit: Int = 50) async throws -> [ActivityNotification] {
         try await call {
-            switch try await client().listNotifications(query: .init(limit: 50)) {
+            switch try await client().listChatActivity(query: .init(limit: limit)) {
             case let .ok(ok):
                 return try ok.body.json.data.map { row in
                     ActivityNotification(
                         id: row.id,
                         title: row.title,
                         body: row.body,
-                        category: row.category,
-                        notificationType: row.notificationType,
-                        entityType: row.entityType,
-                        entityID: row.entityId,
+                        category: "weldchat",
+                        notificationType: row._type,
+                        entityType: nil,
+                        entityID: row.messageId,
                         actionURL: row.actionUrl,
-                        isRead: row.isRead,
+                        isRead: row.readAt != nil,
                         createdAt: row.createdAt,
                         actorName: row.actorName,
-                        actorAvatar: row.actorAvatar
+                        actorAvatar: row.actorAvatarUrl,
+                        actorID: row.actorId,
+                        channelID: row.channelId,
+                        channelName: row.channelName
                     )
                 }
             case let .default(status, response):
@@ -1295,9 +1307,10 @@ final class ChatStore {
         }
     }
 
-    func unreadNotificationCount() async throws -> Int {
+    /// The Activity badge: unread mentions, thread replies and missed calls, as the platform's (not other apps' notifications).
+    func unreadActivityCount() async throws -> Int {
         try await call {
-            switch try await client().getUnreadNotificationCount() {
+            switch try await client().getChatActivityUnreadCount() {
             case let .ok(ok):
                 return try ok.body.json.data.count
             case let .default(status, response):
@@ -1306,10 +1319,11 @@ final class ChatStore {
         }
     }
 
-    func markNotificationRead(_ id: String) async throws {
+    /// Marks one activity item read.
+    func markActivityRead(_ id: String) async throws {
         try await call {
-            switch try await client().markNotificationRead(path: .init(notificationId: id)) {
-            case .ok:
+            switch try await client().markChatActivityRead(body: .json(.init(notificationId: id))) {
+            case .noContent:
                 return
             case let .default(status, response):
                 throw APIError(status: status, code: try? response.body.json.error.code)
@@ -1317,10 +1331,11 @@ final class ChatStore {
         }
     }
 
-    func markAllNotificationsRead() async throws {
+    /// Marks every activity item read (other apps' notifications stay unread).
+    func markAllActivityRead() async throws {
         try await call {
-            switch try await client().markAllNotificationsRead() {
-            case .ok:
+            switch try await client().markChatActivityRead(body: .json(.init())) {
+            case .noContent:
                 return
             case let .default(status, response):
                 throw APIError(status: status, code: try? response.body.json.error.code)
@@ -1408,6 +1423,7 @@ final class ChatStore {
             type: row._type,
             parentID: row.parentId,
             threadReplyCount: row.threadReplyCount ?? 0,
+            threadLastReplyAt: row.threadLastReplyAt,
             editedAt: row.editedAt,
             isPinned: row.isPinned ?? false,
             hasAttachments: row.hasAttachments ?? false,

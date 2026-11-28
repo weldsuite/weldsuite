@@ -20,8 +20,16 @@ import androidx.compose.material.icons.outlined.Apartment
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Group
+import androidx.compose.material.icons.outlined.ArrowDownward
+import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.Badge
+import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.outlined.Phone
+import androidx.compose.material.icons.outlined.Place
+import androidx.compose.material.icons.outlined.Receipt
+import androidx.compose.material.icons.outlined.Search
+import org.weldsuite.ui.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,10 +73,17 @@ import org.weldsuite.ui.StatusBadge
 import org.weldsuite.ui.Tokens
 import org.weldsuite.ui.tagged
 
-/** A building for a company, a person for a private individual; an older contact keeps the building. */
+/** The platform's row avatar of a contact: a building for a company, a person for a private individual; an older contact keeps the building. */
 @Composable
-fun ContactKindTile(kind: String?, size: androidx.compose.ui.unit.Dp = 40.dp) =
-    IconTile(if (kind == "person") Icons.Outlined.Person else Icons.Outlined.Apartment, Accents.contacts, size)
+fun ContactKindTile(kind: String?, size: androidx.compose.ui.unit.Dp = 24.dp) =
+    RowAvatar(null, if (kind == "person") Icons.Outlined.Person else Icons.Outlined.Apartment, size)
+
+/** The platform's chip colour of a role: customers blue, suppliers purple, both indigo. */
+fun contactRoleTone(role: String): org.weldsuite.ui.DayNight = when (role) {
+    "both" -> Tones.indigo
+    "supplier" -> Tones.purple
+    else -> Tones.blue
+}
 
 /** "Customer", "Supplier" or "Customer & supplier", in the country's words. */
 @Composable
@@ -127,27 +142,26 @@ fun ContactsScreen(onBack: () -> Unit, open: (String) -> Unit) {
                 LazyColumn(Modifier.fillMaxSize().tagged("contacts")) {
                     if (contacts.isEmpty()) {
                         item {
-                            EmptyState(
-                                stringResource(if (search.isNotEmpty()) R.string.weldbooks_contacts_no_match_title else R.string.weldbooks_contacts_empty_title),
-                                if (search.isNotEmpty()) stringResource(R.string.weldbooks_contacts_no_match_description)
+                            val searching = search.isNotEmpty()
+                            BooksEmptyState(
+                                icon = if (searching) Icons.Outlined.Search else Icons.Outlined.Group,
+                                title = stringResource(if (searching) R.string.weldbooks_contacts_no_match_title else R.string.weldbooks_contacts_empty_title),
+                                description = if (searching) stringResource(R.string.weldbooks_contacts_no_match_description)
                                 else stringResource(R.string.weldbooks_contacts_empty_description, books.labels.suppliersLower),
-                                icon = { Icon(Icons.Outlined.Group, contentDescription = null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                action = stringResource(R.string.weldbooks_contacts_new_contact).takeIf { !searching },
+                                actionTag = "contacts-empty-new",
+                                onAction = { open("contacts/new") },
                             )
-                            if (search.isEmpty()) {
-                                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    Button(onClick = { open("contacts/new") }, modifier = Modifier.tagged("contacts-empty-new")) {
-                                        Text(stringResource(R.string.weldbooks_contacts_new_contact))
-                                    }
-                                }
-                            }
                         }
+                    } else {
+                        item { Hairline() }
                     }
                     items(contacts, key = { it.id }) { contact ->
                         RecordRow(
                             leading = { ContactKindTile(contact.kind) },
                             title = contact.name.ifBlank { stringResource(R.string.weldbooks_contacts_unnamed) },
                             subtitle = contact.email,
-                            meta = contactRoleLabel(contact.role),
+                            badge = { ToneChip(contactRoleLabel(contact.role), contactRoleTone(contact.role)) },
                             tag = "contact-row",
                             onClick = { open("contacts/${contact.id}") },
                         )
@@ -169,6 +183,7 @@ private data class ContactPage(val contact: Contact, val balance: ContactBalance
 fun ContactScreen(id: String, onBack: () -> Unit, open: (String) -> Unit) {
     val books = LocalBooks.current
     val notify = LocalNotify.current
+    val errors = LocalErrors.current
     val scope = rememberCoroutineScope()
     val loaded = rememberLoaded(id) {
         coroutineScope {
@@ -214,7 +229,7 @@ fun ContactScreen(id: String, onBack: () -> Unit, open: (String) -> Unit) {
                             notify(deleted)
                             onBack()
                         }
-                        .onFailure { notify(it.message ?: failed) }
+                        .onFailure { notify(errors.describe(it, failed)) }
                     deleting = false
                 }
             },
@@ -227,61 +242,73 @@ fun ContactScreen(id: String, onBack: () -> Unit, open: (String) -> Unit) {
 private fun ContactBody(page: ContactPage, open: (String) -> Unit) {
     val books = LocalBooks.current
     val contact = page.contact
-    val warning = Tokens.Status.warning.current()
+    val warning = Tones.amber.current()
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).tagged("contact-detail")) {
-        SectionCard {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m)) {
-                ContactKindTile(contact.kind, 48.dp)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(contact.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        contact.kind?.let { kind ->
-                            StatusBadge(
-                                stringResource(if (kind == "person") R.string.weldbooks_contacts_kinds_person else R.string.weldbooks_contacts_kinds_company),
-                                MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        StatusBadge(contactRoleLabel(contact.role), MaterialTheme.colorScheme.primary)
+        // The platform's page header: the avatar, the name, the kind and the role.
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.m),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
+        ) {
+            ContactKindTile(contact.kind, 40.dp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(contact.name, style = MaterialTheme.typography.titleMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    contact.kind?.let { kind ->
+                        ToneChip(stringResource(if (kind == "person") R.string.weldbooks_contacts_kinds_person else R.string.weldbooks_contacts_kinds_company), Tones.gray)
                     }
+                    ToneChip(contactRoleLabel(contact.role), contactRoleTone(contact.role))
                 }
             }
         }
         page.balance?.let { balance ->
-            SectionCard(title = stringResource(R.string.weldbooks_contact_detail_balance)) {
-                DetailRow(stringResource(R.string.weldbooks_contact_detail_receivable), books.money(balance.receivable), valueColor = warning.takeIf { balance.receivable.signum() > 0 }, strong = true)
-                DetailRow(stringResource(R.string.weldbooks_contact_detail_payable), books.money(balance.payable), valueColor = warning.takeIf { balance.payable.signum() > 0 }, strong = true)
+            Row(Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s), horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m)) {
+                KpiCard(
+                    stringResource(R.string.weldbooks_contact_detail_receivable),
+                    books.money(balance.receivable),
+                    icon = Icons.Outlined.ArrowDownward,
+                    tone = warning.takeIf { balance.receivable.signum() > 0 },
+                    tag = "contact-receivable",
+                    modifier = Modifier.weight(1f),
+                )
+                KpiCard(
+                    stringResource(R.string.weldbooks_contact_detail_payable),
+                    books.money(balance.payable),
+                    icon = Icons.Outlined.ArrowUpward,
+                    tone = warning.takeIf { balance.payable.signum() > 0 },
+                    tag = "contact-payable",
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
         ContactInfo(contact)
         TaxReporting(contact)
         if (page.invoices.isNotEmpty()) {
-            SectionCard(title = stringResource(R.string.weldbooks_contact_detail_invoices), padded = false) {
-                page.invoices.take(5).forEach { invoice ->
-                    RecordRow(
-                        leading = { IconTile(Icons.Outlined.Description, Accents.vat, size = 32.dp) },
-                        title = invoice.number ?: stringResource(R.string.weldbooks_common_draft),
-                        subtitle = books.shortDate(invoice.issueDate),
-                        amount = books.money(invoice.total, invoice.currency),
-                        badge = { StatusPill(invoice.displayStatus()) },
-                        tag = "contact-invoice",
-                        onClick = { open("invoice/${invoice.id}") },
-                    )
-                }
+            PanelSection(title = stringResource(R.string.weldbooks_contact_detail_invoices)) {}
+            Hairline()
+            page.invoices.take(5).forEach { invoice ->
+                RecordRow(
+                    title = invoice.number ?: stringResource(R.string.weldbooks_common_draft),
+                    meta = books.shortDate(invoice.issueDate),
+                    amount = books.money(invoice.total, invoice.currency),
+                    badge = { StatusPill(invoice.displayStatus()) },
+                    tag = "contact-invoice",
+                    onClick = { open("invoice/${invoice.id}") },
+                )
             }
         }
         if (page.bills.isNotEmpty()) {
-            SectionCard(title = stringResource(R.string.weldbooks_contact_detail_bills), padded = false) {
-                page.bills.take(5).forEach { bill ->
-                    RecordRow(
-                        leading = { IconTile(Icons.AutoMirrored.Outlined.ReceiptLong, Accents.profitLoss, size = 32.dp) },
-                        title = bill.number ?: stringResource(R.string.weldbooks_common_draft),
-                        subtitle = books.shortDate(bill.issueDate),
-                        amount = books.money(bill.total, bill.currency),
-                        badge = { StatusPill(bill.displayStatus()) },
-                        tag = "contact-bill",
-                        onClick = { open("bill/${bill.id}") },
-                    )
-                }
+            PanelSection(title = stringResource(R.string.weldbooks_contact_detail_bills)) {}
+            Hairline()
+            page.bills.take(5).forEach { bill ->
+                RecordRow(
+                    title = bill.number ?: stringResource(R.string.weldbooks_common_draft),
+                    meta = books.shortDate(bill.issueDate),
+                    amount = books.money(bill.total, bill.currency),
+                    badge = { StatusPill(bill.displayStatus()) },
+                    tag = "contact-bill",
+                    onClick = { open("bill/${bill.id}") },
+                )
             }
         }
         BottomSpace()
@@ -294,18 +321,18 @@ private fun ContactInfo(contact: Contact) {
     val billing = Addresses.lines(contact.billingAddress)
     val shipping = Addresses.lines(contact.shippingAddress)
     val person = contact.contactPerson
-    // Only when a main field is there: a city alone doesn't make the card.
+    // Only when a main field is there: a city alone doesn't make the section.
     if (contact.email == null && contact.phone == null && contact.vatNumber == null && person == null && billing.isEmpty()) return
-    SectionCard(title = stringResource(R.string.weldbooks_contact_detail_details)) {
-        person?.let { DetailRow(stringResource(R.string.weldbooks_contact_detail_contact_person), listOfNotNull(it.name, it.email, it.phone).joinToString("\n")) }
-        contact.email?.let { DetailRow(stringResource(R.string.weldbooks_contact_detail_email), it) }
-        contact.phone?.let { DetailRow(stringResource(R.string.weldbooks_contact_detail_phone), it) }
-        contact.vatNumber?.let { DetailRow(books.labels.taxId, it) }
+    PanelSection(title = stringResource(R.string.weldbooks_contact_detail_details)) {
+        person?.let { PropertyRow(Icons.Outlined.Person, stringResource(R.string.weldbooks_contact_detail_contact_person), listOfNotNull(it.name, it.email, it.phone).joinToString("\n")) }
+        contact.email?.let { PropertyRow(Icons.Outlined.Email, stringResource(R.string.weldbooks_contact_detail_email), it) }
+        contact.phone?.let { PropertyRow(Icons.Outlined.Phone, stringResource(R.string.weldbooks_contact_detail_phone), it) }
+        contact.vatNumber?.let { PropertyRow(Icons.Outlined.Badge, books.labels.taxId, it) }
         if (books.isUs) {
-            if (billing.isNotEmpty()) DetailRow(stringResource(R.string.weldbooks_contact_detail_billing_address), billing.joinToString("\n"))
-            if (shipping.isNotEmpty() && shipping != billing) DetailRow(stringResource(R.string.weldbooks_contact_detail_shipping_address), shipping.joinToString("\n"))
+            if (billing.isNotEmpty()) PropertyRow(Icons.Outlined.Place, stringResource(R.string.weldbooks_contact_detail_billing_address), billing.joinToString("\n"))
+            if (shipping.isNotEmpty() && shipping != billing) PropertyRow(Icons.Outlined.Place, stringResource(R.string.weldbooks_contact_detail_shipping_address), shipping.joinToString("\n"))
         } else {
-            contact.city?.takeIf { it.isNotBlank() }?.let { DetailRow(stringResource(R.string.weldbooks_contact_detail_city), it) }
+            contact.city?.takeIf { it.isNotBlank() }?.let { PropertyRow(Icons.Outlined.Place, stringResource(R.string.weldbooks_contact_detail_city), it) }
         }
     }
 }
@@ -315,8 +342,8 @@ private fun ContactInfo(contact: Contact) {
 private fun TaxReporting(contact: Contact) {
     val books = LocalBooks.current
     if (!books.isUs || (!contact.is1099Vendor && contact.tinLast4 == null)) return
-    SectionCard(title = stringResource(R.string.weldbooks_contact_detail_tax_reporting)) {
-        if (contact.is1099Vendor) DetailRow(stringResource(R.string.weldbooks_contact_detail_vendor1099), stringResource(R.string.weldbooks_contact_detail_yes))
+    PanelSection(title = stringResource(R.string.weldbooks_contact_detail_tax_reporting)) {
+        if (contact.is1099Vendor) PropertyRow(Icons.Outlined.Receipt, stringResource(R.string.weldbooks_contact_detail_vendor1099), stringResource(R.string.weldbooks_contact_detail_yes))
         contact.tinLast4?.let { last4 ->
             val type = when (contact.tinType) {
                 "ein" -> stringResource(R.string.weldbooks_contact_detail_tin_types_ein)
@@ -324,7 +351,7 @@ private fun TaxReporting(contact: Contact) {
                 "itin" -> stringResource(R.string.weldbooks_contact_detail_tin_types_itin)
                 else -> ""
             }
-            DetailRow(stringResource(R.string.weldbooks_contact_detail_taxpayer_id), stringResource(R.string.weldbooks_contact_detail_tin_on_file, type, last4).trim())
+            PropertyRow(Icons.Outlined.Badge, stringResource(R.string.weldbooks_contact_detail_taxpayer_id), stringResource(R.string.weldbooks_contact_detail_tin_on_file, type, last4).trim())
         }
     }
 }

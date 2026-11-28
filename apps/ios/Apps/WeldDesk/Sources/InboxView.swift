@@ -142,12 +142,28 @@ struct InboxView: View {
     @State private var search = ""
 
     var body: some View {
+        // The current time, read again every 30 seconds, so SLA countdowns move without a reload.
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            list(now: context.date)
+        }
+        .searchable(text: $search, prompt: DeskStrings.inboxSearchPlaceholder)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .onChange(of: search) { _, text in model.searchChanged(text) }
+        .refreshable { await model.reload() }
+        .task { await model.appeared() }
+        .realtimeRefresh(env, topics: inboxTopics) { await model.reload() }
+    }
+
+    private func list(now: Date) -> some View {
         List {
             filters
                 .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: Tokens.Spacing.s, leading: Tokens.Spacing.l, bottom: Tokens.Spacing.m, trailing: Tokens.Spacing.l))
             if model.loading && model.items.isEmpty {
                 ProgressView()
                     .frame(maxWidth: .infinity)
+                    .padding(.vertical, 56)
                     .listRowSeparator(.hidden)
                     .accessibilityIdentifier("inbox-loading")
             } else if model.items.isEmpty, model.error != nil {
@@ -157,17 +173,28 @@ struct InboxView: View {
                 emptyState
                     .listRowSeparator(.hidden)
             } else {
-                ForEach(model.items) { conversation in
-                    NavigationLink(value: ConversationRoute(id: conversation.id)) {
-                        ConversationRow(conversation: conversation)
+                ForEach(DeskLogic.groupByDate(model.items, now: now)) { group in
+                    if group.group != .today {
+                        GroupHeaderRow(label: groupLabel(group.group), count: group.items.count)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
                     }
-                    .accessibilityIdentifier("conversation-\(conversation.number)")
-                    .onAppear {
-                        if conversation.id == model.items.last?.id { Task { await model.loadMore() } }
+                    ForEach(group.items) { conversation in
+                        NavigationLink(value: ConversationRoute(id: conversation.id)) {
+                            ConversationRow(conversation: conversation, now: now)
+                                .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                        }
+                        .listRowInsets(EdgeInsets(top: Tokens.Spacing.m, leading: Tokens.Spacing.m, bottom: Tokens.Spacing.m, trailing: Tokens.Spacing.m))
+                        .listRowSeparatorTint(Tokens.Palette.border)
+                        .accessibilityIdentifier("conversation-\(conversation.number)")
+                        .onAppear {
+                            if conversation.id == model.items.last?.id { Task { await model.loadMore() } }
+                        }
                     }
                 }
                 if model.loadMoreFailed {
                     Button(DeskStrings.inboxLoadMoreError) { Task { await model.loadMore() } }
+                        .font(.inter(.footnote))
                         .frame(maxWidth: .infinity)
                         .listRowSeparator(.hidden)
                         .accessibilityIdentifier("inbox-load-more")
@@ -179,43 +206,26 @@ struct InboxView: View {
         }
         .listStyle(.plain)
         .accessibilityIdentifier("conversation-list")
-        .searchable(text: $search, prompt: DeskStrings.inboxSearchPlaceholder)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        .onChange(of: search) { _, text in model.searchChanged(text) }
-        .refreshable { await model.reload() }
-        .task { await model.appeared() }
-        .realtimeRefresh(env, topics: inboxTopics) { await model.reload() }
     }
 
+    /// The platform's filter toggles: open or closed and the sort, then whose.
     private var filters: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
-            Picker(DeskStrings.inboxTitle, selection: Binding(get: { model.query.state }, set: { model.setState($0) })) {
-                Text(DeskStrings.inboxOpen).tag(ConversationState.open)
-                Text(DeskStrings.inboxClosed).tag(ConversationState.closed)
+            HStack(spacing: 6) {
+                FilterChip(title: DeskStrings.inboxOpen, selected: model.query.state == .open, identifier: "filter-open") { model.setState(.open) }
+                FilterChip(title: DeskStrings.inboxClosed, selected: model.query.state == .closed, identifier: "filter-closed") { model.setState(.closed) }
+                Spacer(minLength: 0)
+                OutlineChip(title: sortLabel(model.query.sort), systemImage: "arrow.up.arrow.down") { model.cycleSort() }
+                    .accessibilityHint(DeskStrings.inboxSortHint(sort: sortLabel(model.query.sort)))
+                    .accessibilityIdentifier("inbox-sort")
             }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier("filter-state")
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Tokens.Spacing.s) {
+                HStack(spacing: 6) {
                     FilterChip(title: DeskStrings.inboxAll, selected: model.query.assignee == .all, identifier: "filter-all") { model.setAssignee(.all) }
                     FilterChip(title: DeskStrings.inboxMine, selected: model.query.assignee == .mine, identifier: "filter-mine") { model.setAssignee(.mine) }
                     FilterChip(title: DeskStrings.inboxUnassigned, selected: model.query.assignee == .unassigned, identifier: "filter-unassigned") {
                         model.setAssignee(.unassigned)
                     }
-                    Button {
-                        model.cycleSort()
-                    } label: {
-                        Label(sortLabel(model.query.sort), systemImage: "arrow.up.arrow.down")
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, Tokens.Spacing.m)
-                            .padding(.vertical, 6)
-                            .background(Color(.secondarySystemFill), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .accessibilityHint(DeskStrings.inboxSortHint(sort: sortLabel(model.query.sort)))
-                    .accessibilityIdentifier("inbox-sort")
                 }
             }
         }
@@ -224,15 +234,11 @@ struct InboxView: View {
     @ViewBuilder
     private var emptyState: some View {
         if !model.query.search.isEmpty {
-            ContentUnavailableView(DeskStrings.inboxNoResults, systemImage: "magnifyingglass", description: Text(DeskStrings.inboxNoResultsHint))
+            DeskEmptyStateView(systemImage: "magnifyingglass", title: DeskStrings.inboxNoResults, description: DeskStrings.inboxNoResultsHint)
                 .accessibilityIdentifier("inbox-empty")
         } else {
-            ContentUnavailableView(
-                model.query.state == .open ? DeskStrings.inboxEmptyOpen : DeskStrings.inboxEmptyClosed,
-                systemImage: "tray",
-                description: Text(DeskStrings.inboxEmptyHint)
-            )
-            .accessibilityIdentifier("inbox-empty")
+            DeskEmptyStateView(systemImage: "tray", title: DeskStrings.inboxEmpty, description: DeskStrings.inboxEmptyDescription)
+                .accessibilityIdentifier("inbox-empty")
         }
     }
 }
@@ -245,74 +251,139 @@ func sortLabel(_ sort: InboxSort) -> String {
     }
 }
 
-/// A chip that's on or off.
-struct FilterChip: View {
-    let title: String
-    let selected: Bool
-    let identifier: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, Tokens.Spacing.m)
-                .padding(.vertical, 6)
-                .foregroundStyle(selected ? Tokens.Brand.welddesk : Color.primary)
-                .background(selected ? Tokens.Brand.welddesk.opacity(0.12) : Color(.secondarySystemFill), in: Capsule())
-                .overlay(Capsule().stroke(selected ? Tokens.Brand.welddesk : .clear, lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityIdentifier(identifier)
+/// A date group's header text, in the phone's language.
+func groupLabel(_ group: DeskLogic.DateGroup, calendar: Calendar = .current) -> String {
+    switch group {
+    case .today:
+        return CoreStrings.commonToday
+    case .yesterday:
+        return CoreStrings.commonYesterday
+    case let .weekday(weekday):
+        let symbols = calendar.standaloneWeekdaySymbols
+        return capitalized(symbols.indices.contains(weekday - 1) ? symbols[weekday - 1] : "")
+    case .lastWeek:
+        return DeskStrings.inboxLastWeek
+    case let .weeksAgo(weeks):
+        return DeskStrings.inboxWeeksAgo(count: weeks)
+    case let .month(year, month, withYear):
+        guard let date = calendar.date(from: DateComponents(year: year, month: month, day: 1)) else { return "" }
+        return capitalized(withYear ? date.formatted(.dateTime.month(.wide).year()) : date.formatted(.dateTime.month(.wide)))
+    case let .later(day):
+        return day.formatted(.dateTime.month(.wide).day())
     }
 }
 
+/// "maandag" → "Maandag": a month or weekday at the start of a header.
+private func capitalized(_ text: String) -> String {
+    text.prefix(1).uppercased() + text.dropFirst()
+}
+
+/// A row's date, as the platform's list: the time today, else the day (with the year once it isn't this year's).
+func listDate(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
+    if calendar.isDate(date, inSameDayAs: now) { return date.formatted(date: .omitted, time: .shortened) }
+    if calendar.component(.year, from: date) == calendar.component(.year, from: now) {
+        return date.formatted(.dateTime.month(.abbreviated).day())
+    }
+    return date.formatted(.dateTime.month(.abbreviated).day().year())
+}
+
+/// One conversation, as the platform's list item: the customer's avatar (a
+/// blue dot beside it while they wait for an answer), their name and the
+/// date, the subject, the last message, and the badges.
 private struct ConversationRow: View {
     let conversation: DeskConversation
+    let now: Date
 
     var body: some View {
-        HStack(alignment: .top, spacing: Tokens.Spacing.m) {
-            ChannelTile(channel: conversation.channel)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(conversation.isWaiting ? DeskStrings.inboxWaiting : DeskLogic.numberLabel(conversation))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(conversation.isWaiting ? Tokens.Brand.welddesk : Color.secondary)
-                    .lineLimit(1)
-                Text(DeskLogic.rowTitle(conversation) ?? DeskStrings.inboxNoSubject)
-                    .font(.body.weight(conversation.isWaiting ? .semibold : .regular))
-                    .lineLimit(1)
-                let subtitle = DeskLogic.rowSubtitle(conversation)
-                if !subtitle.isEmpty {
-                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+        let unread = conversation.isWaiting
+        let name = DeskLogic.rowTitle(conversation) ?? DeskStrings.inboxNoSubject
+        HStack(alignment: .top, spacing: 10) {
+            InitialAvatar(name: name, size: 28)
+                .overlay(alignment: .leading) {
+                    if unread {
+                        Circle().fill(DeskColors.unread).frame(width: 6, height: 6).offset(x: -10)
+                    }
                 }
-            }
-            Spacer(minLength: 0)
-            VStack(alignment: .trailing, spacing: Tokens.Spacing.xs) {
-                if let time = DeskLogic.rowTime(conversation) {
-                    Text(WeldDate.short(time)).font(.caption2).foregroundStyle(.secondary)
+                .padding(.top, 3)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: Tokens.Spacing.s) {
+                    Text(name)
+                        .font(.inter(.subheadline, weight: unread ? .semibold : .medium))
+                        .foregroundStyle(unread ? Tokens.Palette.foreground : Tokens.Palette.mutedForeground)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if let time = DeskLogic.rowTime(conversation) {
+                        Text(listDate(time, now: now))
+                            .font(.inter(.caption2))
+                            .foregroundStyle(Tokens.Palette.mutedForeground)
+                            .lineLimit(1)
+                    }
                 }
-                ChannelBadge(channel: conversation.channel, value: conversation.channelValue)
-                if conversation.isWaiting {
-                    Circle().fill(Tokens.Brand.welddesk).frame(width: 8, height: 8)
+                Text(DeskLogic.rowSubject(conversation))
+                    .font(.inter(.subheadline, weight: unread ? .medium : .regular))
+                    .foregroundStyle(unread ? Tokens.Palette.foreground : Tokens.Palette.mutedForeground)
+                    .lineLimit(1)
+                    .padding(.top, 1)
+                let preview = DeskLogic.rowSubtitle(conversation)
+                if !preview.isEmpty {
+                    Text(preview)
+                        .font(.inter(.footnote))
+                        .foregroundStyle(Tokens.Palette.mutedForeground)
+                        .lineLimit(1)
+                        .padding(.top, 2)
+                }
+                let badges = DeskLogic.rowBadges(conversation, now: now)
+                if !badges.isEmpty {
+                    let flow = FlowLayout()
+                    flow {
+                        ForEach(Array(badges.prefix(DeskLogic.maxRowBadges).enumerated()), id: \.offset) { _, badge in
+                            let shown = rowBadge(badge)
+                            StatusBadge(shown.text, color: shown.color)
+                        }
+                        if badges.count > DeskLogic.maxRowBadges {
+                            Text("+\(badges.count - DeskLogic.maxRowBadges)")
+                                .font(.inter(size: 10))
+                                .foregroundStyle(Tokens.Palette.mutedForeground)
+                        }
+                    }
+                    .padding(.top, Tokens.Spacing.s)
                 }
             }
         }
-        .padding(.vertical, 2)
+    }
+
+    /// A row badge's text and the platform's colour for it.
+    private func rowBadge(_ badge: DeskLogic.RowBadge) -> (text: String, color: Color) {
+        switch badge {
+        case let .sla(display):
+            return (slaText(display.label), slaColor(display.tone))
+        case let .priority(priority):
+            return (priorityName(priority), priority == "urgent" ? DeskColors.urgent : DeskColors.high)
+        case let .tag(tag):
+            return (tag, DeskColors.tag)
+        case let .channel(channel):
+            let color: Color
+            switch channel {
+            case .email: color = DeskColors.email
+            case .phone: color = DeskColors.phone
+            case .portal: color = DeskColors.portal
+            default: color = DeskColors.api
+            }
+            return (channelName(channel, value: ""), color)
+        case .unassigned:
+            return (DeskStrings.inboxUnassignedBadge, DeskColors.unassigned)
+        case .waiting:
+            return (DeskStrings.inboxWaitingBadge, DeskColors.waiting)
+        }
     }
 }
 
-/// The channel's icon on a tinted tile: email in teal, chat and the rest in violet.
-struct ChannelTile: View {
-    let channel: DeskChannel
-
-    var body: some View {
-        let color = channel == .email ? Color(red: 0.06, green: 0.46, blue: 0.43) : Color(red: 0.55, green: 0.36, blue: 0.96)
-        Image(systemName: channel == .email ? "envelope" : "bubble.left.and.bubble.right")
-            .font(.system(size: 17))
-            .foregroundStyle(color)
-            .frame(width: 40, height: 40)
-            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
-            .accessibilityHidden(true)
+/// The list's colour for an SLA tone.
+func slaColor(_ tone: DeskLogic.SlaTone) -> Color {
+    switch tone {
+    case .ok: DeskColors.slaOk
+    case .warning: DeskColors.slaWarning
+    case .breached: DeskColors.slaBreached
+    case .muted: DeskColors.slaMuted
     }
 }

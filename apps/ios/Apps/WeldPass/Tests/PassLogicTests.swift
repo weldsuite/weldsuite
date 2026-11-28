@@ -30,6 +30,38 @@ final class PassLogicTests: XCTestCase {
         XCTAssertEqual(PassLogic.filterItems(items, query: "", vaultID: "other").map(\.id), [])
     }
 
+    func testItemsGroupedByVaultPersonalFirstWithoutEmptyGroups() {
+        let vaults = [vault("b", .shared, "beta"), vault("p", .personal, "Personal"), vault("a", .shared, "Alpha")]
+        let items = [item("1", "x", vaultID: "b"), item("2", "y", vaultID: "p"), item("3", "z", vaultID: "b")]
+        let groups = PassLogic.groupByVault(items, vaults: vaults)
+        XCTAssertEqual(groups.map { $0.vault?.id }, ["p", "b"])
+        XCTAssertEqual(groups[1].items.map(\.id), ["1", "3"])
+    }
+
+    func testItemsOfAnUnknownVaultComeLast() {
+        let groups = PassLogic.groupByVault(
+            [item("1", "x", vaultID: "gone"), item("2", "y", vaultID: "p")],
+            vaults: [vault("p", .personal, "Personal")]
+        )
+        XCTAssertEqual(groups.map { $0.vault?.id }, ["p", nil])
+        XCTAssertEqual(groups[1].items.map(\.id), ["1"])
+    }
+
+    func testLoginListedUnderItsWorstIssueOnly() {
+        func entry(_ id: String, _ issues: [PassHealthEntry.Issue]) -> PassHealthEntry {
+            PassHealthEntry(item: item(id, id), issues: issues, reuseCount: 1)
+        }
+        let groups = PassLogic.groupByWorstIssue([
+            entry("old", [.old]),
+            entry("reused-and-old", [.old, .reused]),
+            entry("weak", [.weak, .reused]),
+        ])
+        XCTAssertEqual(groups.map(\.issue), [.weak, .reused, .old])
+        XCTAssertEqual(groups[0].entries.map(\.id), ["weak"])
+        XCTAssertEqual(groups[1].entries.map(\.id), ["reused-and-old"])
+        XCTAssertEqual(groups[2].entries.map(\.id), ["old"])
+    }
+
     func testVaultRoles() {
         XCTAssertTrue(PassLogic.canEdit(vault("v", .shared, "x", role: .editor)))
         XCTAssertTrue(PassLogic.canEdit(vault("v", .shared, "x", role: .manager)))

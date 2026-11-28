@@ -99,7 +99,7 @@ struct NewChannelView: View {
                     .onSubmit { primary() }
                     .accessibilityIdentifier("new-channel-name")
                     Text(verbatim: "\(ChannelNames.maxLength - name.count)")
-                        .font(.caption.monospacedDigit())
+                        .font(.inter(.caption).monospacedDigit())
                         .foregroundStyle(.secondary)
                         .accessibilityLabel(ChatStrings.newChannelRemaining(count: ChannelNames.maxLength - name.count))
                 }
@@ -167,7 +167,7 @@ struct NewChannelView: View {
                 ChatSearchField(placeholder: ChatStrings.newChannelPeopleSearch, text: $query, identifier: "new-channel-people-search")
                     .listRowSeparator(.hidden)
                 Text(ChatStrings.newChannelPeopleHint(name: finalName.isEmpty ? ChatStrings.newChannelNamePlaceholder : finalName))
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(.secondary)
                     .listRowSeparator(.hidden)
                 if let error { InlineError(text: error).listRowSeparator(.hidden) }
@@ -203,13 +203,13 @@ struct NewChannelView: View {
             HStack(spacing: Tokens.Spacing.m) {
                 Image(systemName: symbol).frame(width: 24)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.body.weight(.semibold)).foregroundStyle(Color.primary)
-                    Text(hint).font(.footnote).foregroundStyle(.secondary)
+                    Text(title).font(.inter(.body, weight: .semibold)).foregroundStyle(Color.primary)
+                    Text(hint).font(.inter(.footnote)).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(selected ? Tokens.Brand.weldchat : Color.secondary)
+                    .font(.inter(.title3))
+                    .foregroundStyle(selected ? Tokens.Palette.primary : Color.secondary)
             }
             .contentShape(Rectangle())
         }

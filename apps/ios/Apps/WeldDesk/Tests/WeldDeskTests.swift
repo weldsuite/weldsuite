@@ -81,13 +81,113 @@ final class DeskLogicTests: XCTestCase {
         XCTAssertEqual(DeskLogic.rowSubtitle(conversation(email: "a@b.test", title: "Order")), "Order")
         XCTAssertEqual(DeskLogic.rowSubtitle(conversation(email: "a@b.test")), "a@b.test")
         XCTAssertEqual(DeskLogic.rowSubtitle(conversation()), "")
-        XCTAssertEqual(DeskLogic.numberLabel(conversation(title: "Order")), "#42 · Order")
-        XCTAssertEqual(DeskLogic.numberLabel(conversation()), "#42")
-        XCTAssertEqual(DeskLogic.threadTitle(conversation()), "#42")
+        XCTAssertEqual(DeskLogic.rowSubject(conversation(title: "Order")), "Order")
+        XCTAssertEqual(DeskLogic.rowSubject(conversation()), "#42")
         XCTAssertTrue(conversation(waiting: true).isWaiting)
         let last = Date(timeIntervalSince1970: 2_000)
         XCTAssertEqual(DeskLogic.rowTime(conversation(lastMessageAt: last)), last)
         XCTAssertEqual(DeskLogic.rowTime(conversation()), Date(timeIntervalSince1970: 1_000))
+    }
+
+    func testTheThreadIsTitledLikeThePlatformsHeaderWithoutSayingAnythingTwice() {
+        // The subject first, then the customer, as the platform's header.
+        XCTAssertEqual(DeskLogic.threadTitle(conversation(name: "Ann", email: "ann@example.test", title: "Order")), "Order")
+        XCTAssertEqual(DeskLogic.threadSubtitle(conversation(name: "Ann", email: "ann@example.test", title: "Order")), "Ann · #42")
+        // No subject: the email is the title, and isn't repeated under it.
+        XCTAssertEqual(DeskLogic.threadTitle(conversation(email: "gert@example.test")), "gert@example.test")
+        XCTAssertEqual(DeskLogic.threadSubtitle(conversation(email: "gert@example.test")), "#42")
+        XCTAssertNil(DeskLogic.threadTitle(conversation()))
+        XCTAssertEqual(DeskLogic.threadSubtitle(conversation()), "#42")
+    }
+
+    private var utc: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }
+
+    private func day(_ text: String) -> Date {
+        ISO8601DateFormatter().date(from: "\(text)T12:00:00Z")!
+    }
+
+    func testTheInboxIsGroupedByDayAsOnThePlatform() {
+        // Friday 27 November 2026; the week starts on Monday the 23rd.
+        let today = day("2026-11-27")
+        XCTAssertEqual(DeskLogic.dateGroup(today, today: today, calendar: utc), .today)
+        XCTAssertEqual(DeskLogic.dateGroup(day("2026-11-26"), today: today, calendar: utc), .yesterday)
+        XCTAssertEqual(DeskLogic.dateGroup(day("2026-11-23"), today: today, calendar: utc), .weekday(2))
+        XCTAssertEqual(DeskLogic.dateGroup(day("2026-11-22"), today: today, calendar: utc), .lastWeek)
+        XCTAssertEqual(DeskLogic.dateGroup(day("2026-11-16"), today: today, calendar: utc), .lastWeek)
+        XCTAssertEqual(DeskLogic.dateGroup(day("2026-11-15"), today: today, calendar: utc), .weeksAgo(2))
+        XCTAssertEqual(DeskLogic.dateGroup(day("2026-11-02"), today: today, calendar: utc), .weeksAgo(3))
+        XCTAssertEqual(DeskLogic.dateGroup(day("2026-10-30"), today: today, calendar: utc), .month(year: 2026, month: 10, withYear: false))
+        XCTAssertEqual(DeskLogic.dateGroup(day("2025-12-31"), today: today, calendar: utc), .month(year: 2025, month: 12, withYear: true))
+
+        let first = conversation(lastMessageAt: day("2026-11-27"))
+        let groups = DeskLogic.groupByDate([first, conversation(lastMessageAt: day("2026-11-20"))], now: today, calendar: utc)
+        XCTAssertEqual(groups.map(\.group), [.today, .lastWeek])
+    }
+
+    func testTheSlaChipCountsDownAndTurnsRedWhenOverdue() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func sla(_ status: String?, _ due: Date?, state: ConversationState = .open) -> DeskConversation {
+            DeskConversation(
+                id: "dconv_1", number: 42, title: nil, state: state, channel: .messenger, channelValue: "messenger",
+                visitorID: nil, name: nil, email: nil, assigneeID: nil, waitingSince: nil, lastMessageAt: nil, updatedAt: nil,
+                lastMessagePreview: nil, slaStatus: status, slaDueAt: due, slaMetric: "first_response"
+            )
+        }
+        XCTAssertNil(DeskLogic.slaDisplay(sla(nil, now.addingTimeInterval(600)), now: now))
+        XCTAssertEqual(DeskLogic.slaDisplay(sla("active", now.addingTimeInterval(600)), now: now), .init(label: .dueIn(metric: "first_response", time: "10m"), tone: .ok))
+        XCTAssertEqual(DeskLogic.slaDisplay(sla("warning", now.addingTimeInterval(600)), now: now)?.tone, .warning)
+        XCTAssertEqual(DeskLogic.slaDisplay(sla("active", now.addingTimeInterval(-7_500)), now: now), .init(label: .overdue(metric: "first_response", time: "2h 5m"), tone: .breached))
+        XCTAssertEqual(DeskLogic.slaDisplay(sla("breached", now, state: .closed), now: now)?.label, .breached)
+        XCTAssertNil(DeskLogic.slaDisplay(sla("paused", nil), now: now))
+        XCTAssertEqual(DeskLogic.slaDisplay(sla("paused", nil), now: now, showPaused: true)?.label, .paused)
+        XCTAssertEqual(DeskLogic.formatSlaDuration(10_000), "1m")
+        XCTAssertEqual(DeskLogic.formatSlaDuration(52 * 3_600_000), "2d 4h")
+    }
+
+    func testARowsBadgesFollowThePlatformsOrder() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var row = conversation(waiting: true)
+        row.priority = "high"
+        row.tags = ["vip", "billing", "third"]
+        row.slaStatus = "active"
+        row.slaDueAt = now.addingTimeInterval(3_600)
+        row.slaMetric = "resolution"
+        XCTAssertEqual(DeskLogic.rowBadges(row, now: now), [
+            .sla(.init(label: .dueIn(metric: "resolution", time: "1h"), tone: .ok)),
+            .priority("high"),
+            .tag("vip"),
+            .tag("billing"),
+            .unassigned,
+            .waiting,
+        ])
+        var quiet = conversation()
+        quiet.priority = "medium"
+        XCTAssertEqual(DeskLogic.rowBadges(quiet, now: now), [.unassigned])
+    }
+
+    func testTheTimelineSaysHowLongAgoAndWhereADayStarts() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertEqual(DeskLogic.ago(now.addingTimeInterval(-30), now: now), .now)
+        XCTAssertEqual(DeskLogic.ago(now.addingTimeInterval(-240), now: now), .minutes(4))
+        XCTAssertEqual(DeskLogic.ago(now.addingTimeInterval(-7_300), now: now), .hours(2))
+        XCTAssertEqual(DeskLogic.ago(now.addingTimeInterval(-3 * 86_400), now: now), .days(3))
+        XCTAssertTrue(DeskLogic.startsDay(nil, message("a", at: 1_800_000_000), calendar: utc))
+        XCTAssertFalse(DeskLogic.startsDay(message("a", at: 1_800_000_000), message("b", at: 1_800_000_060), calendar: utc))
+        XCTAssertTrue(DeskLogic.startsDay(message("a", at: 1_800_000_000), message("b", at: 1_800_086_400), calendar: utc))
+    }
+
+    func testATagChangeSaysWhatWasAddedAndRemoved() {
+        let diff = DeskLogic.tagDiff(AttributeChange(field: "tags", from: .items(["a", "b"]), to: .items(["b", "c"])))
+        XCTAssertEqual(diff.added, ["c"])
+        XCTAssertEqual(diff.removed, ["a"])
+        XCTAssertTrue(DeskLogic.isCleared(.empty))
+        XCTAssertTrue(DeskLogic.isCleared(.items([])))
+        XCTAssertFalse(DeskLogic.isCleared(.text("high")))
+        XCTAssertFalse(DeskLogic.isCleared(.flag(false)))
     }
 
     func testAMessageIsReplacedByIdOrAddedInTimeOrder() {
@@ -293,6 +393,59 @@ final class DeskStoreMappingTests: XCTestCase {
         XCTAssertEqual(rated.kind, .event)
         XCTAssertEqual(rated.eventType, "rated")
         XCTAssertEqual(rated.rating, 4)
+    }
+
+    func testARowCarriesItsPriorityTagsAndSla() throws {
+        let page = try decode(Components.Schemas.DeskConversationList.self, #"""
+        {"data":[{"id":"dconv_3","createdAt":"2026-11-27T08:00:00.000Z","updatedAt":"2026-11-27T09:00:00.000Z",
+          "conversationNumber":44,"state":"open","channel":"email","priority":"urgent","tags":["vip","billing"],
+          "slaStatus":"warning","slaDueAt":"2026-11-27T10:00:00.000Z","slaMetric":"first_response"}],
+         "pagination":{"totalCount":1,"hasMore":false,"cursor":null}}
+        """#)
+        let row = DeskStore.conversation(page.data[0])
+        XCTAssertEqual(row.priority, "urgent")
+        XCTAssertEqual(row.tags, ["vip", "billing"])
+        XCTAssertEqual(row.slaStatus, "warning")
+        XCTAssertNotNil(row.slaDueAt)
+        XCTAssertEqual(row.slaMetric, "first_response")
+    }
+
+    func testEventsKeepWhatTheirMetadataAddsReadFromTheJSON() throws {
+        let json = Data(#"""
+        {"data":{"id":"dconv_1","createdAt":"2026-11-27T08:00:00.000Z","updatedAt":"2026-11-27T09:00:00.000Z",
+          "conversationNumber":42,"state":"open","channel":"messenger","tags":null,
+          "messages":[
+            {"id":"e1","createdAt":"2026-11-27T08:30:00.000Z","conversationId":"dconv_1","kind":"event","authorType":"agent","authorId":"user_1",
+             "metadata":{"eventType":"attributes_changed","changes":[
+               {"field":"priority","from":null,"to":"high"},
+               {"field":"tags","from":["a"],"to":["a","b"]},
+               {"field":"customField","key":"vip","label":"VIP","from":false,"to":true},
+               {"field":"customField","key":"seats","from":null,"to":12}]}},
+            {"id":"e2","createdAt":"2026-11-27T08:31:00.000Z","conversationId":"dconv_1","kind":"event","authorType":"system",
+             "metadata":{"eventType":"assigned","assigneeId":"user_2","auto":true}},
+            {"id":"e3","createdAt":"2026-11-27T08:32:00.000Z","conversationId":"dconv_1","kind":"event","authorType":"system",
+             "metadata":{"eventType":"sla_breached","metric":"first_response","dueAt":null}},
+            {"id":"e4","createdAt":"2026-11-27T08:33:00.000Z","conversationId":"dconv_1","kind":"event","authorType":"agent","authorId":"user_1",
+             "metadata":{"eventType":"linked","linkRole":"parent","linkedConversationNumber":12,"stepIndex":"odd"}},
+            {"id":"e5","createdAt":"2026-11-27T08:34:00.000Z","conversationId":"dconv_1","kind":"event","authorType":"visitor",
+             "metadata":{"eventType":"rated","rating":5,"ratingComment":"Thanks!"}}]}}
+        """#.utf8)
+        let messages = try DeskStore.detail(json: json).messages
+        XCTAssertEqual(messages.count, 5)
+        XCTAssertEqual(messages[0].details.changes, [
+            AttributeChange(field: "priority", from: .empty, to: .text("high")),
+            AttributeChange(field: "tags", from: .items(["a"]), to: .items(["a", "b"])),
+            AttributeChange(field: "customField", label: "VIP", key: "vip", from: .flag(false), to: .flag(true)),
+            AttributeChange(field: "customField", key: "seats", from: .empty, to: .text("12")),
+        ])
+        XCTAssertEqual(messages[1].details.assigneeID, "user_2")
+        XCTAssertTrue(messages[1].details.auto)
+        XCTAssertEqual(messages[2].details.metric, "first_response")
+        XCTAssertEqual(messages[3].details.linkRole, "parent")
+        XCTAssertEqual(messages[3].details.linkedNumber, "12")
+        // A key of the wrong type reads as missing.
+        XCTAssertNil(messages[3].details.stepIndex)
+        XCTAssertEqual(messages[4].details.ratingComment, "Thanks!")
     }
 
     func testHubEventsCarryTheRecord() {

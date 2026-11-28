@@ -41,8 +41,8 @@
     "switchHint": "You clock out of this shift and straight in on the one you pick.",
     "noOtherShifts": "No other shifts today",
     "switched": "Switched shift",
-    "mySchedule": "My schedule",
-    "noShifts": "No shifts planned",
+    "mySchedule": "Upcoming shifts",
+    "noShifts": "No upcoming shifts",
     "myAbsences": "My absences {year}",
     "noAbsences": "You have no absences",
     "addAbsence": "Add absence",
@@ -74,23 +74,34 @@
     "unreadAnnouncements": {
       "one": "{count} unread announcement",
       "other": "{count} unread announcements"
-    }
+    },
+    "openTasksLabel": "Open tasks",
+    "toConfirm": "To confirm",
+    "nothingToConfirm": "Nothing to confirm",
+    "evaluation": "Evaluation",
+    "noEvaluation": "No evaluation yet",
+    "milestones": "Milestones",
+    "milestonesValue": "{achieved} of {total} achieved",
+    "milestonesOpen": "{open} still open"
   },
   "balance": {
     "left": "{days} left",
     "ofAllowance": "of {days} days",
-    "unlimited": "No limit",
+    "unlimited": "Unlimited",
     "prorated": "Pro-rated for this year",
     "days": {
       "one": "{count} day",
       "other": "{count} days"
     },
-    "daysFraction": "{days} days"
+    "daysFraction": "{days} days",
+    "used": "Used {days}",
+    "pending": "Pending {days}",
+    "allowance": "Allowance {days}"
   },
   "leaveStatus": {
     "pending": "Pending",
     "approved": "Approved",
-    "rejected": "Declined",
+    "rejected": "Rejected",
     "cancelled": "Cancelled"
   },
   "timeOff": {
@@ -140,9 +151,9 @@
     "history": "Earlier reports"
   },
   "declarationStatus": {
-    "pending": "Awaiting approval",
+    "pending": "Pending",
     "approved": "Approved",
-    "rejected": "Declined",
+    "rejected": "Rejected",
     "paid": "Paid",
     "cancelled": "Cancelled"
   },
@@ -160,8 +171,8 @@
     "toApprove": "To approve",
     "declarations": "Declarations",
     "newExpense": "New expense",
-    "awaiting": "Awaiting approval",
-    "toBePaid": "Approved, to be paid",
+    "awaiting": "Awaiting a decision",
+    "toBePaid": "Approved, to be paid out",
     "noExpenses": "No expenses yet",
     "noExpensesDescription": "Snap a receipt and claim it back in seconds.",
     "turnedOff": "Claiming expenses from the app is turned off. Ask HR how to claim them.",
@@ -174,7 +185,13 @@
     "cancelled": "Expense withdrawn",
     "search": "Search expenses",
     "noResults": "No expenses found",
-    "noResultsDescription": "Try another word, amount or category."
+    "noResultsDescription": "Try another word, amount or category.",
+    "reviewGroup": "To review",
+    "groups": {
+      "paid": "Paid",
+      "rejectedCancelled": "Rejected & cancelled",
+      "other": "Other"
+    }
   },
   "expenseForm": {
     "title": "New expense",
@@ -218,13 +235,13 @@
     "nothingToApprove": "Nothing waiting for you",
     "nothingToApproveDescription": "New requests show up here as soon as they are sent.",
     "approve": "Approve",
-    "reject": "Decline",
+    "reject": "Reject",
     "approved": "Approved",
-    "rejected": "Declined",
-    "rejectTitle": "Decline request",
+    "rejected": "Rejected",
+    "rejectTitle": "Reject request",
     "rejectNote": "Reason",
     "rejectNotePlaceholder": "Optional, shown to the employee",
-    "rejectConfirm": "Decline"
+    "rejectConfirm": "Reject"
   },
   "directory": {
     "title": "Directory",
@@ -244,7 +261,7 @@
     "onboarding": "Onboarding",
     "active": "Active",
     "on_leave": "On leave",
-    "offboarding": "Leaving",
+    "offboarding": "Offboarding",
     "terminated": "Left"
   },
   "me": {
@@ -256,7 +273,11 @@
     "reviews": "Reviews & coaching",
     "sickLeave": "Sick leave",
     "employeeNumberLabel": "Employee number",
-    "team": "Team"
+    "team": "Team",
+    "myHr": "My HR",
+    "email": "Email",
+    "phone": "Phone",
+    "location": "Location"
   },
   "schedule": {
     "mine": "My week",
@@ -318,7 +339,7 @@
     "sent": "Request sent",
     "inPast": "Pick a time that is still to come",
     "status": {
-      "pending": "Waiting for approval",
+      "pending": "Pending",
       "approved": "Approved",
       "rejected": "Declined",
       "cancelled": "Withdrawn"
@@ -383,7 +404,8 @@
     "minutesAgo": "{count}m",
     "hoursAgo": "{count}h",
     "yesterday": "Yesterday",
-    "daysAgo": "{count}d"
+    "daysAgo": "{count}d",
+    "new": "New"
   },
   "announcementForm": {
     "title": "New announcement",
@@ -452,7 +474,7 @@
     "sick": "Sick",
     "ongoing": "Ongoing",
     "recovered": "Recovered",
-    "balances": "Time off balances",
+    "balances": "Leave balances",
     "remaining": "{amount} remaining",
     "allowance": "Allowance",
     "taken": "Taken",
@@ -469,7 +491,12 @@
     "sickDays": "{days} sick",
     "search": "Search requests",
     "noResults": "No requests found",
-    "noResultsDescription": "Try another name, date or type of leave."
+    "noResultsDescription": "Try another name, date or type of leave.",
+    "groups": {
+      "pending": "Pending",
+      "approved": "Approved",
+      "rejectedCancelled": "Rejected & cancelled"
+    }
   },
   "attendanceStatus": {
     "present": "Present",
@@ -492,7 +519,13 @@
       "employee": "you",
       "other": "someone else"
     },
-    "checklistDone": "Checklist complete"
+    "checklistDone": "Checklist complete",
+    "progress": "{done} of {total} done",
+    "state": {
+      "open": "To do",
+      "overdue": "Overdue",
+      "done": "Done"
+    }
   },
   "reviews": {
     "title": "Reviews & coaching",

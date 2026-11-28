@@ -83,7 +83,7 @@ private struct InCallView: View {
         .padding(.horizontal, Tokens.Spacing.l)
         .padding(.bottom, Tokens.Spacing.l)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(uiColor: .systemBackground).ignoresSafeArea())
+        .background(Tokens.Palette.background.ignoresSafeArea())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("call-overlay")
     }
@@ -93,7 +93,7 @@ private struct InCallView: View {
             HStack {
                 Button(action: { manager.minimize() }) {
                     Image(systemName: "chevron.down")
-                        .font(.title3.weight(.semibold))
+                        .font(.inter(.title3, weight: .semibold))
                         .frame(width: 44, height: 44)
                 }
                 .accessibilityLabel(ChatStrings.inCallMinimize)
@@ -101,20 +101,20 @@ private struct InCallView: View {
                 Spacer()
                 Button(action: onOpenChat) {
                     Image(systemName: "message")
-                        .font(.title3)
+                        .font(.inter(.title3))
                         .frame(width: 44, height: 44)
                 }
                 .accessibilityLabel(ChatStrings.inCallBackToChat)
                 .accessibilityIdentifier("call-back-to-chat")
             }
-            .foregroundStyle(.primary)
+            .foregroundStyle(Tokens.Palette.foreground)
             Text(title)
-                .font(.title.bold())
+                .font(.inter(.title2, weight: .semibold))
                 .lineLimit(1)
             Text(manager.statusText)
-                .font(.subheadline)
+                .font(.inter(.subheadline))
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Tokens.Palette.mutedForeground)
                 .lineLimit(1)
         }
     }
@@ -147,24 +147,20 @@ private struct InCallView: View {
     @ViewBuilder
     private var avatar: some View {
         if session.isDirect {
-            AvatarView(
-                name: session.peerName,
-                url: session.peerAvatar.flatMap(URL.init(string:)),
-                size: 140,
-                tint: Tokens.Brand.weldchat
-            )
+            ChatAvatar(name: session.peerName, url: session.peerAvatar, size: 140)
         } else {
             Image(systemName: "number")
-                .font(.system(size: 56, weight: .semibold))
-                .foregroundStyle(.white)
+                .font(.system(size: 56, weight: .medium))
+                .foregroundStyle(Tokens.Palette.mutedForeground)
                 .frame(width: 140, height: 140)
-                .background(Tokens.Brand.weldchat, in: Circle())
+                .background(Tokens.Palette.muted, in: AvatarShape())
                 .accessibilityHidden(true)
         }
     }
 
+    /// The platform's call controls: `rounded-[18px]` 48pt squares, centred, Leave a little wider.
     private var controls: some View {
-        HStack(spacing: Tokens.Spacing.m) {
+        HStack(spacing: Tokens.Spacing.s) {
             ControlButton(
                 symbol: manager.micEnabled ? "mic.fill" : "mic.slash.fill",
                 isOn: manager.micEnabled,
@@ -192,18 +188,19 @@ private struct InCallView: View {
                 }
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.title3)
+                    .font(.system(size: 18))
                     .frame(width: 48, height: 48)
-                    .background(Color(uiColor: .secondarySystemFill), in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
-                    .foregroundStyle(.primary)
+                    .background(Tokens.Palette.secondary, in: RoundedRectangle(cornerRadius: CallStyle.radius))
+                    .overlay(RoundedRectangle(cornerRadius: CallStyle.radius).stroke(Tokens.Palette.border, lineWidth: 1))
+                    .foregroundStyle(Tokens.Palette.foreground)
             }
             .accessibilityLabel(ChatStrings.inCallMoreOptions)
             .accessibilityIdentifier("call-more")
             Button(action: { manager.hangUp() }) {
                 Image(systemName: "phone.down.fill")
-                    .font(.title3)
-                    .frame(maxWidth: .infinity, minHeight: 48)
-                    .background(Tokens.Status.danger, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+                    .font(.system(size: 18))
+                    .frame(width: 64, height: 48)
+                    .background(Tokens.Status.danger, in: RoundedRectangle(cornerRadius: CallStyle.radius))
                     .foregroundStyle(.white)
             }
             .accessibilityLabel(ChatStrings.inCallLeaveCall)
@@ -212,7 +209,23 @@ private struct InCallView: View {
     }
 }
 
-/// A 48 pt rounded square of the control bar, red while it's off.
+/// The call screens' colours, as the platform's: the live call strip (its
+/// active-call banner: `green-500/10`, a `green-500/20` line, `green-700`
+/// text), a control that is off (`bg-red-100 text-red-500`), and the ring's
+/// Decline and Accept (`bg-red-600`, `bg-green-600`).
+enum CallStyle {
+    static let radius: CGFloat = 18
+    static let barFill = ChatColors.dynamic(0x22C55E, 0x22C55E, lightOpacity: 0.1, darkOpacity: 0.05)
+    static let barLine = Color(hex: 0x22C55E).opacity(0.2)
+    static let barText = ChatColors.dynamic(0x15803D, 0x4ADE80)
+    static let offFill = ChatColors.dynamic(0xFEE2E2, 0xEF4444, darkOpacity: 0.2)
+    static let offText = ChatColors.dynamic(0xEF4444, 0xF87171)
+    static let decline = Color(hex: 0xDC2626)
+    static let accept = Color(hex: 0x16A34A)
+}
+
+/// A 48 pt `rounded-[18px]` square of the control bar: the platform's
+/// secondary button with a ring, red-tinted while it's off.
 private struct ControlButton: View {
     let symbol: String
     let isOn: Bool
@@ -223,13 +236,11 @@ private struct ControlButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.title3)
+                .font(.system(size: 18))
                 .frame(width: 48, height: 48)
-                .background(
-                    isOn ? Color(uiColor: .secondarySystemFill) : Tokens.Status.danger.opacity(0.16),
-                    in: RoundedRectangle(cornerRadius: Tokens.Radius.medium)
-                )
-                .foregroundStyle(isOn ? Color.primary : Tokens.Status.danger)
+                .background(isOn ? Tokens.Palette.secondary : CallStyle.offFill, in: RoundedRectangle(cornerRadius: CallStyle.radius))
+                .overlay(RoundedRectangle(cornerRadius: CallStyle.radius).stroke(isOn ? Tokens.Palette.border : Color.clear, lineWidth: 1))
+                .foregroundStyle(isOn ? Tokens.Palette.foreground : CallStyle.offText)
         }
         .accessibilityLabel(label)
         .accessibilityIdentifier(identifier)
@@ -262,17 +273,12 @@ private struct VideoGrid: View {
     }
 }
 
-/// WhatsApp's call bar, measured from its iOS app: dark in light and dark
-/// mode alike, mute on the left, the name and status in green, the red
+/// The call while it is minimized, as the platform's live-call strip: a
+/// green wash, mute on the left, the name and status in green, the red
 /// hang-up on the right. Tapping the middle brings the call back.
 private struct MinimizedCallBar: View {
     let manager: CallManager
     let session: CallSession
-
-    private static let background = Color(red: 0x24 / 255, green: 0x26 / 255, blue: 0x25 / 255)
-    private static let button = Color(red: 0x10 / 255, green: 0x10 / 255, blue: 0x10 / 255)
-    private static let green = Color(red: 0x82 / 255, green: 0xE3 / 255, blue: 0x82 / 255)
-    private static let red = Color(red: 0xD6 / 255, green: 0x2E / 255, blue: 0x3F / 255)
 
     private var title: String {
         if let name = session.peerName, !name.isEmpty {
@@ -286,23 +292,24 @@ private struct MinimizedCallBar: View {
         HStack(spacing: Tokens.Spacing.m) {
             Button(action: { manager.toggleMic() }) {
                 Image(systemName: "mic.slash.fill")
-                    .font(.body)
+                    .font(.system(size: 15))
                     .frame(width: 38, height: 38)
-                    .background(muted ? Color.white : Self.button, in: Circle())
-                    .foregroundStyle(muted ? Self.button : Color.white)
+                    .background(muted ? CallStyle.offFill : Tokens.Palette.secondary, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(muted ? Color.clear : Tokens.Palette.border, lineWidth: 1))
+                    .foregroundStyle(muted ? CallStyle.offText : Tokens.Palette.foreground)
             }
             .accessibilityLabel(muted ? ChatStrings.callUnmute : ChatStrings.callMute)
             .accessibilityIdentifier("call-bar-mute")
             Button(action: { manager.expand() }) {
                 HStack(spacing: Tokens.Spacing.s) {
                     Image(systemName: "phone.fill")
-                        .font(.footnote)
+                        .font(.inter(.footnote))
                     Text(title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.inter(.subheadline, weight: .semibold))
                         .monospacedDigit()
                         .lineLimit(1)
                 }
-                .foregroundStyle(Self.green)
+                .foregroundStyle(CallStyle.barText)
                 .frame(maxWidth: .infinity, minHeight: 38)
                 .contentShape(Rectangle())
             }
@@ -310,9 +317,9 @@ private struct MinimizedCallBar: View {
             .accessibilityIdentifier("call-bar")
             Button(action: { manager.hangUp() }) {
                 Image(systemName: "phone.down.fill")
-                    .font(.body)
+                    .font(.system(size: 15))
                     .frame(width: 38, height: 38)
-                    .background(Self.red, in: Circle())
+                    .background(Tokens.Status.danger, in: RoundedRectangle(cornerRadius: 12))
                     .foregroundStyle(Color.white)
             }
             .accessibilityLabel(ChatStrings.callEndCall)
@@ -320,8 +327,10 @@ private struct MinimizedCallBar: View {
         }
         .padding(.horizontal, Tokens.Spacing.s)
         .padding(.vertical, Tokens.Spacing.xs + 2)
-        .background(Self.background, in: Capsule())
-        .shadow(color: .black.opacity(0.2), radius: 8, y: 2)
+        .background(CallStyle.barFill, in: RoundedRectangle(cornerRadius: Tokens.Radius.xlarge))
+        .background(Tokens.Palette.background, in: RoundedRectangle(cornerRadius: Tokens.Radius.xlarge))
+        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.xlarge).stroke(CallStyle.barLine, lineWidth: 1))
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
         .padding(.horizontal, Tokens.Spacing.l)
         .padding(.top, Tokens.Spacing.xs)
     }

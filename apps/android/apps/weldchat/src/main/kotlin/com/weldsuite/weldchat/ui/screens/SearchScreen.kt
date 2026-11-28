@@ -63,6 +63,7 @@ import com.weldsuite.weldchat.SearchHitItem
 import com.weldsuite.weldchat.SearchTab
 import com.weldsuite.weldchat.TeamMember
 import com.weldsuite.weldchat.text
+import com.weldsuite.weldchat.ui.EmptyIcon
 import com.weldsuite.weldchat.ui.ChatAvatar
 import com.weldsuite.weldchat.ui.ChatNavigator
 import com.weldsuite.weldchat.ui.ListHeader
@@ -195,7 +196,7 @@ fun SearchScreen(store: ChatStore, nav: ChatNavigator) {
                             EmptyState(
                                 stringResource(R.string.weldchat_search_idle_title),
                                 stringResource(R.string.weldchat_search_idle_hint),
-                                icon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(40.dp)) },
+                                icon = { EmptyIcon(Icons.Filled.Search) },
                             )
                         }
                     } else {
@@ -237,7 +238,7 @@ fun SearchScreen(store: ChatStore, nav: ChatNavigator) {
                         item("empty") {
                             EmptyState(
                                 stringResource(R.string.weldchat_search_no_people),
-                                icon = { Icon(Icons.Filled.People, contentDescription = null, modifier = Modifier.size(40.dp)) },
+                                icon = { EmptyIcon(Icons.Filled.People) },
                             )
                         }
                     }
@@ -251,7 +252,7 @@ fun SearchScreen(store: ChatStore, nav: ChatNavigator) {
                             EmptyState(
                                 stringResource(R.string.weldchat_search_no_results),
                                 stringResource(R.string.weldchat_search_no_results_hint),
-                                icon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(40.dp)) },
+                                icon = { EmptyIcon(Icons.Filled.Search) },
                             )
                         }
                     }

@@ -2,14 +2,14 @@ appId: ${APP_ID || "com.weldsuite.weldcalendar.dev"}
 name: Hide a calendar and show it again
 tags: [smoke]
 ---
-# The switch is kept on the phone only: nothing changes on the server.
+# The checkbox is kept on the phone only: nothing changes on the server.
 - runFlow: ../subflows/login.yaml
 - tapOn:
     id: tab-calendars
 - extendedWaitUntil:
-    visible: "Hidden calendars stay out of the agenda and the month grid."
+    visible: "My Calendars"
     timeout: 15000
-# The first calendar's switch, off and on again.
+# The first calendar's checkbox, off and on again.
 - tapOn:
     id: "calendar-visible-.*"
     index: 0
@@ -18,4 +18,5 @@ tags: [smoke]
     index: 0
 - tapOn:
     id: tab-agenda
-- assertVisible: "Next 7 days"
+- assertVisible:
+    id: agenda-list

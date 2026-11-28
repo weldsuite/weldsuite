@@ -6,7 +6,7 @@ What `apps/ios` and `apps/android` are both built from:
 |---|---|
 | `openapi/<module>.yaml` | The API contract per module, hand-written (OpenAPI 3.0). Both apps generate their clients from it at build time. |
 | `strings/<source>/{en,nl}.json` | The apps' strings: `core` for the shared screens, one folder per app. Nested keys, `{name}` placeholders, `{ one, other }` plurals on `{count}`. |
-| `tokens.json` | Design tokens: brand colours per app, status colours, radii, spacing. |
+| `tokens.json` | Design tokens taken from the web platform's theme: its light and dark palette, status colours, radii, spacing. |
 
 After changing anything here, run from the repo root:
 

@@ -15,7 +15,7 @@
     "dms": "DM’s"
   },
   "home": {
-    "saved": "Bewaard",
+    "saved": "Opgeslagen items",
     "drafts": "Concepten",
     "channelsGroup": "Kanalen",
     "createChannel": "Kanaal maken",
@@ -48,7 +48,9 @@
       "one": "{count} actief",
       "other": "{count} actief"
     },
-    "sectionActions": "Acties voor deze sectie"
+    "sectionActions": "Acties voor deze sectie",
+    "addChannel": "Kanaal toevoegen",
+    "otherChannelsGroup": "Overige kanalen"
   },
   "dms": {
     "filterAll": "Alle",
@@ -74,14 +76,19 @@
   },
   "activity": {
     "emptyTitle": "Nog geen activiteit",
-    "emptyHint": "Vermeldingen, antwoorden in threads en DM's verschijnen hier.",
+    "emptyHint": "Vermeldingen, antwoorden in je threads en gemiste oproepen verschijnen hier.",
     "markAllRead": "Alles als gelezen markeren",
     "thisWeek": "Deze week",
     "earlierThisMonth": "Eerder deze maand",
     "now": "nu",
     "minutesShort": "{count} min",
     "hoursShort": "{count} u",
-    "daysShort": "{count} d"
+    "daysShort": "{count} d",
+    "mentions": "Vermeldingen",
+    "replies": "Antwoorden",
+    "missedCalls": "Gemiste oproepen",
+    "other": "Overig",
+    "inChannel": "in #{name}"
   },
   "calls": {
     "join": "Deelnemen",
@@ -215,7 +222,12 @@
     "unpin": "Losmaken",
     "deleteMessageTitle": "Bericht verwijderen",
     "deleteMessageBody": "Weet je zeker dat je dit bericht wilt verwijderen? Dit kan niet ongedaan worden gemaakt.",
-    "sending": "Versturen…"
+    "sending": "Versturen…",
+    "startedCall": "Heeft een gesprek gestart.",
+    "startedCallLasted": "Heeft een gesprek gestart dat {duration} duurde.",
+    "calledNoAnswer": "Belde, maar er werd niet opgenomen.",
+    "youMissedCall": "Je hebt het gesprek gemist.",
+    "joinCallLink": "Deelnemen aan gesprek"
   },
   "inCall": {
     "backToChat": "Terug naar chat",
@@ -407,7 +419,8 @@
     "voiceMessage": "Spraakbericht",
     "play": "Afspelen",
     "pause": "Pauzeren",
-    "playbackSpeed": "{speed}×"
+    "playbackSpeed": "{speed}×",
+    "mentionSomeone": "Iemand vermelden"
   },
   "messageActions": {
     "reactWithEmoji": "Reageer met een emoji",

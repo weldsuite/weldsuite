@@ -53,11 +53,13 @@ struct SearchView: View {
     var body: some View {
         let shown = SearchLogic.apply(results, filters: filters, own: store.ownAddresses)
         let tail = Set(shown.suffix(8).map(\.id))
+        let labelColors = Dictionary(store.labels.custom.map { ($0.name, $0.color) }, uniquingKeysWith: { first, _ in first })
         List {
             Section {
-                HStack {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                HStack(spacing: Tokens.Spacing.s) {
+                    Image(systemName: "magnifyingglass").font(.system(size: 14)).foregroundStyle(Tokens.Palette.mutedForeground)
                     TextField(MailStrings.searchPlaceholder, text: $query)
+                        .font(.inter(.subheadline))
                         .focused($focused)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -67,12 +69,17 @@ struct SearchView: View {
                         Button {
                             query = ""
                         } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(Tokens.Palette.mutedForeground)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(MailStrings.searchClear)
                     }
                 }
+                // The platform's search input: bordered, `rounded-md`, the icon inside.
+                .padding(.horizontal, 10)
+                .frame(height: 40)
+                .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.medium).stroke(Tokens.Palette.border))
+                .padding(.horizontal, Tokens.Spacing.l)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: Tokens.Spacing.s) {
                         ForEach(FilterKind.allCases) { kind in
@@ -81,8 +88,11 @@ struct SearchView: View {
                                 .accessibilityIdentifier("search-filter-\(kind.rawValue)")
                         }
                     }
+                    .padding(.horizontal, Tokens.Spacing.l)
+                    .padding(.vertical, 1)
                 }
             }
+            .listRowInsets(EdgeInsets(top: Tokens.Spacing.s, leading: 0, bottom: Tokens.Spacing.s, trailing: 0))
             .listRowSeparator(.hidden)
 
             if !active {
@@ -97,9 +107,12 @@ struct SearchView: View {
                     Button {
                         nav.open(.message(message.id))
                     } label: {
-                        ResultRow(message: message, query: query)
+                        MessageRow(message: message, pinned: MailLogic.isPinned(message), labelColors: labelColors, query: query)
                     }
                     .buttonStyle(.plain)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparatorTint(Tokens.Palette.border)
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                     .accessibilityIdentifier("search-result")
                     .onAppear { if tail.contains(message.id) { loadMore() } }
                 }
@@ -272,48 +285,5 @@ struct SearchView: View {
             }
         }
         .presentationDetents([.medium, .large])
-    }
-}
-
-private struct ResultRow: View {
-    let message: MailMessage
-    let query: String
-
-    var body: some View {
-        let sender = message.senderName ?? MailStrings.commonUnknown
-        HStack(alignment: .top, spacing: Tokens.Spacing.m) {
-            SenderAvatar(name: sender)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: Tokens.Spacing.xs) {
-                    Text(highlighted(sender)).fontWeight(message.isRead ? .regular : .semibold).lineLimit(1)
-                    Spacer(minLength: 0)
-                    Text(rowTime(message.listDate)).font(.caption).foregroundStyle(.secondary)
-                    if message.hasAttachments { Image(systemName: "paperclip").font(.caption).foregroundStyle(.secondary) }
-                    if message.isStarred { Image(systemName: "star.fill").font(.caption).foregroundStyle(MailColors.star) }
-                }
-                Text(highlighted(message.subject.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } ?? MailStrings.commonNoSubject))
-                    .fontWeight(message.isRead ? .regular : .semibold)
-                    .lineLimit(1)
-                Text(highlighted(message.preview ?? ""))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-        }
-        .padding(.vertical, Tokens.Spacing.xs)
-        .contentShape(Rectangle())
-    }
-
-    /// The text with every match of the query (any case) emphasised.
-    private func highlighted(_ text: String) -> AttributedString {
-        var out = AttributedString(text)
-        for range in SearchLogic.matches(text, query) {
-            guard let lower = AttributedString.Index(range.lowerBound, within: out),
-                  let upper = AttributedString.Index(range.upperBound, within: out)
-            else { continue }
-            out[lower..<upper].foregroundColor = Color.accentColor
-            out[lower..<upper].inlinePresentationIntent = .stronglyEmphasized
-        }
-        return out
     }
 }

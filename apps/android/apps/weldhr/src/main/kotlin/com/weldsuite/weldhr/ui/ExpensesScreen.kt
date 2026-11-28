@@ -1,17 +1,14 @@
 package com.weldsuite.weldhr.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import androidx.compose.material.icons.filled.Search as SearchIcon
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -21,9 +18,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.weldsuite.weldhr.Age
@@ -34,9 +31,7 @@ import com.weldsuite.weldhr.HrAccess
 import com.weldsuite.weldhr.R
 import com.weldsuite.weldhr.Search
 import com.weldsuite.weldhr.SelfState
-import org.weldsuite.ui.EmptyState
-import org.weldsuite.ui.Tokens
-import org.weldsuite.ui.tagged
+import com.weldsuite.weldhr.Tone
 
 /**
  * Expenses: the member's own claims, and for who approves expenses the ones
@@ -55,7 +50,7 @@ fun ExpensesScreen(startOnApprove: Boolean) {
     val pending by repo.pendingExpenses.state.collectAsStateWithLifecycle()
     val options = buildList {
         if (access.self) add(Segment("mine", stringResource(R.string.weldhr_expenses_mine), "expenses-mine"))
-        if (access.approveExpenses) add(Segment("approve", withCount(stringResource(R.string.weldhr_expenses_to_approve), pending.data?.size ?: 0), "expenses-approve"))
+        if (access.approveExpenses) add(Segment("approve", stringResource(R.string.weldhr_expenses_to_approve), "expenses-approve", pending.data?.size ?: 0))
     }
     var chosen by rememberSaveable { mutableStateOf(if (startOnApprove) "approve" else "mine") }
     val view = if (options.any { it.value == chosen }) chosen else options.firstOrNull()?.value ?: "mine"
@@ -81,7 +76,9 @@ fun ExpensesScreen(startOnApprove: Boolean) {
         } else {
             query(pending, onRetry = { repo.pendingExpenses.refresh() }) { rows ->
                 if (rows.isEmpty()) {
-                    item("nothing") { EmptyState(stringResource(R.string.weldhr_team_nothing_to_approve), stringResource(R.string.weldhr_team_nothing_to_approve_description)) }
+                    item("nothing") {
+                        HrEmpty(stringResource(R.string.weldhr_team_nothing_to_approve), stringResource(R.string.weldhr_team_nothing_to_approve_description), Icons.AutoMirrored.Filled.ReceiptLong)
+                    }
                 } else {
                     expensesToApprove(rows)
                 }
@@ -99,12 +96,14 @@ private fun LazyListScope.myExpenses(data: com.weldsuite.weldhr.Declarations, ca
         val rows = data.declarations
         if (!canClaim) Note(stringResource(R.string.weldhr_expenses_turned_off))
         if (rows.isEmpty()) {
-            EmptyState(stringResource(R.string.weldhr_expenses_no_expenses), stringResource(R.string.weldhr_expenses_no_expenses_description))
-            if (canClaim) {
-                Row(Modifier.padding(Tokens.Spacing.l), horizontalArrangement = Arrangement.Center) {
-                    Button(onClick = { hr.open(Routes.expenseNew()) }, modifier = Modifier.tagged("expenses-new")) { Text(stringResource(R.string.weldhr_expenses_new_expense)) }
-                }
-            }
+            HrEmpty(
+                stringResource(R.string.weldhr_expenses_no_expenses),
+                stringResource(R.string.weldhr_expenses_no_expenses_description),
+                Icons.AutoMirrored.Filled.ReceiptLong,
+                action = if (canClaim) stringResource(R.string.weldhr_expenses_new_expense) else null,
+                actionTag = "expenses-new",
+                onAction = { hr.open(Routes.expenseNew()) },
+            )
             return@item
         }
         val labels = rows.associate { it.id to listOf(categoryLabel(it.category), declarationStatusLabel(it.status)) }
@@ -112,19 +111,26 @@ private fun LazyListScope.myExpenses(data: com.weldsuite.weldhr.Declarations, ca
             filter.passes(it) && Search.matches(search, listOf(it.description, Fmt.money(it.amount, it.currency), Fmt.day(it.expenseDate)) + labels[it.id].orEmpty())
         }
         SearchField(search, { search = it }, stringResource(R.string.weldhr_expenses_search), filter.isActive, { filtering = true }, "expenses")
-        val totals = data.open.filter { it.pending > 0 || it.approved > 0 }
-        if (totals.isNotEmpty() && search.isBlank() && !filter.isActive) {
-            Card(Modifier.padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s)) {
-                DetailRow(stringResource(R.string.weldhr_expenses_awaiting), totals.joinToString(" · ") { Fmt.money(it.pending, it.currency) })
-                DetailRow(stringResource(R.string.weldhr_expenses_to_be_paid), totals.joinToString(" · ") { Fmt.money(it.approved, it.currency) })
-            }
-        }
         if (shown.isEmpty()) {
-            EmptyState(stringResource(R.string.weldhr_expenses_no_results), stringResource(R.string.weldhr_expenses_no_results_description))
+            HrEmpty(stringResource(R.string.weldhr_expenses_no_results), stringResource(R.string.weldhr_expenses_no_results_description), Icons.Filled.SearchIcon)
             ClearButtons(filter.isActive, onClearFilters = { filter = ExpenseFilter() }, onClearSearch = { search = "" })
         } else {
-            SectionHead(stringResource(R.string.weldhr_expenses_declarations), shown.size.toString())
-            shown.forEach { row -> DeclarationRow(row) { hr.open(Routes.expense(row.id)) } }
+            // The platform's groups, with what is still to come per currency on the open ones.
+            val pendingTotal = data.open.filter { it.pending > 0 }.joinToString(" · ") { Fmt.money(it.pending, it.currency) }.ifEmpty { null }
+            val approvedTotal = data.open.filter { it.approved > 0 }.joinToString(" · ") { Fmt.money(it.approved, it.currency) }.ifEmpty { null }
+            val known = setOf("pending", "approved", "paid", "rejected", "cancelled")
+            listOf(
+                Triple(R.string.weldhr_expenses_awaiting, pendingTotal, shown.filter { it.status == "pending" }),
+                Triple(R.string.weldhr_expenses_to_be_paid, approvedTotal, shown.filter { it.status == "approved" }),
+                Triple(R.string.weldhr_expenses_groups_paid, null, shown.filter { it.status == "paid" }),
+                Triple(R.string.weldhr_expenses_groups_rejected_cancelled, null, shown.filter { it.status == "rejected" || it.status == "cancelled" }),
+                Triple(R.string.weldhr_expenses_groups_other, null, shown.filter { it.status !in known }),
+            ).forEach { (label, total, group) ->
+                if (group.isNotEmpty()) {
+                    SectionHead(stringResource(label), count = group.size, figure = total)
+                    group.forEach { row -> DeclarationRow(row) { hr.open(Routes.expense(row.id)) } }
+                }
+            }
         }
         if (filtering) {
             FilterSheet(
@@ -150,22 +156,23 @@ private fun mutableStateOfSaveable() = rememberSaveable(saver = androidx.compose
     },
 )) { mutableStateOf(ExpenseFilter()) }
 
-/** A claim: its category tile, the status in colour, the amount and the day; a paperclip with a receipt. */
+/**
+ * A claim, as the platform's Declarations list: what it was for, the
+ * category and day under it (a paperclip with a receipt), the amount and
+ * the status badge on the right.
+ */
 @Composable
 fun DeclarationRow(row: Declaration, onClick: (() -> Unit)?) {
     HrRow(
-        leading = { CategoryTile(row.category) },
         title = row.description,
-        subtitle = declarationStatusLabel(row.status),
-        subtitleColor = statusColor(row.status),
-        valueContent = {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (row.hasReceipt) Icon(Icons.Filled.AttachFile, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(Fmt.money(row.amount, row.currency), style = MaterialTheme.typography.bodyMedium)
-            }
+        subtitle = "${categoryLabel(row.category)} · ${Fmt.day(row.expenseDate)}",
+        subtitleMarker = if (row.hasReceipt) {
+            { Icon(Icons.Filled.AttachFile, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+        } else {
+            null
         },
-        detail = Fmt.day(row.expenseDate),
-        muted = row.status == "cancelled",
+        valueContent = { Text(Fmt.money(row.amount, row.currency), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1) },
+        badge = { StatusTag(row.status, declarationStatusLabel(row.status)) },
         tag = "expense-${row.id}",
         onClick = onClick,
     )
@@ -185,17 +192,23 @@ private fun LazyListScope.expensesToApprove(rows: List<Declaration>) {
         }
         SearchField(search, { search = it }, stringResource(R.string.weldhr_expenses_search), filter.isActive, { filtering = true }, "approvals")
         if (shown.isEmpty()) {
-            EmptyState(stringResource(R.string.weldhr_expenses_no_results), stringResource(R.string.weldhr_expenses_no_results_description))
+            HrEmpty(stringResource(R.string.weldhr_expenses_no_results), stringResource(R.string.weldhr_expenses_no_results_description), Icons.Filled.SearchIcon)
             ClearButtons(filter.isActive, onClearFilters = { filter = ExpenseFilter() }, onClearSearch = { search = "" })
+        } else {
+            SectionHead(stringResource(R.string.weldhr_expenses_review_group), count = shown.size)
         }
         shown.forEach { row ->
             ApprovalRow(
                 id = row.id,
                 name = row.employeeName.orEmpty(),
-                subtitle = row.description,
-                note = null,
+                subtitle = "${labels[row.id].orEmpty()} · ${Fmt.day(row.expenseDate)}",
+                subtitleMarker = if (row.hasReceipt) {
+                    { Icon(Icons.Filled.AttachFile, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                } else {
+                    null
+                },
+                note = row.description,
                 value = Fmt.money(row.amount, row.currency),
-                detail = Fmt.day(row.expenseDate),
                 approve = { accept, note -> hr.repository.reviewExpense(row.id, accept, note) },
             )
         }
@@ -210,7 +223,10 @@ private fun LazyListScope.expensesToApprove(rows: List<Declaration>) {
     }
 }
 
-/** Announcements: what HR posted, pinned first, unread ones tinted. */
+/**
+ * Announcements, as the platform's: Pinned and the rest in their own
+ * groups, a pin before a pinned title, unread ones in semibold with "New".
+ */
 @Composable
 fun AnnouncementsScreen() {
     val hr = LocalHr.current
@@ -228,20 +244,37 @@ fun AnnouncementsScreen() {
         if (!gate(self, onRetry = { repo.me.refresh() })) return@Page
         query(announcements, onRetry = { repo.announcements.refresh() }) { data ->
             if (data.announcements.isEmpty()) {
-                item("empty") { EmptyState(stringResource(R.string.weldhr_announcements_empty), stringResource(R.string.weldhr_announcements_empty_description)) }
+                item("empty") {
+                    HrEmpty(stringResource(R.string.weldhr_announcements_empty), stringResource(R.string.weldhr_announcements_empty_description), Icons.Filled.Campaign)
+                }
             } else {
-                items(AnnouncementRules.sort(data.announcements), key = { it.id }) { announcement ->
-                    val unread = announcement.readAt == null
-                    HrRow(
-                        leading = { PlainTile(if (announcement.pinned) Icons.Filled.PushPin else Icons.Filled.Campaign) },
-                        title = announcement.title,
-                        subtitle = AnnouncementRules.preview(announcement.body),
-                        subtitleLines = 2,
-                        value = ageLabel(announcement.publishedAt),
-                        unread = unread,
-                        tag = "announcement-${announcement.id}",
-                        onClick = { hr.open(Routes.announcement(announcement.id)) },
-                    )
+                val sorted = AnnouncementRules.sort(data.announcements)
+                val pinned = sorted.filter { it.pinned }
+                val rest = sorted.filter { !it.pinned }
+                listOf(
+                    Triple("pinned", R.string.weldhr_announcements_pinned, pinned),
+                    Triple("other", R.string.weldhr_announcements_title, rest),
+                ).forEach { (key, label, group) ->
+                    if (group.isEmpty()) return@forEach
+                    item("head-$key") { SectionHead(stringResource(label), count = group.size) }
+                    items(group, key = { it.id }) { announcement ->
+                        val unread = announcement.readAt == null
+                        HrRow(
+                            marker = if (announcement.pinned) {
+                                { Icon(Icons.Filled.PushPin, contentDescription = stringResource(R.string.weldhr_announcements_pinned), modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            } else {
+                                null
+                            },
+                            title = announcement.title,
+                            subtitle = AnnouncementRules.preview(announcement.body),
+                            subtitleLines = 2,
+                            detail = ageLabel(announcement.publishedAt),
+                            badge = if (unread) ({ ToneBadge(stringResource(R.string.weldhr_announcements_new), Tone.DEFAULT) }) else null,
+                            unread = unread,
+                            tag = "announcement-${announcement.id}",
+                            onClick = { hr.open(Routes.announcement(announcement.id)) },
+                        )
+                    }
                 }
             }
         }

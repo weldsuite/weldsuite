@@ -29,9 +29,7 @@ struct ContentView: View {
                 AgendaView(
                     env: env,
                     store: store,
-                    title: workspace.name,
-                    onNew: { form = .new(nil) },
-                    onCalendars: { tab = .calendars }
+                    onNew: { form = .new(nil) }
                 )
                 .navigationDestination(for: Route.self, destination: destination)
             }
@@ -48,7 +46,7 @@ struct ContentView: View {
             .accessibilityIdentifier("tab-month")
 
             NavigationStack {
-                CalendarsView(env: env, store: store, workspaceName: workspace.name)
+                CalendarsView(env: env, store: store)
             }
             .tabItem { Label(CalendarStrings.tabsCalendars, systemImage: "square.stack") }
             .tag(AppTab.calendars)

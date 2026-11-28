@@ -7,18 +7,28 @@ enum ChatStrings {
     static func activityDaysShort(count: Int) -> String { tr("activity.daysShort", count) }
     /// Earlier this month
     static var activityEarlierThisMonth: String { tr("activity.earlierThisMonth") }
-    /// Mentions, thread replies, and DMs will show up here.
+    /// Mentions, replies in your threads and missed calls show up here.
     static var activityEmptyHint: String { tr("activity.emptyHint") }
     /// No activity yet
     static var activityEmptyTitle: String { tr("activity.emptyTitle") }
     /// {count}h
     static func activityHoursShort(count: Int) -> String { tr("activity.hoursShort", count) }
+    /// in #{name}
+    static func activityInChannel(name: String) -> String { tr("activity.inChannel", name) }
     /// Mark all as read
     static var activityMarkAllRead: String { tr("activity.markAllRead") }
+    /// Mentions
+    static var activityMentions: String { tr("activity.mentions") }
     /// {count}m
     static func activityMinutesShort(count: Int) -> String { tr("activity.minutesShort", count) }
+    /// Missed calls
+    static var activityMissedCalls: String { tr("activity.missedCalls") }
     /// now
     static var activityNow: String { tr("activity.now") }
+    /// Other
+    static var activityOther: String { tr("activity.other") }
+    /// Replies
+    static var activityReplies: String { tr("activity.replies") }
     /// This week
     static var activityThisWeek: String { tr("activity.thisWeek") }
     /// WeldChat
@@ -135,6 +145,8 @@ enum ChatStrings {
     static var channelCallOngoing: String { tr("channel.callOngoing") }
     /// Call started
     static var channelCallStarted: String { tr("channel.callStarted") }
+    /// Called, but there was no answer.
+    static var channelCalledNoAnswer: String { tr("channel.calledNoAnswer") }
     /// Cancel reply
     static var channelCancelReply: String { tr("channel.cancelReply") }
     /// Channel details
@@ -161,6 +173,8 @@ enum ChatStrings {
     static var channelEditingMessage: String { tr("channel.editingMessage") }
     /// Join
     static var channelJoinCall: String { tr("channel.joinCall") }
+    /// Join call
+    static var channelJoinCallLink: String { tr("channel.joinCallLink") }
     /// Loading…
     static var channelLoadingTitle: String { tr("channel.loadingTitle") }
     /// Mention {name}
@@ -223,6 +237,10 @@ enum ChatStrings {
     static var channelStartVideoCall: String { tr("channel.startVideoCall") }
     /// Start voice call
     static var channelStartVoiceCall: String { tr("channel.startVoiceCall") }
+    /// Started a call.
+    static var channelStartedCall: String { tr("channel.startedCall") }
+    /// Started a call that lasted {duration}.
+    static func channelStartedCallLasted(duration: String) -> String { tr("channel.startedCallLasted", duration) }
     /// Looks like a conversation. Continue it in a thread?
     static var channelThreadSuggestion: String { tr("channel.threadSuggestion") }
     /// {name} and {count} others are typing…
@@ -253,6 +271,8 @@ enum ChatStrings {
     static func channelWelcome(name: String) -> String { tr("channel.welcome", name) }
     /// You
     static var channelYou: String { tr("channel.you") }
+    /// You missed the call.
+    static var channelYouMissedCall: String { tr("channel.youMissedCall") }
     /// Actions
     static var channelInfoActions: String { tr("channelInfo.actions") }
     /// Delete channel
@@ -317,6 +337,8 @@ enum ChatStrings {
     static var composerDeleteRecording: String { tr("composer.deleteRecording") }
     /// File
     static var composerFile: String { tr("composer.file") }
+    /// Mention someone
+    static var composerMentionSomeone: String { tr("composer.mentionSomeone") }
     /// Message #{name}
     static func composerMessageChannel(name: String) -> String { tr("composer.messageChannel", name) }
     /// Message...
@@ -437,6 +459,8 @@ enum ChatStrings {
     static func draftsMinutesAgo(count: Int) -> String { tr("drafts.minutesAgo", count) }
     /// Drafts
     static var draftsTitle: String { tr("drafts.title") }
+    /// Add channel
+    static var homeAddChannel: String { tr("home.addChannel") }
     /// {count} channels
     static func homeChannelCount(_ count: Int) -> String { tr("home.channelCount", count) }
     /// Channels
@@ -473,9 +497,11 @@ enum ChatStrings {
     static func homeLiveCount(_ count: Int) -> String { tr("home.liveCount", count) }
     /// New
     static var homeNewItem: String { tr("home.newItem") }
+    /// Other Channels
+    static var homeOtherChannelsGroup: String { tr("home.otherChannelsGroup") }
     /// Profile and settings
     static var homeProfileAndSettings: String { tr("home.profileAndSettings") }
-    /// Saved
+    /// Saved items
     static var homeSaved: String { tr("home.saved") }
     /// Section actions
     static var homeSectionActions: String { tr("home.sectionActions") }

@@ -258,8 +258,9 @@ struct ChannelView: View {
             if message.isSystem {
                 if let entry = timeline.calls[message.id] {
                     let ongoing = entry.outcome == nil && timeline.openCallID == message.id && activeCall != nil
-                    CallLogCard(
+                    CallNoticeRow(
                         entry: entry,
+                        selfID: person.id,
                         ongoing: ongoing,
                         joinable: ongoing && joinable != nil,
                         createdAt: message.createdAt
@@ -267,7 +268,7 @@ struct ChannelView: View {
                         startOrJoinCall(entry.isVideo ? .video : .voice)
                     }
                 } else {
-                    SystemMessageRow(text: MentionText.plainText(message.content, names: names))
+                    SystemMessageRow(text: MentionText.plainText(message.content, names: names), createdAt: message.createdAt)
                 }
             } else {
                 MessageRow(
@@ -308,65 +309,98 @@ struct ChannelView: View {
         return actions
     }
 
+    /// No messages yet: a spinner while loading, else the platform's intro
+    /// at the top of the conversation: the # (or lock, or the person) in a
+    /// muted tile next to the name, and a muted line under it.
+    @ViewBuilder
     private var emptyState: some View {
-        VStack(spacing: Tokens.Spacing.s) {
-            if model.loading || (model.channel == nil && name.isEmpty) {
-                ProgressView()
-            } else {
-                Text(ChannelRules.welcome(kind: kind, name: name))
-                    .font(.title3.weight(.bold))
-                    .multilineTextAlignment(.center)
+        if model.loading || (model.channel == nil && name.isEmpty) {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 48)
+        } else {
+            VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
+                HStack(spacing: Tokens.Spacing.s) {
+                    if kind == .dm, let dm = model.dm, !dm.isGroup {
+                        ChatAvatar(name: dm.name, url: dm.picture, size: 24)
+                    } else {
+                        Image(systemName: introSymbol)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Tokens.Palette.mutedForeground)
+                            .frame(width: 24, height: 24)
+                            .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+                    }
+                    Text(kind == .channel || kind == .privateChannel ? ChannelRules.welcome(kind: kind, name: name) : name)
+                        .font(.inter(.title3, weight: .semibold))
+                        .lineLimit(1)
+                }
                 Text(ChatStrings.channelStartOfConversation)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                    .font(.inter(.subheadline))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Tokens.Spacing.m)
+            .padding(.top, 32)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, Tokens.Spacing.xl)
-        .padding(.vertical, 48)
+    }
+
+    /// The pinned bar's dots share 20pt, the current one twice the others (`flex-[2]` against `flex-1`).
+    private static func pinDotHeight(count: Int, active: Bool) -> CGFloat {
+        let unit = (20 - CGFloat(count - 1) * 2) / CGFloat(count + 1)
+        return active ? unit * 2 : unit
+    }
+
+    private var introSymbol: String {
+        switch kind {
+        case .privateChannel: "lock"
+        case .record: RecordChatRules.symbol(entityType)
+        case .dm: "bubble.left.and.bubble.right"
+        case .channel: "number"
+        }
     }
 
     // MARK: Pinned bar
 
+    /// The platform's pinned bar: a faint muted band with a line under it,
+    /// the dots for which pin (with more than one), the pin and the message.
     private func pinnedBar(_ current: ChatMessage, position: Int, count: Int, names: [String: String], rows: [ChatMessage]) -> some View {
-        HStack(spacing: Tokens.Spacing.m) {
-            VStack(spacing: 2) {
-                ForEach(0..<count, id: \.self) { index in
-                    Capsule()
-                        .fill(index == position ? Tokens.Brand.weldchat : Color.secondary.opacity(0.3))
-                        .frame(width: 3)
-                }
-            }
-            .frame(height: 32)
-            Image(systemName: "pin.fill").font(.caption).foregroundStyle(Tokens.Brand.weldchat)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: Tokens.Spacing.s) {
-                    Text(current.authorName).font(.caption.weight(.semibold)).lineLimit(1)
-                    if count > 1 {
-                        Text(ChatStrings.channelPinPosition(position: "\(position + 1)", count: count))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+        let preview = MentionText.plainText(current.content, names: names)
+        return HStack(spacing: Tokens.Spacing.m) {
+            if count > 1 {
+                VStack(spacing: 2) {
+                    ForEach(0..<count, id: \.self) { index in
+                        Capsule()
+                            .fill(index == position ? Tokens.Palette.primary : Tokens.Palette.mutedForeground.opacity(0.3))
+                            .frame(width: 3, height: Self.pinDotHeight(count: count, active: index == position))
                     }
                 }
-                Text(MentionText.plainText(current.content, names: names))
-                    .font(.subheadline)
-                    .lineLimit(1)
+                .frame(height: 20)
+                .accessibilityLabel(ChatStrings.channelPinPosition(position: "\(position + 1)", count: count))
             }
+            Image(systemName: "pin.fill").font(.system(size: 13)).foregroundStyle(Tokens.Palette.primary)
+            Text(preview.isEmpty ? current.authorName : preview)
+                .font(.inter(.subheadline))
+                .lineLimit(1)
             Spacer(minLength: 0)
             Button {
                 unpinTarget = current
             } label: {
-                Image(systemName: "xmark").font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(ChatStrings.channelUnpin)
             .accessibilityIdentifier("pinned-unpin")
         }
-        .padding(.horizontal, Tokens.Spacing.l)
-        .padding(.vertical, Tokens.Spacing.s)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
+        .padding(.leading, Tokens.Spacing.l)
+        .padding(.trailing, Tokens.Spacing.xs)
+        .padding(.vertical, 4)
+        .background(Tokens.Palette.muted.opacity(0.3))
+        .background(Tokens.Palette.background)
+        .overlay(alignment: .bottom) { Rectangle().fill(Tokens.Palette.border).frame(height: 1) }
         .contentShape(Rectangle())
         .onTapGesture {
             if count > 1 { model.pinnedIndex += 1 }
@@ -444,11 +478,11 @@ struct ChannelView: View {
             headerIcon
             VStack(alignment: .leading, spacing: 0) {
                 Text(name.isEmpty ? ChatStrings.channelLoadingTitle : name)
-                    .font(.headline)
-                    .foregroundStyle(Color.primary)
+                    .font(.inter(size: 15, weight: .semibold))
+                    .foregroundStyle(Tokens.Palette.foreground)
                     .lineLimit(1)
                 if let subtitle = headerSubtitle {
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(subtitle).font(.inter(.caption)).foregroundStyle(Tokens.Palette.mutedForeground).lineLimit(1)
                 }
             }
         }
@@ -460,9 +494,9 @@ struct ChannelView: View {
         case .dm:
             Group {
                 if let dm = model.dm {
-                    DmAvatar(dm: dm, size: 30)
+                    DmAvatar(dm: dm, size: 26)
                 } else {
-                    ChatAvatar(name: name, url: nil, size: 30)
+                    ChatAvatar(name: name, url: nil, size: 26)
                 }
             }
             .overlay(alignment: .bottomTrailing) {
@@ -470,15 +504,16 @@ struct ChannelView: View {
                     Circle()
                         .fill(Tokens.Status.success)
                         .frame(width: 9, height: 9)
-                        .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 2))
+                        .overlay(Circle().stroke(Tokens.Palette.background, lineWidth: 2))
+                        .offset(x: 2, y: 2)
                 }
             }
         case .record:
-            Image(systemName: RecordChatRules.symbol(entityType)).font(.system(size: 16, weight: .semibold))
+            Image(systemName: RecordChatRules.symbol(entityType)).font(.system(size: 15)).foregroundStyle(Tokens.Palette.mutedForeground)
         case .privateChannel:
-            Image(systemName: "lock").font(.system(size: 16, weight: .semibold))
+            Image(systemName: "lock").font(.system(size: 15)).foregroundStyle(Tokens.Palette.mutedForeground)
         case .channel:
-            Image(systemName: "number").font(.system(size: 16, weight: .semibold))
+            Image(systemName: "number").font(.system(size: 15)).foregroundStyle(Tokens.Palette.mutedForeground)
         }
     }
 
@@ -504,10 +539,10 @@ struct ChannelView: View {
                     toggleFollow()
                 } label: {
                     Text(following ? ChatStrings.recordChatsFollowing : ChatStrings.recordChatsFollow)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.inter(.subheadline, weight: .semibold))
                 }
                 .buttonStyle(.bordered)
-                .tint(following ? Color.secondary : Tokens.Brand.weldchat)
+                .tint(following ? Color.secondary : Tokens.Palette.primary)
                 .controlSize(.small)
                 .accessibilityAddTraits(following ? .isSelected : [])
                 .accessibilityIdentifier("channel-follow")
@@ -520,10 +555,11 @@ struct ChannelView: View {
                     } label: {
                         Label(ChatStrings.channelJoinCall, systemImage: join.callType == .video ? "video.fill" : "phone.fill")
                             .labelStyle(.titleAndIcon)
-                            .font(.subheadline.weight(.semibold))
+                            .font(.inter(.subheadline, weight: .semibold))
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(Tokens.Status.success)
+                    // The platform's Join on a running call: `bg-green-600`.
+                    .tint(ChatColors.joinGreen)
                     .controlSize(.small)
                     .accessibilityLabel("\(ChatStrings.channelJoinCall): \(join.callType == .video ? ChatStrings.inCallVideoCall : ChatStrings.inCallVoiceCall)")
                     .accessibilityIdentifier("channel-join-call")
@@ -796,17 +832,38 @@ struct ChannelView: View {
     }
 }
 
-/// A server notice in the conversation ("Ann pinned a message").
+/// A server notice in the conversation ("Ann pinned a message"): the
+/// platform's centred muted chip, with a pin or phone when it is about one,
+/// and the time.
 struct SystemMessageRow: View {
     let text: String
+    var createdAt: String?
 
     var body: some View {
-        Text(text)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, Tokens.Spacing.xl)
-            .padding(.vertical, Tokens.Spacing.s)
+        let lower = text.lowercased()
+        let symbol: String? = {
+            if lower.contains("pinned") || lower.contains("vastgezet") { return "pin.fill" }
+            if lower.contains("video call") { return "video.fill" }
+            if lower.contains("call") { return "phone.fill" }
+            return nil
+        }()
+        let time = ChatDates.time(WeldDate.parse(createdAt))
+        HStack(spacing: 6) {
+            if let symbol { Image(systemName: symbol).font(.system(size: 10)) }
+            Text(text)
+            if !time.isEmpty {
+                Text("·").foregroundStyle(Tokens.Palette.mutedForeground.opacity(0.5))
+                Text(time).monospacedDigit()
+            }
+        }
+        .font(.inter(.caption))
+        .foregroundStyle(Tokens.Palette.mutedForeground)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, Tokens.Spacing.m)
+        .padding(.vertical, 4)
+        .background(Tokens.Palette.muted.opacity(0.7), in: RoundedRectangle(cornerRadius: Tokens.Radius.small))
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, MessageMetrics.rowPadding)
+        .padding(.vertical, 6)
     }
 }

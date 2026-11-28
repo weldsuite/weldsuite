@@ -2,9 +2,11 @@ import SwiftUI
 import WeldCore
 import WeldUI
 
-/// Home: the workspace (tap to switch), search, Calls / Saved / Drafts,
-/// what is unread, the channel sections, the record chats followed (one
-/// group per type) and the latest direct messages; the compose button.
+/// Home, laid out as the platform's WeldChat sidebar: the workspace (tap to
+/// switch), search, the top rows (Calls, Drafts, Record chats, Saved items),
+/// what is unread, Direct Messages, the record chats followed (one group per
+/// type) and the channel sections, each with "Add channel" while empty; the
+/// compose button.
 struct HomeView: View {
     let env: AppEnvironment
     let store: ChatStore
@@ -18,7 +20,12 @@ struct HomeView: View {
     @State private var liveCallCount: Int?
 
     var body: some View {
-        let groups = ChatLogic.groupSections(channels: store.channels, sections: store.sections, defaultName: ChatStrings.homeChannelsGroup)
+        let groups = ChatLogic.groupSections(
+            channels: store.channels,
+            sections: store.sections,
+            defaultName: ChatStrings.homeChannelsGroup,
+            otherName: ChatStrings.homeOtherChannelsGroup
+        )
         let recordRows = RecordChatRules.types.flatMap { store.recordRows[$0] ?? [] }
         let recordGroups = RecordChatRules.groups(
             summary: store.recordSummary,
@@ -33,21 +40,18 @@ struct HomeView: View {
             .sorted { DmLogic.time($0.lastMessageAt) > DmLogic.time($1.lastMessageAt) }
         let unreadTotal = unreadDms.count + unreadChannels.count + unreadRecords.count
         let recentDms = Array(DmLogic.recent(store.dms).prefix(ChatLogic.recentDmCount))
-        let showEmpty = store.homeLoaded && store.channels.isEmpty && store.dms.isEmpty && !followsRecords
 
         List {
             Section {
                 SearchButton { navigator.open(.search) }
                     .accessibilityIdentifier("home-search")
-                    .listRowSeparator(.hidden)
-                tiles
-                    .listRowSeparator(.hidden)
+                    .sidebarListRow()
+                    .padding(.vertical, Tokens.Spacing.xs)
+                navRows
             }
 
             if !store.homeLoaded, store.channels.isEmpty {
-                ProgressView().frame(maxWidth: .infinity).listRowSeparator(.hidden)
-            } else if showEmpty {
-                emptyState.listRowSeparator(.hidden)
+                ProgressView().frame(maxWidth: .infinity)
             } else {
                 if unreadTotal > 0 {
                     Section {
@@ -55,25 +59,35 @@ struct HomeView: View {
                         ForEach(unreadChannels) { channel in channelRow(channel) }
                         ForEach(unreadRecords) { chat in recordRow(chat) }
                     } header: {
-                        header(ChatStrings.homeUnreads, count: unreadTotal)
+                        SidebarGroupHeader(title: ChatStrings.homeUnreads, unread: unreadTotal)
                     }
                 }
 
-                ForEach(groups, id: \.id) { group in
-                    Section {
-                        if !collapsed.contains(group.id) {
-                            ForEach(group.channels) { channel in channelRow(channel) }
-                        }
-                    } header: {
-                        collapsibleHeader(group.name, key: group.id)
-                            .contextMenu {
-                                Button {
-                                    navigator.sheet = .newChannel(sectionID: group.id == ChatLogic.unsectionedID ? nil : group.id)
-                                } label: {
-                                    Label(ChatStrings.homeCreateChannel, systemImage: "plus")
-                                }
+                // Direct Messages, always, as on the platform.
+                Section {
+                    if recentDms.isEmpty {
+                        AddPlaceholderRow(label: ChatStrings.homeEmptyStartDm) { navigator.sheet = .newDm(group: false) }
+                            .sidebarListRow()
+                            .accessibilityIdentifier("home-empty-start-dm")
+                    } else {
+                        ForEach(recentDms) { dm in dmRow(dm) }
+                    }
+                } header: {
+                    SidebarGroupHeader(title: ChatStrings.tabsDirectMessages) {
+                        Button {
+                            navigator.tab = .dms
+                        } label: {
+                            HStack(spacing: 2) {
+                                Text(ChatStrings.homeSeeAll)
+                                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
                             }
-                            .accessibilityIdentifier("section-\(group.id)")
+                            .font(.inter(.caption, weight: .medium))
+                            .foregroundStyle(Tokens.Palette.mutedForeground)
+                            .padding(.vertical, 6)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("home-see-all-dms")
                     }
                 }
 
@@ -86,45 +100,65 @@ struct HomeView: View {
                             }
                         }
                     } header: {
-                        collapsibleHeader(
-                            RecordChatRules.groupLabel(group.type),
-                            key: "record:\(group.type)",
-                            count: group.unread > 0 ? group.unread : nil,
-                            mentions: group.mentions
-                        )
-                    }
-                }
-
-                if followsRecords {
-                    Section {
-                        linkRow(ChatStrings.recordChatsTitle) { navigator.open(.records(type: nil)) }
-                            .accessibilityIdentifier("home-records")
-                    }
-                }
-
-                if !recentDms.isEmpty {
-                    Section {
-                        ForEach(recentDms) { dm in dmRow(dm) }
-                    } header: {
-                        HStack {
-                            Text(ChatStrings.tabsDirectMessages)
-                            Spacer()
-                            Button {
-                                navigator.tab = .dms
-                            } label: {
-                                HStack(spacing: 2) {
-                                    Text(ChatStrings.homeSeeAll)
-                                    Image(systemName: "chevron.right")
-                                }
-                                .font(.footnote)
-                            }
-                            .accessibilityIdentifier("home-see-all-dms")
+                        Button {
+                            toggle("record:\(group.type)")
+                        } label: {
+                            SidebarGroupHeader(
+                                title: RecordChatRules.groupLabel(group.type),
+                                collapsed: group.collapsed,
+                                unread: group.unread,
+                                mentions: group.mentions
+                            )
                         }
+                        .buttonStyle(.plain)
                     }
                 }
+
+                ForEach(groups, id: \.id) { group in
+                    let isCollapsed = collapsed.contains(group.id)
+                    Section {
+                        if !isCollapsed {
+                            if group.channels.isEmpty {
+                                AddPlaceholderRow(label: ChatStrings.homeAddChannel) {
+                                    navigator.sheet = .newChannel(sectionID: group.id == ChatLogic.unsectionedID ? nil : group.id)
+                                }
+                                .sidebarListRow()
+                                .accessibilityIdentifier("home-add-channel-\(group.id)")
+                            } else {
+                                ForEach(group.channels) { channel in channelRow(channel) }
+                            }
+                        }
+                    } header: {
+                        Button {
+                            toggle(group.id)
+                        } label: {
+                            SidebarGroupHeader(
+                                title: group.name,
+                                collapsed: isCollapsed,
+                                unread: group.channels.filter(ChatLogic.isChannelUnread).count,
+                                mentions: group.channels.reduce(0) { $0 + $1.unreadMentionCount }
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button {
+                                navigator.sheet = .newChannel(sectionID: group.id == ChatLogic.unsectionedID ? nil : group.id)
+                            } label: {
+                                Label(ChatStrings.homeAddChannel, systemImage: "plus")
+                            }
+                        }
+                        .accessibilityIdentifier("section-\(group.id)")
+                    }
+                }
+                Color.clear.frame(height: 72).listRowSeparator(.hidden)
             }
         }
         .listStyle(.plain)
+        .listRowSeparator(.hidden)
+        .listSectionSeparator(.hidden)
+        .environment(\.defaultMinListRowHeight, 0)
+        .scrollContentBackground(.hidden)
+        .background(Tokens.Palette.background)
         .refreshable { await reload() }
         .task { await reload() }
         .toolbar {
@@ -132,6 +166,10 @@ struct HomeView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .overlay(alignment: .bottomTrailing) { composeButton }
+    }
+
+    private func toggle(_ key: String) {
+        if collapsed.contains(key) { collapsed.remove(key) } else { collapsed.insert(key) }
     }
 
     private func reload() async {
@@ -171,87 +209,73 @@ struct HomeView: View {
         } label: {
             HStack(spacing: Tokens.Spacing.s) {
                 Text(String(workspace.name.prefix(1)).uppercased())
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.white)
+                    .font(.inter(.subheadline, weight: .semibold))
+                    .foregroundStyle(Tokens.Palette.primaryForeground)
                     .frame(width: 28, height: 28)
-                    .background(Tokens.Brand.weldchat, in: RoundedRectangle(cornerRadius: 7))
+                    .background(Tokens.Palette.primary, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
                 Text(workspace.name.isEmpty ? ChatStrings.homeWorkspaceFallback : workspace.name)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
+                    .font(.inter(.headline))
+                    .foregroundStyle(Tokens.Palette.foreground)
                     .lineLimit(1)
-                Image(systemName: "chevron.down").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold)).foregroundStyle(Tokens.Palette.mutedForeground)
             }
         }
         .accessibilityLabel("\(workspace.name), \(ChatStrings.homeSwitchWorkspace)")
         .accessibilityIdentifier("home-workspace")
     }
 
-    private var tiles: some View {
-        HStack(spacing: Tokens.Spacing.s) {
-            if env.isAvailable("chat-calls") {
-                tile(
-                    ChatStrings.tabsCalls,
-                    symbol: "phone",
-                    subtitle: liveCallCount.map { ChatStrings.homeLiveCount($0) },
-                    id: "home-tile-calls"
-                ) { navigator.tab = .calls }
+    /// The platform sidebar's top rows: Calls, Drafts (with the red count), Record chats, Saved items.
+    @ViewBuilder
+    private var navRows: some View {
+        if env.isAvailable("chat-calls") {
+            navRow(ChatStrings.tabsCalls, symbol: "phone", id: "home-tile-calls") {
+                navigator.tab = .calls
+            } trailing: {
+                if let live = liveCallCount, live > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "phone.fill").font(.system(size: 11))
+                        Text(ChatStrings.homeLiveCount(live)).font(.inter(.caption))
+                    }
+                    .foregroundStyle(ChatColors.callGreen)
+                }
             }
-            tile(
-                ChatStrings.homeSaved,
-                symbol: "bookmark",
-                subtitle: ChatLogic.countLabel(store.savedCount, cap: ChatLogic.savedCap, plural: ChatStrings.homeItemCount, capped: { ChatStrings.homeItemCountCapped(count: $0) }),
-                id: "home-tile-saved"
-            ) { navigator.open(.saved) }
-            tile(
-                ChatStrings.homeDrafts,
-                symbol: "paperplane",
-                subtitle: ChatLogic.countLabel(store.draftCount, plural: ChatStrings.homeItemCount, capped: { ChatStrings.homeItemCountCapped(count: $0) }),
-                id: "home-tile-drafts"
-            ) { navigator.open(.drafts) }
+        }
+        navRow(ChatStrings.homeDrafts, symbol: "square.and.pencil", id: "home-tile-drafts", bold: (store.draftCount ?? 0) > 0) {
+            navigator.open(.drafts)
+        } trailing: {
+            CountBadge(count: store.draftCount ?? 0)
+        }
+        if (store.recordSummary ?? []).contains(where: { $0.followed > 0 }) {
+            navRow(ChatStrings.recordChatsTitle, symbol: "bubble.left.and.bubble.right", id: "home-records") {
+                navigator.open(.records(type: nil))
+            } trailing: {
+                EmptyView()
+            }
+        }
+        navRow(ChatStrings.homeSaved, symbol: "bookmark", id: "home-tile-saved") {
+            navigator.open(.saved)
+        } trailing: {
+            EmptyView()
         }
     }
 
-    private func tile(_ title: String, symbol: String, subtitle: String?, id: String, action: @escaping () -> Void) -> some View {
+    private func navRow<Trailing: View>(
+        _ title: String,
+        symbol: String,
+        id: String,
+        bold: Bool = false,
+        action: @escaping () -> Void,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Image(systemName: symbol).font(.subheadline)
-                    Text(title).font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.85)
-                }
-                Text(subtitle ?? " ").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            HStack(spacing: 0) {
+                SidebarRow(title: title, unread: bold) { SidebarIcon(symbol: symbol, unread: bold) }
+                trailing()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(Tokens.Spacing.m)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
         }
         .buttonStyle(.plain)
+        .sidebarListRow()
         .accessibilityIdentifier(id)
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: Tokens.Spacing.m) {
-            Image(systemName: "bubble.left.and.text.bubble.right")
-                .font(.system(size: 54))
-                .foregroundStyle(.secondary)
-            Text(ChatStrings.homeEmptyTitle).font(.title3.weight(.semibold))
-            Text(ChatStrings.homeEmptyHint).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Button {
-                navigator.sheet = .newChannel(sectionID: nil)
-            } label: {
-                Label(ChatStrings.homeEmptyCreateChannel, systemImage: "plus").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("home-empty-create-channel")
-            Button {
-                navigator.sheet = .newDm(group: false)
-            } label: {
-                Label(ChatStrings.homeEmptyStartDm, systemImage: "bubble.left").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .accessibilityIdentifier("home-empty-start-dm")
-        }
-        .padding(.vertical, Tokens.Spacing.xl)
-        .frame(maxWidth: .infinity)
     }
 
     private var composeButton: some View {
@@ -278,54 +302,23 @@ struct HomeView: View {
             .accessibilityIdentifier("compose-category")
         } label: {
             Image(systemName: "square.and.pencil")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(.white)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(Tokens.Palette.primaryForeground)
                 .frame(width: 56, height: 56)
-                .background(Tokens.Brand.weldchat, in: Circle())
-                .shadow(radius: 4, y: 2)
+                .background(Tokens.Palette.primary, in: RoundedRectangle(cornerRadius: Tokens.Radius.xlarge))
+                .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
         }
         .accessibilityLabel(ChatStrings.homeNewItem)
         .accessibilityIdentifier("home-compose")
         .padding(Tokens.Spacing.l)
     }
 
-    private func header(_ title: String, count: Int) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-            CountBadge(count: count)
-        }
-    }
-
-    private func collapsibleHeader(_ title: String, key: String, count: Int? = nil, mentions: Int = 0) -> some View {
-        Button {
-            if collapsed.contains(key) { collapsed.remove(key) } else { collapsed.insert(key) }
-        } label: {
-            HStack(spacing: 6) {
-                Text(title).lineLimit(1)
-                if let count { CountBadge(count: count) }
-                if mentions > 0 { CountBadge(count: mentions, prefix: "@") }
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.bold))
-                    .rotationEffect(.degrees(collapsed.contains(key) ? -90 : 0))
-                Spacer()
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(.isHeader)
-    }
-
     private func linkRow(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: Tokens.Spacing.m) {
-                Image(systemName: "ellipsis").frame(width: 22).foregroundStyle(.secondary)
-                Text(title).foregroundStyle(.secondary)
-                Spacer()
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-            }
-            .contentShape(Rectangle())
+            SidebarRow(title: title, unread: false) { SidebarIcon(symbol: "ellipsis") }
         }
         .buttonStyle(.plain)
+        .sidebarListRow()
     }
 
     // MARK: Rows
@@ -341,6 +334,7 @@ struct HomeView: View {
             store.patchChannel(id, patch)
             if patch.hasUnread == true { Task { await store.loadHome() } }
         }
+        .sidebarListRow()
         .accessibilityIdentifier("channel-row-\(channel.id)")
     }
 
@@ -358,6 +352,7 @@ struct HomeView: View {
             }
             store.patchDm(id, patch)
         }
+        .sidebarListRow()
         .accessibilityIdentifier("dm-row-\(dm.id)")
     }
 
@@ -376,6 +371,16 @@ struct HomeView: View {
             }
             store.patchRecordChat(id, RecordChatPatch(isMuted: patch.isMuted, markRead: patch.hasUnread == false, unfollowed: patch.isFollowing == false))
         }
+        .sidebarListRow()
         .accessibilityIdentifier("record-row-\(chat.id)")
+    }
+}
+
+private extension View {
+    /// A row of Home's list as in the platform's sidebar: no separators, the page's side margins.
+    func sidebarListRow() -> some View {
+        listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 0, leading: Tokens.Spacing.l, bottom: 0, trailing: Tokens.Spacing.l))
+            .listRowBackground(Tokens.Palette.background)
     }
 }
