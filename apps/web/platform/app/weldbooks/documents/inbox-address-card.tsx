@@ -97,7 +97,7 @@ export function InboxAddressCard() {
             ) : null}
             {canManage ? (
               <Button asChild variant={email ? 'ghost' : 'default'} size="sm">
-                <Link to="/settings/entities/$id" params={{ id: entityId }} search={{ tab: 'weldbooks' }} onClick={rememberSettingsReturn}>
+                <Link to="/settings/entities/$id/edit" params={{ id: entityId }} search={{ tab: 'weldbooks' }} onClick={rememberSettingsReturn}>
                   <Settings className="h-4 w-4" aria-hidden />
                   {email ? ti.manage : ti.setUp}
                 </Link>

@@ -78,7 +78,7 @@ describe('InboxAddressCard', () => {
     expect(screen.getByText('No inbox address yet')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Copy address/ })).not.toBeInTheDocument();
     const link = screen.getByRole('link', { name: 'Set up the address' });
-    expect(link).toHaveAttribute('href', '/settings/entities/ent_1');
+    expect(link.getAttribute('href')).toMatch(/^\/settings\/entities\/ent_1\/edit/);
 
     await user.click(link);
     expect(sessionStorage.getItem('settings-return-url')).toBe(window.location.pathname);
