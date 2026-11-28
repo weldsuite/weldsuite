@@ -503,6 +503,8 @@ async fn status(db: &PgPool, message: &str) -> String {
 #[tokio::test]
 async fn a_reply_by_someone_else_answers_and_the_status_moves_by_hand() {
     let Some(db) = pool() else { return };
+    // Its members are owners: kept apart from the test that counts the managers.
+    let _one = ONE_AT_A_TIME.lock().await;
     let entity = entity(&db, false).await;
     let owner = member(&db, "OWNER", &[]).await;
     let asker = member(&db, "OWNER", &[]).await;
@@ -610,6 +612,8 @@ async fn a_reply_by_someone_else_answers_and_the_status_moves_by_hand() {
 #[tokio::test]
 async fn a_receipt_answers_the_open_questions_on_a_bank_line() {
     let Some(db) = pool() else { return };
+    // Its members are owners: kept apart from the test that counts the managers.
+    let _one = ONE_AT_A_TIME.lock().await;
     let entity = entity(&db, false).await;
     let asker = member(&db, "OWNER", &[]).await;
     let records = records(&db, &entity, None).await;
