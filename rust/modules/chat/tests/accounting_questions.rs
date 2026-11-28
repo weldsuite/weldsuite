@@ -207,6 +207,23 @@ async fn call(app: &Router, method: &str, path: &str, body: Option<&Value>) -> (
     )
 }
 
+/// A GET in the legal entity `entity` names, by the header the platform sends.
+async fn get_in(app: &Router, header: &str, entity: &str, path: &str) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method("GET")
+        .uri(path)
+        .header(header, entity)
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
 fn fresh(prefix: &str) -> String {
     generate_id(prefix)
 }
@@ -245,6 +262,12 @@ async fn books(db: &PgPool, restricted: bool) -> Books {
     .execute(db)
     .await
     .unwrap();
+    // WeldBooks is enabled for it (its extension row): the list resolves only such entities.
+    sqlx::query("insert into accounting_entity_settings (entity_id) values ($1)")
+        .bind(&entity)
+        .execute(db)
+        .await
+        .unwrap();
     let bank = fresh("bac");
     sqlx::query(
         "insert into bank_accounts (id, entity_id, name, currency) values ($1, $2, 'Bank', 'EUR')",
@@ -683,7 +706,10 @@ async fn the_list_holds_what_the_caller_may_see_and_filters_on_status_person_and
     let (status, list) = call(
         &as_accountant,
         "GET",
-        "/api/accounting-questions?limit=100",
+        &format!(
+            "/api/accounting-questions?limit=100&entityId={}",
+            open.entity
+        ),
         None,
     )
     .await;
@@ -727,7 +753,10 @@ async fn the_list_holds_what_the_caller_may_see_and_filters_on_status_person_and
     let (_, mine) = call(
         &as_accountant,
         "GET",
-        "/api/accounting-questions?askedTo=me&limit=100",
+        &format!(
+            "/api/accounting-questions?askedTo=me&limit=100&entityId={}",
+            open.entity
+        ),
         None,
     )
     .await;
@@ -736,7 +765,10 @@ async fn the_list_holds_what_the_caller_may_see_and_filters_on_status_person_and
     let (_, any) = call(
         &as_accountant,
         "GET",
-        "/api/accounting-questions?askedTo=any&limit=100",
+        &format!(
+            "/api/accounting-questions?askedTo=any&limit=100&entityId={}",
+            open.entity
+        ),
         None,
     )
     .await;
@@ -744,7 +776,10 @@ async fn the_list_holds_what_the_caller_may_see_and_filters_on_status_person_and
     let (_, lines) = call(
         &as_accountant,
         "GET",
-        "/api/accounting-questions?recordType=bank_transaction&limit=100",
+        &format!(
+            "/api/accounting-questions?recordType=bank_transaction&limit=100&entityId={}",
+            open.entity
+        ),
         None,
     )
     .await;
@@ -752,7 +787,10 @@ async fn the_list_holds_what_the_caller_may_see_and_filters_on_status_person_and
     let (_, none) = call(
         &as_accountant,
         "GET",
-        "/api/accounting-questions?status=resolved&limit=100",
+        &format!(
+            "/api/accounting-questions?status=resolved&limit=100&entityId={}",
+            open.entity
+        ),
         None,
     )
     .await;
@@ -762,7 +800,7 @@ async fn the_list_holds_what_the_caller_may_see_and_filters_on_status_person_and
     let (_, first) = call(
         &as_accountant,
         "GET",
-        "/api/accounting-questions?limit=1",
+        &format!("/api/accounting-questions?limit=1&entityId={}", open.entity),
         None,
     )
     .await;
@@ -773,7 +811,10 @@ async fn the_list_holds_what_the_caller_may_see_and_filters_on_status_person_and
     let (_, next) = call(
         &as_accountant,
         "GET",
-        &format!("/api/accounting-questions?limit=1&cursor={cursor}"),
+        &format!(
+            "/api/accounting-questions?limit=1&cursor={cursor}&entityId={}",
+            open.entity
+        ),
         None,
     )
     .await;
@@ -786,7 +827,10 @@ async fn the_list_holds_what_the_caller_may_see_and_filters_on_status_person_and
             &["invoices:read", "messages:create", "channels:read"],
         ),
         "GET",
-        "/api/accounting-questions?limit=100",
+        &format!(
+            "/api/accounting-questions?limit=100&entityId={}",
+            open.entity
+        ),
         None,
     )
     .await;
@@ -818,6 +862,145 @@ async fn the_list_holds_what_the_caller_may_see_and_filters_on_status_person_and
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn the_list_holds_the_request_entity_and_contacts_show_in_every_entity() {
+    let Some(world) = World::new() else { return };
+    let owner = member(&world.db, "OWNER", &[]).await;
+    let accountant = member(&world.db, "LIMITED", BOOKS).await;
+    let first = books(&world.db, false).await;
+    let second = books(&world.db, false).await;
+    let restricted = books(&world.db, true).await;
+    let party = fresh("pty");
+    sqlx::query(
+        "insert into parties (id, kind, display_name, role) values ($1, 'company', 'Acme Trading', 'both')",
+    )
+    .bind(&party)
+    .execute(&world.db)
+    .await
+    .unwrap();
+    let by_owner = world.app(&owner, &["*"]);
+    let ask = |kind: &str, record: &String| {
+        let app = by_owner.clone();
+        let body =
+            json!({ "recordType": kind, "recordId": record, "text": format!("About {record}") });
+        async move {
+            let (status, out) = call(&app, "POST", "/api/accounting-questions", Some(&body)).await;
+            assert_eq!(status, StatusCode::CREATED, "{out}");
+            out["data"]["id"].as_str().unwrap().to_owned()
+        }
+    };
+    let q_first = ask("invoice", &first.invoice).await;
+    let q_first_line = ask("bank_transaction", &first.lines[0]).await;
+    let q_second = ask("invoice", &second.invoice).await;
+    let q_restricted = ask("invoice", &restricted.invoice).await;
+    let q_contact = ask("accounting_contact", &party).await;
+
+    let ids = |list: &Value| -> Vec<String> {
+        list["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|q| q["id"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let as_accountant = world.app(&accountant, BOOKS);
+    let path = "/api/accounting-questions?status=open&askedTo=any&limit=100";
+
+    // In the first entity: its questions and the contact's, not the second entity's.
+    let (status, list) = get_in(&as_accountant, "x-legal-entity-id", &first.entity, path).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    let got = ids(&list);
+    assert!(
+        got.contains(&q_first) && got.contains(&q_first_line),
+        "{list}"
+    );
+    assert!(got.contains(&q_contact), "{list}");
+    assert!(
+        !got.contains(&q_second) && !got.contains(&q_restricted),
+        "{list}"
+    );
+    // The count is of the same set, as To process counts it.
+    assert_eq!(list["pagination"]["hasMore"], false);
+    assert_eq!(
+        list["pagination"]["totalCount"].as_u64().unwrap(),
+        u64::try_from(got.len()).unwrap()
+    );
+    for item in list["data"].as_array().unwrap() {
+        assert!(
+            item["entityId"] == json!(first.entity) || item["recordType"] == "accounting_contact",
+            "{item}"
+        );
+    }
+
+    // The second entity, named by the older header and by the query.
+    let (_, list) = get_in(
+        &as_accountant,
+        "x-accounting-entity-id",
+        &second.entity,
+        path,
+    )
+    .await;
+    let got = ids(&list);
+    assert!(
+        got.contains(&q_second) && got.contains(&q_contact),
+        "{list}"
+    );
+    assert!(
+        !got.contains(&q_first) && !got.contains(&q_first_line),
+        "{list}"
+    );
+    let (_, list) = call(
+        &as_accountant,
+        "GET",
+        &format!("{path}&entityId={}", second.entity),
+        None,
+    )
+    .await;
+    let got = ids(&list);
+    assert!(got.contains(&q_second) && !got.contains(&q_first), "{list}");
+
+    // A restricted entity the accountant may not see lists none of its
+    // questions and none of the others either; only the contacts'.
+    let (status, list) = get_in(
+        &as_accountant,
+        "x-legal-entity-id",
+        &restricted.entity,
+        path,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    let got = ids(&list);
+    assert!(got.contains(&q_contact), "{list}");
+    for hidden in [&q_restricted, &q_first, &q_first_line, &q_second] {
+        assert!(!got.contains(hidden), "{list}");
+    }
+    // An entity that does not exist is the same.
+    let (_, list) = get_in(&as_accountant, "x-legal-entity-id", "ent_missing", path).await;
+    let got = ids(&list);
+    assert!(
+        got.contains(&q_contact) && !got.contains(&q_first),
+        "{list}"
+    );
+
+    // The owner sees the restricted entity, and only it there.
+    let (_, list) = get_in(
+        &world.app(&owner, &["*"]),
+        "x-legal-entity-id",
+        &restricted.entity,
+        path,
+    )
+    .await;
+    let got = ids(&list);
+    assert!(
+        got.contains(&q_restricted) && got.contains(&q_contact),
+        "{list}"
+    );
+    assert!(
+        !got.contains(&q_first) && !got.contains(&q_second),
+        "{list}"
+    );
 }
 
 #[tokio::test]

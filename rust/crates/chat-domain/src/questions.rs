@@ -30,7 +30,10 @@
 //!
 //! [`list`] returns the questions on records the caller may see: the type's
 //! permission and the record's legal entity (restricted entities included),
-//! plus contacts. It is the same check as reading the record's chat.
+//! plus contacts. It is the same check as reading the record's chat. With
+//! [`Filters::entity`] ([`request_entity`]) it holds only the request's
+//! entity, as To process counts them; a contact has no entity, so its
+//! questions show in every entity.
 
 use std::collections::{HashMap, HashSet};
 
@@ -42,6 +45,10 @@ use serde_json::{Value, json};
 use time::PrimitiveDateTime;
 use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_events::iso_timestamp;
+use weldsuite_legal_entities::{
+    EntityScopeCondition, LegalEntityApp, default_entity_id_for, entity_scope_condition,
+    load_entity_access, resolve_request_entity,
+};
 use weldsuite_schema::tenant::{
     chat_channels as channels, chat_messages as messages, workspace_members,
 };
@@ -304,6 +311,47 @@ pub struct Filters<'a> {
     pub record_type: Option<&'a str>,
     /// Only the question with this first message.
     pub message_id: Option<&'a str>,
+    /// Only the questions on records of these legal entities (the request's,
+    /// [`request_entity`]); a contact has no entity and is not narrowed.
+    pub entity: Option<&'a EntityScopeCondition>,
+}
+
+/// The legal entity a list of questions is about, resolved as every books
+/// route resolves its entity: the one the request names (`X-Legal-Entity-Id`,
+/// `X-Accounting-Entity-Id`, `?entityId`, `requested` here), else the default
+/// entity, kept only when the member sees it and WeldBooks is enabled for it.
+/// A document without an entity is the default entity's.
+///
+/// `None` (no narrowing) when the request names no entity and there is no
+/// default one; [`EntityScopeCondition::Nothing`] (contacts only) when the
+/// named entity does not resolve, so a restricted or unknown entity never
+/// widens the list to the others.
+///
+/// # Errors
+///
+/// The database's.
+pub async fn request_entity(
+    db: &PgPool,
+    user_id: &str,
+    can: &Can<'_>,
+    requested: Option<&str>,
+) -> Result<Option<EntityScopeCondition>, DbErr> {
+    let Some(workspace) = can.resolved().await? else {
+        return Ok(Some(EntityScopeCondition::Nothing));
+    };
+    let access = load_entity_access(db, user_id, workspace).await?;
+    let app = Some(LegalEntityApp::Weldbooks);
+    match resolve_request_entity(db, &access, requested, app, true).await? {
+        Some(entity) => {
+            let default = default_entity_id_for(db, app).await?;
+            Ok(Some(entity_scope_condition(
+                Some(&[entity]),
+                default.as_deref(),
+            )))
+        }
+        None if requested.is_some() => Ok(Some(EntityScopeCondition::Nothing)),
+        None => Ok(None),
+    }
 }
 
 /// A person on a question.
@@ -557,7 +605,8 @@ pub async fn list(
         let seen = if ids.is_empty() {
             HashSet::new()
         } else {
-            provider.filter_visible(db, user_id, can, &ids).await?
+            let within = filters.entity.unwrap_or(&EntityScopeCondition::All);
+            books_records::visible_in(*provider, db, user_id, can, &ids, within).await?
         };
         visible.insert(provider.type_name(), seen);
     }

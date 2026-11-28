@@ -32,7 +32,7 @@ use std::collections::{HashMap, HashSet};
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::Value;
 use weldsuite_db::{PgPool, orm};
-use weldsuite_legal_entities::weldbooks_entity_scope;
+use weldsuite_legal_entities::{EntityScopeCondition, weldbooks_entity_scope};
 use weldsuite_schema::tenant::{
     bank_transactions, bills, documents, invoices, parties, vat_returns, workspace_members,
 };
@@ -376,6 +376,24 @@ pub async fn visible(
     can: &Can<'_>,
     ids: &[String],
 ) -> Result<HashSet<String>, DbErr> {
+    visible_in(kind, db, user_id, can, ids, &EntityScopeCondition::All).await
+}
+
+/// [`visible`], narrowed to the records of the entities `within` allows (the
+/// request's legal entity, for a list of one entity's records). A contact has
+/// no entity, so `within` does not narrow contacts.
+///
+/// # Errors
+///
+/// The database's.
+pub async fn visible_in(
+    kind: Provider,
+    db: &PgPool,
+    user_id: &str,
+    can: &Can<'_>,
+    ids: &[String],
+    within: &EntityScopeCondition,
+) -> Result<HashSet<String>, DbErr> {
     let orm = orm(db);
     if kind == Provider::Party {
         let live: Vec<String> = parties::Entity::find()
@@ -401,6 +419,7 @@ pub async fn visible(
                 .filter(invoices::Column::Id.is_in(ids))
                 .filter(invoices::Column::DeletedAt.is_null())
                 .filter(scope.condition(invoices::Column::EntityId))
+                .filter(within.condition(invoices::Column::EntityId))
                 .into_tuple()
                 .all(&orm)
                 .await?
@@ -412,6 +431,7 @@ pub async fn visible(
                 .filter(bills::Column::Id.is_in(ids))
                 .filter(bills::Column::DeletedAt.is_null())
                 .filter(scope.condition(bills::Column::EntityId))
+                .filter(within.condition(bills::Column::EntityId))
                 .into_tuple()
                 .all(&orm)
                 .await?
@@ -423,6 +443,7 @@ pub async fn visible(
                 .filter(bank_transactions::Column::Id.is_in(ids))
                 .filter(bank_transactions::Column::DeletedAt.is_null())
                 .filter(scope.condition(bank_transactions::Column::EntityId))
+                .filter(within.condition(bank_transactions::Column::EntityId))
                 .into_tuple()
                 .all(&orm)
                 .await?
@@ -436,6 +457,7 @@ pub async fn visible(
                 .filter(documents::Column::Id.is_in(ids))
                 .filter(documents::Column::DeletedAt.is_null())
                 .filter(scope.condition(documents::Column::EntityId))
+                .filter(within.condition(documents::Column::EntityId))
                 .into_tuple()
                 .all(&orm)
                 .await?
@@ -447,6 +469,7 @@ pub async fn visible(
                 .filter(vat_returns::Column::Id.is_in(ids))
                 .filter(vat_returns::Column::DeletedAt.is_null())
                 .filter(scope.condition(vat_returns::Column::EntityId))
+                .filter(within.condition(vat_returns::Column::EntityId))
                 .into_tuple()
                 .all(&orm)
                 .await?

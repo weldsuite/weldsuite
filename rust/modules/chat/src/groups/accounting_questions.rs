@@ -10,7 +10,10 @@
 //!   per record (a bank line each, from Missing receipts).
 //! - `PATCH /:messageId` `{ status }`: resolve, re-open or mark answered.
 //! - `GET /?status=&askedTo=me|any&recordType=&cursor=&limit=`: the questions
-//!   on the records the caller may see.
+//!   on the records the caller may see, in the request's legal entity
+//!   (`X-Legal-Entity-Id`, else the default entity, as every books route
+//!   resolves it; `questions::request_entity`). A contact has no entity, so
+//!   its questions show in every entity.
 //!
 //! A reply by someone other than the asker answers the question (the send
 //! pipeline), and a receipt on the bank line does (the books routes).
@@ -34,6 +37,7 @@ use weldsuite_chat_domain::questions::{self, Filters};
 use weldsuite_db::orm;
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{Created, Data};
+use weldsuite_legal_entities::requested_entity_id;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::workspace_members;
 
@@ -479,7 +483,7 @@ fn read_list(issues: &mut Issues, values: &Map<String, Value>) -> ListQuery {
     }
 }
 
-async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
+async fn list(caller: Caller, headers: HeaderMap, RawQuery(raw): RawQuery) -> Response {
     let query = match validate_query(raw.as_deref(), read_list) {
         Ok(query) => query,
         Err(error) => return error.respond(""),
@@ -489,6 +493,11 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             books_provider(kind)?;
         }
         let can = caller.context_can();
+        // The request's legal entity, as To process counts its questions.
+        let requested = requested_entity_id(&headers, raw.as_deref());
+        let entity =
+            questions::request_entity(&caller.db, &caller.user_id, &can, requested.as_deref())
+                .await?;
         let page = questions::list(
             &caller.db,
             &caller.user_id,
@@ -498,6 +507,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
                 asked_to: query.mine.then_some(caller.user_id.as_str()),
                 record_type: query.record_type.as_deref(),
                 message_id: None,
+                entity: entity.as_ref(),
             },
             query.cursor.as_deref().filter(|c| !c.is_empty()),
             query.limit,
