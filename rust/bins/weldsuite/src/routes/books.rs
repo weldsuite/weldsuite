@@ -43,6 +43,16 @@ const BOOKS_ENV: &[&str] = &[
     // signs the link (else derived from the field encryption key).
     "PAY_PORTAL_PUBLIC_URL",
     "BOOKS_DOCUMENT_TOKEN_SECRET",
+    // WeldBooks online payments (edition feature `books-online-payments`): the
+    // Mollie Connect app, the install's public address (Mollie's webhook and
+    // the OAuth callback are on it) and where the platform is served.
+    "MOLLIE_CONNECT_CLIENT_ID",
+    "MOLLIE_CONNECT_CLIENT_SECRET",
+    "MOLLIE_API_URL",
+    "CONNECTOR_WEBHOOK_BASE_URL",
+    "WEBHOOK_BASE_URL",
+    "PUBLIC_URL",
+    "PUBLIC_APP_URL",
 ];
 
 /// books-api's `/api` prefixes, under `/api`.
@@ -126,6 +136,8 @@ pub(crate) struct TenantSweep {
     pub(crate) payment_reminders_sent: u64,
     /// Payment reminders that could not be sent.
     pub(crate) payment_reminders_failed: u64,
+    /// Mollie settlements read and booked (edition feature `books-online-payments`).
+    pub(crate) mollie_settlements: usize,
 }
 
 impl TenantSweep {
@@ -142,6 +154,7 @@ impl TenantSweep {
             "billsOverdue": self.bills_overdue,
             "paymentRemindersSent": self.payment_reminders_sent,
             "paymentRemindersFailed": self.payment_reminders_failed,
+            "mollieSettlements": self.mollie_settlements,
         })
     }
 }
@@ -250,6 +263,21 @@ pub(crate) async fn sweep_tenant(
             result.payment_reminders_failed = sent.failed;
         }
         Err(error) => tracing::error!(%error, "books-sweep: payment reminders failed"),
+    }
+
+    // Mollie's settlements of the entities that connected Mollie (edition
+    // feature `books-online-payments`): the fees and the payout, booked. It
+    // reads only this workspace, already open for the sweep.
+    match weldsuite_books_sales::sync_mollie_settlements(
+        books,
+        db,
+        &tenant.workspace_id,
+        &event_workspace,
+    )
+    .await
+    {
+        Ok(read) => result.mollie_settlements = read.settlements,
+        Err(error) => tracing::error!(%error, "books-sweep: Mollie settlements failed"),
     }
 
     if let Some(reminders) = tax_reminders(tenant, books, now).await {

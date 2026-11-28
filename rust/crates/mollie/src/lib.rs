@@ -536,6 +536,134 @@ pub struct Organization {
     pub name: Option<String>,
 }
 
+/// A payment method a profile has active (`GET /methods`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Method {
+    /// `ideal`, `bancontact`, `creditcard`, `banktransfer`, `directdebit`, …
+    pub id: String,
+    pub description: String,
+}
+
+impl Method {
+    fn from_json(body: &Value) -> Option<Self> {
+        Some(Self {
+            id: body.get("id")?.as_str()?.to_owned(),
+            description: body
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+        })
+    }
+}
+
+/// A settlement: what Mollie pays out to the organisation's bank account
+/// (`GET /settlements`). Reading them takes an organisation access token
+/// (Mollie Connect, scope `settlements.read`); an API key cannot.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Settlement {
+    /// `stl_…`.
+    pub id: String,
+    /// The reference on the bank statement (`1234567.2401.03`).
+    pub reference: Option<String>,
+    /// `open`, `pending`, `paidout` or `failed`.
+    pub status: String,
+    pub currency: String,
+    /// What is paid out, after fees; below zero when refunds exceed payments.
+    pub amount_cents: i64,
+    /// `settledAt`, ISO 8601: when it was (or will be) paid out.
+    pub settled_at: Option<String>,
+    pub created_at: Option<String>,
+    /// The costs Mollie took: the gross of every `periods.<year>.<month>.costs`
+    /// line (fees and the VAT on them), in cents.
+    pub costs_cents: i64,
+}
+
+fn signed_cents(value: Option<&Value>) -> Option<(String, i64)> {
+    let value = value?;
+    let currency = value.get("currency")?.as_str()?.trim().to_ascii_uppercase();
+    let text = value.get("value")?.as_str()?.trim();
+    let (negative, digits) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text),
+    };
+    let cents = Money::parse(&currency, digits)?.cents;
+    Some((currency, if negative { -cents } else { cents }))
+}
+
+impl Settlement {
+    fn from_json(body: &Value) -> Option<Self> {
+        let text = |key: &str| {
+            body.get(key)
+                .and_then(Value::as_str)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned)
+        };
+        let (currency, amount_cents) = signed_cents(body.get("amount"))?;
+        let mut costs_cents = 0;
+        if let Some(periods) = body.get("periods").and_then(Value::as_object) {
+            for months in periods.values().filter_map(Value::as_object) {
+                for period in months.values() {
+                    for cost in period
+                        .get("costs")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                    {
+                        if let Some((_, cents)) = signed_cents(cost.get("amountGross")) {
+                            costs_cents += cents.abs();
+                        }
+                    }
+                }
+            }
+        }
+        Some(Self {
+            id: text("id")?,
+            reference: text("reference"),
+            status: text("status").unwrap_or_default(),
+            currency,
+            amount_cents,
+            settled_at: text("settledAt"),
+            created_at: text("createdAt"),
+            costs_cents,
+        })
+    }
+}
+
+/// A payment, refund or chargeback inside a settlement.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SettlementItem {
+    /// `tr_…`, `re_…` or `chb_…`.
+    pub id: String,
+    pub currency: String,
+    pub cents: i64,
+    pub description: Option<String>,
+    /// `paidAt` of a payment, `createdAt` of a refund or chargeback.
+    pub at: Option<String>,
+    /// The payment a refund or chargeback belongs to.
+    pub payment_id: Option<String>,
+}
+
+impl SettlementItem {
+    fn from_json(body: &Value) -> Option<Self> {
+        let text = |key: &str| {
+            body.get(key)
+                .and_then(Value::as_str)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned)
+        };
+        let (currency, cents) = signed_cents(body.get("amount"))?;
+        Some(Self {
+            id: text("id")?,
+            currency,
+            cents,
+            description: text("description"),
+            at: text("paidAt").or_else(|| text("createdAt")),
+            payment_id: text("paymentId"),
+        })
+    }
+}
+
 // ── errors ──────────────────────────────────────────────────────────────────
 
 /// Why a call failed.
@@ -601,6 +729,11 @@ pub fn is_customer_id(id: &str) -> bool {
 /// A mandate id (`mdt_…`).
 pub fn is_mandate_id(id: &str) -> bool {
     is_id(id, "mdt_")
+}
+
+/// A settlement id (`stl_…`).
+pub fn is_settlement_id(id: &str) -> bool {
+    is_id(id, "stl_")
 }
 
 pub(crate) fn not_an_id(what: &str) -> MollieError {
@@ -944,6 +1077,55 @@ impl Mollie {
                 .and_then(Value::as_str)
                 .map(str::to_owned),
         })
+    }
+
+    /// `GET /methods`: the payment methods the profile has active.
+    pub async fn methods(&self, http: &OutboundHttp) -> Result<Vec<Method>, MollieError> {
+        let mut path = "/methods?resource=payments".to_owned();
+        if let Some(profile) = &self.profile_id {
+            path.push_str("&profileId=");
+            path.extend(url::form_urlencoded::byte_serialize(profile.as_bytes()));
+        }
+        let answer = Self::json_of(http.send(self.get(&path)).await)?;
+        Ok(answer
+            .pointer("/_embedded/methods")
+            .and_then(Value::as_array)
+            .map(|list| list.iter().filter_map(Method::from_json).collect())
+            .unwrap_or_default())
+    }
+
+    /// `GET /settlements`: the newest settlements of the organisation (up to
+    /// 250). Needs an organisation access token with `settlements.read`.
+    pub async fn settlements(&self, http: &OutboundHttp) -> Result<Vec<Settlement>, MollieError> {
+        let answer = Self::json_of(http.send(self.get("/settlements?limit=250")).await)?;
+        Ok(answer
+            .pointer("/_embedded/settlements")
+            .and_then(Value::as_array)
+            .map(|list| list.iter().filter_map(Settlement::from_json).collect())
+            .unwrap_or_default())
+    }
+
+    /// The `payments`, `refunds` or `chargebacks` of a settlement (up to 250).
+    pub async fn settlement_items(
+        &self,
+        http: &OutboundHttp,
+        settlement_id: &str,
+        kind: &str,
+    ) -> Result<Vec<SettlementItem>, MollieError> {
+        if !is_settlement_id(settlement_id)
+            || !matches!(kind, "payments" | "refunds" | "chargebacks")
+        {
+            return Err(not_an_id("settlement"));
+        }
+        let answer = Self::json_of(
+            http.send(self.get(&format!("/settlements/{settlement_id}/{kind}?limit=250")))
+                .await,
+        )?;
+        Ok(answer
+            .pointer(&format!("/_embedded/{kind}"))
+            .and_then(Value::as_array)
+            .map(|list| list.iter().filter_map(SettlementItem::from_json).collect())
+            .unwrap_or_default())
     }
 
     pub(crate) fn json_of(response: Result<HttpResponse, PortError>) -> Result<Value, MollieError> {

@@ -11,19 +11,22 @@
 //! advisory lock per (entity, role) serializes two requests that both need it
 //! first.
 
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::prelude::BigDecimal;
+use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
 use sqlx::PgConnection;
 use weldsuite_db::{OrmConn, PgPool, atomically_with, orm};
 use weldsuite_kit::generate_id;
-use weldsuite_schema::tenant::accounts;
+use weldsuite_schema::tenant::{
+    accounting_bank_account_settings as books_settings, accounts, bank_accounts,
+};
 
 use crate::db_values::to_json_rows;
 use crate::document_posting::load_entity;
 use crate::http::now;
 use crate::jurisdictions;
 use crate::posting::PostError;
-use crate::tables::ACCOUNTS;
+use crate::tables::{ACCOUNTS, BANK_ACCOUNTS};
 
 /// The clearing account for money moving between the entity's own accounts.
 pub const TRANSFERS_IN_TRANSIT: &str = "transfers_in_transit";
@@ -31,6 +34,16 @@ pub const TRANSFERS_IN_TRANSIT: &str = "transfers_in_transit";
 pub const PRIVATE: &str = "private";
 /// The current account with the director-shareholder (company).
 pub const DIRECTOR_CURRENT_ACCOUNT: &str = "director_current_account";
+
+/// The ledger account of a payment provider's balance (Mollie): money the
+/// customers paid that the provider has not paid out yet (ADR BOOKS-013). It
+/// is not in the chart templates, which are exported from the TypeScript
+/// charts the conformance suites cover: it is made on the first connection or
+/// payment ([`ensure_payment_provider_account`]).
+pub const PAYMENT_PROVIDER: &str = "payment_provider";
+
+/// The `bank_accounts.account_type` of a payment provider's money account.
+pub const PAYMENT_PROVIDER_ACCOUNT_TYPE: &str = "payment_provider";
 
 /// The role money paid privately is booked to for a legal form.
 ///
@@ -123,6 +136,17 @@ fn spec_for(entity: &Value, role: &str) -> Spec {
             "accounts_payable",
             "credit",
         ),
+        PAYMENT_PROVIDER => (
+            match upper.as_str() {
+                "US" => "1070",
+                "BR" => "1.1.1.06",
+                _ => "1130",
+            },
+            "Mollie",
+            "asset",
+            "bank",
+            "debit",
+        ),
         _ => (
             match upper.as_str() {
                 "US" => "3100",
@@ -183,6 +207,11 @@ fn find_existing<'a>(rows: &'a [Value], entity: &Value, role: &str) -> Option<&'
     by_role(role)
         .or_else(|| also_accepted(role).iter().find_map(|r| by_role(r)))
         .or_else(|| {
+            // A provider's account is never an account that happens to sit on
+            // the fallback code.
+            if role == PAYMENT_PROVIDER {
+                return None;
+            }
             let spec = spec_for(entity, role);
             rows.iter().find(|a| {
                 a["code"].as_str() == Some(spec.code.as_str())
@@ -275,6 +304,141 @@ pub async fn ensure_role_account(
                 .insert_raw_on(&OrmConn::new(&mut *conn), ACCOUNTS.values(&values))
                 .await?;
             Ok(created)
+        })
+    })
+    .await
+}
+
+/// An entity's money account at a payment provider.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderAccount {
+    /// The `bank_accounts` row.
+    pub bank_account_id: String,
+    /// The ledger account it sits on.
+    pub ledger_account_id: String,
+    /// The bank account was made by this call.
+    pub created: bool,
+    /// The ledger account was made by this call.
+    pub ledger_created: bool,
+}
+
+async fn find_provider_account<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    entity_id: &str,
+    provider: &str,
+) -> Result<Option<bank_accounts::Model>, sea_orm::DbErr> {
+    let rows = bank_accounts::Entity::find()
+        .filter(bank_accounts::Column::EntityId.eq(entity_id))
+        .filter(bank_accounts::Column::AccountType.eq(PAYMENT_PROVIDER_ACCOUNT_TYPE))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .all(db)
+        .await?;
+    Ok(rows.into_iter().find(|row| {
+        row.metadata
+            .as_ref()
+            .and_then(|m| m.get("provider"))
+            .and_then(Value::as_str)
+            == Some(provider)
+    }))
+}
+
+/// The entity's money account at `provider` (`Mollie`), made when it has none:
+/// a `bank_accounts` row of type `payment_provider` on its own ledger account
+/// (role [`PAYMENT_PROVIDER`]), so the provider's balance never mixes with the
+/// bank's. Not reconciled automatically: its lines are the settlements', which
+/// book themselves. Idempotent, and safe to call at the same time from several
+/// requests.
+pub async fn ensure_payment_provider_account(
+    db: &PgPool,
+    entity_id: &str,
+    provider: &str,
+    name: &str,
+) -> Result<ProviderAccount, PostError> {
+    let existing = find_provider_account(&orm(db), entity_id, provider).await?;
+    if let Some(row) = existing.as_ref()
+        && let Some(ledger) = row.ledger_account_id.clone()
+    {
+        return Ok(ProviderAccount {
+            bank_account_id: row.id.clone(),
+            ledger_account_id: ledger,
+            created: false,
+            ledger_created: false,
+        });
+    }
+    let ledger_created = !has_role_account(db, entity_id, PAYMENT_PROVIDER).await?;
+    let ledger = ensure_role_account(db, entity_id, PAYMENT_PROVIDER).await?;
+    let ledger_id = ledger["id"].as_str().unwrap_or_default().to_owned();
+    let entity = load_entity(db, entity_id).await?;
+    let currency = entity["baseCurrency"].as_str().unwrap_or("EUR").to_owned();
+    let (entity_id, provider, name) = (entity_id.to_owned(), provider.to_owned(), name.to_owned());
+    atomically_with::<_, ProviderAccount, PostError, _>(db, move |conn| {
+        Box::pin(async move {
+            lock(
+                &mut *conn,
+                &format!("provider-account:{entity_id}:{provider}"),
+            )
+            .await?;
+            let orm = OrmConn::new(&mut *conn);
+            if let Some(row) = find_provider_account(&orm, &entity_id, &provider).await? {
+                // A row without a ledger account (it was unlinked): put it back on one.
+                if row.ledger_account_id.is_none() {
+                    bank_accounts::Entity::update_many()
+                        .col_expr(
+                            bank_accounts::Column::LedgerAccountId,
+                            sea_orm::sea_query::Expr::value(ledger_id.clone()),
+                        )
+                        .filter(bank_accounts::Column::Id.eq(row.id.as_str()))
+                        .exec(&orm)
+                        .await?;
+                }
+                return Ok(ProviderAccount {
+                    bank_account_id: row.id,
+                    ledger_account_id: row.ledger_account_id.unwrap_or(ledger_id),
+                    created: false,
+                    ledger_created,
+                });
+            }
+            let id = generate_id("ba");
+            let stamp = now();
+            let mut values = Map::new();
+            for (key, value) in [
+                ("id", json!(id)),
+                ("entityId", json!(entity_id)),
+                ("name", json!(name)),
+                ("bankName", json!(name)),
+                ("currency", json!(currency)),
+                ("ledgerAccountId", json!(ledger_id)),
+                ("accountType", json!(PAYMENT_PROVIDER_ACCOUNT_TYPE)),
+                ("isDefault", json!(false)),
+                ("isActive", json!(true)),
+                ("autoReconcile", json!(false)),
+                ("currentBalance", json!("0")),
+                ("metadata", json!({ "provider": provider })),
+                ("createdAt", json!(stamp)),
+                ("updatedAt", json!(stamp)),
+            ] {
+                values.insert(key.to_owned(), value);
+            }
+            BANK_ACCOUNTS
+                .insert_raw_on(&orm, BANK_ACCOUNTS.values(&values))
+                .await?;
+            // WeldBooks' side of the account, next to the columns above.
+            books_settings::Entity::insert(books_settings::ActiveModel {
+                bank_account_id: ActiveValue::Set(id.clone()),
+                entity_id: ActiveValue::Set(entity_id.clone()),
+                ledger_account_id: ActiveValue::Set(Some(ledger_id.clone())),
+                current_balance: ActiveValue::Set(Some(BigDecimal::from(0))),
+                auto_reconcile: ActiveValue::Set(Some(false)),
+                ..Default::default()
+            })
+            .exec_without_returning(&orm)
+            .await?;
+            Ok(ProviderAccount {
+                bank_account_id: id,
+                ledger_account_id: ledger_id,
+                created: true,
+                ledger_created,
+            })
         })
     })
     .await

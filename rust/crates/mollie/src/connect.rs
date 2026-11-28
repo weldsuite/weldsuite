@@ -30,6 +30,18 @@ pub const COMMERCE_SCOPES: &[&str] = &[
     "organizations.read",
 ];
 
+/// What WeldBooks asks the merchant for: take invoice payments, read them
+/// back, read the profile and organisation, and read the settlements (the
+/// payouts) that book the fees and the transfer to the bank.
+pub const BOOKS_SCOPES: &[&str] = &[
+    "payments.read",
+    "payments.write",
+    "refunds.read",
+    "profiles.read",
+    "organizations.read",
+    "settlements.read",
+];
+
 /// The platform's Mollie Connect app: its client id and secret.
 #[derive(Clone)]
 pub struct ConnectApp {

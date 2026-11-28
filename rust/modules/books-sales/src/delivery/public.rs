@@ -73,9 +73,13 @@ where
         .layer(axum::middleware::map_response(private_headers))
         .with_state(PublicState {
             books: state.clone(),
-            workspaces,
+            workspaces: workspaces.clone(),
         });
-    Router::new().nest("/public/weldbooks/documents", routes)
+    Router::new()
+        .nest("/public/weldbooks/documents", routes)
+        // Mollie's webhook and the OAuth callback (edition feature
+        // `books-online-payments`).
+        .merge(crate::online_payments::public_routes(state, workspaces))
 }
 
 async fn private_headers(mut response: Response) -> Response {
@@ -95,7 +99,7 @@ async fn private_headers(mut response: Response) -> Response {
     response
 }
 
-fn answer(status: StatusCode, code: &str, message: &str) -> Response {
+pub(crate) fn answer(status: StatusCode, code: &str, message: &str) -> Response {
     (
         status,
         axum::Json(json!({ "error": { "code": code, "message": message } })),
@@ -121,7 +125,7 @@ fn server_error() -> Response {
 
 /// The caller: the `X-Forwarded-For` entry `trusted_proxies` from the right,
 /// when it looks like an address.
-fn client_ip(headers: &HeaderMap, trusted_proxies: usize) -> Option<String> {
+pub(crate) fn client_ip(headers: &HeaderMap, trusted_proxies: usize) -> Option<String> {
     let hops: Vec<&str> = headers
         .get_all("x-forwarded-for")
         .iter()
@@ -148,7 +152,7 @@ fn fallback_cache() -> Arc<dyn DynCache> {
 }
 
 /// The 429, when this address or this document has used up its minute.
-async fn limited(
+pub(crate) async fn limited(
     cache: Option<Arc<dyn DynCache>>,
     ip: Option<&str>,
     token: &str,
@@ -393,7 +397,21 @@ pub(crate) async fn build(
 ) -> Result<Option<Document>, sea_orm::DbErr> {
     if opened.token.t == "invoice" {
         let items = load_items(&opened.db, &opened.token.id, true).await?;
-        view::invoice_document(&opened.db, &books.keyring, &opened.row, &items, now_ms).await
+        let doc =
+            view::invoice_document(&opened.db, &books.keyring, &opened.row, &items, now_ms).await?;
+        // With Mollie connected, the page shows what can be paid online and
+        // whether a payment is under way (edition feature `books-online-payments`).
+        let Some(mut doc) = doc else {
+            return Ok(None);
+        };
+        let status = doc.json["status"].as_str().unwrap_or_default().to_owned();
+        if let Some(payment) =
+            crate::online_payments::pay::document_payment(books, &opened.db, &opened.row, &status)
+                .await?
+        {
+            doc.json["payment"] = payment;
+        }
+        Ok(Some(doc))
     } else {
         let Some(entity) = quote_entity(&opened.db).await? else {
             return Ok(None);
@@ -460,20 +478,81 @@ async fn pdf(
 
 // ── POST /:token/pay ────────────────────────────────────────────────────────
 
-/// Online payment is phase 4b; the contract answers 503 until then.
+/// `{ returnUrl }`: the portal's page the customer comes back to. Answers
+/// `{ data: { checkoutUrl } }`; 409 when nothing is open to pay, 503 when
+/// online payment is not set up for the entity or the invoice.
 async fn pay(
     State(state): State<PublicState>,
     Path(text): Path<String>,
     request: axum::extract::Request,
 ) -> Response {
-    let (parts, _) = parts_of(request);
-    match resolve(&state, &parts, &text, true).await {
-        Ok(_) => answer(
+    use crate::online_payments::pay::{Outcome, start};
+    let (parts, body) = request.into_parts();
+    let opened = match resolve(&state, &parts, &text, true).await {
+        Ok(opened) => opened,
+        Err(response) => return response,
+    };
+    let Ok(bytes) = axum::body::to_bytes(body, MAX_BODY_BYTES + 1).await else {
+        return answer(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "VALIDATION_ERROR",
+            "The request is too large",
+        );
+    };
+    let return_url = serde_json::from_slice::<Value>(&bytes)
+        .ok()
+        .and_then(|body| {
+            body.get("returnUrl")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        });
+    let Some(return_url) = return_url else {
+        return answer(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "returnUrl is required",
+        );
+    };
+    match start(&state.books, &opened, &return_url).await {
+        Ok(Outcome::Checkout(url)) => (
+            StatusCode::OK,
+            axum::Json(json!({ "data": { "checkoutUrl": url } })),
+        )
+            .into_response(),
+        Ok(Outcome::NothingToPay) => conflict("There is nothing to pay on this invoice"),
+        Ok(Outcome::Unavailable(message)) => answer(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "PAYMENT_UNAVAILABLE",
+            message,
+        ),
+        Ok(Outcome::Invalid(message)) => {
+            answer(StatusCode::BAD_REQUEST, "VALIDATION_ERROR", message)
+        }
+        Err(crate::online_payments::PayError::Refused(why)) => {
+            tracing::warn!(%why, "[books-api/public-documents] Mollie refused the payment");
+            answer(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "PAYMENT_UNAVAILABLE",
+                "Online payment is not available for this invoice",
+            )
+        }
+        Err(crate::online_payments::PayError::Transient(why)) => {
+            tracing::error!(%why, "[books-api/public-documents] Mollie could not be reached");
+            answer(
+                StatusCode::BAD_GATEWAY,
+                "PROVIDER_ERROR",
+                "The payment provider could not be reached",
+            )
+        }
+        Err(crate::online_payments::PayError::NotConnected) => answer(
             StatusCode::SERVICE_UNAVAILABLE,
             "PAYMENT_UNAVAILABLE",
             "Online payment is not set up",
         ),
-        Err(response) => response,
+        Err(error) => {
+            tracing::error!(%error, "[books-api/public-documents] pay failed");
+            server_error()
+        }
     }
 }
 

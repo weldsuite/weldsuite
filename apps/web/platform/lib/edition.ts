@@ -352,6 +352,14 @@ export const EDITION_FEATURES = [
    * notice. Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
    */
   'books-reminders',
+  /**
+   * WeldBooks online payment: each legal entity connects its own Mollie
+   * account (`/api/accounting-payment-connections`), customers pay an invoice on
+   * its public page, Mollie's webhook records the payment on a "Mollie" money
+   * account and the settlements book the fees and the payout as a transfer.
+   * Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-online-payments',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

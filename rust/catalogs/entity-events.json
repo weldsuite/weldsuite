@@ -1107,6 +1107,11 @@
     "created",
     "cancelled"
   ],
+  "payment_connection": [
+    "created",
+    "updated",
+    "deleted"
+  ],
   "payment_run": [
     "created",
     "updated",

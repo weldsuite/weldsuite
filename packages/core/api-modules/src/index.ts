@@ -175,6 +175,9 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   // WeldBooks: payment reminders (workflow per entity, bulk, paused, the NL
   // statutory costs).
   'books-reminders',
+  // WeldBooks: online invoice payments through the entity's own Mollie account
+  // (`/api/accounting-payment-connections`, `/public/weldbooks/mollie`).
+  'books-online-payments',
 ];
 
 const mod = (
@@ -419,6 +422,9 @@ export const API_MODULES: readonly ApiModule[] = [
     // Quotes (WeldCRM's `crm_quotes` as WeldBooks lists, sends and converts them), served by
     // the Rust backend only (rust/modules/books-sales).
     '/api/accounting-quotes',
+    // The entity's own Mollie account for online invoice payments, served by the Rust backend
+    // only (rust/modules/books-sales).
+    '/api/accounting-payment-connections',
     '/api/payroll',
     '/api/sales-tax',
     '/api/sales-tax-agencies',

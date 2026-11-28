@@ -26,6 +26,10 @@ export const ACCOUNTING_ENTITY_EVENTS = {
   quote: ['created', 'updated', 'deleted', 'accepted', 'emailed'],
   journal_entry: ['created', 'updated', 'deleted'],
   payment: ['created', 'updated', 'deleted'],
+  // A legal entity's own Mollie account for online invoice payments (Rust backend only, edition
+  // feature `books-online-payments`). `created` is connecting (OAuth or API key), `updated` the
+  // enabled methods, `deleted` disconnecting. Events never carry a token or key.
+  payment_connection: ['created', 'updated', 'deleted'],
   // `ordered`, `received`, `cancelled` and `closed` come from WeldStash's
   // purchase-order actions on the Rust backend (rust/modules/stash).
   purchase_order: ['created', 'updated', 'deleted', 'approved', 'ordered', 'received', 'cancelled', 'closed'],

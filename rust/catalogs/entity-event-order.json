@@ -149,6 +149,7 @@
   "quote",
   "journal_entry",
   "payment",
+  "payment_connection",
   "purchase_order",
   "reconciliation_rule",
   "recurring_invoice",

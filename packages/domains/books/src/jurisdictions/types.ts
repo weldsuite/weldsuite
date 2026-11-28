@@ -57,6 +57,10 @@ export type SystemAccountRole =
   // The same for a company: a current account with the director-shareholder
   // (NL BV / NV: rekening-courant DGA; IN: director's loan account).
   | 'director_current_account'
+  // A payment provider's balance (Mollie): what customers paid online that the provider has not
+  // paid out yet. Not in the chart templates: the Rust backend makes it on the first connection
+  // (edition feature `books-online-payments`, ADR BOOKS-013), so seeded charts stay as they are.
+  | 'payment_provider'
   // US (and any jurisdiction that wants them)
   | 'undeposited_funds'
   | 'sales_tax_payable'

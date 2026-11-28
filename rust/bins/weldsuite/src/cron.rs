@@ -1645,6 +1645,7 @@ async fn books_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                     totals.bills_overdue += swept.bills_overdue;
                     totals.payment_reminders_sent += swept.payment_reminders_sent;
                     totals.payment_reminders_failed += swept.payment_reminders_failed;
+                    totals.mollie_settlements += swept.mollie_settlements;
                 }
                 Ok::<_, String>(Some(next))
             }

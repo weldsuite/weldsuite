@@ -374,6 +374,8 @@ export const platformSyncMap: EntitySyncMap = {
   payment_batch: inv(['accounting', 'payment-batches'], ['accounting', 'bills']),
   // Quotes (edition feature books-quotes): the list, and the invoices made from them.
   quote: inv(['accounting', 'quotes'], ['accounting', 'invoices']),
+  // The entity's Mollie connection (edition feature books-online-payments).
+  payment_connection: inv(['accounting', 'payment-connections'], ['accounting', 'bank-accounts']),
   fixed_asset: inv(['accounting', 'fixed-assets']),
   accounting_dimension: inv(['accounting', 'dimensions']),
   invoice_template: inv(['accounting', 'invoice-templates']),
