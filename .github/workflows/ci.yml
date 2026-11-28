@@ -673,6 +673,18 @@ jobs:
           xcodebuild test -workspace WeldSuite.xcworkspace -scheme "$SCHEME" -destination "id=$SIMULATOR" \
             -skipPackagePluginValidation -skipMacroValidation CODE_SIGNING_ALLOWED=NO \
             | xcbeautify --renderer github-actions
+      # The store build is optimized for devices, which can fail where the
+      # simulator's debug build doesn't (a link error only Release hits), so
+      # build that too, unsigned.
+      - name: ${{ matrix.scheme }} release build for devices
+        working-directory: apps/ios
+        env:
+          SCHEME: ${{ matrix.scheme }}
+        run: |
+          xcodebuild build -workspace WeldSuite.xcworkspace -scheme "$SCHEME" -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -skipPackagePluginValidation -skipMacroValidation CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
 
   # Phase P2: the worker tests of every ported route run against a conformance
   # build of the Rust server and are compared with the Hono app (bodies,
