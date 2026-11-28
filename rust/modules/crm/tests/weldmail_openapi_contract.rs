@@ -122,12 +122,26 @@ fn tenant() -> Option<PgPool> {
     Some(master_pool(&url, 2).expect("tenant pool"))
 }
 
-/// Drop the contacts an earlier run left.
+/// Drop the contacts an earlier run left, and make the caller a member of the
+/// workspace: a new contact's owner is the caller, who must be one.
 async fn clean(db: &PgPool) {
     sqlx::query("delete from people where email like '%@people.native-contract.test'")
         .execute(db)
         .await
         .expect("clean");
+    sqlx::query("delete from workspace_members where id = 'wm_mail_native_people' or user_id = $1")
+        .bind(USER)
+        .execute(db)
+        .await
+        .expect("clean the member");
+    sqlx::query(
+        "insert into workspace_members (id, user_id, email, name, role, status, member_type) \
+         values ('wm_mail_native_people', $1, 'owner@people.native-contract.test', 'Mail Owner', 'ADMIN', 'ACTIVE', 'INTERNAL')",
+    )
+    .bind(USER)
+    .execute(db)
+    .await
+    .expect("the caller as a member");
 }
 
 fn id(body: &Value) -> String {
