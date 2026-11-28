@@ -246,6 +246,10 @@ fn app(db: PgPool) -> Router {
             weldsuite_chat::status(state.clone(), &gate),
         )
         .nest(
+            "/api/chat-activity",
+            weldsuite_chat::activity(state.clone(), &gate),
+        )
+        .nest(
             "/api/chat-entity-channels",
             weldsuite_chat::record_chats(state.clone(), &gate),
         )
