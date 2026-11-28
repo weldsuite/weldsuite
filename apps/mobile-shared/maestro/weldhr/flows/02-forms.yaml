@@ -1,0 +1,73 @@
+appId: ${APP_ID || "com.weldsuite.weldhr.dev"}
+name: Shift, leave and expense forms open, validate and close without saving
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+# Each tab's + adds what that tab is about; Home has none. On Schedule it
+# opens a shift request straight away.
+- tapOn:
+    id: tab-schedule
+- tapOn:
+    id: tab-add
+- assertVisible: "Request a shift"
+- assertVisible: "8h 0m"
+- tapOn:
+    id: form-close
+# On Absence: time off (only when leave requests are switched on for the
+# workspace) and reporting sick.
+- tapOn:
+    id: tab-absence
+- tapOn:
+    id: tab-add
+- runFlow:
+    when:
+      visible:
+        id: add-leave
+    commands:
+      - tapOn:
+          id: add-leave
+      - assertVisible: "Request time off"
+      - assertVisible: "About .* working day.*"
+      - tapOn:
+          id: form-close
+# Without leave requests the + reports sick: open it and close it again.
+- runFlow:
+    when:
+      notVisible:
+        id: add-leave
+    commands:
+      - tapOn:
+          id: add-sick
+      - tapOn:
+          id: form-close
+# On Expenses the + is about the receipt, and opens the camera or the photos
+# first; leaving the camera keeps the form.
+- tapOn:
+    id: tab-expenses
+- tapOn:
+    id: tab-add
+- runFlow:
+    when:
+      visible:
+        id: add-receipt-photo
+    commands:
+      - tapOn:
+          id: add-receipt-photo
+      - back
+      - assertVisible: "New expense"
+      # Submitting empty is caught in the app; nothing is sent.
+      - hideKeyboard
+      - tapOn:
+          id: expense-submit
+      - assertVisible: "Enter an amount above zero."
+      - tapOn:
+          id: expense-amount
+      - inputText: "12,50"
+      - hideKeyboard
+      - tapOn:
+          id: expense-submit
+      - assertVisible: "Say what the expense was for."
+      - tapOn:
+          id: form-close
+- assertVisible:
+    id: tab-expenses

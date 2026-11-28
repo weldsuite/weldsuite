@@ -308,6 +308,16 @@ fn bare(value: &str) -> String {
         .to_lowercase()
 }
 
+/// Notifications compare as a set. The query orders them by person and
+/// title only, and rows that share both (one person, many "New conversation"
+/// notifications) come back in the order the table's pages hold them, which
+/// other tests' writes to the same tenant change.
+fn sort_notifications(value: &mut Value) {
+    if let Some(rows) = value.get_mut("notifications").and_then(Value::as_array_mut) {
+        rows.sort_by_cached_key(ToString::to_string);
+    }
+}
+
 async fn rows(db: &PgPool, query: &str) -> Value {
     sqlx::query_scalar::<_, Value>(sqlx::AssertSqlSafe(format!(
         "select coalesce(jsonb_agg(to_jsonb(q)), '[]'::jsonb) from ({query}) q"
@@ -453,8 +463,10 @@ async fn engine_runs_match_typescript() {
     let clear = fixture["clear"].as_array().unwrap().clone();
     let mut failures = Vec::new();
     for case in fixture["cases"].as_array().unwrap() {
-        let rust = run_case(&db, &clear, case).await;
-        let expected = normalise(&case["output"], "");
+        let mut rust = run_case(&db, &clear, case).await;
+        let mut expected = normalise(&case["output"], "");
+        sort_notifications(&mut rust);
+        sort_notifications(&mut expected);
         if let Some(diff) = difference(&expected, &rust, "$") {
             failures.push(format!("{}: {diff}", case["name"]));
         }

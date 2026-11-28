@@ -1,0 +1,52 @@
+# Signs in with the e2e test user, starting from a fresh install, and lands
+# on Home. Credentials come from MAESTRO_TEST_EMAIL / MAESTRO_TEST_PASSWORD,
+# never from this file (see ../README.md).
+#
+# The native apps sign in on WeldID's own page (Chrome on Android, the
+# system's sign-in sheet on iOS): `f-email` and `f-password` are the ids of
+# WeldID's fields (weldsuite/weldid, crates/weldid-ui/templates/macros.html).
+appId: ${APP_ID || "com.weldsuite.weldhr.dev"}
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: sign-in
+    timeout: 30000
+- tapOn:
+    id: sign-in
+# iOS asks before it opens the sign-in page.
+- tapOn:
+    text: "Continue"
+    optional: true
+# Chrome's first-run screens, on an emulator that hasn't opened it yet.
+- tapOn:
+    text: "Use without an account"
+    optional: true
+- tapOn:
+    text: "No thanks"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: f-email
+    timeout: 30000
+- tapOn:
+    id: f-email
+- inputText: ${MAESTRO_TEST_EMAIL}
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible:
+      id: f-password
+    timeout: 30000
+- tapOn:
+    id: f-password
+- inputText: ${MAESTRO_TEST_PASSWORD}
+- tapOn: "Sign in"
+# The notification prompt, once.
+- tapOn:
+    text: "Allow"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: tab-home
+    timeout: 45000

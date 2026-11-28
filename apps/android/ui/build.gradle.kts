@@ -20,6 +20,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // java.time on API 24 and 25, as in the apps.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     buildFeatures {
@@ -32,6 +34,7 @@ kotlin {
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     api(project(":core"))
     api(platform(libs.compose.bom))
     api(libs.compose.ui)
@@ -40,5 +43,6 @@ dependencies {
     api(libs.compose.ui.tooling.preview)
     api(libs.activity.compose)
     api(libs.lifecycle.runtime.compose)
+    api(libs.coil.compose)
     debugImplementation(libs.compose.ui.tooling)
 }

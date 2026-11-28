@@ -1,0 +1,13 @@
+appId: ${APP_ID || "com.weldsuite.weldhr.dev"}
+name: Fresh install opens on the WeldHR sign-in screen
+tags: [smoke, signed-out]
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: sign-in
+    timeout: 30000
+- assertVisible: "Your work life, in your pocket|Je werk, in je broekzak"
+- assertNotVisible:
+    id: tab-home

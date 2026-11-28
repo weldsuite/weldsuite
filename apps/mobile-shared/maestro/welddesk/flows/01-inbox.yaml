@@ -1,0 +1,39 @@
+appId: ${APP_ID || "com.weldsuite.welddesk.dev"}
+name: Sign in, and the inbox filters, sorts and searches
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- extendedWaitUntil:
+    visible:
+      id: conversation-list
+    timeout: 30000
+# Closed, then back to open.
+- tapOn: "Closed"
+- tapOn: "Open"
+# Mine, unassigned, then all.
+- tapOn:
+    id: filter-mine
+- tapOn:
+    id: filter-unassigned
+- tapOn:
+    id: filter-all
+# The sort chip steps newest → waiting longest → oldest → newest.
+- assertVisible: "Newest"
+- tapOn:
+    id: inbox-sort
+- assertVisible: "Waiting longest"
+- tapOn:
+    id: inbox-sort
+- assertVisible: "Oldest"
+- tapOn:
+    id: inbox-sort
+- assertVisible: "Newest"
+# A search nothing matches says so.
+- tapOn: "Search name, email, #number, messages"
+- inputText: "zz-maestro-no-such-conversation"
+- extendedWaitUntil:
+    visible: "No conversations match your search"
+    timeout: 15000
+- tapOn:
+    id: inbox-search-clear
+    optional: true

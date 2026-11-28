@@ -3,16 +3,48 @@
 import Foundation
 
 public enum CoreStrings {
+    /// Add
+    public static var commonAdd: String { tr("common.add") }
     /// Cancel
     public static var commonCancel: String { tr("common.cancel") }
+    /// Close
+    public static var commonClose: String { tr("common.close") }
     /// Continue
     public static var commonContinue: String { tr("common.continue") }
+    /// Delete
+    public static var commonDelete: String { tr("common.delete") }
+    /// Done
+    public static var commonDone: String { tr("common.done") }
+    /// Edit
+    public static var commonEdit: String { tr("common.edit") }
     /// Loading…
     public static var commonLoading: String { tr("common.loading") }
+    /// None
+    public static var commonNone: String { tr("common.none") }
+    /// Save
+    public static var commonSave: String { tr("common.save") }
+    /// Search
+    public static var commonSearch: String { tr("common.search") }
     /// Sign out
     public static var commonSignOut: String { tr("common.signOut") }
+    /// Today
+    public static var commonToday: String { tr("common.today") }
+    /// Tomorrow
+    public static var commonTomorrow: String { tr("common.tomorrow") }
     /// Try again
     public static var commonTryAgain: String { tr("common.tryAgain") }
+    /// Yesterday
+    public static var commonYesterday: String { tr("common.yesterday") }
+    /// You don’t have access to this. Ask a workspace admin.
+    public static var errorsForbidden: String { tr("errors.forbidden") }
+    /// Something went wrong. Try again.
+    public static var errorsGeneric: String { tr("errors.generic") }
+    /// This couldn’t be loaded.
+    public static var errorsLoadFailed: String { tr("errors.loadFailed") }
+    /// This doesn’t exist any more.
+    public static var errorsNotFound: String { tr("errors.notFound") }
+    /// You’re offline. Connect to the internet and try again.
+    public static var errorsOffline: String { tr("errors.offline") }
     /// {app} keeps your data behind your phone’s screen lock. Set a passcode, PIN or pattern in Settings, then come back.
     public static func lockNoScreenLockDescription(app: String) -> String { tr("lock.noScreenLockDescription", app) }
     /// Set up a screen lock
@@ -31,6 +63,60 @@ public enum CoreStrings {
     public static func serverNotWeldsuite(server: String) -> String { tr("server.notWeldsuite", server) }
     /// {server} can’t be reached. Check your connection and try again.
     public static func serverUnreachable(server: String) -> String { tr("server.unreachable", server) }
+    /// Account
+    public static var settingsAccount: String { tr("settings.account") }
+    /// Appearance
+    public static var settingsAppearance: String { tr("settings.appearance") }
+    /// Dark
+    public static var settingsDark: String { tr("settings.dark") }
+    /// Delete account
+    public static var settingsDeleteAccount: String { tr("settings.deleteAccount") }
+    /// Go to my account
+    public static var settingsDeleteAccountContinue: String { tr("settings.deleteAccountContinue") }
+    /// Your account, profile and access to every workspace are removed for good. You finish this on your account page.
+    public static var settingsDeleteAccountMessage: String { tr("settings.deleteAccountMessage") }
+    /// Delete your account?
+    public static var settingsDeleteAccountTitle: String { tr("settings.deleteAccountTitle") }
+    /// Your server doesn’t offer this in the app. Ask its administrator to delete your account.
+    public static var settingsDeleteAccountUnavailable: String { tr("settings.deleteAccountUnavailable") }
+    /// Language
+    public static var settingsLanguage: String { tr("settings.language") }
+    /// Light
+    public static var settingsLight: String { tr("settings.light") }
+    /// Lock with {method}
+    public static func settingsLock(method: String) -> String { tr("settings.lock", method) }
+    /// {app} asks for {method} when you open it, and again after a minute in the background.
+    public static func settingsLockDescription(app: String, method: String) -> String { tr("settings.lockDescription", app, method) }
+    /// Notifications
+    public static var settingsNotifications: String { tr("settings.notifications") }
+    /// Notifications are off for {app}. Turn them on in your phone’s settings.
+    public static func settingsNotificationsOff(app: String) -> String { tr("settings.notificationsOff", app) }
+    /// On
+    public static var settingsNotificationsOn: String { tr("settings.notificationsOn") }
+    /// Open settings
+    public static var settingsOpenSettings: String { tr("settings.openSettings") }
+    /// Passcode
+    public static var settingsPasscode: String { tr("settings.passcode") }
+    /// Security
+    public static var settingsSecurity: String { tr("settings.security") }
+    /// Server
+    public static var settingsServer: String { tr("settings.server") }
+    /// Sign out
+    public static var settingsSignOut: String { tr("settings.signOut") }
+    /// You’ll need to sign in again to use {app} on this phone.
+    public static func settingsSignOutMessage(app: String) -> String { tr("settings.signOutMessage", app) }
+    /// Sign out of {app}?
+    public static func settingsSignOutTitle(app: String) -> String { tr("settings.signOutTitle", app) }
+    /// Switch workspace
+    public static var settingsSwitchWorkspace: String { tr("settings.switchWorkspace") }
+    /// System
+    public static var settingsSystem: String { tr("settings.system") }
+    /// Settings
+    public static var settingsTitle: String { tr("settings.title") }
+    /// Version {version}
+    public static func settingsVersion(version: String) -> String { tr("settings.version", version) }
+    /// Workspace
+    public static var settingsWorkspace: String { tr("settings.workspace") }
     /// Sign in
     public static var signInButton: String { tr("signIn.button") }
     /// Create an account

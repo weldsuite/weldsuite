@@ -1,0 +1,55 @@
+# Signs in with the e2e test user, starting from a fresh install, and lands
+# on Home (or on the "no company yet" door). Credentials come from
+# MAESTRO_TEST_EMAIL / MAESTRO_TEST_PASSWORD, never from this file: a WeldID
+# account on the EU test cluster (app.test.weldsuite.eu, where debug builds
+# start), with a password, two-step verification off, in one workspace with
+# WeldBooks.
+#
+# The native apps sign in on WeldID's own page (Chrome on Android, the
+# system's sign-in sheet on iOS): `f-email` and `f-password` are the ids of
+# WeldID's fields. APP_ID is com.weldsuite.weldbooks.dev for the Android debug
+# build (the default), com.weldsuite.weldbooks for iOS and an Android release build.
+appId: ${APP_ID || "com.weldsuite.weldbooks.dev"}
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: sign-in
+    timeout: 30000
+- tapOn:
+    id: sign-in
+# iOS asks before it opens the sign-in page.
+- tapOn:
+    text: "Continue"
+    optional: true
+# Chrome's first-run screens, on an emulator that hasn't opened it yet.
+- tapOn:
+    text: "Use without an account"
+    optional: true
+- tapOn:
+    text: "No thanks"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: f-email
+    timeout: 30000
+- tapOn:
+    id: f-email
+- inputText: ${MAESTRO_TEST_EMAIL}
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible:
+      id: f-password
+    timeout: 30000
+- tapOn:
+    id: f-password
+- inputText: ${MAESTRO_TEST_PASSWORD}
+- tapOn: "Sign in"
+# The notification prompt, once.
+- tapOn:
+    text: "Allow"
+    optional: true
+- extendedWaitUntil:
+    visible: "Outstanding|No company set up yet"
+    timeout: 45000

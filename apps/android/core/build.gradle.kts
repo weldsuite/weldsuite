@@ -21,6 +21,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // java.time on API 24 and 25, as in the apps.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     testOptions {
@@ -33,6 +35,7 @@ kotlin {
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     api(project(":api"))
     api(libs.kotlinx.coroutines.android)
     api(libs.okhttp)

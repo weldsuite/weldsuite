@@ -1,0 +1,32 @@
+appId: ${APP_ID || "com.weldsuite.weldmail.dev"}
+name: Inbox loads after sign-in
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- assertVisible:
+    id: inbox-list
+- assertVisible:
+    id: search-mail
+- assertVisible:
+    id: compose
+# The quick filters, then back to everything.
+- tapOn:
+    id: filter-unread
+- tapOn:
+    id: filter-all
+# Pull to refresh must not blank the list.
+- swipe:
+    direction: DOWN
+- assertVisible:
+    id: inbox-list
+# The mailboxes and folders, then the inbox again.
+- tapOn:
+    id: open-mailboxes
+- extendedWaitUntil:
+    visible:
+      id: folder-inbox
+    timeout: 10000
+- tapOn:
+    id: folder-inbox
+- assertVisible:
+    id: inbox-list

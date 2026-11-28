@@ -88,9 +88,12 @@ fun SessionGate(
             SessionState.SignedOut -> SignInScreen(env, branding)
             is SessionState.ChoosingWorkspace -> WorkspaceScreen(env, current)
             is SessionState.Ready -> when {
-                !env.lock.hasScreenLock() -> NoScreenLockScreen(branding)
+                env.lock.isRequired && !env.lock.hasScreenLock() -> NoScreenLockScreen(branding)
                 locked -> LockScreen(env, branding)
-                else -> content(current)
+                else -> {
+                    LaunchedEffect(current.workspace.id) { env.didEnterWorkspace(current.workspace.id) }
+                    content(current)
+                }
             }
         }
     }

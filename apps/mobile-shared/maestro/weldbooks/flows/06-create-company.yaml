@@ -1,0 +1,31 @@
+appId: ${APP_ID || "com.weldsuite.weldbooks.dev"}
+name: Create the first company (only when the workspace has none)
+tags: [writes]
+---
+- runFlow: ../subflows/login.yaml
+- runFlow:
+    when:
+      visible: "No company set up yet"
+    commands:
+      - assertVisible:
+          id: entity-sign-out
+      - assertVisible:
+          id: entity-check-again
+      - tapOn:
+          id: create-company-open
+      - extendedWaitUntil:
+          visible: "Set up your company"
+          timeout: 10000
+      - tapOn:
+          id: company-name
+      - inputText: "E2E Company BV"
+      - hideKeyboard
+      - scrollUntilVisible:
+          element:
+            id: create-company-submit
+      - tapOn:
+          id: create-company-submit
+      - extendedWaitUntil:
+          visible:
+            id: kpi-outstanding
+          timeout: 30000

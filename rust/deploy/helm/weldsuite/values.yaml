@@ -572,8 +572,16 @@ config:
 #                                team id and the .p8 PEM), for Apple's VoIP push that makes CallKit
 #                                ring on the lock screen; all three or none (optional; unset: an
 #                                iPhone gets the ordinary "Incoming call" notification, no CallKit
-#                                ring. Android's ring needs none of them)
-#   CALL_RING_SECRET             WeldChat: signs the ring token an incoming-call push carries, with
+#                                ring. Android's ring needs none of them). The key also
+#                                sends the native iOS apps' notifications as APNs alerts to
+#                                each app's bundle id (com.weldsuite.<app code>); unset: their
+#                                apns tokens are skipped
+#   FCM_SERVICE_ACCOUNT          the native Android apps' notifications and WeldChat's Android
+#                                call ring over FCM HTTP v1: the JSON key file of a service
+#                                account of the Firebase project every app is in, with the
+#                                Firebase Cloud Messaging API Admin role (optional; unset: their
+#                                fcm and fcm_call tokens are skipped)
+#   CALL_RING_SECRET            WeldChat: signs the ring token an incoming-call push carries, with
 #                                which the lock-screen or CallKit Decline ends the ring at
 #                                /public/chat-calls/decline without a session; any random value
 #                                (`openssl rand -hex 32`) (optional; unset: no token is sent and that

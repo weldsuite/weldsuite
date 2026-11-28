@@ -1,0 +1,7 @@
+# Maestro workspace config: `maestro test apps/mobile-shared/maestro/weldchat`
+# runs every flow in flows/ against the native WeldChat app (iOS or Android).
+# Subflows (login) live in subflows/ and are not run on their own.
+flows:
+  - flows/*
+executionOrder:
+  continueOnFailure: true

@@ -34,5 +34,11 @@ url = { workspace = true }
 sea-orm = { workspace = true }
 weldsuite-schema = { workspace = true }
 
+[dev-dependencies]
+# The native WeldMail apps' contacts, held against their OpenAPI file
+# (tests/weldmail_openapi_contract.rs).
+tokio = { workspace = true, features = ["macros", "rt"] }
+weldsuite-kit = { workspace = true, features = ["openapi-contract"] }
+
 [lints]
 workspace = true

@@ -31,6 +31,8 @@ weldsuite-schema = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
+weldsuite-auth = { workspace = true }
+weldsuite-kit = { workspace = true, features = ["openapi-contract"] }
 
 [lints]
 workspace = true

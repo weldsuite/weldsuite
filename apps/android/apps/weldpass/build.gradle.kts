@@ -75,6 +75,7 @@ kotlin {
 
 dependencies {
     implementation(project(":ui"))
+    implementation(project(":api:weldpass"))
     implementation(libs.navigation.compose)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.process)

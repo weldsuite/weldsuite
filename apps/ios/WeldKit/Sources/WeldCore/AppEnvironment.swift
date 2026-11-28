@@ -13,7 +13,8 @@ public enum SessionState: Equatable {
     case ready(person: Person, workspace: WorkspaceRef, workspaces: [WorkspaceRef])
 }
 
-/// One per app: the server, the session, the API configuration and the lock.
+/// One per app: the server, the session, the API configuration, the lock,
+/// the realtime socket and push.
 @MainActor
 @Observable
 public final class AppEnvironment {
@@ -25,15 +26,33 @@ public final class AppEnvironment {
     public private(set) var api: APIConfiguration?
     /// What the server says it doesn't offer (`unavailableFeatures` in `/config.json`).
     public private(set) var unavailableFeatures: Set<String> = []
+    /// The sign-in provider's account page, where a person deletes their account (`auth.accountUrl`).
+    public private(set) var accountURL: URL?
+    /// The workspace hub, once the server has booted (`realtimeUrl` in `/config.json`).
+    public private(set) var realtime: RealtimeClient?
+    /// This device's push tokens on the server, for an app that uses push.
+    @ObservationIgnored public private(set) var push: PushRegistrar?
 
     private var boot: Boot = .loading
 
     @ObservationIgnored private let configLoader = ServerConfigLoader()
+    @ObservationIgnored private let usesPush: Bool
+    @ObservationIgnored private var realtimeWorkspace: String?
 
-    public init(app: AppIdentity, lockRequired: Bool) {
+    /// - Parameters:
+    ///   - lockRequired: the app can't be used without Face ID or the passcode (WeldPass).
+    ///   - optionalLock: the person can turn the app lock on in the app's settings.
+    ///   - usesPush: ask for notifications and register for push once in a workspace.
+    public init(app: AppIdentity, lockRequired: Bool, optionalLock: Bool = false, usesPush: Bool = false) {
         self.app = app
-        lock = AppLock(required: lockRequired)
+        lock = AppLock(required: lockRequired, optionalKey: optionalLock ? "\(app.code).appLock" : nil)
         serverURL = app.euServerURL
+        self.usesPush = usesPush
+    }
+
+    /// Whether the server offers a feature (`unavailableFeatures` in `/config.json` doesn't name it).
+    public func isAvailable(_ feature: String) -> Bool {
+        !unavailableFeatures.contains(feature)
     }
 
     public var serverName: String { serverURL.host ?? serverURL.absoluteString }
@@ -64,6 +83,7 @@ public final class AppEnvironment {
             boot = .failed(problem)
         case let .loaded(config, _):
             unavailableFeatures = Set(config.unavailableFeatures ?? [])
+            accountURL = accountPage(config.auth?.accountUrl)
             let minimum = config.mobile?.minVersions?.additionalProperties[app.code]
             if isBelowMinimumVersion(app.version, minimum: minimum) {
                 boot = .outdated
@@ -85,11 +105,50 @@ public final class AppEnvironment {
                     auth.session = session
                     self.api = api
                     self.session = session
+                    realtime = RealtimeClient(
+                        baseURL: realtimeBase(config.realtimeUrl, server: serverURL),
+                        token: { [weak session] in await session?.token() },
+                        workspace: { [weak session] in session?.activeWorkspaceID }
+                    )
+                    if usesPush {
+                        let push = PushRegistrar(serverURL: serverURL, app: app, auth: auth)
+                        self.push = push
+                        PushCenter.shared.onToken = { [weak self] _ in
+                            guard let self, let workspace = self.session?.activeWorkspaceID else { return }
+                            Task { await self.push?.registerAPNs(in: workspace) }
+                        }
+                    }
                     session.start()
                 }
                 boot = .ready
             }
         }
+    }
+
+    /// The person is in `workspace` (`SessionGate` calls this): the realtime
+    /// socket follows the workspace, and an app with push asks for
+    /// notifications and registers this device there.
+    public func didEnterWorkspace(_ workspace: String) async {
+        if realtimeWorkspace != workspace {
+            realtimeWorkspace = workspace
+            realtime?.restart()
+        }
+        guard usesPush, let push else { return }
+        PushCenter.shared.clearBadge()
+        if PushCenter.shared.deviceToken == nil {
+            await PushCenter.shared.requestAuthorization()
+        } else {
+            await push.registerAPNs(in: workspace)
+        }
+    }
+
+    /// The tapped notification waiting to be handled, if it comes from this
+    /// server (`data.server`); a tap from a server the app no longer uses is dropped.
+    public func takePushTap() -> PushPayload? {
+        guard let tap = PushCenter.shared.pendingTap else { return nil }
+        PushCenter.shared.pendingTap = nil
+        if let server = tap.server, URL(string: server)?.host != serverURL.host { return nil }
+        return tap
     }
 
     public func signIn(createAccount: Bool) async -> SignInOutcome {
@@ -107,6 +166,10 @@ public final class AppEnvironment {
     }
 
     public func signOut() async {
+        // While the token still works: no more pushes to this device.
+        await push?.unregisterEverywhere()
+        realtime?.stop()
+        realtimeWorkspace = nil
         await session?.signOut()
         lock.lockNow()
     }
@@ -127,6 +190,22 @@ public final class AppEnvironment {
         case outdated
         case ready
     }
+}
+
+/// The account page from `/config.json`, when it is an https link.
+func accountPage(_ text: String?) -> URL? {
+    guard let text = text?.trimmingCharacters(in: .whitespaces), text.hasPrefix("https://") else { return nil }
+    return URL(string: text)
+}
+
+/// The realtime service's base URL: the server's `realtimeUrl` without a
+/// trailing `/ws`, else the server itself on `ws(s)://`.
+func realtimeBase(_ configured: String?, server: URL) -> URL {
+    var text = (configured?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : $0 }
+        ?? server.absoluteString.replacingOccurrences(of: "^http", with: "ws", options: .regularExpression)
+    while text.hasSuffix("/") { text.removeLast() }
+    if text.hasSuffix("/ws") { text.removeLast(3) }
+    return URL(string: text) ?? server
 }
 
 /// Hands the session's token and workspace to the API middleware.
