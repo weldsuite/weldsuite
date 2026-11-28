@@ -25,13 +25,14 @@ vi.mock('@/lib/router', () => ({
   useSearchParams: () => new URLSearchParams(route.search),
 }));
 
-const access = vi.hoisted(() => ({ accountant: true, processing: false }));
+const access = vi.hoisted(() => ({ accountant: true, processing: false, quotes: false }));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => (permission === 'journal:create' ? access.accountant : true) }),
 }));
 vi.mock('@/lib/edition', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/edition')>()),
-  isFeatureAvailable: (feature: string) => feature === 'books-bank-processing' && access.processing,
+  isFeatureAvailable: (feature: string) =>
+    (feature === 'books-bank-processing' && access.processing) || (feature === 'books-quotes' && access.quotes),
 }));
 
 const todo = vi.hoisted(() => ({ summary: undefined as unknown, enabledSeen: [] as boolean[] }));
@@ -71,6 +72,7 @@ describe('useWeldbooksSidebarItems', () => {
     route.search = '';
     access.accountant = true;
     access.processing = false;
+    access.quotes = false;
     localStorage.clear();
     todo.summary = undefined;
     todo.enabledSeen = [];
@@ -223,6 +225,24 @@ describe('the owner-first menu', () => {
     route.pathname = '/weldbooks/customers/add';
     route.search = 'role=supplier';
     expect(contacts()?.isActive).toBe(true);
+  });
+});
+
+describe('Quotes in the menu', () => {
+  beforeEach(() => {
+    jurisdiction = { ...known() };
+  });
+
+  it('is hidden where the edition has no quotes (Global)', () => {
+    expect(hrefs(adjust())).not.toContain('/weldbooks/quotes');
+  });
+
+  it('is listed under Sales, between Invoices and Recurring, where the edition has quotes', () => {
+    access.quotes = true;
+    const groups = adjust();
+    const sales = groups.find((group) => group.group === en.navigation.moduleSidebar.groups.sales);
+    expect(sales?.items.map((item) => item.href)).toEqual(['/weldbooks/invoices', '/weldbooks/quotes', '/weldbooks/recurring']);
+    expect(sales?.items[1]?.title).toBe('Quotes');
   });
 });
 

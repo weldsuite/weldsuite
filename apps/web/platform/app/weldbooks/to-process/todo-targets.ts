@@ -74,6 +74,16 @@ export function todoKindAction(
       return { label: label(copy.kinds.bills_due.action), href: '/weldbooks/bills?show=due' };
     case 'invoices_overdue':
       return { label: label(copy.kinds.invoices_overdue.action), href: '/weldbooks/invoices?show=overdue' };
+    case 'invoices_undelivered': {
+      // One bounced invoice opens in place, where its contact's address can be fixed and it is sent again.
+      const only = count === 1 ? items[0] : undefined;
+      return {
+        label: label(copy.kinds.invoices_undelivered.action),
+        href: only
+          ? withQuery('/weldbooks/invoices', `stack=${encodeURIComponent(`invoice:${only.objectId}`)}`)
+          : '/weldbooks/invoices?show=undelivered',
+      };
+    }
     case 'vat_return': {
       const only = count === 1 ? items[0] : undefined;
       return {

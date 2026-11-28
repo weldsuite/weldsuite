@@ -1,4 +1,5 @@
 import { weldbooksApi } from '../weldbooks-client';
+import type { EmailHistoryEntry } from './weldbooks-sales';
 import type { PostalAddress } from '@/components/address/postal-address';
 import type { StoredAccountingAddress } from '@/lib/weldbooks/address';
 import type { BrFiscalView } from '@/lib/weldbooks/br-contact';
@@ -507,6 +508,22 @@ export interface Invoice {
   notes: string | null;
   internalNotes: string | null;
   createdAt: string;
+  /** When the invoice was sent or e-mailed. */
+  sentAt?: string | null;
+  /** When the customer first opened the public page (Rust only, `books-invoice-email`). */
+  viewedAt?: string | null;
+  /**
+   * Phase 4 fields (Rust only): left out of the JSON while they hold their default, so each is optional.
+   * The WeldCRM quote the invoice was made from.
+   */
+  quoteId?: string | null;
+  /** How many payment reminders went out (0 or absent: none). */
+  reminderLevel?: number;
+  lastRemindedAt?: string | null;
+  /** Reminders are held for this invoice. */
+  remindersPaused?: boolean;
+  /** Sends, reminders, views and bounces, oldest first. */
+  emailHistory?: EmailHistoryEntry[] | null;
   attachmentKeys?: string[] | null;
   billingAddress?: StoredAccountingAddress | null;
   shippingAddress?: StoredAccountingAddress | null;
@@ -834,6 +851,8 @@ export const TODO_KINDS = [
   'vat_return',
   'bank_feeds',
   'invoices_overdue',
+  /** The last e-mail of an invoice bounced or failed (`books-invoice-email`, needs `invoices:read`). */
+  'invoices_undelivered',
   'bills_due',
   'bills_to_approve',
   'documents',

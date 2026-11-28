@@ -7,11 +7,13 @@
 import { useState } from 'react';
 import { Banknote, FileSearch } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardFooter, CardHeader } from '@weldsuite/ui/components/card';
 import { RecordChip, type RecordChipTone } from '@weldsuite/ui/components/record-chip';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
+import { useBulkRemind } from '@/components/accounting/bulk-remind';
 import { useObjectPanel } from '@/components/object-panel';
 import { RecordLink } from '@/components/object-panel/record-link';
 import { fetchCreditPayment } from '@/hooks/queries/use-weldbooks-processing-queries';
@@ -20,7 +22,10 @@ import {
   useInfiniteTodoItems,
   useTodoTopItems,
 } from '@/hooks/queries/use-weldbooks-todo-queries';
+import { isRemindersAvailable, useReminderDueItems } from '@/hooks/queries/use-weldbooks-sales-queries';
 import type { TodoItem, TodoKind, TodoKindSummary, TodoSeverity } from '@/lib/api/domains/weldbooks';
+import { getLocale } from '@/lib/i18n';
+import { plural } from '@/lib/i18n/plural';
 import { useI18n } from '@/lib/i18n/provider';
 import { Link, useRouter } from '@/lib/router';
 import { toPublicPath } from '@/lib/workspace-url-rewrite';
@@ -167,11 +172,51 @@ function AllItems({ kind, title }: Readonly<{ kind: TodoKind; title: string }>) 
   );
 }
 
+/**
+ * "Send N reminders" on the overdue card: the primary action where the member may send them and
+ * some are due and manual (hint `reminder_due`); then the link to the list is the quieter one.
+ * Its own component, so a card without reminders asks for no data.
+ */
+function SendRemindersButton({
+  viewAction,
+  children,
+}: Readonly<{ viewAction: { label: string; href: string } | null; children: React.ReactNode }>) {
+  const { t } = useI18n();
+  const copy = t.weldbooksConnected.todo;
+  const canUpdate = useCan('invoices:update');
+  const due = useReminderDueItems({ enabled: canUpdate });
+  const dueItems = canUpdate ? (due.data ?? []) : [];
+  const bulk = useBulkRemind((id) => dueItems.find((item) => item.objectId === id)?.subtitle ?? id);
+  const send = dueItems.length > 0;
+  return (
+    <>
+      {send ? (
+        <Button
+          size="sm"
+          disabled={bulk.pending}
+          onClick={() => bulk.start(dueItems.map((item) => item.objectId))}
+          data-testid="todo-send-reminders"
+        >
+          {plural(dueItems.length, copy.sendReminders, getLocale())}
+        </Button>
+      ) : null}
+      {viewAction ? (
+        <Button asChild size="sm" variant={send ? 'outline' : 'default'}>
+          {children}
+        </Button>
+      ) : null}
+      {bulk.dialogs}
+    </>
+  );
+}
+
 export function TodoCard({ kind, summary }: Readonly<{ kind: TodoKind; summary: TodoKindSummary }>) {
   const { t } = useI18n();
   const copy = t.weldbooksConnected.todo;
   const { formatMoney } = useWeldbooksFormat();
   const [expanded, setExpanded] = useState(false);
+  // The overdue card sends the reminders that are due and not sent by themselves (edition feature `books-reminders`).
+  const remindersOn = kind === 'invoices_overdue' && isRemindersAvailable();
   const top = useTodoTopItems(kind, TODO_TOP_LIMIT);
   const action = todoKindAction(kind, summary.count, top.data ?? [], copy);
   const title = todoKindTitle(kind, copy);
@@ -218,7 +263,11 @@ export function TodoCard({ kind, summary }: Readonly<{ kind: TodoKind; summary: 
         </CardContent>
         {action || canExpand ? (
           <CardFooter className="flex flex-wrap items-center gap-2">
-            {action ? (
+            {remindersOn ? (
+              <SendRemindersButton viewAction={action}>
+                {action ? <Link href={action.href}>{action.label}</Link> : null}
+              </SendRemindersButton>
+            ) : action ? (
               <Button asChild size="sm">
                 <Link href={action.href}>{action.label}</Link>
               </Button>

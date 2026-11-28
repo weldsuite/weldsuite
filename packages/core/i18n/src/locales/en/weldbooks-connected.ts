@@ -18,6 +18,7 @@ export const weldbooksConnected = {
     listFailed: 'These items could not be loaded.',
     mixedCurrency: 'Mixed currencies, shown in {currency}',
     dueOn: 'Due {date}',
+    sendReminders: { one: 'Send 1 reminder', other: 'Send {count} reminders' },
     kinds: {
       vat_return: {
         title: 'Tax return to file',
@@ -30,6 +31,10 @@ export const weldbooksConnected = {
       invoices_overdue: {
         title: 'Overdue invoices',
         action: 'View overdue invoices',
+      },
+      invoices_undelivered: {
+        title: 'E-mail not delivered',
+        action: { one: 'Open the invoice', other: 'Review {count} invoices' },
       },
       bills_due: {
         title: 'Bills to pay',
@@ -63,6 +68,8 @@ export const weldbooksConnected = {
     },
     hints: {
       possible_match: 'Possible match found',
+      undelivered: 'E-mail bounced: check the address and send it again',
+      reminder_due: 'A reminder is due: send it',
       possible_duplicate: 'Possible duplicate',
       ocr_failed: 'Scan failed, check by hand',
       awaiting_approval: 'Awaiting approval',

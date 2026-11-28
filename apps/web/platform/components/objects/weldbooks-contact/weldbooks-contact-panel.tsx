@@ -80,8 +80,9 @@ import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
 import { contactIdLabels } from '@/lib/weldbooks/contact-id-labels';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { useContactCredits } from '@/hooks/queries/use-weldbooks-processing-queries';
+import { isQuotesAvailable } from '@/hooks/queries/use-weldbooks-sales-queries';
 import { ContactCreditTab } from './weldbooks-contact-credit-tab';
-import { ContactBillsTab, ContactInvoicesTab } from './weldbooks-contact-documents-tab';
+import { ContactBillsTab, ContactInvoicesTab, ContactQuotesTab } from './weldbooks-contact-documents-tab';
 import {
   contactDocumentTabs,
   getWeldbooksContactTabs,
@@ -905,6 +906,8 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
         bills: t.accounting.contacts.connected.tabBills,
         exemptions: t.weldbooksUs.salesTax.setup.exemptions.tabExemptions,
         history: st('sweep.entities.auditLogTab'),
+        quotes: t.weldbooksSales.quotes.contactTab,
+        showQuotes: showDocumentTabs && documentTabs.invoices && isQuotesAvailable(),
         credit: t.weldbooksConnected.credit.tab,
         showCredit,
         showInvoices: showDocumentTabs && documentTabs.invoices,
@@ -964,6 +967,7 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
           <WeldbooksContactDetailsTab contact={contact} canEdit={canEdit} t={t} />
         )}
         {contact && activeTab === 'invoices' && <ContactInvoicesTab contactId={contact.id} />}
+        {contact && activeTab === 'quotes' && <ContactQuotesTab contactId={contact.id} />}
         {contact && activeTab === 'bills' && <ContactBillsTab contactId={contact.id} />}
         {contact && activeTab === 'credit' && <ContactCreditTab contactId={contact.id} />}
         {contact && activeTab === 'exemptions' && (

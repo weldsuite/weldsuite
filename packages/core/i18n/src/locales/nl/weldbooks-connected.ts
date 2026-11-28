@@ -19,6 +19,7 @@ export const weldbooksConnected = {
     listFailed: 'Deze items konden niet worden geladen.',
     mixedCurrency: 'Gemengde valuta, getoond in {currency}',
     dueOn: 'Vervalt {date}',
+    sendReminders: { one: '1 herinnering versturen', other: '{count} herinneringen versturen' },
     kinds: {
       vat_return: {
         title: 'Aangifte om in te dienen',
@@ -31,6 +32,10 @@ export const weldbooksConnected = {
       invoices_overdue: {
         title: 'Achterstallige facturen',
         action: 'Achterstallige facturen bekijken',
+      },
+      invoices_undelivered: {
+        title: 'E-mail niet afgeleverd',
+        action: { one: 'De factuur openen', other: '{count} facturen nakijken' },
       },
       bills_due: {
         title: 'Te betalen inkoopfacturen',
@@ -64,6 +69,8 @@ export const weldbooksConnected = {
     },
     hints: {
       possible_match: 'Mogelijke match gevonden',
+      undelivered: 'E-mail geweigerd: controleer het adres en verstuur hem opnieuw',
+      reminder_due: 'Een herinnering is aan de beurt: verstuur hem',
       possible_duplicate: 'Mogelijk dubbel',
       ocr_failed: 'Scannen mislukt, controleer handmatig',
       awaiting_approval: 'Wacht op goedkeuring',

@@ -69,6 +69,7 @@ import { weldbooksNl } from './weldbooks-nl';
 import { weldbooksBr } from './weldbooks-br';
 import { weldbooksConnected } from './weldbooks-connected';
 import { weldbooksReceipts } from './weldbooks-receipts';
+import { weldbooksSales } from './weldbooks-sales';
 import { admin } from './admin';
 import { partner } from './partner';
 import { reach } from './reach';
@@ -161,6 +162,7 @@ export const nl = {
   weldbooksBr,
   weldbooksConnected,
   weldbooksReceipts,
+  weldbooksSales,
   admin,
   partner,
   reach,

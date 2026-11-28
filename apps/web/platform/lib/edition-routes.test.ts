@@ -97,6 +97,18 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldbooks/to-process')).toBe(false);
   });
 
+  it('hides the quotes pages, the form included, where books-quotes is missing, and offers them on Rust', () => {
+    for (const path of ['/weldbooks/quotes', '/weldbooks/quotes/add', '/weldbooks/quotes/q_1/edit', '/weldbooks/quotes?stack=quote:q_1']) {
+      expect(routeRequirement(path)).toEqual({ modules: ['books'], feature: 'books-quotes' });
+      expect(isRouteOffered(path)).toBe(false);
+    }
+    expect(isRouteOffered('/weldbooks/invoices')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
+    expect(isRouteOffered('/weldbooks/quotes/add')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: ['books-quotes'] });
+    expect(isRouteOffered('/weldbooks/quotes')).toBe(false);
+  });
+
   it('hides the document review screen and Pay bills on Global, keeps the inbox itself, and offers them on Rust', () => {
     expect(routeRequirement('/weldbooks/documents/doc_1/review')).toEqual({ modules: ['books'], feature: 'books-receipts' });
     expect(routeRequirement('/weldbooks/purchases/pay')).toEqual({ modules: ['books'], feature: 'books-sepa-batches' });

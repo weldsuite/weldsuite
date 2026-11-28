@@ -1,4 +1,4 @@
-import { FileCheck2, FileText, History, LayoutGrid, Receipt, Wallet } from 'lucide-react';
+import { FileCheck2, FileText, History, LayoutGrid, Receipt, ScrollText, Wallet } from 'lucide-react';
 import type { ConfigurablePanelTab } from '@/components/objects/_shared/configurable-panel-tabs';
 
 /**
@@ -7,12 +7,13 @@ import type { ConfigurablePanelTab } from '@/components/objects/_shared/configur
  *
  *   overview    → `/accounting-contacts/:id`          (the contact record)
  *   invoices    → `/invoices?contactId=`              (customers, and contacts that are both)
+ *   quotes      → `/accounting-quotes?contactId=`     (customers; Rust only, edition feature `books-quotes`)
  *   bills       → `/bills?contactId=`                 (suppliers, and contacts that are both)
  *   exemptions  → `/exemption-certificates?partyId=`  (US sales tax only)
  *   credit      → `/accounting-contacts/:id/credits`  (Rust only; shown while the contact has unapplied credit)
  *   history     → `/api/audit-logs?entityType=accounting_contact`
  */
-export type WeldbooksContactTabId = 'overview' | 'invoices' | 'bills' | 'credit' | 'exemptions' | 'history';
+export type WeldbooksContactTabId = 'overview' | 'invoices' | 'quotes' | 'bills' | 'credit' | 'exemptions' | 'history';
 
 export type WeldbooksContactTab = ConfigurablePanelTab<WeldbooksContactTabId>;
 
@@ -27,6 +28,10 @@ export function getWeldbooksContactTabs(labels: {
   bills: string;
   exemptions: string;
   history: string;
+  /** Label of the Quotes tab. */
+  quotes?: string;
+  /** The edition has quotes (`books-quotes`) and the contact is a customer (or both). */
+  showQuotes?: boolean;
   /** Label of the Credit tab. */
   credit?: string;
   /** The contact has credit left to apply (`books-bank-processing`). */
@@ -53,6 +58,15 @@ export function getWeldbooksContactTabs(labels: {
       id: 'invoices',
       label: labels.invoices,
       icon: Receipt,
+      defaultVisibleInPanel: true,
+      defaultVisibleInFullscreen: true,
+    });
+  }
+  if (labels.showQuotes && labels.quotes) {
+    tabs.push({
+      id: 'quotes',
+      label: labels.quotes,
+      icon: ScrollText,
       defaultVisibleInPanel: true,
       defaultVisibleInFullscreen: true,
     });

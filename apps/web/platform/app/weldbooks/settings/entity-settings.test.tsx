@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NO_JURISDICTION_FEATURES } from '@/lib/weldbooks/jurisdiction';
 
@@ -31,6 +31,8 @@ vi.mock('./components/entity-inbox-card', () => ({
   EntityInboxCard: ({ entityId }: { entityId: string }) => <div data-testid="entity-inbox-card">{entityId}</div>,
 }));
 vi.mock('./components/differences-card', () => ({ DifferencesCard: () => <div data-testid="differences-card" /> }));
+vi.mock('./components/email-templates-card', () => ({ EmailTemplatesCard: () => <div data-testid="email-templates-card" /> }));
+vi.mock('./components/reminders-card', () => ({ RemindersCard: () => <div data-testid="reminders-settings-card" /> }));
 vi.mock('@/lib/api/weldbooks-client', () => ({ setWeldbooksEntityId: mocks.setWeldbooksEntityId }));
 vi.mock('@/lib/api/domains/weldbooks', () => ({ accountingApi: {} }));
 vi.mock('./components/ledger-catch-up-card', () => ({ LedgerCatchUpCard: () => <div data-testid="ledger-catch-up" /> }));
@@ -108,6 +110,18 @@ describe('WeldbooksEntitySettings', () => {
     renderSettings({ ...NO_JURISDICTION_FEATURES, xafExport: true, fiscalDocuments: true });
     expect(screen.getByText('Auditfile (XAF 4.0)')).toBeInTheDocument();
     expect(screen.getByTestId('fiscal-settings')).toBeInTheDocument();
+  });
+
+  it('shows the e-mail texts and the reminder workflow only where the edition has them', () => {
+    renderSettings();
+    expect(screen.queryByTestId('email-templates-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('reminders-settings-card')).not.toBeInTheDocument();
+    cleanup();
+
+    mocks.processing = true;
+    renderSettings();
+    expect(screen.getByTestId('email-templates-card')).toBeInTheDocument();
+    expect(screen.getByTestId('reminders-settings-card')).toBeInTheDocument();
   });
 
   it('shows the payment differences card only where the edition has bank processing', () => {

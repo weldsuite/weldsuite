@@ -72,6 +72,17 @@ describe('todoKindAction', () => {
     expect(action('invoices_overdue')?.href).toBe('/weldbooks/invoices?show=overdue');
   });
 
+  it('opens one undelivered invoice in place, and several as a list of the bounced ones', () => {
+    expect(todoKindAction('invoices_undelivered', 1, [{ objectId: 'inv_9' }], copy)).toEqual({
+      label: 'Open the invoice',
+      href: '/weldbooks/invoices?stack=invoice%3Ainv_9',
+    });
+    expect(todoKindAction('invoices_undelivered', 3, [{ objectId: 'inv_1' }], copy)).toEqual({
+      label: 'Review 3 invoices',
+      href: '/weldbooks/invoices?show=undelivered',
+    });
+  });
+
   it('sends bank connections to the feeds page and duplicates to the transactions list', () => {
     expect(action('bank_feeds')?.href).toBe('/weldbooks/banking/feeds');
     expect(action('duplicates')?.href).toBe('/weldbooks/banking/transactions');
@@ -109,6 +120,9 @@ describe('todoHintLabel', () => {
     'reauth_required',
     'consent_expiring',
     'unapplied_credit',
+    // Phase 4a (Rust only).
+    'undelivered',
+    'reminder_due',
   ];
 
   it.each(codes)('translates %s into words in both languages, never the raw code', (code) => {

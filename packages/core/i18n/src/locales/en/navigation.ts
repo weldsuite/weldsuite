@@ -341,6 +341,7 @@ export const navigation = {
         cashFlow: 'Cash flow',
         generalLedger: 'General ledger',
         invoices: 'Invoices',
+        quotes: 'Quotes',
         creditNotes: 'Credit Notes',
         recurring: 'Recurring',
         bills: 'Bills',

@@ -341,6 +341,7 @@ export const navigation = {
         cashFlow: 'Kasstroom',
         generalLedger: 'Grootboek',
         invoices: 'Facturen',
+        quotes: 'Offertes',
         creditNotes: 'Creditnota\'s',
         recurring: 'Terugkerend',
         bills: 'Inkoopfacturen',

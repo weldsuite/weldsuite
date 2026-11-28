@@ -24,6 +24,7 @@ import './change-request';
 import './decision';
 import './stakeholder';
 import './invoice';
+import './quote';
 import './bill';
 import './recurring-invoice';
 import './domain';

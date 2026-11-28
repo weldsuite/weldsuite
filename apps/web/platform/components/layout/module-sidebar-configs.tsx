@@ -115,6 +115,7 @@ import {
   Network,
   Gauge,
   Bug,
+  ScrollText,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
@@ -654,6 +655,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           items: [
             // Credit notes are a filter of this list (`?show=credit_notes`).
             { title: nav.invoices, href: '/weldbooks/invoices', icon: ReceiptText },
+            // Only where the edition has quotes (`books-quotes`): the menu hook and the palette hide it elsewhere.
+            { title: nav.quotes, href: '/weldbooks/quotes', icon: ScrollText },
             { title: nav.recurring, href: '/weldbooks/recurring', icon: RefreshCw },
           ],
         },

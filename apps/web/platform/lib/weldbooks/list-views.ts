@@ -3,7 +3,8 @@ import { useEffect } from 'react';
 /**
  * The views the Invoices and Bills lists open in from the owner's shortcuts
  * (To process, the overview tiles): `?show=open`, `?show=overdue`,
- * `?show=due` and, for invoices, `?show=credit_notes`.
+ * `?show=due` and, for invoices, `?show=credit_notes` and `?show=undelivered` (the last e-mail bounced,
+ * edition feature `books-invoice-email`).
  *
  * A server filter narrows what it can (credit notes by type, overdue invoices
  * by `overdue=true`); the rest narrows the rows loaded so far with the
@@ -12,7 +13,7 @@ import { useEffect } from 'react';
  */
 
 /** The views of the Invoices list, in the order the Show filter offers them. */
-export const INVOICE_VIEWS = ['open', 'overdue', 'credit_notes'] as const;
+export const INVOICE_VIEWS = ['open', 'overdue', 'credit_notes', 'undelivered'] as const;
 export type InvoiceView = (typeof INVOICE_VIEWS)[number];
 
 /** The views of the Bills list. */

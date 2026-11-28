@@ -17,6 +17,7 @@ import {
   Percent,
   PiggyBank,
   Receipt,
+  ScrollText,
   ShoppingCart,
   User,
   Wallet,
@@ -30,6 +31,7 @@ import type { ObjectType } from './types';
 /** The icon of each record type the WeldBooks screens link to. */
 const RECORD_ICONS: Record<string, RecordChipProps['icon']> = {
   invoice: FileText,
+  quote: ScrollText,
   bill: Receipt,
   weldbooks_contact: User,
   journal_entry: BookText,

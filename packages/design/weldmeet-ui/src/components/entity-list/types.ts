@@ -136,6 +136,11 @@ export interface EntityListProps<T extends { id: string }> {
   createButton?: {
     label: string;
     onClick: () => void;
+    /**
+     * More things to create (a credit note next to an invoice): the button then opens a menu with
+     * `label` first and these after it.
+     */
+    more?: Array<{ label: string; onClick: () => void }>;
   };
 
   // Additional action buttons (rendered before create button, on the right side)

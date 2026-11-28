@@ -39,6 +39,7 @@ import { RecordPaymentDialog } from '@/app/weldbooks/invoices/components/record-
 import { SalesTaxErrorNotice, useDescribeError } from '@/app/weldbooks/invoices/components/sales-tax-error-notice';
 import { SendInvoiceDialog } from '@/app/weldbooks/invoices/components/send-invoice-dialog';
 import { getInvoiceCapabilities, hasSalesTaxInfoOf, type InvoiceCapabilities } from './invoice-capabilities';
+import { InvoiceSalesSections } from './invoice-activity-sections';
 import { InvoiceCreditNotesTab } from './invoice-credit-notes-tab';
 import { InvoiceDetailsTab } from './invoice-details-tab';
 import {
@@ -78,6 +79,7 @@ interface InvoiceTabBodyProps {
   documents: ReturnType<typeof useInvoiceDocuments>;
   workflow: ReturnType<typeof useInvoiceWorkflow>;
   onOpenInvoice: (id: string) => void;
+  onOpenPayments: () => void;
 }
 
 function InvoiceTabBody({
@@ -90,18 +92,28 @@ function InvoiceTabBody({
   documents,
   workflow,
   onOpenInvoice,
+  onOpenPayments,
 }: Readonly<InvoiceTabBodyProps>) {
   const { t } = useI18n();
   switch (tab) {
     case 'overview':
       return (
-        <InvoiceDetailsTab
-          invoice={invoice}
-          isCreditMemo={caps.isCreditMemo}
-          openingAttachment={documents.openingAttachment}
-          onOpenAttachment={documents.openAttachment}
-          onOpenInvoice={onOpenInvoice}
-        />
+        <>
+          {/* Connections, online link, reminders and the timeline: only where the edition has them. */}
+          <InvoiceSalesSections
+            invoice={invoice}
+            isCreditMemo={caps.isCreditMemo}
+            onSend={() => workflow.setSendOpen(true)}
+            onOpenPayments={onOpenPayments}
+          />
+          <InvoiceDetailsTab
+            invoice={invoice}
+            isCreditMemo={caps.isCreditMemo}
+            openingAttachment={documents.openingAttachment}
+            onOpenAttachment={documents.openAttachment}
+            onOpenInvoice={onOpenInvoice}
+          />
+        </>
       );
     case 'items':
       return <InvoiceLinesTab invoice={invoice} isCreditMemo={caps.isCreditMemo} />;
@@ -174,6 +186,9 @@ function InvoiceDialogs({
     <>
       <SendInvoiceDialog
         invoiceId={invoice.id}
+        invoiceNumber={invoice.invoiceNumber}
+        contactEmail={invoice.contactEmail}
+        creditNote={caps.isCreditMemo}
         isDraft={caps.isDraft}
         open={workflow.sendOpen}
         onOpenChange={workflow.setSendOpen}
@@ -373,6 +388,7 @@ export function InvoicePanel(props: Readonly<ObjectPanelComponentProps>) {
             documents={documents}
             workflow={workflow}
             onOpenInvoice={openInvoice}
+            onOpenPayments={() => setActiveTab('payments')}
           />
         )}
       </EntityDetailView>

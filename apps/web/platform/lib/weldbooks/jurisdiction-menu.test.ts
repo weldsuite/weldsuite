@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { setRuntimeConfig } from '@/lib/runtime-config';
 import { NO_JURISDICTION_FEATURES, type JurisdictionFeatures } from './jurisdiction';
-import { isWeldbooksHrefVisible, WELDBOOKS_ANNUAL_REPORTS_HREF } from './jurisdiction-menu';
+import { isWeldbooksHrefVisible, WELDBOOKS_ANNUAL_REPORTS_HREF, WELDBOOKS_QUOTES_HREF } from './jurisdiction-menu';
 
 const nl: JurisdictionFeatures = { ...NO_JURISDICTION_FEATURES, vatReturn: true, icp: true };
 const us: JurisdictionFeatures = { ...NO_JURISDICTION_FEATURES, salesTax: true };
@@ -27,5 +27,22 @@ describe('annual reports menu entry', () => {
   it('is hidden when the install lacks the annual reports', () => {
     setRuntimeConfig({ backend: 'rust', unavailableFeatures: ['annual-reports'] });
     expect(isWeldbooksHrefVisible(WELDBOOKS_ANNUAL_REPORTS_HREF, { known: true, features: nl })).toBe(false);
+  });
+});
+
+describe('quotes menu entry', () => {
+  it('is hidden on Global, where quotes are Rust-only', () => {
+    expect(isWeldbooksHrefVisible(WELDBOOKS_QUOTES_HREF, { known: true, features: nl })).toBe(false);
+  });
+
+  it('is shown on an install that has quotes, whatever the country, and while the jurisdiction loads', () => {
+    setRuntimeConfig({ backend: 'rust', unavailableFeatures: [] });
+    expect(isWeldbooksHrefVisible(WELDBOOKS_QUOTES_HREF, { known: true, features: us })).toBe(true);
+    expect(isWeldbooksHrefVisible(WELDBOOKS_QUOTES_HREF, { known: false, features: nl })).toBe(true);
+  });
+
+  it('is hidden when the install lacks quotes', () => {
+    setRuntimeConfig({ backend: 'rust', unavailableFeatures: ['books-quotes'] });
+    expect(isWeldbooksHrefVisible(WELDBOOKS_QUOTES_HREF, { known: true, features: nl })).toBe(false);
   });
 });
