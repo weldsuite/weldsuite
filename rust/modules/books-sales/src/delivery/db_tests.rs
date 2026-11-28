@@ -421,11 +421,11 @@ async fn a_link_is_bound_to_its_secret_its_workspace_and_its_nonce() {
     );
     // Another key signs nothing this server accepts.
     assert_eq!(
-        document_token::verify(b"other", &text),
+        document_token::verify(document_token::new_nonce().as_bytes(), &text),
         Err(TokenError::BadSignature)
     );
     // A wrong nonce, another document's id or a draft opens nothing.
-    let forged = DocumentToken::new(WORKSPACE, "invoice", &id, "guess");
+    let forged = DocumentToken::new(WORKSPACE, "invoice", &id, &document_token::new_nonce());
     assert!(
         open_document(&world.db, &secret, &forged)
             .await

@@ -560,14 +560,18 @@ async fn an_api_key_connects_one_entity_and_shows_no_secret() {
     assert_eq!(view["settlementsAvailable"], false);
     assert!(view["connectedAt"].is_string());
     let text = view.to_string();
-    for secret in [
+    // Neither the key itself nor a field that would carry it is in the view.
+    for hidden in [
         "test_goodkey123",
         "apiKey",
         "Encrypted",
         "accessToken",
         "refreshToken",
     ] {
-        assert!(!text.contains(secret), "{secret} in {text}");
+        assert!(
+            !text.contains(hidden),
+            "the connection view shows {hidden:?}"
+        );
     }
     // The key is sealed in the row.
     let stored: String = sqlx::query_scalar(
@@ -1031,7 +1035,7 @@ async fn a_paid_payment_is_recorded_once_on_the_mollie_account() {
     );
     let foreign = {
         let other = payment_refs::sign(
-            b"another-install-secret",
+            weldsuite_books_domain::document_token::new_nonce().as_bytes(),
             &PayRef::webhook(WORKSPACE, &env.entity, &invoice_id),
         );
         webhook(&router, &other, &env.fake.id(1), "10.3.0.2").await

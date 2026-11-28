@@ -97,7 +97,7 @@ function subKey(entry: TimedEntry, grouping: TimeGrouping): string {
 
 function lineDescription(list: readonly TimedEntry[], grouping: TimeGrouping, locale: 'en' | 'nl'): string {
   const first = list[0]!;
-  const dates = list.map((entry) => entry.date).sort();
+  const dates = list.map((entry) => entry.date).sort((a, b) => a.localeCompare(b));
   const parts: string[] = [first.projectName];
   if (grouping === 'person') parts.push(first.userName);
   else if (grouping === 'activity' && first.activity) parts.push(first.activity);

@@ -151,7 +151,9 @@ pub fn secret(configured: Option<&str>, keyring: &Keyring) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
 
-    const SECRET: &[u8] = b"a-test-secret";
+    /// A secret made at run time: a test needs a secret, not a particular one.
+    static SECRET: std::sync::LazyLock<Vec<u8>> =
+        std::sync::LazyLock::new(|| new_nonce().into_bytes());
 
     #[test]
     fn a_signed_token_reads_back_and_fits_the_portal() {
@@ -161,8 +163,8 @@ mod tests {
             "inv_abcdefghijklmnopqrstu",
             &new_nonce(),
         );
-        let text = sign(SECRET, &token);
-        assert_eq!(verify(SECRET, &text), Ok(token));
+        let text = sign(&SECRET, &token);
+        assert_eq!(verify(&SECRET, &text), Ok(token));
         assert!((8..=256).contains(&text.len()), "{}", text.len());
         assert!(
             text.bytes()
@@ -172,43 +174,50 @@ mod tests {
 
     #[test]
     fn a_tampered_or_foreign_token_is_refused() {
-        let token = DocumentToken::new("ws_a", "quote", "quote_1", "n1");
-        let text = sign(SECRET, &token);
-        assert_eq!(verify(b"another", &text), Err(TokenError::BadSignature));
+        let nonce = new_nonce();
+        let token = DocumentToken::new("ws_a", "quote", "quote_1", &nonce);
+        let text = sign(&SECRET, &token);
+        assert_eq!(
+            verify(new_nonce().as_bytes(), &text),
+            Err(TokenError::BadSignature)
+        );
         // Another document under the first one's signature.
         let other = sign(
-            SECRET,
-            &DocumentToken::new("ws_a", "quote", "quote_2", "n1"),
+            &SECRET,
+            &DocumentToken::new("ws_a", "quote", "quote_2", &nonce),
         );
         let (payload, _) = other.split_once('.').unwrap();
         let (_, signature) = text.split_once('.').unwrap();
         assert_eq!(
-            verify(SECRET, &format!("{payload}.{signature}")),
+            verify(&SECRET, &format!("{payload}.{signature}")),
             Err(TokenError::BadSignature)
         );
-        assert_eq!(verify(SECRET, "nodot"), Err(TokenError::Malformed));
-        assert_eq!(verify(SECRET, "a.b"), Err(TokenError::Malformed));
-        assert_eq!(verify(SECRET, "YQ.YQ"), Err(TokenError::BadSignature));
-        assert_eq!(verify(SECRET, ""), Err(TokenError::Malformed));
-        assert_eq!(verify(SECRET, &"x".repeat(600)), Err(TokenError::Malformed));
+        assert_eq!(verify(&SECRET, "nodot"), Err(TokenError::Malformed));
+        assert_eq!(verify(&SECRET, "a.b"), Err(TokenError::Malformed));
+        assert_eq!(verify(&SECRET, "YQ.YQ"), Err(TokenError::BadSignature));
+        assert_eq!(verify(&SECRET, ""), Err(TokenError::Malformed));
+        assert_eq!(
+            verify(&SECRET, &"x".repeat(600)),
+            Err(TokenError::Malformed)
+        );
     }
 
     #[test]
     fn an_unknown_version_is_refused() {
-        let mut token = DocumentToken::new("ws_a", "invoice", "inv_1", "n");
+        let mut token = DocumentToken::new("ws_a", "invoice", "inv_1", &new_nonce());
         token.v = 9;
         assert_eq!(
-            verify(SECRET, &sign(SECRET, &token)),
+            verify(&SECRET, &sign(&SECRET, &token)),
             Err(TokenError::UnknownVersion)
         );
     }
 
     #[test]
     fn a_quote_nonce_follows_its_sent_time() {
-        let a = quote_nonce(SECRET, "quote_1", 1_000);
-        assert_eq!(a, quote_nonce(SECRET, "quote_1", 1_000));
-        assert_ne!(a, quote_nonce(SECRET, "quote_1", 2_000));
-        assert_ne!(a, quote_nonce(SECRET, "quote_2", 1_000));
+        let a = quote_nonce(&SECRET, "quote_1", 1_000);
+        assert_eq!(a, quote_nonce(&SECRET, "quote_1", 1_000));
+        assert_ne!(a, quote_nonce(&SECRET, "quote_1", 2_000));
+        assert_ne!(a, quote_nonce(&SECRET, "quote_2", 1_000));
     }
 
     #[test]

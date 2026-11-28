@@ -143,37 +143,50 @@ pub fn verify(secret: &[u8], text: &str, kind: &str, now_secs: i64) -> Option<Pa
 mod tests {
     use super::*;
 
-    const SECRET: &[u8] = b"a-test-secret";
+    /// A secret made at run time: a test needs a secret, not a particular one.
+    static SECRET: std::sync::LazyLock<Vec<u8>> =
+        std::sync::LazyLock::new(|| crate::document_token::new_nonce().into_bytes());
 
     #[test]
     fn a_webhook_reference_round_trips_under_its_secret_and_purpose_only() {
         let reference = PayRef::webhook("ws_1", "ent_1", "inv_1");
-        let text = sign(SECRET, &reference);
-        assert_eq!(verify(SECRET, &text, WEBHOOK, 0), Some(reference));
-        assert_eq!(verify(b"another", &text, WEBHOOK, 0), None);
-        assert_eq!(verify(SECRET, &text, CONNECT, 0), None);
-        assert_eq!(verify(SECRET, "nope", WEBHOOK, 0), None);
-        assert_eq!(verify(SECRET, &"a.".repeat(300), WEBHOOK, 0), None);
+        let text = sign(&SECRET, &reference);
+        assert_eq!(verify(&SECRET, &text, WEBHOOK, 0), Some(reference));
+        assert_eq!(
+            verify(
+                crate::document_token::new_nonce().as_bytes(),
+                &text,
+                WEBHOOK,
+                0
+            ),
+            None
+        );
+        assert_eq!(verify(&SECRET, &text, CONNECT, 0), None);
+        assert_eq!(verify(&SECRET, "nope", WEBHOOK, 0), None);
+        assert_eq!(verify(&SECRET, &"a.".repeat(300), WEBHOOK, 0), None);
     }
 
     #[test]
     fn a_tampered_reference_is_refused() {
-        let text = sign(SECRET, &PayRef::webhook("ws_1", "ent_1", "inv_1"));
+        let text = sign(&SECRET, &PayRef::webhook("ws_1", "ent_1", "inv_1"));
         let (payload, signature) = text.split_once('.').unwrap();
         let forged = URL_SAFE_NO_PAD
             .encode(serde_json::to_vec(&PayRef::webhook("ws_2", "ent_1", "inv_1")).unwrap());
         assert_eq!(
-            verify(SECRET, &format!("{forged}.{signature}"), WEBHOOK, 0),
+            verify(&SECRET, &format!("{forged}.{signature}"), WEBHOOK, 0),
             None
         );
-        assert_eq!(verify(SECRET, payload, WEBHOOK, 0), None);
+        assert_eq!(verify(&SECRET, payload, WEBHOOK, 0), None);
     }
 
     #[test]
     fn a_connect_state_expires_after_ten_minutes() {
         let reference = PayRef::connect("ws_1", "ent_1", "user_1", "/settings", 1_000);
-        let text = sign(SECRET, &reference);
-        assert_eq!(verify(SECRET, &text, CONNECT, 1_000 + 599), Some(reference));
-        assert_eq!(verify(SECRET, &text, CONNECT, 1_000 + 601), None);
+        let text = sign(&SECRET, &reference);
+        assert_eq!(
+            verify(&SECRET, &text, CONNECT, 1_000 + 599),
+            Some(reference)
+        );
+        assert_eq!(verify(&SECRET, &text, CONNECT, 1_000 + 601), None);
     }
 }

@@ -179,7 +179,7 @@ export default function UnbilledTimePage() {
     body = <EmptyState icon={Clock} title={copy.empty} description={copy.emptyDescription} className="m-6" />;
   } else {
     const tooMany = chosen.length > MAX_ENTRIES;
-    const earliest = entries.map((entry) => entry.date).sort()[0];
+    const earliest = entries.map((entry) => entry.date).sort((a, b) => a.localeCompare(b))[0];
     body = (
       <ListDetailLayout
         listWidth={320}

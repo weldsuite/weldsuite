@@ -269,7 +269,7 @@ function MethodPicker({ connection, canEdit }: Readonly<{ connection: PaymentCon
     ...available,
     ...saved.filter((id) => !available.some((method) => method.id === id)).map((id) => ({ id, description: id })),
   ];
-  const dirty = [...draft].sort().join(',') !== [...saved].sort().join(',');
+  const dirty = [...draft].sort((a, b) => a.localeCompare(b)).join(',') !== [...saved].sort((a, b) => a.localeCompare(b)).join(',');
 
   const toggle = (id: string, on: boolean) => setDraft((current) => (on ? [...current, id] : current.filter((value) => value !== id)));
 
