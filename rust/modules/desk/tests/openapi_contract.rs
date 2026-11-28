@@ -35,13 +35,14 @@ const OPEN: &str = "dconv_contract_open";
 /// A closed support email, assigned.
 const CLOSED: &str = "dconv_contract_closed";
 
-/// Two conversations, numbered far above anything else in the test
-/// database, and a timeline that gives each nullable field of a message
-/// more than one value: a visitor's message with an image, an agent's
-/// reply without attachments, a note, and closed / assigned / rated events.
+/// Three conversations (two open, so the inbox has a second page of one),
+/// numbered far above anything else in the test database, and a timeline
+/// that gives each nullable field of a message more than one value: a
+/// visitor's message with an image, an agent's reply without attachments, a
+/// note, and closed / assigned / rated events.
 const FIXTURES: &str = "
-delete from desk_messages where conversation_id in ('dconv_contract_open', 'dconv_contract_closed');
-delete from desk_conversations where id in ('dconv_contract_open', 'dconv_contract_closed');
+delete from desk_messages where conversation_id in ('dconv_contract_open', 'dconv_contract_closed', 'dconv_contract_waiting');
+delete from desk_conversations where id in ('dconv_contract_open', 'dconv_contract_closed', 'dconv_contract_waiting');
 insert into desk_conversations
     (id, conversation_number, title, state, channel, visitor_id, name, email, assignee_id,
      waiting_since, last_message_at, last_message_preview)
@@ -49,7 +50,9 @@ values
     ('dconv_contract_open', 990001, 'Order question', 'open', 'messenger', 'vis_contract',
      'Ann Visitor', null, null, now(), now(), 'Where is my order?'),
     ('dconv_contract_closed', 990002, null, 'closed', 'email', null,
-     null, 'customer@example.test', 'user_openapi_contract_desk', null, null, null);
+     null, 'customer@example.test', 'user_openapi_contract_desk', null, null, null),
+    ('dconv_contract_waiting', 990003, 'Waiting longer', 'open', 'messenger', 'vis_contract',
+     'Ann Visitor', null, null, now() - interval '1 hour', now() - interval '1 hour', 'Anyone there?');
 insert into desk_messages (id, created_at, conversation_id, kind, body, author_type, author_id, attachments, metadata)
 values
     ('dmsg_contract_1', now() - interval '5 minutes', 'dconv_contract_open', 'message',
