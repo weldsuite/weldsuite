@@ -23,10 +23,17 @@ export function originOf(value: string): string | null {
   }
 }
 
+/** The value without trailing slashes (a linear scan: a `/\/+$/` regex backtracks quadratically on a long run of slashes). */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end--
+  return value.slice(0, end)
+}
+
 /** The backend's base URL without a trailing slash; null while it is not set. */
 export function backendBaseUrl(): string | null {
   const value = env('PAY_PORTAL_BACKEND_URL')
-  return value ? value.replace(/\/+$/, '') : null
+  return value ? stripTrailingSlashes(value) : null
 }
 
 /** The configured public origin, or null. */
@@ -35,12 +42,17 @@ export function configuredPublicOrigin(): string | null {
   return value ? originOf(value) : null
 }
 
+/** The scheme to assume without `X-Forwarded-Proto`: plain http for localhost, https otherwise. */
+function defaultProto(host: string): 'http' | 'https' {
+  return /^localhost(:\d+)?$/.test(host) ? 'http' : 'https'
+}
+
 /** The origin the customer used: the configured one, else the request's (behind the ingress). */
 export function publicOrigin(headers: Headers): string {
   const configured = configuredPublicOrigin()
   if (configured) return configured
   const host = headers.get('x-forwarded-host') ?? headers.get('host') ?? 'localhost'
   const forwarded = headers.get('x-forwarded-proto')
-  const proto = forwarded === 'http' || forwarded === 'https' ? forwarded : /^localhost(:\d+)?$/.test(host) ? 'http' : 'https'
+  const proto = forwarded === 'http' || forwarded === 'https' ? forwarded : defaultProto(host)
   return originOf(`${proto}://${host}`) ?? 'http://localhost'
 }

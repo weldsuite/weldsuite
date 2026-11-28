@@ -178,6 +178,93 @@ function isScannableFile(file: File): boolean {
   return !file.type && file.name.toLowerCase().endsWith('.pdf');
 }
 
+/** `?document=<id>` (a link from a bill or a bank transaction) opens that document's dialog. */
+function useOpenDocumentFromUrl(
+  receipts: boolean,
+  router: ReturnType<typeof useRouter>,
+  setSelectedDoc: (doc: DocumentRow) => void,
+): void {
+  const { document: documentParam } = useSearch({ strict: false }) as { document?: string };
+  const openedParam = useRef<string | null>(null);
+  useEffect(() => {
+    if (!documentParam || openedParam.current === documentParam) return;
+    openedParam.current = documentParam;
+    accountingApi
+      .getDocument(documentParam)
+      .then((full) => {
+        if (!full?.data) return;
+        // Where the edition has the review screen, a document still to check opens there; a booked one shows its dialog.
+        if (receipts && full.data.status !== 'linked') router.replace(reviewPath(full.data.id));
+        else setSelectedDoc(full.data as unknown as DocumentRow);
+      })
+      // A document that cannot be read leaves the list as it is.
+      .catch(() => {});
+  }, [documentParam, receipts, router, setSelectedDoc]);
+}
+
+function DocumentTitleIcon({ doc }: { doc: DocumentRow | null }) {
+  if (doc?.ocrResult) return <FileCheck className="h-5 w-5" />;
+  if (doc?.status === 'failed') return <FileWarning className="h-5 w-5" />;
+  return <FileText className="h-5 w-5" />;
+}
+
+type UploadItem = { id: string; name: string; phase: 'uploading' | 'processing' | 'done' | 'failed'; error?: string; docId?: string };
+
+interface UploadDeps {
+  setUploadQueue: React.Dispatch<React.SetStateAction<UploadItem[]>>;
+  uploadFile: ReturnType<typeof useFileUpload>['uploadFile'];
+  invalidateDocuments: () => void;
+  processDocument: (id: string) => Promise<unknown>;
+  messages: { uploadFailed: string; recordNotCreated: string; insufficientCredits: string; unknownError: string };
+}
+
+/** Uploads one scannable file, creates its document, scans it where the edition has OCR, and tracks its line in the queue. */
+async function uploadAcceptedFile(picked: File, deps: UploadDeps): Promise<void> {
+  const { setUploadQueue, messages } = deps;
+  // A typeless file only got here as a .pdf; give it the type storage expects.
+  const file = picked.type ? picked : new File([picked], picked.name, { type: 'application/pdf' });
+  const queueId = `${Date.now()}-${file.name}`;
+  const patch = (changes: Partial<UploadItem>) =>
+    setUploadQueue((q) => q.map((it) => (it.id === queueId ? { ...it, ...changes } : it)));
+  setUploadQueue((q) => [...q, { id: queueId, name: file.name, phase: 'uploading' }]);
+
+  try {
+    const uploaded = await deps.uploadFile(file);
+    if (!uploaded) {
+      patch({ phase: 'failed', error: messages.uploadFailed });
+      return;
+    }
+
+    const created = await accountingApi.createDocument({
+      fileName: uploaded.fileName,
+      fileKey: uploaded.fileKey,
+      mimeType: uploaded.mimeType,
+      fileSize: uploaded.fileSize,
+      source: 'upload',
+    });
+
+    const docId = created?.data?.id;
+    if (!docId) {
+      patch({ phase: 'failed', error: messages.recordNotCreated });
+      return;
+    }
+
+    deps.invalidateDocuments();
+    // Editions without OCR keep the upload as a pending document to book by hand.
+    if (isFeatureAvailable('books-ocr')) {
+      patch({ phase: 'processing' });
+      await deps.processDocument(docId);
+    }
+
+    patch({ phase: 'done', docId });
+    // A finished upload is in the list now: its line goes after a moment (a failed one stays to be read).
+    setTimeout(() => setUploadQueue((q) => q.filter((it) => it.id !== queueId)), UPLOAD_DONE_VISIBLE_MS);
+  } catch (err) {
+    const message = processErrorMessage(err, { insufficientCredits: messages.insufficientCredits, fallback: messages.unknownError });
+    patch({ phase: 'failed', error: message });
+  }
+}
+
 export default function DocumentInboxPage() {
   const { formatMoney: fmt } = useCurrentEntityCurrency();
   const { t } = useI18n();
@@ -250,25 +337,10 @@ export default function DocumentInboxPage() {
   // A bill or invoice the document became stacks as a panel, synced to `?stack=`.
   useObjectPanelUrlSync('/weldbooks/documents');
   // `?document=<id>` (a link from a bill or a bank transaction) opens that document's dialog.
-  const { document: documentParam } = useSearch({ strict: false }) as { document?: string };
-  const openedParam = useRef<string | null>(null);
-  useEffect(() => {
-    if (!documentParam || openedParam.current === documentParam) return;
-    openedParam.current = documentParam;
-    accountingApi
-      .getDocument(documentParam)
-      .then((full) => {
-        if (!full?.data) return;
-        // Where the edition has the review screen, a document still to check opens there; a booked one shows its dialog.
-        if (receipts && full.data.status !== 'linked') router.replace(reviewPath(full.data.id));
-        else setSelectedDoc(full.data as unknown as DocumentRow);
-      })
-      // A document that cannot be read leaves the list as it is.
-      .catch(() => {});
-  }, [documentParam, receipts, router]);
+  useOpenDocumentFromUrl(receipts, router, setSelectedDoc);
   const [supplierDialog, setSupplierDialog] = useState<DocumentRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DocumentRow | null>(null);
-  const [uploadQueue, setUploadQueue] = useState<Array<{ id: string; name: string; phase: 'uploading' | 'processing' | 'done' | 'failed'; error?: string; docId?: string }>>([]);
+  const [uploadQueue, setUploadQueue] = useState<UploadItem[]>([]);
   const ocrAvailable = isFeatureAvailable('books-ocr');
 
   const processDoc = useMutation({
@@ -359,46 +431,18 @@ export default function DocumentInboxPage() {
     }
 
     for (const picked of accepted) {
-      // A typeless file only got here as a .pdf; give it the type storage expects.
-      const file = picked.type ? picked : new File([picked], picked.name, { type: 'application/pdf' });
-      const queueId = `${Date.now()}-${file.name}`;
-      setUploadQueue((q) => [...q, { id: queueId, name: file.name, phase: 'uploading' }]);
-
-      try {
-        const uploaded = await fileUpload.uploadFile(file);
-        if (!uploaded) {
-          setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'failed', error: st('sweep.weldbooks.documents.uploadFailed') } : it));
-          continue;
-        }
-
-        const created = await accountingApi.createDocument({
-          fileName: uploaded.fileName,
-          fileKey: uploaded.fileKey,
-          mimeType: uploaded.mimeType,
-          fileSize: uploaded.fileSize,
-          source: 'upload',
-        });
-
-        const docId = created?.data?.id;
-        if (!docId) {
-          setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'failed', error: st('sweep.weldbooks.documents.recordNotCreated') } : it));
-          continue;
-        }
-
-        void qc.invalidateQueries({ queryKey: accountingKeys.documents.all });
-        // Editions without OCR keep the upload as a pending document to book by hand.
-        if (isFeatureAvailable('books-ocr')) {
-          setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'processing' } : it));
-          await processDoc.mutateAsync(docId);
-        }
-
-        setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'done', docId } : it));
-        // A finished upload is in the list now: its line goes after a moment (a failed one stays to be read).
-        setTimeout(() => setUploadQueue((q) => q.filter((it) => it.id !== queueId)), UPLOAD_DONE_VISIBLE_MS);
-      } catch (err) {
-        const message = processErrorMessage(err, { insufficientCredits: td.insufficientCredits, fallback: st('sweep.weldbooks.common.unknownError') });
-        setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'failed', error: message } : it));
-      }
+      await uploadAcceptedFile(picked, {
+        setUploadQueue,
+        uploadFile: fileUpload.uploadFile,
+        invalidateDocuments: () => void qc.invalidateQueries({ queryKey: accountingKeys.documents.all }),
+        processDocument: (id) => processDoc.mutateAsync(id),
+        messages: {
+          uploadFailed: st('sweep.weldbooks.documents.uploadFailed'),
+          recordNotCreated: st('sweep.weldbooks.documents.recordNotCreated'),
+          insufficientCredits: td.insufficientCredits,
+          unknownError: st('sweep.weldbooks.common.unknownError'),
+        },
+      });
     }
   }, [fileUpload, processDoc, qc, st, td]);
 
@@ -642,9 +686,7 @@ export default function DocumentInboxPage() {
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {selectedDoc?.ocrResult ? <FileCheck className="h-5 w-5" /> : null}
-              {!selectedDoc?.ocrResult && selectedDoc?.status === 'failed' ? <FileWarning className="h-5 w-5" /> : null}
-              {!selectedDoc?.ocrResult && selectedDoc?.status !== 'failed' ? <FileText className="h-5 w-5" /> : null}
+              <DocumentTitleIcon doc={selectedDoc} />
               {selectedDoc?.ocrResult ? `${td.ocrResult} — ` : ''}{selectedDoc?.fileName}
             </DialogTitle>
           </DialogHeader>

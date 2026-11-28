@@ -96,7 +96,8 @@ export default function InvoicesPage() {
   // Open and overdue leave out drafts, paid and cancelled invoices: the server has no such filter, so the
   // rows loaded so far are narrowed and pages keep loading until the view has enough.
   const narrowed = show === 'open' || show === 'overdue' || show === 'undelivered';
-  const invoices = narrowed ? loaded.filter(show === 'undelivered' ? isUndelivered : isOpenInvoice) : loaded;
+  const narrowFilter = show === 'undelivered' ? isUndelivered : isOpenInvoice;
+  const invoices = narrowed ? loaded.filter(narrowFilter) : loaded;
   useFillFilteredList({
     active: narrowed,
     shown: invoices.length,

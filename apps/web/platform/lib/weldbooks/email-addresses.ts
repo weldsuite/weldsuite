@@ -2,10 +2,21 @@
 export const MAX_RECIPIENTS = 10;
 
 /** A deliberately plain check: one `@`, a dot in the domain, no spaces. The mail server has the last word. */
-const EMAIL_PATTERN = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
+const FORBIDDEN_CHARACTER = /[\s@,;]/;
 
+/**
+ * Plain string parsing rather than one regex: `^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$`
+ * backtracks quadratically on a long domain without a usable dot.
+ */
 export function isEmailAddress(value: string): boolean {
-  return EMAIL_PATTERN.test(value);
+  const at = value.indexOf('@');
+  if (at < 1) return false;
+  const local = value.slice(0, at);
+  const domain = value.slice(at + 1);
+  if (FORBIDDEN_CHARACTER.test(local) || FORBIDDEN_CHARACTER.test(domain)) return false;
+  // A dot with at least one character on each side.
+  const dot = domain.indexOf('.', 1);
+  return dot !== -1 && dot < domain.length - 1;
 }
 
 /** The addresses in a text field: separated by commas, semicolons or spaces, without duplicates. */

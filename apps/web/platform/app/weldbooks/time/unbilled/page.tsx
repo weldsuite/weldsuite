@@ -39,6 +39,48 @@ const routeApi = getRouteApi('/weldbooks/time/unbilled/');
 /** An invoice takes at most this many time entries (`POST /invoices/from-time`). */
 const MAX_ENTRIES = 500;
 
+type UnbilledCopy = ReturnType<typeof useI18n>['t']['weldbooksContactPage']['unbilled'];
+
+/** The toast for a refused invoice-from-time request: hours invoiced meanwhile, a bad draft or mix, or a plain failure. */
+function toastInvoiceFromTimeError(error: unknown, invoiceId: string | undefined, copy: UnbilledCopy): void {
+  const status = isWeldbooksRequestError(error) ? error.status : null;
+  if (status === 409 && Array.isArray(errorDetails(error)?.timeEntryIds)) {
+    // Invoiced in the meantime: the list was refreshed by the mutation, so the hours are gone from it.
+    toast.error(copy.alreadyInvoiced);
+    return;
+  }
+  const description = error instanceof Error ? error.message : undefined;
+  if (status === 400) {
+    toast.error(invoiceId ? copy.badDraft : copy.mixed, { description });
+    return;
+  }
+  toast.error(copy.createFailed, { description });
+}
+
+function UnbilledHeader({ copy, projectId, customerId }: Readonly<{ copy: UnbilledCopy; projectId?: string; customerId?: string }>) {
+  return (
+    <header className="space-y-1 border-b border-border px-4 py-4 sm:px-6">
+      <h1 className="text-2xl font-semibold">{copy.title}</h1>
+      <p className="text-sm text-muted-foreground">{copy.description}</p>
+      {projectId ? (
+        <p className="flex flex-wrap items-center gap-2 pt-1 text-sm">
+          <span className="text-muted-foreground">{copy.filteredByProject}</span>
+          <Link
+            href={
+              customerId
+                ? `/weldbooks/time/unbilled?customerId=${encodeURIComponent(customerId)}`
+                : '/weldbooks/time/unbilled'
+            }
+            className="text-primary underline-offset-2 hover:underline"
+          >
+            {copy.clearProject}
+          </Link>
+        </p>
+      ) : null}
+    </header>
+  );
+}
+
 export default function UnbilledTimePage() {
   const { t, language } = useI18n();
   const copy = t.weldbooksContactPage.unbilled;
@@ -114,45 +156,13 @@ export default function UnbilledTimePage() {
         },
         onError: (error) => {
           setDraftOpen(false);
-          const status = isWeldbooksRequestError(error) ? error.status : null;
-          if (status === 409 && Array.isArray(errorDetails(error)?.timeEntryIds)) {
-            // Invoiced in the meantime: the list was refreshed by the mutation, so the hours are gone from it.
-            toast.error(copy.alreadyInvoiced);
-            return;
-          }
-          if (status === 400) {
-            toast.error(invoiceId ? copy.badDraft : copy.mixed, {
-              description: error instanceof Error ? error.message : undefined,
-            });
-            return;
-          }
-          toast.error(copy.createFailed, { description: error instanceof Error ? error.message : undefined });
+          toastInvoiceFromTimeError(error, invoiceId, copy);
         },
       },
     );
   };
 
-  const header = (
-    <header className="space-y-1 border-b border-border px-4 py-4 sm:px-6">
-      <h1 className="text-2xl font-semibold">{copy.title}</h1>
-      <p className="text-sm text-muted-foreground">{copy.description}</p>
-      {projectId ? (
-        <p className="flex flex-wrap items-center gap-2 pt-1 text-sm">
-          <span className="text-muted-foreground">{copy.filteredByProject}</span>
-          <Link
-            href={
-              customerId
-                ? `/weldbooks/time/unbilled?customerId=${encodeURIComponent(customerId)}`
-                : '/weldbooks/time/unbilled'
-            }
-            className="text-primary underline-offset-2 hover:underline"
-          >
-            {copy.clearProject}
-          </Link>
-        </p>
-      ) : null}
-    </header>
-  );
+  const header = <UnbilledHeader copy={copy} projectId={projectId} customerId={customerId} />;
 
   let body;
   if (!allowed) {

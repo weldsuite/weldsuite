@@ -81,6 +81,12 @@ export interface TodoSelection {
   toggle: (id: string) => void;
 }
 
+/** The due date in words, else the plain date, else nothing. */
+function itemWhen(item: TodoItem, dueOnText: string, formatDate: (date: string) => string): string | null {
+  if (item.dueDate) return dueOnText.replace('{date}', formatDate(item.dueDate));
+  return item.date ? formatDate(item.date) : null;
+}
+
 /** One item: a chip that opens its record, the hint in words, the amount and the date. */
 export function TodoItemRow({ item, selection }: Readonly<{ item: TodoItem; selection?: TodoSelection }>) {
   const { t } = useI18n();
@@ -93,11 +99,7 @@ export function TodoItemRow({ item, selection }: Readonly<{ item: TodoItem; sele
   const tone = SEVERITY_TONE[item.severity] ?? 'neutral';
   const statusLabel = copy.severity[item.severity];
   const hint = todoHintLabel(item.hint, copy);
-  const when = item.dueDate
-    ? copy.dueOn.replace('{date}', formatDate(item.dueDate))
-    : item.date
-      ? formatDate(item.date)
-      : null;
+  const when = itemWhen(item, copy.dueOn, formatDate);
 
   let chip;
   if (target.kind === 'panel') {
@@ -267,24 +269,95 @@ function ReceiptsAskBar({
   );
 }
 
-export function TodoCard({ kind, summary }: Readonly<{ kind: TodoKind; summary: TodoKindSummary }>) {
-  const { t } = useI18n();
-  const copy = t.weldbooksConnected.todo;
-  const { formatMoney } = useWeldbooksFormat();
-  const [expanded, setExpanded] = useState(false);
-  // The accountant asks for several receipts at once (edition feature `books-questions`).
-  const canAsk = useCan('messages:create');
-  const canBook = useCan('journal:create');
-  const askReceipts = kind === 'missing_receipts' && isQuestionsAvailable() && canAsk && canBook;
+type TodoCopy = ReturnType<typeof useI18n>['t']['weldbooksConnected']['todo'];
+
+/** The picking state of the Missing receipts card: whether lines are being picked, which, and how to start and stop. */
+function useReceiptsPicking(setExpanded: (expanded: boolean) => void) {
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
-  const [askOpen, setAskOpen] = useState(false);
   const selection: TodoSelection | undefined = selecting
     ? {
         ids: new Set(picked),
         toggle: (id) => setPicked((current) => (current.includes(id) ? current.filter((x) => x !== id) : [...current, id])),
       }
     : undefined;
+  const startSelecting = () => {
+    setSelecting(true);
+    // Every line can be picked, not only the first three.
+    setExpanded(true);
+  };
+  const stopSelecting = () => {
+    setSelecting(false);
+    setPicked([]);
+  };
+  return { selecting, picked, selection, startSelecting, stopSelecting };
+}
+
+function CardSummary({ summary, kindSummary, copy }: Readonly<{ summary: TodoKindSummary; kindSummary: string | null; copy: TodoCopy }>) {
+  const { formatMoney } = useWeldbooksFormat();
+  return (
+    <>
+      {kindSummary ? (
+        <p className="text-sm text-muted-foreground" data-testid="todo-kind-summary">
+          {kindSummary}
+        </p>
+      ) : null}
+      {summary.amount ? (
+        <p className="text-sm text-muted-foreground tabular-nums">{formatMoney(summary.amount, summary.currency)}</p>
+      ) : null}
+      {summary.mixedCurrency && summary.currency ? (
+        <p className="text-xs text-muted-foreground" data-testid="todo-mixed-currency">
+          {copy.mixedCurrency.replace('{currency}', summary.currency)}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+interface CardItemsProps {
+  expanded: boolean;
+  all: ReturnType<typeof useInfiniteTodoItems>;
+  top: ReturnType<typeof useTodoTopItems>;
+  title: string;
+  selection?: TodoSelection;
+  copy: TodoCopy;
+}
+
+/** The card's items: all of them once expanded, else the first few. */
+function CardItems({ expanded, all, top, title, selection, copy }: Readonly<CardItemsProps>) {
+  if (expanded) return <AllItems all={all} title={title} selection={selection} />;
+  if (top.isError) return <ErrorState message={copy.listFailed} onRetry={() => void top.refetch()} />;
+  if (top.data) return <ItemList items={top.data} selection={selection} />;
+  return <InlineSpinner />;
+}
+
+/** The primary action: the reminders-aware one on the overdue card, else the plain link. */
+function PrimaryAction({ action, remindersOn }: Readonly<{ action: { label: string; href: string } | null; remindersOn: boolean }>) {
+  if (remindersOn) {
+    return (
+      <SendRemindersButton viewAction={action}>
+        {action ? <Link href={action.href}>{action.label}</Link> : null}
+      </SendRemindersButton>
+    );
+  }
+  if (!action) return null;
+  return (
+    <Button asChild size="sm">
+      <Link href={action.href}>{action.label}</Link>
+    </Button>
+  );
+}
+
+export function TodoCard({ kind, summary }: Readonly<{ kind: TodoKind; summary: TodoKindSummary }>) {
+  const { t } = useI18n();
+  const copy = t.weldbooksConnected.todo;
+  const [expanded, setExpanded] = useState(false);
+  // The accountant asks for several receipts at once (edition feature `books-questions`).
+  const canAsk = useCan('messages:create');
+  const canBook = useCan('journal:create');
+  const askReceipts = kind === 'missing_receipts' && isQuestionsAvailable() && canAsk && canBook;
+  const [askOpen, setAskOpen] = useState(false);
+  const { selecting, picked, selection, startSelecting, stopSelecting } = useReceiptsPicking(setExpanded);
   // The overdue card sends the reminders that are due and not sent by themselves (edition feature `books-reminders`).
   const remindersOn = kind === 'invoices_overdue' && isRemindersAvailable();
   const top = useTodoTopItems(kind, TODO_TOP_LIMIT);
@@ -299,15 +372,6 @@ export function TodoCard({ kind, summary }: Readonly<{ kind: TodoKind; summary: 
     const known = [...(all.data?.items ?? []), ...(top.data ?? [])].find((item) => item.objectId === id);
     return known?.title ?? known?.subtitle ?? t.accounting.statusLabels.counterpartyUnknown;
   };
-  const startSelecting = () => {
-    setSelecting(true);
-    // Every line can be picked, not only the first three.
-    setExpanded(true);
-  };
-  const stopSelecting = () => {
-    setSelecting(false);
-    setPicked([]);
-  };
 
   return (
     <article aria-labelledby={headingId} className="@container/todo min-w-0" data-testid={`todo-card-${kind}`} data-kind={kind}>
@@ -321,42 +385,14 @@ export function TodoCard({ kind, summary }: Readonly<{ kind: TodoKind; summary: 
               {summary.count}
             </span>
           </div>
-          {kindSummary ? (
-            <p className="text-sm text-muted-foreground" data-testid="todo-kind-summary">
-              {kindSummary}
-            </p>
-          ) : null}
-          {summary.amount ? (
-            <p className="text-sm text-muted-foreground tabular-nums">{formatMoney(summary.amount, summary.currency)}</p>
-          ) : null}
-          {summary.mixedCurrency && summary.currency ? (
-            <p className="text-xs text-muted-foreground" data-testid="todo-mixed-currency">
-              {copy.mixedCurrency.replace('{currency}', summary.currency)}
-            </p>
-          ) : null}
+          <CardSummary summary={summary} kindSummary={kindSummary} copy={copy} />
         </CardHeader>
         <CardContent>
-          {expanded ? (
-            <AllItems all={all} title={title} selection={selection} />
-          ) : top.isError ? (
-            <ErrorState message={copy.listFailed} onRetry={() => void top.refetch()} />
-          ) : top.data ? (
-            <ItemList items={top.data} selection={selection} />
-          ) : (
-            <InlineSpinner />
-          )}
+          <CardItems expanded={expanded} all={all} top={top} title={title} selection={selection} copy={copy} />
         </CardContent>
         {action || canExpand || askReceipts ? (
           <CardFooter className="flex flex-wrap items-center gap-2">
-            {remindersOn ? (
-              <SendRemindersButton viewAction={action}>
-                {action ? <Link href={action.href}>{action.label}</Link> : null}
-              </SendRemindersButton>
-            ) : action ? (
-              <Button asChild size="sm">
-                <Link href={action.href}>{action.label}</Link>
-              </Button>
-            ) : null}
+            <PrimaryAction action={action} remindersOn={remindersOn} />
             {askReceipts ? (
               <ReceiptsAskBar
                 selecting={selecting}

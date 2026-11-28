@@ -113,6 +113,12 @@ function buildDefaults(
   };
 }
 
+/** A quote that was already accepted answers 409; any other error shows its own message. */
+function saveFailedDescription(error: unknown, acceptedText: string): string | undefined {
+  if ((error as { status?: number } | null)?.status === 409) return acceptedText;
+  return error instanceof Error ? error.message : undefined;
+}
+
 function FieldError({ id, message }: Readonly<{ id: string; message?: string }>) {
   if (!message) return null;
   return (
@@ -235,7 +241,7 @@ export function QuoteForm({
       const input = payloadOf(values);
       const failed = (error: unknown) =>
         toast.error(copy.saveFailed, {
-          description: (error as { status?: number } | null)?.status === 409 ? copy.accepted : error instanceof Error ? error.message : undefined,
+          description: saveFailedDescription(error, copy.accepted),
         });
       if (mode === 'edit' && quote) {
         update.mutate(

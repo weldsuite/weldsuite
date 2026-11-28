@@ -58,6 +58,116 @@ export function stepZoom(zoom: number, direction: 1 | -1): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next));
 }
 
+type Shortcut = 'zoomIn' | 'zoomOut' | 'reset' | 'rotate';
+
+/** What a key does in the viewer's area, or null for the keys it leaves alone. */
+function shortcutFor(key: string): Shortcut | null {
+  switch (key) {
+    case '+':
+    case '=':
+      return 'zoomIn';
+    case '-':
+      return 'zoomOut';
+    case '0':
+      return 'reset';
+    case 'r':
+    case 'R':
+      return 'rotate';
+    default:
+      return null;
+  }
+}
+
+/** The page is laid out zoom times as large as the area, so the area scrolls; a quarter turn swaps the sides. */
+function mediaStyleFor(type: DocumentViewerKind, turns: number) {
+  const quarter = turns % 2 === 1;
+  const sizes =
+    type === 'pdf'
+      ? { width: quarter ? '100cqh' : '100cqw', height: quarter ? '100cqw' : '100cqh' }
+      : { maxWidth: quarter ? '100cqh' : '100cqw', maxHeight: quarter ? '100cqw' : '100cqh' };
+  return { rotate: `${turns * 90}deg`, translate: '-50% -50%', ...sizes };
+}
+
+function PageControls({
+  idPrefix,
+  page,
+  lastPage,
+  pageCount,
+  labels,
+  goToPage,
+}: Readonly<{
+  idPrefix: string;
+  page: number;
+  lastPage: number;
+  pageCount?: number;
+  labels: DocumentViewerLabels;
+  goToPage: (next: number) => void;
+}>) {
+  return (
+    <div className="ml-auto flex items-center gap-1">
+      <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => goToPage(page - 1)} disabled={page <= 1} aria-label={labels.previousPage} title={labels.previousPage}>
+        <ChevronLeft className="size-4" aria-hidden />
+      </Button>
+      <label htmlFor={`${idPrefix}-page`} className="sr-only">
+        {labels.page}
+      </label>
+      <input
+        id={`${idPrefix}-page`}
+        type="number"
+        inputMode="numeric"
+        min={1}
+        max={Number.isFinite(lastPage) ? lastPage : undefined}
+        value={page}
+        onChange={(event) => goToPage(Number(event.target.value))}
+        className="h-8 w-12 rounded-md border bg-background px-1 text-center text-sm tabular-nums"
+      />
+      {pageCount && labels.pageOf ? (
+        <span className="text-xs text-muted-foreground tabular-nums">{labels.pageOf.replace('{count}', String(pageCount))}</span>
+      ) : null}
+      <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => goToPage(page + 1)} disabled={page >= lastPage} aria-label={labels.nextPage} title={labels.nextPage}>
+        <ChevronRight className="size-4" aria-hidden />
+      </Button>
+    </div>
+  );
+}
+
+function FailedNotice({ src, labels }: Readonly<{ src: string; labels: DocumentViewerLabels }>) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground">
+      <p>{labels.failed}</p>
+      <Button variant="link" asChild className="h-auto p-0">
+        <a href={src} target="_blank" rel="noopener noreferrer">
+          <ExternalLink className="size-4" aria-hidden />
+          {labels.open}
+        </a>
+      </Button>
+    </div>
+  );
+}
+
+function DocumentMedia({
+  type,
+  src,
+  pdfSrc,
+  page,
+  title,
+  style,
+  onError,
+}: Readonly<{
+  type: DocumentViewerKind;
+  src: string;
+  pdfSrc: string;
+  page: number;
+  title: string;
+  style: React.CSSProperties;
+  onError: () => void;
+}>) {
+  if (type === 'pdf') {
+    return <iframe key={`${src}#${page}`} src={pdfSrc} title={title} className="absolute left-1/2 top-1/2 border-0 bg-background" style={style} onError={onError} />;
+  }
+  return <img src={src} alt={title} className="absolute left-1/2 top-1/2 bg-background object-contain" style={style} onError={onError} />;
+}
+
 /**
  * A scanned or uploaded document next to a form: a PDF (the browser's own
  * viewer, opened at a page) or an image, with zoom, rotate and, for a PDF,
@@ -99,24 +209,17 @@ export function DocumentViewer({
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
-    if (event.key === '+' || event.key === '=') setZoom((z) => stepZoom(z, 1));
-    else if (event.key === '-') setZoom((z) => stepZoom(z, -1));
-    else if (event.key === '0') reset();
-    else if (event.key === 'r' || event.key === 'R') setTurns((t) => (t + 1) % 4);
-    else return;
+    const shortcut = shortcutFor(event.key);
+    if (!shortcut) return;
+    if (shortcut === 'zoomIn') setZoom((z) => stepZoom(z, 1));
+    else if (shortcut === 'zoomOut') setZoom((z) => stepZoom(z, -1));
+    else if (shortcut === 'reset') reset();
+    else setTurns((t) => (t + 1) % 4);
     event.preventDefault();
   };
 
-  const quarter = turns % 2 === 1;
   const percent = Math.round(zoom * 100);
-  // The page is laid out zoom times as large as the area, so the area scrolls; a quarter turn swaps the sides.
-  const mediaStyle = {
-    rotate: `${turns * 90}deg`,
-    translate: '-50% -50%',
-    ...(type === 'pdf'
-      ? { width: quarter ? '100cqh' : '100cqw', height: quarter ? '100cqw' : '100cqh' }
-      : { maxWidth: quarter ? '100cqh' : '100cqw', maxHeight: quarter ? '100cqw' : '100cqh' }),
-  };
+  const mediaStyle = mediaStyleFor(type, turns);
   const pdfSrc = `${src}${src.includes('#') ? '&' : '#'}page=${page}&toolbar=0&navpanes=0`;
 
   return (
@@ -139,30 +242,7 @@ export function DocumentViewer({
         </Button>
 
         {type === 'pdf' ? (
-          <div className="ml-auto flex items-center gap-1">
-            <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => goToPage(page - 1)} disabled={page <= 1} aria-label={labels.previousPage} title={labels.previousPage}>
-              <ChevronLeft className="size-4" aria-hidden />
-            </Button>
-            <label htmlFor={`${ids}-page`} className="sr-only">
-              {labels.page}
-            </label>
-            <input
-              id={`${ids}-page`}
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={Number.isFinite(lastPage) ? lastPage : undefined}
-              value={page}
-              onChange={(event) => goToPage(Number(event.target.value))}
-              className="h-8 w-12 rounded-md border bg-background px-1 text-center text-sm tabular-nums"
-            />
-            {pageCount && labels.pageOf ? (
-              <span className="text-xs text-muted-foreground tabular-nums">{labels.pageOf.replace('{count}', String(pageCount))}</span>
-            ) : null}
-            <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => goToPage(page + 1)} disabled={page >= lastPage} aria-label={labels.nextPage} title={labels.nextPage}>
-              <ChevronRight className="size-4" aria-hidden />
-            </Button>
-          </div>
+          <PageControls idPrefix={ids} page={page} lastPage={lastPage} pageCount={pageCount} labels={labels} goToPage={goToPage} />
         ) : (
           <span className="ml-auto" />
         )}
@@ -187,35 +267,10 @@ export function DocumentViewer({
         className="h-[var(--document-viewer-height,min(78vh,60rem))] flex-none overflow-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
       >
         {failed ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground">
-            <p>{labels.failed}</p>
-            <Button variant="link" asChild className="h-auto p-0">
-              <a href={src} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="size-4" aria-hidden />
-                {labels.open}
-              </a>
-            </Button>
-          </div>
+          <FailedNotice src={src} labels={labels} />
         ) : (
           <div className="relative [container-type:size]" style={{ width: `${percent}%`, height: `${percent}%` }} data-testid="document-sheet">
-            {type === 'pdf' ? (
-              <iframe
-                key={`${src}#${page}`}
-                src={pdfSrc}
-                title={labels.document}
-                className="absolute left-1/2 top-1/2 border-0 bg-background"
-                style={mediaStyle}
-                onError={() => setFailed(true)}
-              />
-            ) : (
-              <img
-                src={src}
-                alt={labels.document}
-                className="absolute left-1/2 top-1/2 bg-background object-contain"
-                style={mediaStyle}
-                onError={() => setFailed(true)}
-              />
-            )}
+            <DocumentMedia type={type} src={src} pdfSrc={pdfSrc} page={page} title={labels.document} style={mediaStyle} onError={() => setFailed(true)} />
           </div>
         )}
       </div>

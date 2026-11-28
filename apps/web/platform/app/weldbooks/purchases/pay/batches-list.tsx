@@ -132,6 +132,21 @@ export function BatchCard({ batch }: Readonly<{ batch: PaymentBatch }>) {
   );
 }
 
+type BatchesTexts = ReturnType<typeof useI18n>['t']['weldbooksReceipts']['pay']['batches'];
+
+function BatchesBody({ batches, tb }: Readonly<{ batches: ReturnType<typeof usePaymentBatches>; tb: BatchesTexts }>) {
+  if (batches.isError && !batches.data) return <ErrorState message={tb.loadFailed} onRetry={() => void batches.refetch()} />;
+  if (!batches.data) return <InlineSpinner />;
+  if (batches.data.data.length === 0) return <EmptyText>{tb.empty}</EmptyText>;
+  return (
+    <ul className="space-y-3">
+      {batches.data.data.map((batch) => (
+        <BatchCard key={batch.id} batch={batch} />
+      ))}
+    </ul>
+  );
+}
+
 export function BatchesList() {
   const { t } = useI18n();
   const tb = t.weldbooksReceipts.pay.batches;
@@ -142,19 +157,7 @@ export function BatchesList() {
       <h2 id="batches-title" className="text-base font-semibold">
         {tb.title}
       </h2>
-      {batches.isError && !batches.data ? (
-        <ErrorState message={tb.loadFailed} onRetry={() => void batches.refetch()} />
-      ) : !batches.data ? (
-        <InlineSpinner />
-      ) : batches.data.data.length === 0 ? (
-        <EmptyText>{tb.empty}</EmptyText>
-      ) : (
-        <ul className="space-y-3">
-          {batches.data.data.map((batch) => (
-            <BatchCard key={batch.id} batch={batch} />
-          ))}
-        </ul>
-      )}
+      <BatchesBody batches={batches} tb={tb} />
     </section>
   );
 }

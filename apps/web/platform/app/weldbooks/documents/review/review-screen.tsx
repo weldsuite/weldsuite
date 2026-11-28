@@ -7,7 +7,7 @@
  */
 
 import { DocumentChatSection } from '@/components/accounting/questions/document-chat-section';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type MutableRefObject, type SetStateAction } from 'react';
 import { useAtom } from 'jotai';
 import { ArrowLeft, Ban, CheckCircle2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -105,6 +105,229 @@ function BackLink() {
   );
 }
 
+type ReviewTexts = ReturnType<typeof useI18n>['t']['weldbooksReceipts']['review'];
+type SetReviewState = Dispatch<SetStateAction<ReviewState>>;
+
+function errorMessageOr(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function FinishedBody({ summary, tr }: Readonly<{ summary: BookedSummary; tr: ReviewTexts }>) {
+  return (
+    <div className="space-y-4" data-testid="review-finished">
+      <BookedBanner summary={summary} />
+      <p className="flex items-center gap-2 text-sm text-muted-foreground">
+        <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden />
+        {tr.done.noneLeft}
+      </p>
+      <Button asChild>
+        <Link href={INBOX_PATH}>{tr.done.toInbox}</Link>
+      </Button>
+    </div>
+  );
+}
+
+function AlreadyBookedBody({ doc, tr }: Readonly<{ doc: InboxDocument; tr: ReviewTexts }>) {
+  return (
+    <div className="space-y-3" data-testid="review-already-booked">
+      <InfoBanner variant="info">{tr.alreadyBooked}</InfoBanner>
+      {doc.linkedEntityType === 'bill' && doc.linkedEntityId ? (
+        <RecordLink type="bill" id={doc.linkedEntityId} label={tr.openBill} />
+      ) : null}
+    </div>
+  );
+}
+
+function KindSelector({ choice, onKindChange, tr }: Readonly<{ choice: ReviewKind; onKindChange: (value: string) => void; tr: ReviewTexts }>) {
+  return (
+    <fieldset className="space-y-2">
+      <legend className="mb-1 text-sm font-medium">{tr.kind.legend}</legend>
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        value={choice}
+        onValueChange={onKindChange}
+        aria-label={tr.kind.legend}
+        className="w-full flex-wrap"
+      >
+        {REVIEW_KINDS.map((kind) => (
+          <ToggleGroupItem key={kind} value={kind} className="px-3 text-sm" aria-label={tr.kind[kind]}>
+            {tr.kind[kind]}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+      {choice === 'credit_note' ? <p className="text-xs text-muted-foreground">{tr.kind.creditNoteHint}</p> : null}
+    </fieldset>
+  );
+}
+
+interface ProblemMessagesProps {
+  problem: ReviewProblem | null;
+  showProblem: boolean;
+  bookFailed: boolean;
+  bookError: unknown;
+  tr: ReviewTexts;
+}
+
+function ProblemMessages({ problem, showProblem, bookFailed, bookError, tr }: Readonly<ProblemMessagesProps>) {
+  const problemText = showProblem && problem ? tr.problems[problem] : null;
+  const errorText = bookFailed ? errorMessageOr(bookError, tr.failed) : null;
+  return (
+    <>
+      {problemText ? (
+        <p className="text-sm text-destructive" role="alert" data-testid="review-problem">
+          {problemText}
+        </p>
+      ) : null}
+      {errorText ? (
+        <p className="text-sm text-destructive" role="alert" data-testid="review-error">
+          {errorText}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+interface FormActionsProps {
+  saving: boolean;
+  canBook: boolean;
+  rejectDisabled: boolean;
+  onReject: () => void;
+  tr: ReviewTexts;
+}
+
+function FormActions({ saving, canBook, rejectDisabled, onReject, tr }: Readonly<FormActionsProps>) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-t pt-4">
+      <Button type="submit" disabled={saving || !canBook} data-testid="review-save">
+        {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : null}
+        {saving ? tr.saving : tr.save}
+        <Kbd className="ml-2">⏎</Kbd>
+      </Button>
+      <Button type="button" variant="ghost" onClick={onReject} disabled={rejectDisabled}>
+        {tr.reject}
+      </Button>
+      <p className="ml-auto text-xs text-muted-foreground">{tr.shortcuts}</p>
+    </div>
+  );
+}
+
+interface DetailsFieldsProps {
+  state: ReviewState;
+  setState: SetReviewState;
+  currency: string | null;
+  dateInvalid: boolean;
+  tr: ReviewTexts;
+}
+
+function DetailsFields({ state, setState, currency, dateInvalid, tr }: Readonly<DetailsFieldsProps>) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-1">
+        <Label htmlFor="review-number">{tr.details.invoiceNumber}</Label>
+        <Input
+          id="review-number"
+          value={state.invoiceNumber}
+          onChange={(event) => setState((current) => ({ ...current, invoiceNumber: event.target.value }))}
+          autoComplete="off"
+          spellCheck={false}
+        />
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="review-currency">{tr.details.currency}</Label>
+        <Input
+          id="review-currency"
+          value={currency ?? ''}
+          maxLength={3}
+          autoCapitalize="characters"
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(event) => setState((current) => ({ ...current, currency: event.target.value.toUpperCase() }))}
+        />
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="review-date">{tr.details.date}</Label>
+        <Input
+          id="review-date"
+          type="date"
+          value={state.date}
+          onChange={(event) => setState((current) => ({ ...current, date: event.target.value }))}
+          aria-invalid={dateInvalid ? true : undefined}
+        />
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="review-due">{tr.details.dueDate}</Label>
+        <Input
+          id="review-due"
+          type="date"
+          value={state.dueDate}
+          onChange={(event) => setState((current) => ({ ...current, dueDate: event.target.value }))}
+        />
+      </div>
+    </div>
+  );
+}
+
+interface ReviewAutofillArgs {
+  defaults: ReturnType<typeof useBookingDefaults>['data'];
+  candidates: ReturnType<typeof useBankCandidates>;
+  paidTouched: MutableRefObject<boolean>;
+  prefill: DocumentPrefill | null;
+  paid: PaidChoice;
+  setState: SetReviewState;
+}
+
+/** Fills the form from the supplier's history and the bank candidates, until the person decides otherwise. */
+function useReviewAutofill({ defaults, candidates, paidTouched, prefill, paid, setState }: ReviewAutofillArgs): void {
+  // A supplier's usual category, VAT and project fill the lines that have none.
+  useEffect(() => {
+    if (!defaults) return;
+    setState((current) => {
+      const lines = applyBookingDefaults(current.lines, defaults);
+      const changed = lines.some((line, index) => {
+        const before = current.lines[index];
+        return line.accountId !== before.accountId || line.taxRateId !== before.taxRateId || line.projectId !== before.projectId;
+      });
+      return changed ? { ...current, lines } : current;
+    });
+  }, [defaults, setState]);
+
+  // The sure bank line is preselected until the person picks something else.
+  useEffect(() => {
+    if (!candidates.data || paidTouched.current) return;
+    setState((current) => ({ ...current, paid: initialPaidChoice(current.kind, prefill, candidates.data) }));
+  }, [candidates.data, paidTouched, prefill, setState]);
+
+  // A chosen bank line that the search no longer offers (the amount or date changed) falls back to not paid yet.
+  useEffect(() => {
+    if (!candidates.data || candidates.isFetching) return;
+    if (paid.type === 'bank_transaction' && !candidates.data.some((candidate) => candidate.id === paid.bankTransactionId)) {
+      setState((current) => ({ ...current, paid: { type: 'none' } }));
+    }
+  }, [candidates.data, candidates.isFetching, paid, setState]);
+}
+
+/** Enter outside a field, button or list saves and opens the next document. */
+function useEnterToSubmit(submit: () => void): void {
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Enter' || event.defaultPrevented || event.isComposing) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (isEnterOwnedBy(event.target)) {
+        // Enter in a field of the form belongs to the field: it must not submit (book) by accident.
+        if (event.target instanceof HTMLInputElement && event.target.closest('[data-review-form]')) event.preventDefault();
+        return;
+      }
+      event.preventDefault();
+      submitRef.current();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+}
+
 interface ReviewFormProps {
   doc: InboxDocument;
   prefill: DocumentPrefill | null;
@@ -145,33 +368,7 @@ function ReviewForm({ doc, prefill, prefillFailed }: Readonly<ReviewFormProps>) 
     enabled: canReadBank && choice !== 'not_for_books' && canPayWith(state.kind) && !alreadyBooked,
   });
 
-  // A supplier's usual category, VAT and project fill the lines that have none.
-  useEffect(() => {
-    if (!defaults.data) return;
-    setState((current) => {
-      const lines = applyBookingDefaults(current.lines, defaults.data);
-      const changed = lines.some((line, index) => {
-        const before = current.lines[index];
-        return line.accountId !== before.accountId || line.taxRateId !== before.taxRateId || line.projectId !== before.projectId;
-      });
-      return changed ? { ...current, lines } : current;
-    });
-  }, [defaults.data]);
-
-  // The sure bank line is preselected until the person picks something else.
-  useEffect(() => {
-    if (!candidates.data || paidTouched.current) return;
-    setState((current) => ({ ...current, paid: initialPaidChoice(current.kind, prefill, candidates.data) }));
-  }, [candidates.data, prefill]);
-
-  // A chosen bank line that the search no longer offers (the amount or date changed) falls back to not paid yet.
-  useEffect(() => {
-    if (!candidates.data || candidates.isFetching) return;
-    const paid = state.paid;
-    if (paid.type === 'bank_transaction' && !candidates.data.some((candidate) => candidate.id === paid.bankTransactionId)) {
-      setState((current) => ({ ...current, paid: { type: 'none' } }));
-    }
-  }, [candidates.data, candidates.isFetching, state.paid]);
+  useReviewAutofill({ defaults: defaults.data, candidates, paidTouched, prefill, paid: state.paid, setState });
 
   const problem: ReviewProblem | null = reviewProblem(state);
   const currency = state.currency || entityCurrency || null;
@@ -203,24 +400,7 @@ function ReviewForm({ doc, prefill, prefillFailed }: Readonly<ReviewFormProps>) 
     );
   };
 
-  // Enter outside a field, button or list saves and opens the next document.
-  const submitRef = useRef(submit);
-  submitRef.current = submit;
-  useEffect(() => {
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Enter' || event.defaultPrevented || event.isComposing) return;
-      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-      if (isEnterOwnedBy(event.target)) {
-        // Enter in a field of the form belongs to the field: it must not submit (book) by accident.
-        if (event.target instanceof HTMLInputElement && event.target.closest('[data-review-form]')) event.preventDefault();
-        return;
-      }
-      event.preventDefault();
-      submitRef.current();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, []);
+  useEnterToSubmit(submit);
 
   const onFormSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -251,59 +431,21 @@ function ReviewForm({ doc, prefill, prefillFailed }: Readonly<ReviewFormProps>) 
       setRejectOpen(false);
       moveOn(null);
     } catch (error) {
-      toast.error(error instanceof Error && error.message ? error.message : tr.failed);
+      toast.error(errorMessageOr(error, tr.failed));
     }
   };
 
-  const problemText = problem ? tr.problems[problem] : null;
-  const errorText = book.isError ? (book.error instanceof Error && book.error.message ? book.error.message : tr.failed) : null;
-
   let body;
   if (finished) {
-    body = (
-      <div className="space-y-4" data-testid="review-finished">
-        <BookedBanner summary={finished} />
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden />
-          {tr.done.noneLeft}
-        </p>
-        <Button asChild>
-          <Link href={INBOX_PATH}>{tr.done.toInbox}</Link>
-        </Button>
-      </div>
-    );
+    body = <FinishedBody summary={finished} tr={tr} />;
   } else if (alreadyBooked) {
-    body = (
-      <div className="space-y-3" data-testid="review-already-booked">
-        <InfoBanner variant="info">{tr.alreadyBooked}</InfoBanner>
-        {doc.linkedEntityType === 'bill' && doc.linkedEntityId ? (
-          <RecordLink type="bill" id={doc.linkedEntityId} label={tr.openBill} />
-        ) : null}
-      </div>
-    );
+    body = <AlreadyBookedBody doc={doc} tr={tr} />;
   } else {
     body = (
       <form onSubmit={onFormSubmit} data-review-form className="space-y-5" aria-label={tr.form} noValidate>
         {prefillFailed ? <InfoBanner variant="warning">{tr.prefillFailed}</InfoBanner> : null}
 
-        <fieldset className="space-y-2">
-          <legend className="mb-1 text-sm font-medium">{tr.kind.legend}</legend>
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            value={choice}
-            onValueChange={onKindChange}
-            aria-label={tr.kind.legend}
-            className="w-full flex-wrap"
-          >
-            {REVIEW_KINDS.map((kind) => (
-              <ToggleGroupItem key={kind} value={kind} className="px-3 text-sm" aria-label={tr.kind[kind]}>
-                {tr.kind[kind]}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-          {choice === 'credit_note' ? <p className="text-xs text-muted-foreground">{tr.kind.creditNoteHint}</p> : null}
-        </fieldset>
+        <KindSelector choice={choice} onKindChange={onKindChange} tr={tr} />
 
         {choice === 'not_for_books' ? (
           <div className="space-y-3" data-testid="review-not-for-books">
@@ -326,49 +468,7 @@ function ReviewForm({ doc, prefill, prefillFailed }: Readonly<ReviewFormProps>) 
               invalid={showProblem && problem === 'noSupplier'}
             />
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="review-number">{tr.details.invoiceNumber}</Label>
-                <Input
-                  id="review-number"
-                  value={state.invoiceNumber}
-                  onChange={(event) => setState((current) => ({ ...current, invoiceNumber: event.target.value }))}
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="review-currency">{tr.details.currency}</Label>
-                <Input
-                  id="review-currency"
-                  value={currency ?? ''}
-                  maxLength={3}
-                  autoCapitalize="characters"
-                  autoComplete="off"
-                  spellCheck={false}
-                  onChange={(event) => setState((current) => ({ ...current, currency: event.target.value.toUpperCase() }))}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="review-date">{tr.details.date}</Label>
-                <Input
-                  id="review-date"
-                  type="date"
-                  value={state.date}
-                  onChange={(event) => setState((current) => ({ ...current, date: event.target.value }))}
-                  aria-invalid={showProblem && problem === 'noDate' ? true : undefined}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="review-due">{tr.details.dueDate}</Label>
-                <Input
-                  id="review-due"
-                  type="date"
-                  value={state.dueDate}
-                  onChange={(event) => setState((current) => ({ ...current, dueDate: event.target.value }))}
-                />
-              </div>
-            </div>
+            <DetailsFields state={state} setState={setState} currency={currency} dateInvalid={showProblem && problem === 'noDate'} tr={tr} />
 
             <LinesEditor
               lines={state.lines}
@@ -390,28 +490,15 @@ function ReviewForm({ doc, prefill, prefillFailed }: Readonly<ReviewFormProps>) 
               allowCashPrivate={can('banking:create')}
             />
 
-            {showProblem && problemText ? (
-              <p className="text-sm text-destructive" role="alert" data-testid="review-problem">
-                {problemText}
-              </p>
-            ) : null}
-            {errorText ? (
-              <p className="text-sm text-destructive" role="alert" data-testid="review-error">
-                {errorText}
-              </p>
-            ) : null}
+            <ProblemMessages problem={problem} showProblem={showProblem} bookFailed={book.isError} bookError={book.error} tr={tr} />
 
-            <div className="flex flex-wrap items-center gap-3 border-t pt-4">
-              <Button type="submit" disabled={book.isPending || !canBook} data-testid="review-save">
-                {book.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : null}
-                {book.isPending ? tr.saving : tr.save}
-                <Kbd className="ml-2">⏎</Kbd>
-              </Button>
-              <Button type="button" variant="ghost" onClick={() => setRejectOpen(true)} disabled={!canReject || reject.isPending}>
-                {tr.reject}
-              </Button>
-              <p className="ml-auto text-xs text-muted-foreground">{tr.shortcuts}</p>
-            </div>
+            <FormActions
+              saving={book.isPending}
+              canBook={canBook}
+              rejectDisabled={!canReject || reject.isPending}
+              onReject={() => setRejectOpen(true)}
+              tr={tr}
+            />
           </>
         )}
       </form>

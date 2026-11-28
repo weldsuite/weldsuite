@@ -259,26 +259,30 @@ function ConnectionRow({
   );
 }
 
-function Connections({ links, currency, t }: Readonly<{ links: BankLineLinks; currency: string | null; t: Translations }>) {
+type ConnectionProps = Readonly<{ links: BankLineLinks; currency: string | null; t: Translations }>;
+
+/** Whether the line is linked to nothing yet. */
+function hasNoConnections(links: BankLineLinks): boolean {
+  return (
+    !links.payment &&
+    links.allocations.length === 0 &&
+    !links.journalEntry &&
+    !links.category &&
+    !links.deposit &&
+    !links.contact &&
+    links.documents.length === 0 &&
+    !links.transfer
+  );
+}
+
+/** The payment and the documents it was allocated to. */
+function PaymentConnection({ links, currency, t }: ConnectionProps) {
   const { formatMoney, formatDate } = useWeldbooksFormat();
-  const tp = t.accounting.bankTransactionPanel;
-  const tc = tp.connections;
+  const tc = t.accounting.bankTransactionPanel.connections;
   const link = useRecordLink();
   const methods = t.accounting.paymentMethods as Record<string, string>;
-
-  const { payment, allocations, journalEntry, category, deposit, contact, documents } = links;
-  const counterpart = links.transfer?.counterpart ?? null;
-  const tpc = t.weldbooksConnected.panel;
-  const router = useRouter();
-  const empty =
-    !payment &&
-    allocations.length === 0 &&
-    !journalEntry &&
-    !category &&
-    !deposit &&
-    !contact &&
-    documents.length === 0 &&
-    !links.transfer;
+  const { payment, allocations } = links;
+  if (!payment && allocations.length === 0) return null;
 
   const documentLabel = (type: 'invoice' | 'bill', number: string | null) =>
     number ?? (type === 'invoice' ? tc.invoiceFallback : tc.billFallback);
@@ -288,127 +292,172 @@ function Connections({ links, currency, t }: Readonly<{ links: BankLineLinks; cu
   };
 
   return (
+    <ConnectionRow icon={Banknote} label={tc.payment}>
+      {payment ? (
+        <span className="text-sm tabular-nums">
+          {[
+            payment.method ? (methods[payment.method] ?? payment.method) : null,
+            formatDate(payment.date),
+            formatMoney(payment.amount, payment.currency ?? currency),
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </span>
+      ) : null}
+      {allocations.map((allocation) => {
+        const target = link({ type: allocation.documentType, id: allocation.documentId });
+        const statusMap = statusLabels[allocation.documentType];
+        return (
+          <RecordChip
+            key={`${allocation.documentType}:${allocation.documentId}`}
+            icon={allocation.documentType === 'invoice' ? FileText : Receipt}
+            label={documentLabel(allocation.documentType, allocation.number)}
+            secondary={formatMoney(allocation.amount, currency)}
+            tone={documentTone(allocation.status)}
+            statusLabel={allocation.status ? (statusMap[allocation.status] ?? allocation.status) : undefined}
+            href={target.href}
+            onOpen={target.onOpen}
+          />
+        );
+      })}
+    </ConnectionRow>
+  );
+}
+
+function JournalConnection({ links, t }: ConnectionProps) {
+  const { formatDate } = useWeldbooksFormat();
+  const { journalEntry } = links;
+  if (!journalEntry) return null;
+  return (
+    <ConnectionRow icon={BookText} label={t.accounting.bankTransactionPanel.connections.journalEntry}>
+      <RecordLink
+        type="journal_entry"
+        id={journalEntry.id}
+        label={journalEntry.entryNumber ?? t.accounting.statusLabels.journalEntry.fallback}
+        secondary={journalEntry.entryNumber ? formatDate(journalEntry.date) : undefined}
+      />
+    </ConnectionRow>
+  );
+}
+
+/** The category, and the VAT rate it was booked with. */
+function CategoryConnection({ links, t }: ConnectionProps) {
+  const tc = t.accounting.bankTransactionPanel.connections;
+  const { category } = links;
+  if (!category) return null;
+  const label = category.accountName
+    ? [category.accountCode, category.accountName].filter(Boolean).join(' — ')
+    : tc.accountFallback;
+  return (
+    <>
+      <ConnectionRow icon={Tag} label={tc.category}>
+        <RecordLink type="ledger_account" id={category.accountId} label={label} />
+      </ConnectionRow>
+      {category.taxRateName ? (
+        <ConnectionRow icon={Percent} label={tc.vatRate}>
+          <span>{category.taxRateName}</span>
+        </ConnectionRow>
+      ) : null}
+    </>
+  );
+}
+
+function DepositConnection({ links, currency, t }: ConnectionProps) {
+  const { formatMoney, formatDate } = useWeldbooksFormat();
+  const { deposit } = links;
+  if (!deposit) return null;
+  return (
+    <ConnectionRow icon={PiggyBank} label={t.accounting.bankTransactionPanel.connections.deposit}>
+      <RecordLink
+        type="deposit"
+        id={deposit.id}
+        label={deposit.reference || formatDate(deposit.date)}
+        secondary={formatMoney(deposit.amount, currency)}
+      />
+    </ConnectionRow>
+  );
+}
+
+function ContactConnection({ links, t }: ConnectionProps) {
+  const tc = t.accounting.bankTransactionPanel.connections;
+  const { contact } = links;
+  if (!contact) return null;
+  return (
+    <ConnectionRow icon={User} label={tc.contact}>
+      <RecordLink type="weldbooks_contact" id={contact.id} label={contact.name ?? tc.contactFallback} />
+    </ConnectionRow>
+  );
+}
+
+/** The other side of a transfer, or that it is still waiting for it. */
+function TransferConnection({ links, currency, t }: ConnectionProps) {
+  const { formatMoney, formatDate } = useWeldbooksFormat();
+  const tpc = t.weldbooksConnected.panel;
+  if (!links.transfer) return null;
+  const counterpart = links.transfer.counterpart ?? null;
+  return (
+    <ConnectionRow icon={ArrowLeftRight} label={tpc.transferCounterpart}>
+      {counterpart ? (
+        <RecordLink
+          type="bank_transaction"
+          id={counterpart.id}
+          label={formatMoney(counterpart.amount, currency)}
+          secondary={formatDate(counterpart.date)}
+        />
+      ) : (
+        <span className="text-muted-foreground">{tpc.transferWaiting}</span>
+      )}
+    </ConnectionRow>
+  );
+}
+
+/** Why the line was processed automatically, and the rule that did it. */
+function AutomaticConnection({ links, t }: ConnectionProps) {
+  const router = useRouter();
+  if (!links.automatic) return null;
+  return (
+    <ConnectionRow icon={Wand2} label={t.weldbooksConnected.panel.automaticReason}>
+      <span className={cn(PILL, PILL_GRAY)} data-testid="automatic-reason">
+        {automaticReasonLabel(links.reason, links.rule ?? null, t.weldbooksConnected.automatic.reasons)}
+      </span>
+      {links.rule ? (
+        <RecordChip
+          icon={Wand2}
+          label={links.rule.name}
+          href="/weldbooks/banking/rules"
+          onOpen={() => router.push('/weldbooks/banking/rules')}
+        />
+      ) : null}
+    </ConnectionRow>
+  );
+}
+
+function DocumentsConnection({ links, t }: ConnectionProps) {
+  const { documents } = links;
+  if (documents.length === 0) return null;
+  return (
+    <ConnectionRow icon={Layers} label={t.accounting.bankTransactionPanel.connections.documents}>
+      {documents.map((document) => (
+        <InboxDocumentChip key={document.id} id={document.id} fileName={document.fileName} />
+      ))}
+    </ConnectionRow>
+  );
+}
+
+function Connections(props: ConnectionProps) {
+  const tc = props.t.accounting.bankTransactionPanel.connections;
+  return (
     <PanelSection title={tc.title}>
-      {empty ? <p className="text-sm text-muted-foreground">{tc.none}</p> : null}
+      {hasNoConnections(props.links) ? <p className="text-sm text-muted-foreground">{tc.none}</p> : null}
       <div className="divide-y divide-border/60">
-        {payment || allocations.length > 0 ? (
-          <ConnectionRow icon={Banknote} label={tc.payment}>
-            {payment ? (
-              <span className="text-sm tabular-nums">
-                {[
-                  payment.method ? (methods[payment.method] ?? payment.method) : null,
-                  formatDate(payment.date),
-                  formatMoney(payment.amount, payment.currency ?? currency),
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </span>
-            ) : null}
-            {allocations.map((allocation) => {
-              const target = link({ type: allocation.documentType, id: allocation.documentId });
-              const statusMap = statusLabels[allocation.documentType];
-              return (
-                <RecordChip
-                  key={`${allocation.documentType}:${allocation.documentId}`}
-                  icon={allocation.documentType === 'invoice' ? FileText : Receipt}
-                  label={documentLabel(allocation.documentType, allocation.number)}
-                  secondary={formatMoney(allocation.amount, currency)}
-                  tone={documentTone(allocation.status)}
-                  statusLabel={allocation.status ? (statusMap[allocation.status] ?? allocation.status) : undefined}
-                  href={target.href}
-                  onOpen={target.onOpen}
-                />
-              );
-            })}
-          </ConnectionRow>
-        ) : null}
-
-        {journalEntry ? (
-          <ConnectionRow icon={BookText} label={tc.journalEntry}>
-            <RecordLink
-              type="journal_entry"
-              id={journalEntry.id}
-              label={journalEntry.entryNumber ?? t.accounting.statusLabels.journalEntry.fallback}
-              secondary={journalEntry.entryNumber ? formatDate(journalEntry.date) : undefined}
-            />
-          </ConnectionRow>
-        ) : null}
-
-        {category ? (
-          <ConnectionRow icon={Tag} label={tc.category}>
-            <RecordLink
-              type="ledger_account"
-              id={category.accountId}
-              label={
-                category.accountName
-                  ? [category.accountCode, category.accountName].filter(Boolean).join(' — ')
-                  : tc.accountFallback
-              }
-            />
-          </ConnectionRow>
-        ) : null}
-
-        {category?.taxRateName ? (
-          <ConnectionRow icon={Percent} label={tc.vatRate}>
-            <span>{category.taxRateName}</span>
-          </ConnectionRow>
-        ) : null}
-
-        {deposit ? (
-          <ConnectionRow icon={PiggyBank} label={tc.deposit}>
-            <RecordLink
-              type="deposit"
-              id={deposit.id}
-              label={deposit.reference || formatDate(deposit.date)}
-              secondary={formatMoney(deposit.amount, currency)}
-            />
-          </ConnectionRow>
-        ) : null}
-
-        {contact ? (
-          <ConnectionRow icon={User} label={tc.contact}>
-            <RecordLink type="weldbooks_contact" id={contact.id} label={contact.name ?? tc.contactFallback} />
-          </ConnectionRow>
-        ) : null}
-
-        {links.transfer ? (
-          <ConnectionRow icon={ArrowLeftRight} label={tpc.transferCounterpart}>
-            {counterpart ? (
-              <RecordLink
-                type="bank_transaction"
-                id={counterpart.id}
-                label={formatMoney(counterpart.amount, currency)}
-                secondary={formatDate(counterpart.date)}
-              />
-            ) : (
-              <span className="text-muted-foreground">{tpc.transferWaiting}</span>
-            )}
-          </ConnectionRow>
-        ) : null}
-
-        {links.automatic ? (
-          <ConnectionRow icon={Wand2} label={tpc.automaticReason}>
-            <span className={cn(PILL, PILL_GRAY)} data-testid="automatic-reason">
-              {automaticReasonLabel(links.reason, links.rule ?? null, t.weldbooksConnected.automatic.reasons)}
-            </span>
-            {links.rule ? (
-              <RecordChip
-                icon={Wand2}
-                label={links.rule.name}
-                href="/weldbooks/banking/rules"
-                onOpen={() => router.push('/weldbooks/banking/rules')}
-              />
-            ) : null}
-          </ConnectionRow>
-        ) : null}
-
-        {documents.length > 0 ? (
-          <ConnectionRow icon={Layers} label={tc.documents}>
-            {documents.map((document) => (
-              <InboxDocumentChip key={document.id} id={document.id} fileName={document.fileName} />
-            ))}
-          </ConnectionRow>
-        ) : null}
+        <PaymentConnection {...props} />
+        <JournalConnection {...props} />
+        <CategoryConnection {...props} />
+        <DepositConnection {...props} />
+        <ContactConnection {...props} />
+        <TransferConnection {...props} />
+        <AutomaticConnection {...props} />
+        <DocumentsConnection {...props} />
       </div>
     </PanelSection>
   );

@@ -57,10 +57,253 @@ export default function PayBillsPage() {
   return <PayBills />;
 }
 
+type PayTexts = ReturnType<typeof useI18n>['t']['weldbooksReceipts']['pay'];
+type WeldbooksFormat = ReturnType<typeof useWeldbooksFormat>;
+type PayableBill = NonNullable<ReturnType<typeof usePayableEurBills>['data']>[number];
+
+interface BillsTableProps {
+  rows: readonly PayableBill[];
+  selected: ReadonlySet<string>;
+  /** The bills in a batch that is not paid yet (only `has` is read). */
+  pending: ReadonlyMap<string, unknown>;
+  ibanOf: ReadonlyMap<string, string | null>;
+  selectable: readonly PayableBill[];
+  allSelected: boolean;
+  someSelected: boolean;
+  onToggle: (id: string, on: boolean) => void;
+  onToggleAll: (on: boolean) => void;
+  tp: PayTexts;
+  format: WeldbooksFormat;
+}
+
+/** The tri-state of the select-all box. */
+function selectAllState(allSelected: boolean, someSelected: boolean): boolean | 'indeterminate' {
+  if (allSelected) return true;
+  return someSelected ? 'indeterminate' : false;
+}
+
+function BillsTable({ rows, selected, pending, ibanOf, selectable, allSelected, someSelected, onToggle, onToggleAll, tp, format }: Readonly<BillsTableProps>) {
+  const { formatMoney, formatDate } = format;
+  return (
+    <div className="overflow-x-auto rounded-lg border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-10">
+              <Checkbox
+                checked={selectAllState(allSelected, someSelected)}
+                onCheckedChange={(checked) => onToggleAll(checked === true)}
+                aria-label={tp.selectAll}
+                disabled={selectable.length === 0}
+              />
+            </TableHead>
+            <TableHead>{tp.colDue}</TableHead>
+            <TableHead>{tp.colSupplier}</TableHead>
+            <TableHead>{tp.colBill}</TableHead>
+            <TableHead>{tp.colIban}</TableHead>
+            <TableHead className="text-right">{tp.colBalance}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((bill) => {
+            const isPending = pending.has(bill.id);
+            const iban = ibanOf.get(bill.contactId) ?? null;
+            const number = bill.billNumber ?? bill.externalReference ?? tp.colBill;
+            return (
+              <TableRow key={bill.id} data-testid={`pay-row-${bill.id}`}>
+                <TableCell>
+                  <Checkbox
+                    checked={selected.has(bill.id)}
+                    onCheckedChange={(checked) => onToggle(bill.id, checked === true)}
+                    aria-label={tp.selectRow.replace('{number}', number)}
+                    disabled={isPending}
+                  />
+                </TableCell>
+                <TableCell className="tabular-nums">{formatDate(bill.dueDate)}</TableCell>
+                <TableCell>
+                  {bill.contactId ? (
+                    <RecordLink type="weldbooks_contact" id={bill.contactId} label={bill.contactName ?? '—'} />
+                  ) : (
+                    (bill.contactName ?? '—')
+                  )}
+                </TableCell>
+                <TableCell>
+                  <span className="flex flex-wrap items-center gap-2">
+                    <RecordLink type="bill" id={bill.id} icon={Receipt} label={number} />
+                    {isPending ? <SoftBadge tone="warning">{tp.pendingChip}</SoftBadge> : null}
+                  </span>
+                </TableCell>
+                <TableCell className="font-mono text-xs tabular-nums">
+                  {iban ? maskIban(iban) : <span className="font-sans text-muted-foreground">{tp.noIban}</span>}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">{formatMoney(bill.balanceDue ?? '0', 'EUR')}</TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+interface CreatedBatchPanelProps {
+  batch: PaymentBatch;
+  canDownload: boolean;
+  downloading: boolean;
+  onDownload: () => void;
+  onAnother: () => void;
+  tp: PayTexts;
+  format: WeldbooksFormat;
+}
+
+function CreatedBatchPanel({ batch, canDownload, downloading, onDownload, onAnother, tp, format }: Readonly<CreatedBatchPanelProps>) {
+  const { formatMoney, formatDate } = format;
+  const heldCodes: Readonly<Record<string, string>> = tp.heldCodes;
+  return (
+    <section aria-labelledby="created-title" className="space-y-3 rounded-xl border border-emerald-300/60 bg-emerald-50/60 p-5 dark:border-emerald-900 dark:bg-emerald-950/30" data-testid="batch-created">
+      <h2 id="created-title" className="text-base font-semibold">
+        {tp.createdTitle}
+      </h2>
+      <p className="text-sm" role="status">
+        {tp.createdBody
+          .replace('{count}', String(batch.paymentCount))
+          .replace('{amount}', formatMoney(batch.totalAmount, 'EUR'))
+          .replace('{date}', formatDate(batch.executionDate))}
+      </p>
+      {batch.held.length > 0 ? (
+        <div data-testid="batch-held">
+          <InfoBanner variant="warning" title={tp.heldTitle}>
+            <p className="text-xs">{tp.heldHint}</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+              {batch.held.map((held) => (
+                <li key={`${held.partyId ?? held.contactName}-${held.code}`}>
+                  <strong>{held.contactName ?? '—'}</strong>: {heldMessage(held, heldCodes)}
+                </li>
+              ))}
+            </ul>
+          </InfoBanner>
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-3">
+        {canDownload ? (
+          <Button type="button" onClick={onDownload} disabled={downloading} data-testid="batch-download">
+            {downloading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : <Download className="h-4 w-4" aria-hidden />}
+            {tp.download}
+          </Button>
+        ) : null}
+        <p className="text-xs text-muted-foreground">{tp.downloadHint}</p>
+      </div>
+      <Button type="button" variant="ghost" size="sm" onClick={onAnother}>
+        {tp.another}
+      </Button>
+    </section>
+  );
+}
+
+type BillsTableState = Omit<BillsTableProps, 'rows'>;
+
+function BillsSection({ bills, rows, table }: Readonly<{ bills: ReturnType<typeof usePayableEurBills>; rows: readonly PayableBill[]; table: BillsTableState }>) {
+  const { tp } = table;
+  if (bills.isError && !bills.data) return <ErrorState message={tp.loadFailed} onRetry={() => void bills.refetch()} />;
+  if (!bills.data) return <PageLoader fullScreen={false} />;
+  if (rows.length === 0) return <EmptyState icon={Receipt} title={tp.empty} description={tp.emptyDescription} />;
+  return <BillsTable rows={rows} {...table} />;
+}
+
+interface BatchFormProps {
+  accounts: readonly BankAccount[];
+  accountsLoaded: boolean;
+  bankAccountId: string;
+  onBankAccountChange: (id: string) => void;
+  executionDate: string;
+  onExecutionDateChange: (date: string) => void;
+  errorText: string | null;
+  selectedCount: number;
+  total: string;
+  canCreate: boolean;
+  canSubmit: boolean;
+  creating: boolean;
+  onCreate: () => void;
+  tp: PayTexts;
+  format: WeldbooksFormat;
+}
+
+function BatchForm({
+  accounts,
+  accountsLoaded,
+  bankAccountId,
+  onBankAccountChange,
+  executionDate,
+  onExecutionDateChange,
+  errorText,
+  selectedCount,
+  total,
+  canCreate,
+  canSubmit,
+  creating,
+  onCreate,
+  tp,
+  format,
+}: Readonly<BatchFormProps>) {
+  const { formatMoney } = format;
+  return (
+    <div className="space-y-4 rounded-xl border p-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label htmlFor="pay-from">{tp.from}</Label>
+          <Select value={bankAccountId} onValueChange={onBankAccountChange}>
+            <SelectTrigger id="pay-from">
+              <SelectValue placeholder={tp.fromPlaceholder} />
+            </SelectTrigger>
+            <SelectContent>
+              {accounts.map((account) => (
+                <SelectItem key={account.id} value={account.id}>
+                  {account.name} ({maskIban(account.iban)})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {accountsLoaded && accounts.length === 0 ? <p className="text-xs text-muted-foreground">{tp.noAccounts}</p> : null}
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="pay-date">{tp.executionDate}</Label>
+          <Input id="pay-date" type="date" value={executionDate} onChange={(event) => onExecutionDateChange(event.target.value)} />
+        </div>
+      </div>
+
+      {errorText ? (
+        <p className="text-sm text-destructive" role="alert" data-testid="batch-error">
+          {errorText}
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm tabular-nums" role="status" data-testid="pay-total">
+          {plural(selectedCount, tp.selectedCount, getLocale())}
+          {' · '}
+          {tp.runningTotal.replace('{amount}', formatMoney(total, 'EUR'))}
+        </p>
+        {canCreate ? (
+          <Button
+            type="button"
+            onClick={onCreate}
+            disabled={!canSubmit}
+            data-testid="batch-create"
+          >
+            {creating ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : null}
+            {creating ? tp.creating : tp.create}
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function PayBills() {
   const { t } = useI18n();
   const tp = t.weldbooksReceipts.pay;
-  const { formatMoney, formatDate, today } = useWeldbooksFormat();
+  const format = useWeldbooksFormat();
+  const { today } = format;
   const canCreate = useCan('banking:create');
   const canDownload = useCan('banking:manage');
   const bills = usePayableEurBills();
@@ -129,78 +372,15 @@ function PayBills() {
     }
   };
 
-  let list;
-  if (bills.isError && !bills.data) {
-    list = <ErrorState message={tp.loadFailed} onRetry={() => void bills.refetch()} />;
-  } else if (!bills.data) {
-    list = <PageLoader fullScreen={false} />;
-  } else if (rows.length === 0) {
-    list = <EmptyState icon={Receipt} title={tp.empty} description={tp.emptyDescription} />;
-  } else {
-    list = (
-      <div className="overflow-x-auto rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-10">
-                <Checkbox
-                  checked={allSelected ? true : someSelected ? 'indeterminate' : false}
-                  onCheckedChange={(checked) => toggleAll(checked === true)}
-                  aria-label={tp.selectAll}
-                  disabled={selectable.length === 0}
-                />
-              </TableHead>
-              <TableHead>{tp.colDue}</TableHead>
-              <TableHead>{tp.colSupplier}</TableHead>
-              <TableHead>{tp.colBill}</TableHead>
-              <TableHead>{tp.colIban}</TableHead>
-              <TableHead className="text-right">{tp.colBalance}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((bill) => {
-              const isPending = pending.has(bill.id);
-              const iban = ibanOf.get(bill.contactId) ?? null;
-              const number = bill.billNumber ?? bill.externalReference ?? tp.colBill;
-              return (
-                <TableRow key={bill.id} data-testid={`pay-row-${bill.id}`}>
-                  <TableCell>
-                    <Checkbox
-                      checked={selected.has(bill.id)}
-                      onCheckedChange={(checked) => toggle(bill.id, checked === true)}
-                      aria-label={tp.selectRow.replace('{number}', number)}
-                      disabled={isPending}
-                    />
-                  </TableCell>
-                  <TableCell className="tabular-nums">{formatDate(bill.dueDate)}</TableCell>
-                  <TableCell>
-                    {bill.contactId ? (
-                      <RecordLink type="weldbooks_contact" id={bill.contactId} label={bill.contactName ?? '—'} />
-                    ) : (
-                      (bill.contactName ?? '—')
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <span className="flex flex-wrap items-center gap-2">
-                      <RecordLink type="bill" id={bill.id} icon={Receipt} label={number} />
-                      {isPending ? <SoftBadge tone="warning">{tp.pendingChip}</SoftBadge> : null}
-                    </span>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs tabular-nums">
-                    {iban ? maskIban(iban) : <span className="font-sans text-muted-foreground">{tp.noIban}</span>}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{formatMoney(bill.balanceDue ?? '0', 'EUR')}</TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
-    );
-  }
+  const list = (
+    <BillsSection
+      bills={bills}
+      rows={rows}
+      table={{ selected, pending, ibanOf, selectable, allSelected, someSelected, onToggle: toggle, onToggleAll: toggleAll, tp, format }}
+    />
+  );
 
   const errorText = create.isError ? batchErrorMessage(create.error, tp.errors) : null;
-  const heldCodes: Readonly<Record<string, string>> = tp.heldCodes;
 
   return (
     <PageColumn className="space-y-8 py-8">
@@ -210,43 +390,15 @@ function PayBills() {
       </header>
 
       {created ? (
-        <section aria-labelledby="created-title" className="space-y-3 rounded-xl border border-emerald-300/60 bg-emerald-50/60 p-5 dark:border-emerald-900 dark:bg-emerald-950/30" data-testid="batch-created">
-          <h2 id="created-title" className="text-base font-semibold">
-            {tp.createdTitle}
-          </h2>
-          <p className="text-sm" role="status">
-            {tp.createdBody
-              .replace('{count}', String(created.paymentCount))
-              .replace('{amount}', formatMoney(created.totalAmount, 'EUR'))
-              .replace('{date}', formatDate(created.executionDate))}
-          </p>
-          {created.held.length > 0 ? (
-            <div data-testid="batch-held">
-              <InfoBanner variant="warning" title={tp.heldTitle}>
-                <p className="text-xs">{tp.heldHint}</p>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-                  {created.held.map((held) => (
-                    <li key={`${held.partyId ?? held.contactName}-${held.code}`}>
-                      <strong>{held.contactName ?? '—'}</strong>: {heldMessage(held, heldCodes)}
-                    </li>
-                  ))}
-                </ul>
-              </InfoBanner>
-            </div>
-          ) : null}
-          <div className="flex flex-wrap items-center gap-3">
-            {canDownload ? (
-              <Button type="button" onClick={() => void download(created)} disabled={downloading} data-testid="batch-download">
-                {downloading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : <Download className="h-4 w-4" aria-hidden />}
-                {tp.download}
-              </Button>
-            ) : null}
-            <p className="text-xs text-muted-foreground">{tp.downloadHint}</p>
-          </div>
-          <Button type="button" variant="ghost" size="sm" onClick={() => setCreated(null)}>
-            {tp.another}
-          </Button>
-        </section>
+        <CreatedBatchPanel
+          batch={created}
+          canDownload={canDownload}
+          downloading={downloading}
+          onDownload={() => void download(created)}
+          onAnother={() => setCreated(null)}
+          tp={tp}
+          format={format}
+        />
       ) : (
         <section aria-labelledby="select-title" className="space-y-4">
           <div>
@@ -259,55 +411,23 @@ function PayBills() {
           {list}
 
           {rows.length > 0 ? (
-            <div className="space-y-4 rounded-xl border p-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <Label htmlFor="pay-from">{tp.from}</Label>
-                  <Select value={bankAccountId} onValueChange={setBankAccountId}>
-                    <SelectTrigger id="pay-from">
-                      <SelectValue placeholder={tp.fromPlaceholder} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {accounts.map((account) => (
-                        <SelectItem key={account.id} value={account.id}>
-                          {account.name} ({maskIban(account.iban)})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {accountsQuery.data && accounts.length === 0 ? <p className="text-xs text-muted-foreground">{tp.noAccounts}</p> : null}
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="pay-date">{tp.executionDate}</Label>
-                  <Input id="pay-date" type="date" value={executionDate} onChange={(event) => setExecutionDate(event.target.value)} />
-                </div>
-              </div>
-
-              {errorText ? (
-                <p className="text-sm text-destructive" role="alert" data-testid="batch-error">
-                  {errorText}
-                </p>
-              ) : null}
-
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm tabular-nums" role="status" data-testid="pay-total">
-                  {plural(selected.size, tp.selectedCount, getLocale())}
-                  {' · '}
-                  {tp.runningTotal.replace('{amount}', formatMoney(total, 'EUR'))}
-                </p>
-                {canCreate ? (
-                  <Button
-                    type="button"
-                    onClick={makeBatch}
-                    disabled={!canCreateBatch({ selected: selected.size, bankAccountId, executionDate }) || create.isPending}
-                    data-testid="batch-create"
-                  >
-                    {create.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : null}
-                    {create.isPending ? tp.creating : tp.create}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
+            <BatchForm
+              accounts={accounts}
+              accountsLoaded={Boolean(accountsQuery.data)}
+              bankAccountId={bankAccountId}
+              onBankAccountChange={setBankAccountId}
+              executionDate={executionDate}
+              onExecutionDateChange={setExecutionDate}
+              errorText={errorText}
+              selectedCount={selected.size}
+              total={total}
+              canCreate={canCreate}
+              canSubmit={canCreateBatch({ selected: selected.size, bankAccountId, executionDate }) && !create.isPending}
+              creating={create.isPending}
+              onCreate={makeBatch}
+              tp={tp}
+              format={format}
+            />
           ) : null}
         </section>
       )}

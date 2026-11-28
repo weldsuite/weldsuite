@@ -136,5 +136,6 @@ export function withoutMollieReturn(pathname: string, search: string, hash = '')
   params.delete('mollie');
   params.delete('reason');
   const rest = params.toString();
-  return `${pathname}${rest ? `?${rest}` : ''}${hash}`;
+  const query = rest ? `?${rest}` : '';
+  return `${pathname}${query}${hash}`;
 }

@@ -28,135 +28,182 @@ export function DocumentPage({ document, locale, pdfHref, actions }: DocumentPag
   const money = (amount: string) => formatMoney(amount, document.currency, locale)
   const banner = accepted ? 'accepted' : bannerFor(document)
   const bannerCopy = banner ? bannerText(t, banner, document, locale) : null
-  const isQuote = document.kind === 'quote'
-  const dateLabel = isQuote ? t.validUntil : t.dueDate
-  const dateValue = isQuote ? document.validUntil : document.dueDate
-  const vatMixed = new Set(document.lines.map((line) => line.taxRate)).size > 1
-  const showPay = canPay(document)
   const showAccept = !accepted && canAccept(document)
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:py-10 print:max-w-none print:p-0">
       <article className="document grid gap-6 rounded-xl border bg-card p-4 text-card-foreground shadow-xs sm:gap-8 sm:p-8" aria-labelledby="document-title">
-        <header className="flex flex-wrap items-start justify-between gap-4">
-          <div className="grid gap-1">
-            <p className="text-sm text-muted-foreground">{t.kind[document.kind]}</p>
-            <h1 id="document-title" className="text-2xl font-semibold tracking-tight">
-              {document.number}
-            </h1>
-          </div>
-          {safeImageUrl(document.seller.logoUrl) ? (
-            <img
-              src={safeImageUrl(document.seller.logoUrl) ?? undefined}
-              alt={document.seller.name}
-              className="max-h-16 max-w-48 object-contain"
-              referrerPolicy="no-referrer"
-              decoding="async"
-            />
-          ) : (
-            <p className="text-lg font-semibold">{document.seller.name}</p>
-          )}
-        </header>
+        <DocumentHeader document={document} t={t} />
 
         {bannerCopy && banner ? <StatusBanner kind={banner} title={bannerCopy.title} body={bannerCopy.body} /> : null}
 
-        <div className="flex flex-wrap items-start gap-3 print:hidden">
-          <a
-            href={pdfHref}
-            download
-            className={cn(buttonVariants({ variant: showPay ? 'outline' : 'default', size: 'lg' }), 'w-full sm:w-auto')}
-          >
-            {t.actions.downloadPdf}
-          </a>
-          {showPay ? (
-            <div className="grid w-full gap-2 sm:w-auto">
-              <PayButton t={t} label={t.actions.payNow(money(document.totals.balanceDue))} pay={actions.pay} navigate={actions.navigate} />
-              {document.payment.methods.length > 0 ? <p className="text-xs text-muted-foreground">{t.pay.methods}</p> : null}
-            </div>
-          ) : null}
-        </div>
-
-        <section className="grid gap-6 sm:grid-cols-2" aria-label={t.kind[document.kind]}>
-          <Party heading={t.from} name={document.seller.name} lines={addressLines(document.seller.address)}>
-            {document.seller.email ? <Row label={t.details.email} value={document.seller.email} /> : null}
-            {document.seller.phone ? <Row label={t.details.phone} value={document.seller.phone} /> : null}
-            {document.seller.vatNumber ? <Row label={t.details.vatNumber} value={document.seller.vatNumber} /> : null}
-            {document.seller.registrationNumber ? <Row label={t.details.registrationNumber} value={document.seller.registrationNumber} /> : null}
-          </Party>
-          <Party heading={isQuote ? t.quoteFor : t.billTo} name={document.buyer.name} lines={addressLines(document.buyer.address)}>
-            <Row label={t.issueDate} value={formatDate(document.issueDate, locale)} />
-            {dateValue ? <Row label={dateLabel} value={formatDate(dateValue, locale)} /> : null}
-          </Party>
-        </section>
-
-        <table className="lines w-full text-sm">
-          <caption className="sr-only">{t.lines.caption}</caption>
-          <thead>
-            <tr>
-              <th scope="col" className="text-left">
-                {t.lines.description}
-              </th>
-              <th scope="col" className="text-right">
-                {t.lines.quantity}
-              </th>
-              <th scope="col" className="text-right">
-                {t.lines.unitPrice}
-              </th>
-              {vatMixed ? (
-                <th scope="col" className="text-right">
-                  {t.lines.vat}
-                </th>
-              ) : null}
-              <th scope="col" className="text-right">
-                {t.lines.total}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {document.lines.map((line, index) => (
-              <LineRow key={index} line={line} t={t} locale={locale} money={money} showVat={vatMixed} />
-            ))}
-          </tbody>
-        </table>
-
-        <dl className="totals ml-auto grid w-full max-w-sm gap-1.5 text-sm">
-          <TotalRow label={t.totals.subtotal} value={money(document.totals.subtotal)} />
-          {document.totals.taxes.map((tax) => (
-            <TotalRow key={tax.rate} label={t.totals.vatAt(formatNumber(tax.rate, locale))} value={money(tax.amount)} />
-          ))}
-          <TotalRow label={t.totals.total} value={money(document.totals.total)} strong />
-          {!isQuote && isPositive(document.totals.paid) ? <TotalRow label={t.totals.paid} value={money(document.totals.paid)} /> : null}
-          {!isQuote ? <TotalRow label={t.totals.balanceDue} value={money(document.totals.balanceDue)} strong /> : null}
-        </dl>
+        <ActionsBar document={document} t={t} pdfHref={pdfHref} actions={actions} money={money} />
+        <PartiesSection document={document} t={t} locale={locale} />
+        <LinesTable document={document} t={t} locale={locale} money={money} />
+        <TotalsList document={document} t={t} locale={locale} money={money} />
 
         {showAccept ? <AcceptQuoteForm t={t} accept={actions.accept} onAccepted={setAccepted} /> : null}
-        {accepted ? (
-          <section aria-labelledby="accepted-title" className="grid gap-1 rounded-lg border border-emerald-600/40 bg-emerald-50 p-4 text-emerald-950 dark:bg-emerald-950/30 dark:text-emerald-100">
-            <h2 id="accepted-title" className="font-semibold">
-              {t.accept.doneTitle}
-            </h2>
-            <p>{t.accept.doneBody(accepted.acceptedBy, formatDateTime(accepted.acceptedAt, locale))}</p>
-            <p className="text-sm">{t.accept.thanks}</p>
-          </section>
-        ) : null}
+        {accepted ? <AcceptedNotice accepted={accepted} t={t} locale={locale} /> : null}
 
         {document.notes ? <TextBlock heading={t.notes} text={document.notes} /> : null}
         {document.paymentTerms ? <TextBlock heading={t.paymentTerms} text={document.paymentTerms} /> : null}
 
-        {showTransferDetails(document) ? (
-          <section className="grid gap-1 text-sm" aria-labelledby="transfer-title">
-            <h2 id="transfer-title" className="font-semibold">
-              {t.details.title}
-            </h2>
-            <dl className="grid gap-1">
-              <Row label={t.details.iban} value={document.seller.iban ?? ''} />
-              {document.seller.bic ? <Row label={t.details.bic} value={document.seller.bic} /> : null}
-              <Row label={t.details.reference} value={document.number} />
-            </dl>
-          </section>
-        ) : null}
+        {showTransferDetails(document) ? <TransferDetails document={document} t={t} /> : null}
       </article>
     </main>
+  )
+}
+
+interface SectionProps {
+  document: PublicDocument
+  t: Dictionary
+}
+
+function DocumentHeader({ document, t }: SectionProps) {
+  return (
+    <header className="flex flex-wrap items-start justify-between gap-4">
+      <div className="grid gap-1">
+        <p className="text-sm text-muted-foreground">{t.kind[document.kind]}</p>
+        <h1 id="document-title" className="text-2xl font-semibold tracking-tight">
+          {document.number}
+        </h1>
+      </div>
+      {safeImageUrl(document.seller.logoUrl) ? (
+        <img
+          src={safeImageUrl(document.seller.logoUrl) ?? undefined}
+          alt={document.seller.name}
+          className="max-h-16 max-w-48 object-contain"
+          referrerPolicy="no-referrer"
+          decoding="async"
+        />
+      ) : (
+        <p className="text-lg font-semibold">{document.seller.name}</p>
+      )}
+    </header>
+  )
+}
+
+function ActionsBar({
+  document,
+  t,
+  pdfHref,
+  actions,
+  money,
+}: SectionProps & { pdfHref: string; actions: PortalActions; money: (amount: string) => string }) {
+  const showPay = canPay(document)
+  return (
+    <div className="flex flex-wrap items-start gap-3 print:hidden">
+      <a
+        href={pdfHref}
+        download
+        className={cn(buttonVariants({ variant: showPay ? 'outline' : 'default', size: 'lg' }), 'w-full sm:w-auto')}
+      >
+        {t.actions.downloadPdf}
+      </a>
+      {showPay ? (
+        <div className="grid w-full gap-2 sm:w-auto">
+          <PayButton t={t} label={t.actions.payNow(money(document.totals.balanceDue))} pay={actions.pay} navigate={actions.navigate} />
+          {document.payment.methods.length > 0 ? <p className="text-xs text-muted-foreground">{t.pay.methods}</p> : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function PartiesSection({ document, t, locale }: SectionProps & { locale: Locale }) {
+  const isQuote = document.kind === 'quote'
+  const dateLabel = isQuote ? t.validUntil : t.dueDate
+  const dateValue = isQuote ? document.validUntil : document.dueDate
+  return (
+    <section className="grid gap-6 sm:grid-cols-2" aria-label={t.kind[document.kind]}>
+      <Party heading={t.from} name={document.seller.name} lines={addressLines(document.seller.address)}>
+        {document.seller.email ? <Row label={t.details.email} value={document.seller.email} /> : null}
+        {document.seller.phone ? <Row label={t.details.phone} value={document.seller.phone} /> : null}
+        {document.seller.vatNumber ? <Row label={t.details.vatNumber} value={document.seller.vatNumber} /> : null}
+        {document.seller.registrationNumber ? <Row label={t.details.registrationNumber} value={document.seller.registrationNumber} /> : null}
+      </Party>
+      <Party heading={isQuote ? t.quoteFor : t.billTo} name={document.buyer.name} lines={addressLines(document.buyer.address)}>
+        <Row label={t.issueDate} value={formatDate(document.issueDate, locale)} />
+        {dateValue ? <Row label={dateLabel} value={formatDate(dateValue, locale)} /> : null}
+      </Party>
+    </section>
+  )
+}
+
+function LinesTable({ document, t, locale, money }: SectionProps & { locale: Locale; money: (amount: string) => string }) {
+  const vatMixed = new Set(document.lines.map((line) => line.taxRate)).size > 1
+  return (
+    <table className="lines w-full text-sm">
+      <caption className="sr-only">{t.lines.caption}</caption>
+      <thead>
+        <tr>
+          <th scope="col" className="text-left">
+            {t.lines.description}
+          </th>
+          <th scope="col" className="text-right">
+            {t.lines.quantity}
+          </th>
+          <th scope="col" className="text-right">
+            {t.lines.unitPrice}
+          </th>
+          {vatMixed ? (
+            <th scope="col" className="text-right">
+              {t.lines.vat}
+            </th>
+          ) : null}
+          <th scope="col" className="text-right">
+            {t.lines.total}
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {document.lines.map((line, index) => (
+          <LineRow key={index} line={line} t={t} locale={locale} money={money} showVat={vatMixed} />
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+function TotalsList({ document, t, locale, money }: SectionProps & { locale: Locale; money: (amount: string) => string }) {
+  const isQuote = document.kind === 'quote'
+  return (
+    <dl className="totals ml-auto grid w-full max-w-sm gap-1.5 text-sm">
+      <TotalRow label={t.totals.subtotal} value={money(document.totals.subtotal)} />
+      {document.totals.taxes.map((tax) => (
+        <TotalRow key={tax.rate} label={t.totals.vatAt(formatNumber(tax.rate, locale))} value={money(tax.amount)} />
+      ))}
+      <TotalRow label={t.totals.total} value={money(document.totals.total)} strong />
+      {!isQuote && isPositive(document.totals.paid) ? <TotalRow label={t.totals.paid} value={money(document.totals.paid)} /> : null}
+      {!isQuote ? <TotalRow label={t.totals.balanceDue} value={money(document.totals.balanceDue)} strong /> : null}
+    </dl>
+  )
+}
+
+function AcceptedNotice({ accepted, t, locale }: { accepted: AcceptResult; t: Dictionary; locale: Locale }) {
+  return (
+    <section aria-labelledby="accepted-title" className="grid gap-1 rounded-lg border border-emerald-600/40 bg-emerald-50 p-4 text-emerald-950 dark:bg-emerald-950/30 dark:text-emerald-100">
+      <h2 id="accepted-title" className="font-semibold">
+        {t.accept.doneTitle}
+      </h2>
+      <p>{t.accept.doneBody(accepted.acceptedBy, formatDateTime(accepted.acceptedAt, locale))}</p>
+      <p className="text-sm">{t.accept.thanks}</p>
+    </section>
+  )
+}
+
+function TransferDetails({ document, t }: SectionProps) {
+  return (
+    <section className="grid gap-1 text-sm" aria-labelledby="transfer-title">
+      <h2 id="transfer-title" className="font-semibold">
+        {t.details.title}
+      </h2>
+      <dl className="grid gap-1">
+        <Row label={t.details.iban} value={document.seller.iban ?? ''} />
+        {document.seller.bic ? <Row label={t.details.bic} value={document.seller.bic} /> : null}
+        <Row label={t.details.reference} value={document.number} />
+      </dl>
+    </section>
   )
 }
 

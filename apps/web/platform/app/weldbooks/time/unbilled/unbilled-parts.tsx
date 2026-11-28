@@ -166,7 +166,7 @@ export function EntriesTable({
                 <th scope="rowgroup" colSpan={6} className="px-3 py-2 text-left font-normal">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <Checkbox
-                      checked={all ? true : ticked === 0 ? false : 'indeterminate'}
+                      checked={projectCheckState(all, ticked)}
                       onCheckedChange={(checked) => onToggleProject(project, checked === true)}
                       aria-label={copy.selectAll.replace('{project}', project.name)}
                     />
@@ -274,6 +274,44 @@ export function InvoicePreview({
 // ─── Add to a draft ────────────────────────────────────────────────────────
 
 /** Drafts of one customer in the currency the hours bill in. */
+type DraftsQuery = ReturnType<typeof useInfiniteAccountingInvoices>;
+type DraftRow = NonNullable<DraftsQuery['data']>['rows'][number];
+type UnbilledCopy = ReturnType<typeof useI18n>['t']['weldbooksContactPage']['unbilled'];
+
+interface DraftChoiceProps {
+  drafts: DraftsQuery;
+  rows: readonly DraftRow[];
+  picked: string;
+  onChoose: (id: string) => void;
+  copy: UnbilledCopy;
+  formatMoney: ReturnType<typeof useWeldbooksFormat>['formatMoney'];
+}
+
+function DraftChoice({ drafts, rows, picked, onChoose, copy, formatMoney }: Readonly<DraftChoiceProps>) {
+  if (drafts.isLoading) return <InlineSpinner className="py-6" />;
+  if (rows.length === 0) return <p className="py-4 text-sm text-muted-foreground">{copy.noDrafts}</p>;
+  return (
+    <RadioGroup value={picked} onValueChange={onChoose} aria-label={copy.chooseDraftTitle}>
+      {rows.map((invoice) => (
+        <div key={invoice.id} className="flex items-center gap-2">
+          <RadioGroupItem value={invoice.id} id={`draft-${invoice.id}`} />
+          <Label htmlFor={`draft-${invoice.id}`} className="font-normal">
+            {copy.draftOption
+              .replace('{number}', invoice.invoiceNumber ?? copy.draftNoNumber)
+              .replace('{total}', formatMoney(invoice.total ?? '0', invoice.currency))}
+          </Label>
+        </div>
+      ))}
+    </RadioGroup>
+  );
+}
+
+/** The tri-state of a project's select-all box. */
+function projectCheckState(all: boolean, ticked: number): boolean | 'indeterminate' {
+  if (all) return true;
+  return ticked === 0 ? false : 'indeterminate';
+}
+
 export function DraftPickerDialog({
   open,
   onOpenChange,
@@ -307,24 +345,7 @@ export function DraftPickerDialog({
           <DialogTitle>{copy.chooseDraftTitle}</DialogTitle>
           <DialogDescription>{copy.chooseDraftDescription}</DialogDescription>
         </DialogHeader>
-        {drafts.isLoading ? (
-          <InlineSpinner className="py-6" />
-        ) : rows.length === 0 ? (
-          <p className="py-4 text-sm text-muted-foreground">{copy.noDrafts}</p>
-        ) : (
-          <RadioGroup value={picked} onValueChange={setChoice} aria-label={copy.chooseDraftTitle}>
-            {rows.map((invoice) => (
-              <div key={invoice.id} className="flex items-center gap-2">
-                <RadioGroupItem value={invoice.id} id={`draft-${invoice.id}`} />
-                <Label htmlFor={`draft-${invoice.id}`} className="font-normal">
-                  {copy.draftOption
-                    .replace('{number}', invoice.invoiceNumber ?? copy.draftNoNumber)
-                    .replace('{total}', formatMoney(invoice.total ?? '0', invoice.currency))}
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        )}
+        <DraftChoice drafts={drafts} rows={rows} picked={picked} onChoose={setChoice} copy={copy} formatMoney={formatMoney} />
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {copy.cancel}

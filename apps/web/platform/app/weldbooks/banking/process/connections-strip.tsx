@@ -32,90 +32,140 @@ function Arrow() {
   return <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />;
 }
 
+type I18n = ReturnType<typeof useI18n>['t'];
+
+interface Chip {
+  key: string;
+  node: ReactNode;
+}
+
+interface ChipContext {
+  t: I18n;
+  currency: string | null;
+  formatMoney: ReturnType<typeof useWeldbooksFormat>['formatMoney'];
+  formatDate: ReturnType<typeof useWeldbooksFormat>['formatDate'];
+}
+
+function allocationChips(links: BankLineLinks, { t, currency, formatMoney }: ChipContext): Chip[] {
+  const tp = t.accounting.bankTransactionPanel.connections;
+  return links.allocations.map((allocation) => {
+    const fallback = allocation.documentType === 'invoice' ? tp.invoiceFallback : tp.billFallback;
+    return {
+      key: `${allocation.documentType}:${allocation.documentId}`,
+      node: (
+        <RecordLink
+          type={allocation.documentType}
+          id={allocation.documentId}
+          label={allocation.number ?? fallback}
+          secondary={formatMoney(allocation.amount, currency)}
+        />
+      ),
+    };
+  });
+}
+
+function paymentChips(links: BankLineLinks, { t, currency, formatMoney, formatDate }: ChipContext): Chip[] {
+  const { payment } = links;
+  if (!payment || links.allocations.length > 0) return [];
+  const tc = t.weldbooksConnected.processing.connections;
+  return [
+    {
+      key: `payment:${payment.id}`,
+      node: (
+        <RecordChip
+          label={tc.payment}
+          secondary={`${formatDate(payment.date)} · ${formatMoney(payment.amount, payment.currency ?? currency)}`}
+        />
+      ),
+    },
+  ];
+}
+
+function documentChips(links: BankLineLinks): Chip[] {
+  return links.documents.map((document) => ({
+    key: `doc:${document.id}`,
+    node: <InboxDocumentChip id={document.id} fileName={document.fileName} />,
+  }));
+}
+
+function categoryChips(links: BankLineLinks, { t }: ChipContext): Chip[] {
+  const { category } = links;
+  if (!category) return [];
+  const tp = t.accounting.bankTransactionPanel.connections;
+  const label = category.accountName
+    ? [category.accountCode, category.accountName].filter(Boolean).join(' — ')
+    : tp.accountFallback;
+  return [{ key: `category:${category.accountId}`, node: <RecordLink type="ledger_account" id={category.accountId} label={label} /> }];
+}
+
+function transferChips(links: BankLineLinks, { t, currency, formatMoney }: ChipContext): Chip[] {
+  const counterpart = links.transfer?.counterpart;
+  if (!counterpart) return [];
+  const tc = t.weldbooksConnected.processing.connections;
+  return [
+    {
+      key: `transfer:${counterpart.id}`,
+      node: (
+        <RecordLink
+          type="bank_transaction"
+          id={counterpart.id}
+          label={tc.transfer}
+          secondary={formatMoney(counterpart.amount, currency)}
+        />
+      ),
+    },
+  ];
+}
+
+function contactChips(links: BankLineLinks, { t }: ChipContext): Chip[] {
+  const { contact } = links;
+  if (!contact) return [];
+  const tp = t.accounting.bankTransactionPanel.connections;
+  return [
+    {
+      key: `contact:${contact.id}`,
+      node: <RecordLink type="weldbooks_contact" id={contact.id} label={contact.name ?? tp.contactFallback} />,
+    },
+  ];
+}
+
+function journalChips(links: BankLineLinks, { t }: ChipContext): Chip[] {
+  const { journalEntry } = links;
+  if (!journalEntry) return [];
+  return [
+    {
+      key: `journal:${journalEntry.id}`,
+      node: (
+        <RecordLink
+          type="journal_entry"
+          id={journalEntry.id}
+          label={journalEntry.entryNumber ?? t.accounting.statusLabels.journalEntry.fallback}
+        />
+      ),
+    },
+  ];
+}
+
+/** One chip per record the line is linked to, in the order they are shown. */
+function connectionChips(links: BankLineLinks | undefined, ctx: ChipContext): Chip[] {
+  if (!links) return [];
+  return [
+    ...allocationChips(links, ctx),
+    ...paymentChips(links, ctx),
+    ...documentChips(links),
+    ...categoryChips(links, ctx),
+    ...transferChips(links, ctx),
+    ...contactChips(links, ctx),
+    ...journalChips(links, ctx),
+  ];
+}
+
 export function ConnectionsStrip({ lineId, amountLabel, currency }: Readonly<{ lineId: string; amountLabel: string; currency: string | null }>) {
   const { t } = useI18n();
   const tc = t.weldbooksConnected.processing.connections;
-  const tp = t.accounting.bankTransactionPanel.connections;
   const { formatMoney, formatDate } = useWeldbooksFormat();
   const { links } = useBankTransactionLinks(lineId);
-
-  const chips: Array<{ key: string; node: ReactNode }> = [];
-  if (links) {
-    for (const allocation of links.allocations) {
-      chips.push({
-        key: `${allocation.documentType}:${allocation.documentId}`,
-        node: (
-          <RecordLink
-            type={allocation.documentType}
-            id={allocation.documentId}
-            label={allocation.number ?? (allocation.documentType === 'invoice' ? tp.invoiceFallback : tp.billFallback)}
-            secondary={formatMoney(allocation.amount, currency)}
-          />
-        ),
-      });
-    }
-    if (links.payment && links.allocations.length === 0) {
-      chips.push({
-        key: `payment:${links.payment.id}`,
-        node: (
-          <RecordChip
-            label={tc.payment}
-            secondary={`${formatDate(links.payment.date)} · ${formatMoney(links.payment.amount, links.payment.currency ?? currency)}`}
-          />
-        ),
-      });
-    }
-    for (const document of links.documents) {
-      chips.push({ key: `doc:${document.id}`, node: <InboxDocumentChip id={document.id} fileName={document.fileName} /> });
-    }
-    if (links.category) {
-      chips.push({
-        key: `category:${links.category.accountId}`,
-        node: (
-          <RecordLink
-            type="ledger_account"
-            id={links.category.accountId}
-            label={
-              links.category.accountName
-                ? [links.category.accountCode, links.category.accountName].filter(Boolean).join(' — ')
-                : tp.accountFallback
-            }
-          />
-        ),
-      });
-    }
-    if (links.transfer?.counterpart) {
-      chips.push({
-        key: `transfer:${links.transfer.counterpart.id}`,
-        node: (
-          <RecordLink
-            type="bank_transaction"
-            id={links.transfer.counterpart.id}
-            label={tc.transfer}
-            secondary={formatMoney(links.transfer.counterpart.amount, currency)}
-          />
-        ),
-      });
-    }
-    if (links.contact) {
-      chips.push({
-        key: `contact:${links.contact.id}`,
-        node: <RecordLink type="weldbooks_contact" id={links.contact.id} label={links.contact.name ?? tp.contactFallback} />,
-      });
-    }
-    if (links.journalEntry) {
-      chips.push({
-        key: `journal:${links.journalEntry.id}`,
-        node: (
-          <RecordLink
-            type="journal_entry"
-            id={links.journalEntry.id}
-            label={links.journalEntry.entryNumber ?? t.accounting.statusLabels.journalEntry.fallback}
-          />
-        ),
-      });
-    }
-  }
+  const chips = connectionChips(links, { t, currency, formatMoney, formatDate });
 
   return (
     <section

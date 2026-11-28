@@ -104,6 +104,8 @@ export function DifferencesCard() {
 
   const capValue = normalizeCap(cap);
   const capInvalid = capTouched && capValue === null;
+  const capErrorId = `${ids}-cap-error`;
+  const capDescribedBy = capInvalid ? `${ids}-cap-help ${capErrorId}` : `${ids}-cap-help`;
   const defaultRounding = accounts.find((account) => account.id === data?.effectiveRoundingAccountId);
   const roundingDefaultLabel = defaultRounding
     ? td.currentDefault.replace('{name}', `${defaultRounding.code} — ${defaultRounding.name}`)
@@ -193,7 +195,7 @@ export function DifferencesCard() {
                 value={cap}
                 disabled={!canUpdate}
                 aria-invalid={capInvalid || undefined}
-                aria-describedby={`${ids}-cap-help${capInvalid ? ` ${ids}-cap-error` : ''}`}
+                aria-describedby={capDescribedBy}
                 onChange={(event) => setCap(event.target.value)}
                 onBlur={() => setCapTouched(true)}
               />

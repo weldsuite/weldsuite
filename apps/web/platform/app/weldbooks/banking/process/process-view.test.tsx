@@ -327,7 +327,7 @@ describe('ProcessView', () => {
       expect(within(card).getByRole('button', { name: /Link to invoice 2026-0142/ })).toBeInTheDocument();
       // The matcher's reason codes, translated.
       const reasons = within(card).getAllByRole('listitem').map((li) => li.textContent);
-      expect(reasons.length).toBe(2);
+      expect(reasons).toHaveLength(2);
       expect(reasons.join(' ')).not.toContain('exact amount match');
     });
 

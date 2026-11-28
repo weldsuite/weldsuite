@@ -31,6 +31,42 @@ interface ReceiptValues {
   text: string;
 }
 
+type ReceiptsTexts = ReturnType<typeof useI18n>['t']['weldbooksQuestions']['receipts'];
+type BulkResult = NonNullable<ReturnType<typeof useAskQuestionsBulk>['data']>;
+
+interface ReceiptsResultProps {
+  result: BulkResult;
+  lineName: (lineId: string) => string;
+  onClose: () => void;
+  tr: ReceiptsTexts;
+  locale: ReturnType<typeof getLocale>;
+}
+
+function ReceiptsResult({ result, lineName, onClose, tr, locale }: Readonly<ReceiptsResultProps>) {
+  return (
+    <div className="space-y-3" role="status" data-testid="receipts-result">
+      <p className="text-sm">{plural(result.created.length, tr.resultCreated, locale)}</p>
+      {result.failed.length > 0 ? (
+        <div className="space-y-1.5" data-testid="receipts-failed">
+          <p className="text-sm font-medium text-destructive">{plural(result.failed.length, tr.resultFailed, locale)}</p>
+          <ul className="list-disc space-y-0.5 pl-5 text-sm text-muted-foreground">
+            {result.failed.map((failure) => (
+              <li key={failure.recordId}>
+                {tr.failedRow.replace('{line}', lineName(failure.recordId)).replace('{error}', failure.error)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <DialogFooter>
+        <Button type="button" onClick={onClose}>
+          {tr.close}
+        </Button>
+      </DialogFooter>
+    </div>
+  );
+}
+
 export function AskReceiptsDialog({
   open,
   onOpenChange,
@@ -96,26 +132,7 @@ export function AskReceiptsDialog({
         </DialogHeader>
 
         {result ? (
-          <div className="space-y-3" role="status" data-testid="receipts-result">
-            <p className="text-sm">{plural(result.created.length, tr.resultCreated, locale)}</p>
-            {result.failed.length > 0 ? (
-              <div className="space-y-1.5" data-testid="receipts-failed">
-                <p className="text-sm font-medium text-destructive">{plural(result.failed.length, tr.resultFailed, locale)}</p>
-                <ul className="list-disc space-y-0.5 pl-5 text-sm text-muted-foreground">
-                  {result.failed.map((failure) => (
-                    <li key={failure.recordId}>
-                      {tr.failedRow.replace('{line}', lineName(failure.recordId)).replace('{error}', failure.error)}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            <DialogFooter>
-              <Button type="button" onClick={() => onOpenChange(false)}>
-                {tr.close}
-              </Button>
-            </DialogFooter>
-          </div>
+          <ReceiptsResult result={result} lineName={lineName} onClose={() => onOpenChange(false)} tr={tr} locale={locale} />
         ) : (
           <form onSubmit={submit} className="space-y-4" noValidate>
             <div className="space-y-2">

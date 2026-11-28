@@ -27,13 +27,10 @@ function rememberSettingsReturn(): void {
   }
 }
 
-export function InboxAddressCard() {
-  const { t } = useI18n();
-  const ti = t.weldbooksReceipts.inbox;
-  const { entityId } = useCurrentAccountingEntity();
-  const inbox = useEntityInbox(entityId);
-  const canManage = useCan('accounts:update');
-  const [feedback, setFeedback] = useState<'copied' | 'failed' | null>(null);
+type CopyFeedback = 'copied' | 'failed' | null;
+
+function useCopyFeedback(email: string | null) {
+  const [feedback, setFeedback] = useState<CopyFeedback>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -42,9 +39,6 @@ export function InboxAddressCard() {
     },
     [],
   );
-
-  const email = inbox.data?.email ?? null;
-  if (!entityId || inbox.isPending || inbox.isError || !inbox.data) return null;
 
   const copy = async () => {
     if (!email) return;
@@ -58,6 +52,79 @@ export function InboxAddressCard() {
     timer.current = setTimeout(() => setFeedback(null), COPY_FEEDBACK_MS);
   };
 
+  return { feedback, copy };
+}
+
+type InboxLabels = ReturnType<typeof useI18n>['t']['weldbooksReceipts']['inbox'];
+
+function feedbackLabel(feedback: CopyFeedback, ti: InboxLabels): string {
+  if (feedback === 'copied') return ti.copied;
+  if (feedback === 'failed') return ti.copyFailed;
+  return '';
+}
+
+function InboxAddressDetails({
+  email,
+  ti,
+  workspaceAddress,
+  autoScanEnabled,
+}: {
+  email: string | null;
+  ti: InboxLabels;
+  workspaceAddress: boolean;
+  autoScanEnabled: boolean;
+}) {
+  if (!email) return <p className="text-xs text-muted-foreground">{ti.noAddressHint}</p>;
+  return (
+    <>
+      <p className="break-all font-mono text-sm" data-testid="inbox-email">
+        {email}
+      </p>
+      <p className="text-xs text-muted-foreground">{ti.addressHint}</p>
+      <p className="text-xs text-muted-foreground">
+        {workspaceAddress ? `${ti.workspaceAddress} ` : ''}
+        {autoScanEnabled ? ti.autoScanOn : ti.autoScanOff}
+      </p>
+    </>
+  );
+}
+
+function CopyAddressButton({
+  email,
+  ti,
+  feedback,
+  onCopy,
+}: {
+  email: string;
+  ti: InboxLabels;
+  feedback: CopyFeedback;
+  onCopy: () => void;
+}) {
+  return (
+    <span className="relative inline-flex items-center gap-2">
+      <Button type="button" variant="outline" size="sm" onClick={onCopy} aria-label={`${ti.copy}: ${email}`}>
+        {feedback === 'copied' ? <Check className="h-4 w-4" aria-hidden /> : <Copy className="h-4 w-4" aria-hidden />}
+        {ti.copy}
+      </Button>
+      {/* The feedback is its own live region, outside the button, so it is announced. */}
+      <span role="status" className="text-xs text-muted-foreground" data-testid="copy-feedback">
+        {feedbackLabel(feedback, ti)}
+      </span>
+    </span>
+  );
+}
+
+export function InboxAddressCard() {
+  const { t } = useI18n();
+  const ti = t.weldbooksReceipts.inbox;
+  const { entityId } = useCurrentAccountingEntity();
+  const inbox = useEntityInbox(entityId);
+  const canManage = useCan('accounts:update');
+  const email = inbox.data?.email ?? null;
+  const { feedback, copy } = useCopyFeedback(email);
+
+  if (!entityId || inbox.isPending || inbox.isError || !inbox.data) return null;
+
   return (
     <div className="px-4 pt-3" data-testid="inbox-address">
       <Card>
@@ -66,35 +133,16 @@ export function InboxAddressCard() {
             <Mail className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
             <div className="min-w-0 space-y-0.5">
               <h2 className="text-sm font-semibold">{email ? ti.addressTitle : ti.noAddressTitle}</h2>
-              {email ? (
-                <>
-                  <p className="break-all font-mono text-sm" data-testid="inbox-email">
-                    {email}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{ti.addressHint}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {inbox.data.workspaceAddress ? `${ti.workspaceAddress} ` : ''}
-                    {inbox.data.autoScanEnabled ? ti.autoScanOn : ti.autoScanOff}
-                  </p>
-                </>
-              ) : (
-                <p className="text-xs text-muted-foreground">{ti.noAddressHint}</p>
-              )}
+              <InboxAddressDetails
+                email={email}
+                ti={ti}
+                workspaceAddress={Boolean(inbox.data.workspaceAddress)}
+                autoScanEnabled={Boolean(inbox.data.autoScanEnabled)}
+              />
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {email ? (
-              <span className="relative inline-flex items-center gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => void copy()} aria-label={`${ti.copy}: ${email}`}>
-                  {feedback === 'copied' ? <Check className="h-4 w-4" aria-hidden /> : <Copy className="h-4 w-4" aria-hidden />}
-                  {ti.copy}
-                </Button>
-                {/* The feedback is its own live region, outside the button, so it is announced. */}
-                <span role="status" className="text-xs text-muted-foreground" data-testid="copy-feedback">
-                  {feedback === 'copied' ? ti.copied : feedback === 'failed' ? ti.copyFailed : ''}
-                </span>
-              </span>
-            ) : null}
+            {email ? <CopyAddressButton email={email} ti={ti} feedback={feedback} onCopy={() => void copy()} /> : null}
             {canManage ? (
               <Button asChild variant={email ? 'ghost' : 'default'} size="sm">
                 <Link to="/settings/entities/$id/edit" params={{ id: entityId }} search={{ tab: 'weldbooks' }} onClick={rememberSettingsReturn}>

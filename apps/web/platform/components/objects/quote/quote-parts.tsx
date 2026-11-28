@@ -100,6 +100,11 @@ function QuoteOnlineLink({ quoteId, sent }: Readonly<{ quoteId: string; sent: bo
   );
 }
 
+function invoiceTone(status: string): 'success' | 'warning' | 'neutral' {
+  if (status === 'paid') return 'success';
+  return status === 'overdue' ? 'warning' : 'neutral';
+}
+
 export function QuoteDetailsTab({ quote }: Readonly<{ quote: QuoteDetail }>) {
   const { t } = useI18n();
   const copy = t.weldbooksSales.quotes;
@@ -135,7 +140,7 @@ export function QuoteDetailsTab({ quote }: Readonly<{ quote: QuoteDetail }>) {
                 label={invoice.invoiceNumber ?? copy.draftInvoice}
                 secondary={formatMoney(invoice.total, invoice.currency)}
                 statusLabel={invoiceStatus[invoice.status] ?? invoice.status}
-                tone={invoice.status === 'paid' ? 'success' : invoice.status === 'overdue' ? 'warning' : 'neutral'}
+                tone={invoiceTone(invoice.status)}
               />
             ))}
           </div>

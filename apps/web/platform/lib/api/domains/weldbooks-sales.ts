@@ -142,18 +142,21 @@ export interface QuoteRow {
   invoices?: Array<{ id: string; invoiceNumber: string | null; status: string }>;
 }
 
+/** A decimal the server sends as a string or a number, or leaves empty. */
+export type DecimalValue = string | number | null;
+
 export interface QuoteLine {
   id?: string;
   description: string;
-  quantity?: string | number | null;
+  quantity?: DecimalValue;
   unitPrice: string | number;
-  discountPercent?: string | number | null;
-  taxRate?: string | number | null;
+  discountPercent?: DecimalValue;
+  taxRate?: DecimalValue;
   unit?: string | null;
   taxRateId?: string | null;
   accountId?: string | null;
   productId?: string | null;
-  lineTotal?: string | number | null;
+  lineTotal?: DecimalValue;
 }
 
 export interface QuoteInvoiceRef {

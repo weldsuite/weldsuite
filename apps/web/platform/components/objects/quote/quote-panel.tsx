@@ -49,9 +49,118 @@ function isTabId(value: string | undefined): value is QuoteTabId {
   return TAB_IDS.includes(value as QuoteTabId);
 }
 
+function initialTabOf(value: string | undefined): QuoteTabId {
+  return isTabId(value) ? value : 'overview';
+}
+
 /** The API answered 404: the quote was deleted, or the link is wrong. */
 function isNotFound(error: unknown): boolean {
   return (error as { status?: number } | null)?.status === 404;
+}
+
+function QuoteHeaderActions({
+  quoteId,
+  showEdit,
+  canRevoke,
+  onCopyLink,
+  onRevoke,
+}: Readonly<{ quoteId: string; showEdit: boolean; canRevoke: boolean; onCopyLink: () => void; onRevoke: () => void }>) {
+  const { t } = useI18n();
+  const st = useTranslations();
+  const copy = t.weldbooksSales.quotes;
+  const router = useRouter();
+  return (
+    <div className="flex items-center gap-0.5">
+      {showEdit ? (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="size-7"
+          title={copy.edit}
+          aria-label={copy.edit}
+          onClick={() => router.push(`/weldbooks/quotes/${quoteId}/edit`)}
+        >
+          <Pencil className="h-4 w-4 text-muted-foreground" />
+        </Button>
+      ) : null}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon-sm" className="size-7 data-[state=open]:bg-accent" aria-label={copy.moreActions}>
+            <EllipsisVertical className="h-4 w-4 text-muted-foreground" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={onCopyLink}>
+            <LinkIcon />
+            {st('sweep.entities.copyLink')}
+          </DropdownMenuItem>
+          {canRevoke ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={onRevoke}>
+                <Link2Off />
+                {copy.revokeLink}
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+function QuoteSubheader({
+  showSend,
+  showMake,
+  onSend,
+  onMake,
+}: Readonly<{ showSend: boolean; showMake: boolean; onSend: () => void; onMake: () => void }>) {
+  const { t } = useI18n();
+  const copy = t.weldbooksSales.quotes;
+  return (
+    <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pt-1">
+      {showSend ? (
+        <Button variant="outline" size="sm" onClick={onSend}>
+          <SendHorizontal className="mr-1 h-4 w-4" />
+          {copy.send}
+        </Button>
+      ) : null}
+      {showMake ? (
+        <Button variant="outline" size="sm" onClick={onMake}>
+          <Receipt className="mr-1 h-4 w-4" />
+          {copy.makeInvoice}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+/** The load error, or "not found" when the quote is gone (or the link is wrong); nothing while loading or loaded. */
+function QuoteLoadProblem({ query }: Readonly<{ query: ReturnType<typeof useQuote> }>) {
+  const { t } = useI18n();
+  const st = useTranslations();
+  if (query.isLoading) return null;
+  const missing = !query.isError || isNotFound(query.error);
+  if (query.isError && !missing) return <div className="p-4 text-sm text-destructive">{st('sweep.entities.failedToLoad')}</div>;
+  if (!query.data && missing) return <div className="p-6 text-center text-sm text-muted-foreground">{t.weldbooksSales.quotes.notFound}</div>;
+  return null;
+}
+
+/** Revoking a quote's link: the confirm dialog's state and the call, with its toasts. */
+function useRevokeQuote(id: string) {
+  const { t } = useI18n();
+  const copy = t.weldbooksSales.quotes;
+  const revoke = useRevokeQuoteLink();
+  const [revokeOpen, setRevokeOpen] = useState(false);
+  const revokeLink = () =>
+    revoke.mutate(id, {
+      onSuccess: () => {
+        toast.success(copy.linkRevoked);
+        setRevokeOpen(false);
+      },
+      onError: (error) => toast.error(copy.revokeFailed, { description: error instanceof Error ? error.message : undefined }),
+    });
+  return { revoke, revokeOpen, setRevokeOpen, revokeLink };
 }
 
 export function QuotePanel(props: Readonly<ObjectPanelComponentProps>) {
@@ -59,7 +168,6 @@ export function QuotePanel(props: Readonly<ObjectPanelComponentProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const copy = t.weldbooksSales.quotes;
-  const router = useRouter();
   const canUpdate = useCan('invoices:update');
   const canCreate = useCan('invoices:create');
   const quoteQuery = useQuote(id);
@@ -67,12 +175,11 @@ export function QuotePanel(props: Readonly<ObjectPanelComponentProps>) {
   const contact = useAccountingCustomer(quote?.contactId ?? '').data?.data;
   const entityName = useEntityInvoiceDetails().entity?.name;
   const emailQuote = useEmailQuote();
-  const revoke = useRevokeQuoteLink();
+  const { revoke, revokeOpen, setRevokeOpen, revokeLink } = useRevokeQuote(id);
   const copyLink = useCopyPanelLink('/weldbooks/quotes', 'quote', id);
 
   const [sendOpen, setSendOpen] = useState(false);
   const [makeOpen, setMakeOpen] = useState(false);
-  const [revokeOpen, setRevokeOpen] = useState(false);
 
   const shell = useObjectPanelShell({ ...props, width: QUOTE_PANEL_WIDTH, loading: quoteQuery.isLoading && !quote });
   const tabs = useMemo(
@@ -85,21 +192,12 @@ export function QuotePanel(props: Readonly<ObjectPanelComponentProps>) {
       }),
     [st, copy.lines, quote?.lines.length],
   );
-  const [activeTab, setActiveTab] = useState<QuoteTabId>(isTabId(initialTab) ? initialTab : 'overview');
+  const [activeTab, setActiveTab] = useState<QuoteTabId>(initialTabOf(initialTab));
 
   const showEdit = Boolean(quote) && canUpdate && quote !== undefined && canEditQuote(quote);
   const showSend = Boolean(quote) && canUpdate;
   const showMake = quote !== undefined && canCreate && canInvoiceQuote(quote);
   const hasLink = Boolean(quote?.sentAt);
-
-  const revokeLink = () =>
-    revoke.mutate(id, {
-      onSuccess: () => {
-        toast.success(copy.linkRevoked);
-        setRevokeOpen(false);
-      },
-      onError: (error) => toast.error(copy.revokeFailed, { description: error instanceof Error ? error.message : undefined }),
-    });
 
   return (
     <>
@@ -109,60 +207,18 @@ export function QuotePanel(props: Readonly<ObjectPanelComponentProps>) {
         title={<QuoteTitle quote={quote} />}
         actions={
           quote ? (
-            <div className="flex items-center gap-0.5">
-              {showEdit ? (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="size-7"
-                  title={copy.edit}
-                  aria-label={copy.edit}
-                  onClick={() => router.push(`/weldbooks/quotes/${id}/edit`)}
-                >
-                  <Pencil className="h-4 w-4 text-muted-foreground" />
-                </Button>
-              ) : null}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon-sm" className="size-7 data-[state=open]:bg-accent" aria-label={copy.moreActions}>
-                    <EllipsisVertical className="h-4 w-4 text-muted-foreground" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => void copyLink()}>
-                    <LinkIcon />
-                    {st('sweep.entities.copyLink')}
-                  </DropdownMenuItem>
-                  {canUpdate && hasLink ? (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem variant="destructive" onClick={() => setRevokeOpen(true)}>
-                        <Link2Off />
-                        {copy.revokeLink}
-                      </DropdownMenuItem>
-                    </>
-                  ) : null}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+            <QuoteHeaderActions
+              quoteId={id}
+              showEdit={showEdit}
+              canRevoke={canUpdate && hasLink}
+              onCopyLink={() => void copyLink()}
+              onRevoke={() => setRevokeOpen(true)}
+            />
           ) : null
         }
         subheader={
           quote && (showSend || showMake) ? (
-            <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pt-1">
-              {showSend ? (
-                <Button variant="outline" size="sm" onClick={() => setSendOpen(true)}>
-                  <SendHorizontal className="mr-1 h-4 w-4" />
-                  {copy.send}
-                </Button>
-              ) : null}
-              {showMake ? (
-                <Button variant="outline" size="sm" onClick={() => setMakeOpen(true)}>
-                  <Receipt className="mr-1 h-4 w-4" />
-                  {copy.makeInvoice}
-                </Button>
-              ) : null}
-            </div>
+            <QuoteSubheader showSend={showSend} showMake={showMake} onSend={() => setSendOpen(true)} onMake={() => setMakeOpen(true)} />
           ) : null
         }
         tabs={
@@ -171,12 +227,7 @@ export function QuotePanel(props: Readonly<ObjectPanelComponentProps>) {
           ) : undefined
         }
       >
-        {!quoteQuery.isLoading && quoteQuery.isError && !isNotFound(quoteQuery.error) && (
-          <div className="p-4 text-sm text-destructive">{st('sweep.entities.failedToLoad')}</div>
-        )}
-        {!quoteQuery.isLoading && !quote && (!quoteQuery.isError || isNotFound(quoteQuery.error)) && (
-          <div className="p-6 text-center text-sm text-muted-foreground">{copy.notFound}</div>
-        )}
+        <QuoteLoadProblem query={quoteQuery} />
         {quote && activeTab === 'overview' ? <QuoteDetailsTab quote={quote} /> : null}
         {quote && activeTab === 'lines' ? <QuoteLinesTab quote={quote} /> : null}
         {quote && activeTab === 'history' ? <EntityAuditPanel entityType="quote" entityId={quote.id} /> : null}

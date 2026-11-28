@@ -169,11 +169,81 @@ function ReviewBulkBar({
   );
 }
 
-export function AutomaticView({ bankAccountId, currency }: Readonly<{ bankAccountId: string; currency: string | null }>) {
+type LinesQuery = ReturnType<typeof useInfiniteBankLines>;
+
+interface AutomaticBodyProps {
+  query: LinesQuery;
+  canReview: boolean;
+  filter: ReviewFilter;
+  currency: string | null;
+  picked: string[];
+  setPicked: (ids: string[]) => void;
+}
+
+/** The lines (with the review bar and Load more) once there are some to show. */
+function AutomaticLines({ query, canReview, filter, currency, picked, setPicked }: Readonly<AutomaticBodyProps>) {
+  const { t } = useI18n();
+  const ta = t.weldbooksConnected.automatic;
+  const { can } = usePermissions();
+  const lines = query.data?.lines ?? [];
+  const shownIds = lines.map((line) => line.id);
+  // What was picked on a list that has since changed is not marked by mistake.
+  const pickedShown = picked.filter((id) => shownIds.includes(id));
+  const toggle = (id: string) => setPicked(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id]);
+
+  return (
+    <>
+      {canReview && filter === 'notReviewed' ? (
+        <ReviewBulkBar
+          lines={pickedShown}
+          allSelected={pickedShown.length === shownIds.length}
+          onSelectAll={() => setPicked(shownIds)}
+          onClear={() => setPicked([])}
+        />
+      ) : null}
+      <ul className="space-y-2" data-testid="automatic-list">
+        {lines.map((line) => (
+          <AutomaticRow
+            key={line.id}
+            line={line}
+            currency={currency}
+            canUndo={can('banking:update')}
+            review={canReview ? { selected: pickedShown.includes(line.id), onToggle: () => toggle(line.id) } : null}
+          />
+        ))}
+      </ul>
+      {query.hasNextPage ? (
+        <div className="flex justify-center">
+          <Button type="button" variant="outline" size="sm" onClick={() => void query.fetchNextPage()} disabled={query.isFetchingNextPage}>
+            {query.isFetchingNextPage ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : null}
+            {ta.loadMore}
+          </Button>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** The title of the empty state: what is left to review, or nothing at all. */
+function emptyTitle(canReview: boolean, filter: ReviewFilter, ta: { empty: string }, tr: { emptyReviewed: string; emptyNotReviewed: string }) {
+  if (!canReview) return ta.empty;
+  return filter === 'reviewed' ? tr.emptyReviewed : tr.emptyNotReviewed;
+}
+
+function AutomaticBody(props: Readonly<AutomaticBodyProps>) {
   const { t } = useI18n();
   const ta = t.weldbooksConnected.automatic;
   const tr = t.weldbooksQuestions.review;
-  const { can } = usePermissions();
+  const { query, canReview, filter } = props;
+  if (query.isLoading) return <PageLoader fullScreen={false} />;
+  if (query.isError) return <ErrorState message={ta.loadFailed} onRetry={() => void query.refetch()} />;
+  if ((query.data?.lines ?? []).length === 0) return <EmptyState title={emptyTitle(canReview, filter, ta, tr)} />;
+  return <AutomaticLines {...props} />;
+}
+
+export function AutomaticView({ bankAccountId, currency }: Readonly<{ bankAccountId: string; currency: string | null }>) {
+  const { t } = useI18n();
+  const ta = t.weldbooksConnected.automatic;
   const canReview = useCanReview();
   const [filter, setFilter] = useState<ReviewFilter>('notReviewed');
   const [picked, setPicked] = useState<string[]>([]);
@@ -183,57 +253,6 @@ export function AutomaticView({ bankAccountId, currency }: Readonly<{ bankAccoun
     // The accountant works through what is not reviewed yet; everyone else sees every line.
     ...(canReview ? { reviewed: filter === 'reviewed' } : {}),
   });
-  const lines = query.data?.lines ?? [];
-  const shownIds = lines.map((line) => line.id);
-
-  const toggle = (id: string) => setPicked((current) => (current.includes(id) ? current.filter((x) => x !== id) : [...current, id]));
-  // What was picked on a list that has since changed is not marked by mistake.
-  const pickedShown = picked.filter((id) => shownIds.includes(id));
-
-  let body;
-  if (query.isLoading) {
-    body = <PageLoader fullScreen={false} />;
-  } else if (query.isError) {
-    body = <ErrorState message={ta.loadFailed} onRetry={() => void query.refetch()} />;
-  } else if (lines.length === 0) {
-    body = <EmptyState title={canReview ? (filter === 'reviewed' ? tr.emptyReviewed : tr.emptyNotReviewed) : ta.empty} />;
-  } else {
-    body = (
-      <>
-        {canReview && filter === 'notReviewed' ? (
-          <ReviewBulkBar
-            lines={pickedShown}
-            allSelected={pickedShown.length === shownIds.length}
-            onSelectAll={() => setPicked(shownIds)}
-            onClear={() => setPicked([])}
-          />
-        ) : null}
-        <ul className="space-y-2" data-testid="automatic-list">
-          {lines.map((line) => (
-            <AutomaticRow
-              key={line.id}
-              line={line}
-              currency={currency}
-              canUndo={can('banking:update')}
-              review={
-                canReview
-                  ? { selected: pickedShown.includes(line.id), onToggle: () => toggle(line.id) }
-                  : null
-              }
-            />
-          ))}
-        </ul>
-        {query.hasNextPage ? (
-          <div className="flex justify-center">
-            <Button type="button" variant="outline" size="sm" onClick={() => void query.fetchNextPage()} disabled={query.isFetchingNextPage}>
-              {query.isFetchingNextPage ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : null}
-              {ta.loadMore}
-            </Button>
-          </div>
-        ) : null}
-      </>
-    );
-  }
 
   return (
     <section className="space-y-4" aria-label={ta.title}>
@@ -247,7 +266,14 @@ export function AutomaticView({ bankAccountId, currency }: Readonly<{ bankAccoun
           }}
         />
       ) : null}
-      {body}
+      <AutomaticBody
+        query={query}
+        canReview={canReview}
+        filter={filter}
+        currency={currency}
+        picked={picked}
+        setPicked={setPicked}
+      />
     </section>
   );
 }

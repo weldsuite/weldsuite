@@ -188,6 +188,22 @@ function TemplatesEditor({ settings }: Readonly<{ settings: EmailTemplatesSettin
   );
 }
 
+function TemplatesBody({ query, copy }: Readonly<{ query: ReturnType<typeof useEmailTemplates>; copy: { loadFailed: string } }>) {
+  if (query.isError) {
+    return (
+      <CardContent>
+        <ErrorState message={copy.loadFailed} onRetry={() => void query.refetch()} />
+      </CardContent>
+    );
+  }
+  if (query.data) return <TemplatesEditor settings={query.data} />;
+  return (
+    <CardContent>
+      <InlineSpinner />
+    </CardContent>
+  );
+}
+
 export function EmailTemplatesCard() {
   const { t } = useI18n();
   const copy = t.weldbooksSales.templates;
@@ -198,17 +214,7 @@ export function EmailTemplatesCard() {
         <CardTitle>{copy.title}</CardTitle>
         <CardDescription>{copy.description}</CardDescription>
       </CardHeader>
-      {query.isError ? (
-        <CardContent>
-          <ErrorState message={copy.loadFailed} onRetry={() => void query.refetch()} />
-        </CardContent>
-      ) : query.data ? (
-        <TemplatesEditor settings={query.data} />
-      ) : (
-        <CardContent>
-          <InlineSpinner />
-        </CardContent>
-      )}
+      <TemplatesBody query={query} copy={copy} />
     </Card>
   );
 }

@@ -94,7 +94,7 @@ describe('EmailTemplatesCard', () => {
     expect(screen.queryByRole('button', { name: 'Insert Collection costs' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('combobox', { name: 'Which e-mail' }));
     await user.click(await screen.findByRole('option', { name: 'Reminder 3' }));
-    expect(screen.getAllByRole('button', { name: 'Insert Total to pay' }).length).toBe(2);
+    expect(screen.getAllByRole('button', { name: 'Insert Total to pay' })).toHaveLength(2);
     expect(screen.getByLabelText('Subject')).toHaveValue('Laatste aanmaning {number}');
   });
 

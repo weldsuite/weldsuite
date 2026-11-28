@@ -1,6 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { getPdf } from '@/lib/server/backend'
 
+/** The HTTP status for a failed backend lookup. */
+function failureStatus(reason: string): number {
+  if (reason === 'not_found') return 404
+  if (reason === 'rate_limited') return 429
+  return 502
+}
+
 /**
  * The PDF of a link's document, streamed from the backend so the browser never
  * learns where the backend is. `$token_` keeps it out of the page's layout.
@@ -11,8 +18,7 @@ export const Route = createFileRoute('/d/$token_/pdf')({
       GET: async ({ params }) => {
         const pdf = await getPdf(params.token)
         if (!pdf.ok) {
-          const status = pdf.reason === 'not_found' ? 404 : pdf.reason === 'rate_limited' ? 429 : 502
-          return new Response(null, { status, headers: { 'Cache-Control': 'no-store' } })
+          return new Response(null, { status: failureStatus(pdf.reason), headers: { 'Cache-Control': 'no-store' } })
         }
         return new Response(pdf.response.body, {
           headers: {

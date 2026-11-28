@@ -47,6 +47,57 @@ function TileButton({ label, value, hint, tone, loading, icon, onOpen }: Readonl
   );
 }
 
+/** The figures and hints of the three money tiles. */
+function useTileFigures(summary: ContactSummary | undefined) {
+  const { t, language } = useI18n();
+  const copy = t.weldbooksContactPage.tiles;
+  const { formatMoney } = useWeldbooksFormat();
+  const toReceive = describeSums(summary?.toReceive, formatMoney);
+  const overdue = describeSums(summary?.overdue, formatMoney);
+  const toPay = describeSums(summary?.toPay, formatMoney);
+  const others = (sums: string[]) => (sums.length > 0 ? copy.moreCurrencies.replace('{amounts}', sums.join(', ')) : null);
+
+  const receiveCount = countOf(summary?.toReceive);
+  const payCount = countOf(summary?.toPay);
+  const toReceiveHint = others(toReceive.others) ?? (receiveCount > 0 ? plural(receiveCount, copy.invoices, language) : copy.nothingOpen);
+  const toPayHint = others(toPay.others) ?? (payCount > 0 ? plural(payCount, copy.bills, language) : copy.nothingOpen);
+  const overdueHint = others(overdue.others) ?? (overdue.isEmpty ? copy.nothingOverdue : null);
+  return { toReceive, overdue, toPay, toReceiveHint, toPayHint, overdueHint };
+}
+
+/** The hours not invoiced yet: a link to the Unbilled time page when there are some. */
+function UnbilledTile({ contactId, summary, loading }: Readonly<{ contactId: string; summary: ContactSummary | undefined; loading: boolean }>) {
+  const { t } = useI18n();
+  const copy = t.weldbooksContactPage.tiles;
+  const { formatMoney, formatNumber } = useWeldbooksFormat();
+  const unbilled = summary?.unbilledHours;
+  const hasUnbilled = Boolean(unbilled) && Number(unbilled?.hours) > 0;
+  return (
+    <KpiCardLink
+      label={copy.unbilled}
+      value={hasUnbilled ? copy.hours.replace('{hours}', formatNumber(unbilled?.hours)) : copy.noUnbilled}
+      loading={loading}
+      hint={hasUnbilled && unbilled ? `${formatMoney(unbilled.amount, unbilled.currency)} · ${copy.invoiceIt}` : undefined}
+      icon={hasUnbilled ? Hourglass : Clock}
+      href={hasUnbilled ? `/weldbooks/time/unbilled?customerId=${encodeURIComponent(contactId)}` : undefined}
+    />
+  );
+}
+
+/** Credit the contact has not applied yet, when there is any. */
+function UnappliedCredit({ summary }: Readonly<{ summary: ContactSummary | undefined }>) {
+  const { t } = useI18n();
+  const copy = t.weldbooksContactPage.tiles;
+  const { formatMoney } = useWeldbooksFormat();
+  const credit = nonZero(summary?.unappliedCredit);
+  if (credit.length === 0) return null;
+  return (
+    <p className="mt-2 text-xs text-muted-foreground">
+      {copy.credit.replace('{amount}', credit.map((sum) => formatMoney(sum.amount, sum.currency)).join(', '))}
+    </p>
+  );
+}
+
 export function ContactTiles({
   contactId,
   summary,
@@ -65,26 +116,10 @@ export function ContactTiles({
   onOpen: (target: ContactTileTarget) => void;
   failed?: boolean;
 }>) {
-  const { t, language } = useI18n();
+  const { t } = useI18n();
   const copy = t.weldbooksContactPage.tiles;
-  const { formatMoney, formatNumber } = useWeldbooksFormat();
   const loading = summary === undefined && !failed;
-
-  const toReceive = describeSums(summary?.toReceive, formatMoney);
-  const overdue = describeSums(summary?.overdue, formatMoney);
-  const toPay = describeSums(summary?.toPay, formatMoney);
-  const others = (sums: string[]) => (sums.length > 0 ? copy.moreCurrencies.replace('{amounts}', sums.join(', ')) : null);
-  const unbilled = summary?.unbilledHours;
-  const hasUnbilled = Boolean(unbilled) && Number(unbilled?.hours) > 0;
-
-  const receiveCount = countOf(summary?.toReceive);
-  const payCount = countOf(summary?.toPay);
-  const toReceiveHint =
-    others(toReceive.others) ??
-    (receiveCount > 0 ? plural(receiveCount, copy.invoices, language) : copy.nothingOpen);
-  const toPayHint =
-    others(toPay.others) ?? (payCount > 0 ? plural(payCount, copy.bills, language) : copy.nothingOpen);
-  const overdueHint = others(overdue.others) ?? (overdue.isEmpty ? copy.nothingOverdue : null);
+  const { toReceive, overdue, toPay, toReceiveHint, toPayHint, overdueHint } = useTileFigures(summary);
 
   if (failed) return <p className="px-4 pb-3 text-sm text-destructive">{copy.summaryFailed}</p>;
 
@@ -122,31 +157,9 @@ export function ContactTiles({
             onOpen={() => onOpen({ tab: 'bills', view: 'open' })}
           />
         ) : null}
-        {showReceivable && canSeeTime ? (
-          <KpiCardLink
-            label={copy.unbilled}
-            value={hasUnbilled ? copy.hours.replace('{hours}', formatNumber(unbilled?.hours)) : copy.noUnbilled}
-            loading={loading}
-            hint={
-              hasUnbilled && unbilled
-                ? `${formatMoney(unbilled.amount, unbilled.currency)} · ${copy.invoiceIt}`
-                : undefined
-            }
-            icon={hasUnbilled ? Hourglass : Clock}
-            href={hasUnbilled ? `/weldbooks/time/unbilled?customerId=${encodeURIComponent(contactId)}` : undefined}
-          />
-        ) : null}
+        {showReceivable && canSeeTime ? <UnbilledTile contactId={contactId} summary={summary} loading={loading} /> : null}
       </KpiGrid>
-      {nonZero(summary?.unappliedCredit).length > 0 ? (
-        <p className="mt-2 text-xs text-muted-foreground">
-          {copy.credit.replace(
-            '{amount}',
-            nonZero(summary?.unappliedCredit)
-              .map((sum) => formatMoney(sum.amount, sum.currency))
-              .join(', '),
-          )}
-        </p>
-      ) : null}
+      <UnappliedCredit summary={summary} />
     </section>
   );
 }

@@ -33,7 +33,7 @@ export function canInvoiceQuote(quote: Pick<QuoteDetail, 'status'>): boolean {
 /** What is left to invoice of a quote, as a percentage, from the invoices already made (their subtotals against the quote's). */
 export function shareLeft(quote: Pick<QuoteDetail, 'subtotal' | 'invoices'>): number {
   const total = Number(quote.subtotal ?? 0);
-  if (!(total > 0)) return 100;
+  if (Number.isNaN(total) || total <= 0) return 100;
   const invoiced = quote.invoices
     .filter((invoice) => invoice.type !== 'credit_note' && invoice.status !== 'cancelled')
     .reduce((sum, invoice) => sum + Number(invoice.subtotal ?? 0), 0);

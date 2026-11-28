@@ -23,6 +23,12 @@ const TONE: Record<PaymentOutcome, string> = {
   not_completed: 'border-red-600/40 bg-red-50 text-red-950 dark:bg-red-950/30 dark:text-red-100',
 }
 
+function outcomeCopy(t: (typeof dictionaries)[Locale], outcome: PaymentOutcome) {
+  if (outcome === 'received') return t.return.received
+  if (outcome === 'pending') return t.return.pending
+  return t.return.notCompleted
+}
+
 /**
  * Where Mollie sends the customer back. The document was read again for this
  * visit, so what it says is the truth: received, pending, or not completed (with
@@ -31,7 +37,7 @@ const TONE: Record<PaymentOutcome, string> = {
 export function ReturnView({ document, locale, backHref, onRefresh, actions }: ReturnViewProps) {
   const t = dictionaries[locale]
   const outcome = paymentOutcome(document)
-  const copy = outcome === 'received' ? t.return.received : outcome === 'pending' ? t.return.pending : t.return.notCompleted
+  const copy = outcomeCopy(t, outcome)
   const retry = outcome === 'not_completed' && canPay(document)
 
   return (

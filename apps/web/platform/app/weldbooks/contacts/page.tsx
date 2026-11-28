@@ -49,6 +49,12 @@ const TIN_TONE: Record<Exclude<SupplierTinStatus, 'none'>, ChipTone> = {
  * and `/weldbooks/customers` and `/weldbooks/suppliers` redirect here with the role set.
  * The vendor tax columns (1099) show only where the jurisdiction has them, for suppliers.
  */
+function roleTone(role: string): ChipTone {
+  if (role === 'both') return 'indigo';
+  if (role === 'supplier') return 'purple';
+  return 'blue';
+}
+
 export default function ContactsPage() {
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<ActiveFilter[]>([]);
@@ -142,7 +148,7 @@ export default function ContactsPage() {
       width: 'shrink-0 w-[170px]',
       render: (c) =>
         c.role ? (
-          <StatusChip tone={c.role === 'both' ? 'indigo' : c.role === 'supplier' ? 'purple' : 'blue'}>
+          <StatusChip tone={roleTone(c.role)}>
             {contactRoleLabel(c.role, t.accounting.contacts.roles, labels)}
           </StatusChip>
         ) : (
@@ -187,14 +193,11 @@ export default function ContactsPage() {
             id: 'w9',
             header: ts.colW9,
             width: 'hidden shrink-0 @6xl/list:flex w-[110px]',
-            render: (c) =>
-              c.w9?.receivedAt || c.w9?.legalName ? (
-                <StatusChip tone="green">{ts.w9Received}</StatusChip>
-              ) : c.is1099Vendor ? (
-                <StatusChip tone="amber">{ts.w9Missing}</StatusChip>
-              ) : (
-                <RowText />
-              ),
+            render: (c) => {
+              if (c.w9?.receivedAt || c.w9?.legalName) return <StatusChip tone="green">{ts.w9Received}</StatusChip>;
+              if (c.is1099Vendor) return <StatusChip tone="amber">{ts.w9Missing}</StatusChip>;
+              return <RowText />;
+            },
           },
         ] satisfies ColumnDef<ContactRow>[])
       : []),

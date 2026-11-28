@@ -132,7 +132,7 @@ function ApiKeyForm({ onCancel, onConnected }: Readonly<{ onCancel: () => void; 
               if (problem) setProblem(null);
             }}
             aria-invalid={problem ? true : undefined}
-            aria-describedby={`${ids}-help${problem ? ` ${problemId}` : ''}`}
+            aria-describedby={problem ? `${ids}-help ${problemId}` : `${ids}-help`}
             className="font-mono sm:max-w-md"
           />
           <Button
@@ -397,6 +397,12 @@ function PayoutsSection({ connection, canEdit }: Readonly<{ connection: PaymentC
   );
 }
 
+function connectionTone(status: string): 'success' | 'warning' | 'danger' {
+  if (status === 'active') return 'success';
+  if (status === 'needs_reauth') return 'warning';
+  return 'danger';
+}
+
 function ConnectedView({ connection, canEdit }: Readonly<{ connection: PaymentConnection; canEdit: boolean }>) {
   const { t } = useI18n();
   const copy = t.weldbooksPayments.settings;
@@ -405,7 +411,7 @@ function ConnectedView({ connection, canEdit }: Readonly<{ connection: PaymentCo
   const [confirmOpen, setConfirmOpen] = useState(false);
   const needsReauth = connection.status === 'needs_reauth';
   const statusLabels = copy.status as Readonly<Record<string, string>>;
-  const statusTone = connection.status === 'active' ? 'success' : connection.status === 'needs_reauth' ? 'warning' : 'danger';
+  const statusTone = connectionTone(connection.status);
 
   const confirmDisconnect = () => {
     disconnect.mutate(connection.id, {

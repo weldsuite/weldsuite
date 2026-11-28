@@ -29,6 +29,77 @@ import { useI18n } from '@/lib/i18n/provider';
 import { downloadBlob } from '@/lib/weldbooks/download';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
+function StatementPreview({ statement }: Readonly<{ statement: ReturnType<typeof useContactStatement> }>) {
+  const { t } = useI18n();
+  const copy = t.weldbooksContactPage.statement;
+  const { formatDate, formatMoney } = useWeldbooksFormat();
+  const data = statement.data;
+  const kinds = copy.kinds as Record<string, string>;
+
+  if (statement.isLoading) return <InlineSpinner className="py-6" />;
+  if (statement.isError || !data) return <ErrorState message={copy.loadFailed} onRetry={() => void statement.refetch()} />;
+  if (data.rows.length === 0) return <p className="py-6 text-center text-sm text-muted-foreground">{copy.empty}</p>;
+  return (
+    <div
+      role="region"
+      aria-label={copy.caption}
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+      tabIndex={0}
+      className="max-h-72 overflow-auto rounded-md border border-border"
+    >
+      <table className="w-full border-collapse text-sm">
+        <caption className="sr-only">{copy.caption}</caption>
+        <thead className="sticky top-0 bg-muted text-left text-xs text-muted-foreground">
+          <tr>
+            <th scope="col" className="px-3 py-2 font-medium">
+              {copy.number}
+            </th>
+            <th scope="col" className="px-3 py-2 font-medium">
+              {copy.date}
+            </th>
+            <th scope="col" className="px-3 py-2 font-medium">
+              {copy.due}
+            </th>
+            <th scope="col" className="px-3 py-2 text-right font-medium">
+              {copy.balance}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.rows.map((row) => (
+            <tr key={`${row.objectType}:${row.objectId}`} className="border-t border-border">
+              <th scope="row" className="px-3 py-2 text-left font-medium">
+                {row.number ?? kinds[row.kind] ?? row.kind}
+                <span className="block text-xs font-normal text-muted-foreground">
+                  {kinds[row.kind] ?? row.kind}
+                  {row.overdueDays > 0 ? ` · ${row.overdueDays} ${copy.overdueDays.toLowerCase()}` : ''}
+                </span>
+              </th>
+              <td className="whitespace-nowrap px-3 py-2 tabular-nums">{formatDate(row.date)}</td>
+              <td className="whitespace-nowrap px-3 py-2 tabular-nums">{formatDate(row.dueDate)}</td>
+              <td className="whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums">
+                {formatMoney(row.balance, row.currency)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          {data.totals.map((total) => (
+            <tr key={total.currency} className="border-t border-border bg-muted/40">
+              <th scope="row" colSpan={3} className="px-3 py-2 text-left font-semibold">
+                {copy.total}
+              </th>
+              <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums">
+                {formatMoney(total.amount, total.currency)}
+              </td>
+            </tr>
+          ))}
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
 function StatementBody({
   contactId,
   contactName,
@@ -36,12 +107,11 @@ function StatementBody({
 }: Readonly<{ contactId: string; contactName: string; onClose: () => void }>) {
   const { t } = useI18n();
   const copy = t.weldbooksContactPage.statement;
-  const { formatDate, formatMoney, today } = useWeldbooksFormat();
+  const { today } = useWeldbooksFormat();
   const [asOf, setAsOf] = useState(() => today());
   const inputId = useId();
   const [downloading, setDownloading] = useState(false);
   const statement = useContactStatement(contactId, asOf);
-  const data = statement.data;
 
   const downloadPdf = async () => {
     setDownloading(true);
@@ -55,8 +125,6 @@ function StatementBody({
       setDownloading(false);
     }
   };
-
-  const kinds = copy.kinds as Record<string, string>;
 
   return (
     <>
@@ -77,71 +145,7 @@ function StatementBody({
       </div>
 
       <section aria-label={copy.preview} className="min-h-24">
-        {statement.isLoading ? (
-          <InlineSpinner className="py-6" />
-        ) : statement.isError || !data ? (
-          <ErrorState message={copy.loadFailed} onRetry={() => void statement.refetch()} />
-        ) : data.rows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">{copy.empty}</p>
-        ) : (
-          <div
-            role="region"
-            aria-label={copy.caption}
-            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-            tabIndex={0}
-            className="max-h-72 overflow-auto rounded-md border border-border"
-          >
-            <table className="w-full border-collapse text-sm">
-              <caption className="sr-only">{copy.caption}</caption>
-              <thead className="sticky top-0 bg-muted text-left text-xs text-muted-foreground">
-                <tr>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    {copy.number}
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    {copy.date}
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    {copy.due}
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">
-                    {copy.balance}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.rows.map((row) => (
-                  <tr key={`${row.objectType}:${row.objectId}`} className="border-t border-border">
-                    <th scope="row" className="px-3 py-2 text-left font-medium">
-                      {row.number ?? kinds[row.kind] ?? row.kind}
-                      <span className="block text-xs font-normal text-muted-foreground">
-                        {kinds[row.kind] ?? row.kind}
-                        {row.overdueDays > 0 ? ` · ${row.overdueDays} ${copy.overdueDays.toLowerCase()}` : ''}
-                      </span>
-                    </th>
-                    <td className="whitespace-nowrap px-3 py-2 tabular-nums">{formatDate(row.date)}</td>
-                    <td className="whitespace-nowrap px-3 py-2 tabular-nums">{formatDate(row.dueDate)}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums">
-                      {formatMoney(row.balance, row.currency)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                {data.totals.map((total) => (
-                  <tr key={total.currency} className="border-t border-border bg-muted/40">
-                    <th scope="row" colSpan={3} className="px-3 py-2 text-left font-semibold">
-                      {copy.total}
-                    </th>
-                    <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums">
-                      {formatMoney(total.amount, total.currency)}
-                    </td>
-                  </tr>
-                ))}
-              </tfoot>
-            </table>
-          </div>
-        )}
+        <StatementPreview statement={statement} />
       </section>
 
       <InfoBanner>{copy.emailNote}</InfoBanner>

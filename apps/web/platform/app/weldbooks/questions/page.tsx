@@ -44,18 +44,24 @@ export interface QuestionsSearch {
 
 const ANY_STATUS = 'all';
 
+function statusFilter(value: string | undefined): QuestionStatus | undefined {
+  if (value === ANY_STATUS) return undefined;
+  if ((QUESTION_STATUSES as readonly string[]).includes(value ?? '')) return value as QuestionStatus;
+  return 'open';
+}
+
+function askedToFilter(value: string | undefined, accountant: boolean): 'me' | 'any' {
+  if (value === 'me' || value === 'any') return value;
+  return accountant ? 'any' : 'me';
+}
+
 /** The filters the address asks for, as the API takes them; a value this build does not know is ignored. */
 export function questionFilters(
   search: QuestionsSearch,
   accountant: boolean,
 ): { status: QuestionStatus | undefined; askedTo: 'me' | 'any'; recordType: BooksRecordChatType | undefined } {
-  const status =
-    search.status === ANY_STATUS
-      ? undefined
-      : (QUESTION_STATUSES as readonly string[]).includes(search.status ?? '')
-        ? (search.status as QuestionStatus)
-        : 'open';
-  const askedTo = search.askedTo === 'me' || search.askedTo === 'any' ? search.askedTo : accountant ? 'any' : 'me';
+  const status = statusFilter(search.status);
+  const askedTo = askedToFilter(search.askedTo, accountant);
   const recordType = (BOOKS_RECORD_CHAT_TYPES as readonly string[]).includes(search.type ?? '')
     ? (search.type as BooksRecordChatType)
     : undefined;

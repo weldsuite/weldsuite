@@ -107,89 +107,92 @@ function OpenNow({
   const loading = invoices.isLoading || bills.isLoading || quotes.isLoading;
   const empty = !loading && openInvoices.length + openBills.length + sentQuotes.length === 0 && !hasUnbilled;
 
+  let body: React.ReactNode;
+  if (loading) body = <InlineSpinner className="py-4" />;
+  else if (empty) body = <p className="py-2 text-sm text-muted-foreground">{copy.nothingOpen}</p>;
+  else {
+    body = (
+      <ul className="m-0 list-none p-0">
+        {openInvoices.map((invoice) => (
+          <OpenRow
+            key={invoice.id}
+            chip={
+              <RecordLink
+                type="invoice"
+                id={invoice.id}
+                label={copy.invoiceTitle.replace('{number}', invoice.invoiceNumber ?? copy.noNumber)}
+                tone={invoice.status === 'overdue' ? 'danger' : 'neutral'}
+                statusLabel={(t.accounting.statusLabels.invoice as Record<string, string>)[invoice.status]}
+              />
+            }
+            detail={copy.invoiceDue.replace('{date}', formatDate(invoice.dueDate))}
+            amount={formatMoney(invoice.balanceDue ?? invoice.total ?? '0', invoice.currency)}
+          />
+        ))}
+        {sentQuotes.map((quote) => (
+          <OpenRow
+            key={quote.id}
+            chip={
+              <RecordLink
+                type="quote"
+                id={quote.id}
+                label={copy.quoteTitle.replace('{number}', quote.quoteNumber ?? quote.name ?? copy.noNumber)}
+              />
+            }
+            detail={[
+              quote.sentAt ? copy.quoteSent.replace('{date}', formatDate(quote.sentAt)) : null,
+              quote.validUntil ? copy.quoteValidUntil.replace('{date}', formatDate(quote.validUntil)) : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+            amount={formatMoney(quote.total ?? '0', quote.currency)}
+          />
+        ))}
+        {openBills.map((bill) => (
+          <OpenRow
+            key={bill.id}
+            chip={
+              <RecordLink
+                type="bill"
+                id={bill.id}
+                label={copy.billFromThem.replace('{number}', bill.billNumber ?? copy.noNumber)}
+                tone={bill.status === 'overdue' ? 'danger' : 'neutral'}
+                statusLabel={(t.accounting.statusLabels.bill as Record<string, string>)[bill.status]}
+              />
+            }
+            detail={copy.invoiceDue.replace('{date}', formatDate(bill.dueDate))}
+            amount={formatMoney(bill.balanceDue ?? bill.total ?? '0', bill.currency)}
+          />
+        ))}
+        {hasUnbilled && unbilled ? (
+          <OpenRow
+            chip={
+              <>
+                <Hourglass className="size-4 text-muted-foreground" aria-hidden="true" />
+                <span className="text-sm font-medium">
+                  {copy.unbilledTitle.replace('{hours}', formatNumber(unbilled.hours))}
+                </span>
+                <Link
+                  href={`/weldbooks/time/unbilled?customerId=${encodeURIComponent(contactId)}`}
+                  className="text-sm text-primary underline-offset-2 hover:underline"
+                >
+                  {copy.createInvoice}
+                </Link>
+              </>
+            }
+            amount={formatMoney(unbilled.amount, unbilled.currency)}
+          />
+        ) : null}
+      </ul>
+    );
+  }
+
   return (
     <section aria-labelledby="contact-open-now" className="px-4 pt-2">
       <h3 id="contact-open-now" className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         {copy.openNow}
       </h3>
-      {loading ? (
-        <InlineSpinner className="py-4" />
-      ) : empty ? (
-        <p className="py-2 text-sm text-muted-foreground">{copy.nothingOpen}</p>
-      ) : (
-        <ul className="m-0 list-none p-0">
-          {openInvoices.map((invoice) => (
-            <OpenRow
-              key={invoice.id}
-              chip={
-                <RecordLink
-                  type="invoice"
-                  id={invoice.id}
-                  label={copy.invoiceTitle.replace('{number}', invoice.invoiceNumber ?? copy.noNumber)}
-                  tone={invoice.status === 'overdue' ? 'danger' : 'neutral'}
-                  statusLabel={(t.accounting.statusLabels.invoice as Record<string, string>)[invoice.status]}
-                />
-              }
-              detail={copy.invoiceDue.replace('{date}', formatDate(invoice.dueDate))}
-              amount={formatMoney(invoice.balanceDue ?? invoice.total ?? '0', invoice.currency)}
-            />
-          ))}
-          {sentQuotes.map((quote) => (
-            <OpenRow
-              key={quote.id}
-              chip={
-                <RecordLink
-                  type="quote"
-                  id={quote.id}
-                  label={copy.quoteTitle.replace('{number}', quote.quoteNumber ?? quote.name ?? copy.noNumber)}
-                />
-              }
-              detail={[
-                quote.sentAt ? copy.quoteSent.replace('{date}', formatDate(quote.sentAt)) : null,
-                quote.validUntil ? copy.quoteValidUntil.replace('{date}', formatDate(quote.validUntil)) : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-              amount={formatMoney(quote.total ?? '0', quote.currency)}
-            />
-          ))}
-          {openBills.map((bill) => (
-            <OpenRow
-              key={bill.id}
-              chip={
-                <RecordLink
-                  type="bill"
-                  id={bill.id}
-                  label={copy.billFromThem.replace('{number}', bill.billNumber ?? copy.noNumber)}
-                  tone={bill.status === 'overdue' ? 'danger' : 'neutral'}
-                  statusLabel={(t.accounting.statusLabels.bill as Record<string, string>)[bill.status]}
-                />
-              }
-              detail={copy.invoiceDue.replace('{date}', formatDate(bill.dueDate))}
-              amount={formatMoney(bill.balanceDue ?? bill.total ?? '0', bill.currency)}
-            />
-          ))}
-          {hasUnbilled && unbilled ? (
-            <OpenRow
-              chip={
-                <>
-                  <Hourglass className="size-4 text-muted-foreground" aria-hidden="true" />
-                  <span className="text-sm font-medium">
-                    {copy.unbilledTitle.replace('{hours}', formatNumber(unbilled.hours))}
-                  </span>
-                  <Link
-                    href={`/weldbooks/time/unbilled?customerId=${encodeURIComponent(contactId)}`}
-                    className="text-sm text-primary underline-offset-2 hover:underline"
-                  >
-                    {copy.createInvoice}
-                  </Link>
-                </>
-              }
-              amount={formatMoney(unbilled.amount, unbilled.currency)}
-            />
-          ) : null}
-        </ul>
-      )}
+      {body}
     </section>
   );
 }
@@ -272,29 +275,7 @@ function ContactTimeline({ contactId, contactName }: Readonly<{ contactId: strin
       <h3 id="contact-timeline" className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         {copy.everything.replace('{name}', contactName)}
       </h3>
-      {query.isLoading ? (
-        <InlineSpinner className="py-6" />
-      ) : query.isError ? (
-        <ErrorState message={copy.timelineFailed} onRetry={() => void query.refetch()} />
-      ) : items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{copy.timelineEmpty}</p>
-      ) : (
-        <>
-          <ActivityTimeline items={items} label={copy.timelineLabel} />
-          {query.hasNextPage ? (
-            <div className="flex justify-center pt-4">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void query.fetchNextPage()}
-                disabled={query.isFetchingNextPage}
-              >
-                {query.isFetchingNextPage ? copy.loadingMore : copy.loadMore}
-              </Button>
-            </div>
-          ) : null}
-        </>
-      )}
+      <TimelineBody query={query} items={items} />
     </section>
   );
 }
@@ -324,3 +305,26 @@ export function ContactOverviewTab({
     </div>
   );
 }
+function TimelineBody({
+  query,
+  items,
+}: Readonly<{ query: ReturnType<typeof useContactTimeline>; items: ActivityTimelineItem[] }>) {
+  const { t } = useI18n();
+  const copy = t.weldbooksContactPage.overview;
+  if (query.isLoading) return <InlineSpinner className="py-6" />;
+  if (query.isError) return <ErrorState message={copy.timelineFailed} onRetry={() => void query.refetch()} />;
+  if (items.length === 0) return <p className="text-sm text-muted-foreground">{copy.timelineEmpty}</p>;
+  return (
+    <>
+      <ActivityTimeline items={items} label={copy.timelineLabel} />
+      {query.hasNextPage ? (
+        <div className="flex justify-center pt-4">
+          <Button variant="outline" size="sm" onClick={() => void query.fetchNextPage()} disabled={query.isFetchingNextPage}>
+            {query.isFetchingNextPage ? copy.loadingMore : copy.loadMore}
+          </Button>
+        </div>
+      ) : null}
+    </>
+  );
+}
+

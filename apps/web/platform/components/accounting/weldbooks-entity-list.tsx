@@ -100,6 +100,12 @@ interface WeldbooksEntityListProps<T extends { id: string }> {
   selection?: WeldbooksListSelection<T>;
 }
 
+/** The tri-state of the select-all box. */
+function selectAllState(all: boolean, count: number): boolean | 'indeterminate' {
+  if (all) return true;
+  return count > 0 ? 'indeterminate' : false;
+}
+
 /**
  * The bar above a selectable list: "select all", how many are selected (a status message, so a
  * screen reader hears it change), the bulk actions and "Clear".
@@ -118,7 +124,7 @@ function SelectionBar<T extends { id: string }>({
     <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/70 px-4 py-1.5" data-testid="selection-bar">
       <label className="flex min-h-6 items-center gap-2 text-[13px] text-muted-foreground">
         <Checkbox
-          checked={all ? true : count > 0 ? 'indeterminate' : false}
+          checked={selectAllState(all, count)}
           onCheckedChange={(checked) => selection.onToggleAll(checked === true)}
           aria-label={copy.selectAll}
         />

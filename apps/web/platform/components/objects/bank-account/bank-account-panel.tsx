@@ -192,6 +192,45 @@ function BankAccountActions({
 
 // ─── Details tab ───────────────────────────────────────────────────────────
 
+/** What identifies the account: its provider, the US routing and account numbers, or the IBAN and BIC. */
+function AccountIdentifierRows({
+  account,
+  provider,
+  isUs,
+  t,
+}: Readonly<{ account: UsBankAccount; provider: boolean; isUs: boolean; t: Translations }>) {
+  const td = t.weldbooksUs.banking.accountDetails;
+  if (provider) {
+    return (
+      <PropertyRow
+        icon={Wallet}
+        label={t.weldbooksPayments.bankAccount.type}
+        value={t.weldbooksPayments.bankAccount.providerLabel}
+        readOnly
+      />
+    );
+  }
+  if (isUs) return <UsAccountRows account={account} t={t} />;
+  return (
+    <>
+      <PropertyRow
+        icon={CreditCard}
+        label={td.iban}
+        value={account.iban}
+        readOnly
+        renderValue={(value) => <span className="font-mono">{value}</span>}
+      />
+      <PropertyRow
+        icon={Hash}
+        label={td.bic}
+        value={account.bic}
+        readOnly
+        renderValue={(value) => <span className="font-mono">{value}</span>}
+      />
+    </>
+  );
+}
+
 /** The US account facts: its type, routing and account (or card) number, and next check number. */
 function UsAccountRows({ account, t }: Readonly<{ account: UsBankAccount; t: Translations }>) {
   const tb = t.weldbooksUs.banking;
@@ -330,33 +369,7 @@ function BankAccountDetailsTab({
             )
           }
         />
-        {provider ? (
-          <PropertyRow
-            icon={Wallet}
-            label={t.weldbooksPayments.bankAccount.type}
-            value={t.weldbooksPayments.bankAccount.providerLabel}
-            readOnly
-          />
-        ) : isUs ? (
-          <UsAccountRows account={account} t={t} />
-        ) : (
-          <>
-            <PropertyRow
-              icon={CreditCard}
-              label={td.iban}
-              value={account.iban}
-              readOnly
-              renderValue={(value) => <span className="font-mono">{value}</span>}
-            />
-            <PropertyRow
-              icon={Hash}
-              label={td.bic}
-              value={account.bic}
-              readOnly
-              renderValue={(value) => <span className="font-mono">{value}</span>}
-            />
-          </>
-        )}
+        <AccountIdentifierRows account={account} provider={provider} isUs={isUs} t={t} />
         <PropertyRow icon={User} label={td.accountHolder} value={account.accountHolderName} readOnly />
         <PropertyRow icon={Coins} label={td.currency} value={currency} readOnly />
         <PropertyRow

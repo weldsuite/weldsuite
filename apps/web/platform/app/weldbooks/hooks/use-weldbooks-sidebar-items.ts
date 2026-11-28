@@ -29,10 +29,18 @@ const ACCOUNTANT_PERMISSION = 'journal:create';
 function readAccountantCollapsed(): boolean | null {
   try {
     const stored = globalThis.localStorage?.getItem(ACCOUNTANT_COLLAPSED_KEY);
-    return stored === '1' ? true : stored === '0' ? false : null;
+    if (stored === '1') return true;
+    if (stored === '0') return false;
+    return null;
   } catch {
     return null;
   }
+}
+
+/** A collapsed group keeps only the current page; an expanded one keeps all its items. */
+function collapsedItems<T>(collapsed: boolean, current: T | undefined, items: T[]): T[] {
+  if (!collapsed) return items;
+  return current ? [current] : [];
 }
 
 function writeAccountantCollapsed(collapsed: boolean) {
@@ -146,7 +154,7 @@ export function useWeldbooksSidebarItems(enabled: boolean) {
           const current = items.find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
           return {
             ...group,
-            items: accountantCollapsed ? (current ? [current] : []) : items,
+            items: collapsedItems(accountantCollapsed, current, items),
             collapsed: accountantCollapsed,
             onToggleCollapse: toggleAccountant,
           };

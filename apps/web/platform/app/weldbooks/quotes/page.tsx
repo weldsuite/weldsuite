@@ -28,6 +28,12 @@ import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 const URL_FILTER_FIELDS = ['status'] as const;
 const URL_FILTER_VALUES = { status: QUOTE_STATUSES };
 
+function invoiceTone(status: string): 'success' | 'warning' | 'neutral' {
+  if (status === 'paid') return 'success';
+  if (status === 'overdue') return 'warning';
+  return 'neutral';
+}
+
 export default function QuotesPage() {
   const { t } = useI18n();
   const copy = t.weldbooksSales.quotes;
@@ -99,7 +105,7 @@ export default function QuotesPage() {
                     id={invoice.id}
                     label={invoice.invoiceNumber ?? copy.draftInvoice}
                     statusLabel={(t.accounting.statusLabels.invoice as Record<string, string>)[invoice.status]}
-                    tone={invoice.status === 'paid' ? 'success' : invoice.status === 'overdue' ? 'warning' : 'neutral'}
+                    tone={invoiceTone(invoice.status)}
                   />
                 ))}
                 {(quote.invoices?.length ?? 0) > 2 ? (

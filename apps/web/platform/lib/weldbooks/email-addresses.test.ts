@@ -14,6 +14,19 @@ describe('e-mail addresses', () => {
     for (const bad of ['klant', 'klant@', '@example.test', 'klant@example', 'a b@c.test']) expect(isEmailAddress(bad)).toBe(false);
   });
 
+  it('keeps the edge cases of the plain check', () => {
+    for (const ok of ['a@b.c', 'a@.b.c', 'a@b..c', 'a.b+c@sub.example.test']) expect(isEmailAddress(ok)).toBe(true);
+    for (const bad of ['a@b.', 'a@.b', 'a@b@c.d', 'a@b.c d', 'a@b.c,d', 'a;b@c.d', 'a@b.c\n', '']) expect(isEmailAddress(bad)).toBe(false);
+  });
+
+  it('answers a long hostile input at once', () => {
+    const started = performance.now();
+    expect(isEmailAddress(`a@${'a'.repeat(200_000)}`)).toBe(false);
+    expect(isEmailAddress(`a@${'.'.repeat(200_000)}`)).toBe(true);
+    expect(isEmailAddress(`${'a'.repeat(200_000)}@b`)).toBe(false);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it('says what is wrong: nothing, too many, or one bad address', () => {
     expect(addressProblem('', { required: true })).toEqual({ kind: 'required' });
     expect(addressProblem('', { required: false })).toBeNull();

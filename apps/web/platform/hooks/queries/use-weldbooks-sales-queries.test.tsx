@@ -132,8 +132,8 @@ describe('sales mutations', () => {
     expect(api.setRemindersPaused).toHaveBeenCalledWith('inv_1', true);
 
     const keys = invalidated(invalidate);
-    expect(keys.filter((key) => key === INVOICES).length).toBe(3);
-    expect(keys.filter((key) => key === TODO).length).toBe(3);
+    expect(keys.filter((key) => key === INVOICES)).toHaveLength(3);
+    expect(keys.filter((key) => key === TODO)).toHaveLength(3);
   });
 
   it('making an invoice from a quote refreshes the quotes, the invoices and To process', async () => {
@@ -160,7 +160,7 @@ describe('sales mutations', () => {
     expect(client.getQueryData(salesKeys.link('quote', 'q_1'))).toBe('https://pay.example.test/d/q');
     await result.current.revoke.mutateAsync('q_1');
     expect(client.getQueryData(salesKeys.link('quote', 'q_1'))).toBeNull();
-    expect(invalidated(invalidate).filter((key) => key === QUOTES).length).toBe(4);
+    expect(invalidated(invalidate).filter((key) => key === QUOTES)).toHaveLength(4);
   });
 
   it('saved e-mail texts and reminder settings replace what the cache holds; the settings also refresh To process', async () => {

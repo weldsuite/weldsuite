@@ -53,6 +53,13 @@ export function todoItemTarget(item: Pick<TodoItem, 'objectType' | 'objectId'> &
   return { kind: 'none' };
 }
 
+/** The page with the one item stacked as a panel, or the fallback when there is not exactly one. */
+function onlyItemHref(page: string, panelType: string, only: Pick<TodoItem, 'objectId'> | undefined, fallback: string): string {
+  if (!only) return fallback;
+  const stack = `${panelType}:${only.objectId}`;
+  return withQuery(page, `stack=${encodeURIComponent(stack)}`);
+}
+
 export interface TodoKindAction {
   label: string;
   href: string;
@@ -88,19 +95,15 @@ export function todoKindAction(
       return { label: label(copy.kinds.invoices_overdue.action), href: '/weldbooks/invoices?show=overdue' };
     case 'invoices_undelivered': {
       // One bounced invoice opens in place, where its contact's address can be fixed and it is sent again.
-      const only = count === 1 ? items[0] : undefined;
       return {
         label: label(copy.kinds.invoices_undelivered.action),
-        href: only
-          ? withQuery('/weldbooks/invoices', `stack=${encodeURIComponent(`invoice:${only.objectId}`)}`)
-          : '/weldbooks/invoices?show=undelivered',
+        href: onlyItemHref('/weldbooks/invoices', 'invoice', count === 1 ? items[0] : undefined, '/weldbooks/invoices?show=undelivered'),
       };
     }
     case 'vat_return': {
-      const only = count === 1 ? items[0] : undefined;
       return {
         label: label(copy.kinds.vat_return.action),
-        href: only ? withQuery('/weldbooks/vat', `stack=${encodeURIComponent(`vat_return:${only.objectId}`)}`) : '/weldbooks/vat',
+        href: onlyItemHref('/weldbooks/vat', 'vat_return', count === 1 ? items[0] : undefined, '/weldbooks/vat'),
       };
     }
     case 'bank_feeds':

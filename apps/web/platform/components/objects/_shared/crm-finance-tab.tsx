@@ -48,11 +48,68 @@ function Figure({ label, value, hint, alert }: Readonly<{ label: string; value: 
   );
 }
 
+type FinanceInvoice = NonNullable<ReturnType<typeof useContactInvoicesPaged>['data']>['rows'][number];
+type FinanceQuote = NonNullable<ReturnType<typeof useInfiniteQuotes>['data']>['rows'][number];
+
+function invoiceTone(status: string): 'danger' | 'success' | 'neutral' {
+  if (status === 'overdue') return 'danger';
+  if (status === 'paid') return 'success';
+  return 'neutral';
+}
+
+function RecentInvoices({ loading, invoices }: Readonly<{ loading: boolean; invoices: FinanceInvoice[] }>) {
+  const { t } = useI18n();
+  const copy = t.weldbooksContactPage;
+  const { formatMoney, formatDate } = useWeldbooksFormat();
+  const statusLabels = t.accounting.statusLabels.invoice as Record<string, string>;
+  if (loading) return <InlineSpinner className="py-3" />;
+  if (invoices.length === 0) return <p className="text-sm text-muted-foreground">{copy.finance.noInvoices}</p>;
+  return (
+    <ul className="m-0 list-none p-0">
+      {invoices.map((invoice) => (
+        <li key={invoice.id} className="flex items-center gap-3 border-b border-border py-2 last:border-b-0">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2">
+            <RecordLink
+              type="invoice"
+              id={invoice.id}
+              label={invoice.invoiceNumber ?? copy.overview.noNumber}
+              tone={invoiceTone(invoice.status)}
+              statusLabel={statusLabels[invoice.status]}
+            />
+            <span className="text-xs text-muted-foreground">{formatDate(invoice.issueDate)}</span>
+          </div>
+          <span className="flex-shrink-0 text-sm font-medium tabular-nums">{formatMoney(invoice.total ?? '0', invoice.currency)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function OpenQuotes({ loading, quotes }: Readonly<{ loading: boolean; quotes: FinanceQuote[] }>) {
+  const { t } = useI18n();
+  const copy = t.weldbooksContactPage;
+  const { formatMoney } = useWeldbooksFormat();
+  if (loading) return <InlineSpinner className="py-3" />;
+  if (quotes.length === 0) return <p className="text-sm text-muted-foreground">{copy.finance.noOpenQuotes}</p>;
+  return (
+    <ul className="m-0 list-none p-0">
+      {quotes.map((quote) => (
+        <li key={quote.id} className="flex items-center gap-3 border-b border-border py-2 last:border-b-0">
+          <div className="min-w-0 flex-1">
+            <RecordLink type="quote" id={quote.id} icon={ScrollText} label={quote.quoteNumber ?? quote.name ?? copy.overview.noNumber} />
+          </div>
+          <span className="flex-shrink-0 text-sm font-medium tabular-nums">{formatMoney(quote.total ?? '0', quote.currency)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function FinanceOfContact({ contactId, summary }: Readonly<{ contactId: string; summary: NonNullable<ReturnType<typeof useContactByCrm>['data']>['summary'] }>) {
   const { t, language } = useI18n();
   const copy = t.weldbooksContactPage;
   const tiles = copy.tiles;
-  const { formatMoney, formatDate } = useWeldbooksFormat();
+  const { formatMoney } = useWeldbooksFormat();
   const invoices = useContactInvoicesPaged(contactId);
   const quotes = useInfiniteQuotes({ contactId, status: 'sent' }, { enabled: isQuotesAvailable() });
   const recent = useMemo(() => (invoices.data?.rows ?? []).slice(0, RECENT_INVOICES), [invoices.data?.rows]);
@@ -63,7 +120,6 @@ function FinanceOfContact({ contactId, summary }: Readonly<{ contactId: string; 
   const toPay = describeSums(summary.toPay, formatMoney);
   const extra = (others: string[]) => (others.length > 0 ? tiles.moreCurrencies.replace('{amounts}', others.join(', ')) : undefined);
   const receiveCount = countOf(summary.toReceive);
-  const statusLabels = t.accounting.statusLabels.invoice as Record<string, string>;
 
   return (
     <div className="space-y-5 p-4">
@@ -94,31 +150,7 @@ function FinanceOfContact({ contactId, summary }: Readonly<{ contactId: string; 
         <h3 id="crm-finance-invoices" className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           {copy.finance.recentInvoices}
         </h3>
-        {invoices.isLoading ? (
-          <InlineSpinner className="py-3" />
-        ) : recent.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{copy.finance.noInvoices}</p>
-        ) : (
-          <ul className="m-0 list-none p-0">
-            {recent.map((invoice) => (
-              <li key={invoice.id} className="flex items-center gap-3 border-b border-border py-2 last:border-b-0">
-                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2">
-                  <RecordLink
-                    type="invoice"
-                    id={invoice.id}
-                    label={invoice.invoiceNumber ?? copy.overview.noNumber}
-                    tone={invoice.status === 'overdue' ? 'danger' : invoice.status === 'paid' ? 'success' : 'neutral'}
-                    statusLabel={statusLabels[invoice.status]}
-                  />
-                  <span className="text-xs text-muted-foreground">{formatDate(invoice.issueDate)}</span>
-                </div>
-                <span className="flex-shrink-0 text-sm font-medium tabular-nums">
-                  {formatMoney(invoice.total ?? '0', invoice.currency)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <RecentInvoices loading={invoices.isLoading} invoices={recent} />
       </section>
 
       {isQuotesAvailable() ? (
@@ -126,29 +158,7 @@ function FinanceOfContact({ contactId, summary }: Readonly<{ contactId: string; 
           <h3 id="crm-finance-quotes" className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             {copy.finance.openQuotes}
           </h3>
-          {quotes.isLoading ? (
-            <InlineSpinner className="py-3" />
-          ) : sentQuotes.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{copy.finance.noOpenQuotes}</p>
-          ) : (
-            <ul className="m-0 list-none p-0">
-              {sentQuotes.slice(0, RECENT_INVOICES).map((quote) => (
-                <li key={quote.id} className="flex items-center gap-3 border-b border-border py-2 last:border-b-0">
-                  <div className="min-w-0 flex-1">
-                    <RecordLink
-                      type="quote"
-                      id={quote.id}
-                      icon={ScrollText}
-                      label={quote.quoteNumber ?? quote.name ?? copy.overview.noNumber}
-                    />
-                  </div>
-                  <span className="flex-shrink-0 text-sm font-medium tabular-nums">
-                    {formatMoney(quote.total ?? '0', quote.currency)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <OpenQuotes loading={quotes.isLoading} quotes={sentQuotes.slice(0, RECENT_INVOICES)} />
         </section>
       ) : null}
     </div>

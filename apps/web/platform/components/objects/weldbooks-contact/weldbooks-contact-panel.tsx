@@ -966,6 +966,25 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
     setActiveTab(target.tab);
   };
 
+  let subheader: React.ReactNode = null;
+  if (contact && contactPage) {
+    subheader = (
+      <ContactPageHeader
+        contact={contact}
+        crmRecord={crmRecord}
+        canCreateInvoice={can('invoices:create')}
+        canCreateBill={can('bills:create')}
+        canSeeTime={can('time:read')}
+        onOpenTile={openTile}
+        onSendStatement={() => setStatementOpen(true)}
+      />
+    );
+  } else if (contact) {
+    subheader = (
+      <ContactSubheader contact={contact} canCreateInvoice={can('invoices:create')} canCreateBill={can('bills:create')} t={t} />
+    );
+  }
+
   return (
     <>
       <EntityDetailView
@@ -982,26 +1001,7 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
             t={t}
           />
         }
-        subheader={
-          contact && contactPage ? (
-            <ContactPageHeader
-              contact={contact}
-              crmRecord={crmRecord}
-              canCreateInvoice={can('invoices:create')}
-              canCreateBill={can('bills:create')}
-              canSeeTime={can('time:read')}
-              onOpenTile={openTile}
-              onSendStatement={() => setStatementOpen(true)}
-            />
-          ) : contact ? (
-            <ContactSubheader
-              contact={contact}
-              canCreateInvoice={can('invoices:create')}
-              canCreateBill={can('bills:create')}
-              t={t}
-            />
-          ) : null
-        }
+        subheader={subheader}
         tabs={
           <ConfigurablePanelTabs
             objectType="weldbooks_contact"

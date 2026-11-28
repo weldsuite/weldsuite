@@ -45,6 +45,100 @@ function messageOf(error: unknown): string | null {
   return error instanceof Error && error.message ? error.message : null;
 }
 
+type ReceiptCopy = ReturnType<typeof useI18n>['t']['weldbooksConnected']['processing']['receipt'];
+type ReceiptBookingCopy = ReturnType<typeof useI18n>['t']['weldbooksReceipts']['receiptBooking'];
+
+function uploadLabel(uploading: boolean, books: boolean, tr: ReceiptCopy, trb: ReceiptBookingCopy): string {
+  if (uploading) return tr.uploading;
+  return books ? trb.uploadAndBook : tr.upload;
+}
+
+/** Uploads the file and registers it as an inbox document, or null when either step fails. */
+async function createUploadedDocument(
+  uploadFile: (file: File) => Promise<{ fileName: string; fileKey: string; mimeType: string; fileSize: number } | null | undefined>,
+  file: File,
+): Promise<{ documentId: string; fileName: string } | null> {
+  const uploaded = await uploadFile(file);
+  if (!uploaded) return null;
+  const created = await accountingApi.createDocument({
+    fileName: uploaded.fileName,
+    fileKey: uploaded.fileKey,
+    mimeType: uploaded.mimeType,
+    fileSize: uploaded.fileSize,
+    source: 'upload',
+  });
+  const documentId = created?.data?.id;
+  return documentId ? { documentId, fileName: uploaded.fileName } : null;
+}
+
+/** The confirmation once a document is attached (or booked as a receipt). */
+function ReceiptAttached({ books, onBookNow, onClose }: Readonly<{ books: boolean; onBookNow: () => void; onClose: () => void }>) {
+  const { t } = useI18n();
+  const tr = t.weldbooksConnected.processing.receipt;
+  const trb = t.weldbooksReceipts.receiptBooking;
+  return (
+    <div className="space-y-3 rounded-xl border border-emerald-300/60 bg-emerald-50/60 p-5 dark:border-emerald-900 dark:bg-emerald-950/30" role="status" data-testid="receipt-attached">
+      <p className="flex items-center gap-2 text-sm font-medium text-emerald-900 dark:text-emerald-200">
+        <CheckCircle2 className="h-4 w-4" aria-hidden />
+        {books ? trb.booked : tr.attached}
+      </p>
+      {books ? null : <p className="text-xs text-muted-foreground">{tr.bookNowHint}</p>}
+      <div className="flex items-center gap-2">
+        {books ? null : (
+          <Button type="button" onClick={onBookNow} data-testid="receipt-book-now">
+            {tr.bookNow}
+          </Button>
+        )}
+        <Button type="button" variant="ghost" onClick={onClose}>
+          {tr.close}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** One unlinked inbox document with its attach (or book) button. */
+function ReceiptDocumentRow({
+  doc,
+  books,
+  disabled,
+  busy,
+  booking,
+  onAction,
+}: Readonly<{
+  doc: { id: string; fileName: string };
+  books: boolean;
+  disabled: boolean;
+  busy: boolean;
+  booking: boolean;
+  onAction: () => void;
+}>) {
+  const { t } = useI18n();
+  const tr = t.weldbooksConnected.processing.receipt;
+  const trb = t.weldbooksReceipts.receiptBooking;
+  let label = tr.attachShort;
+  if (books) label = booking ? trb.booking : trb.book;
+  return (
+    <li className="flex items-center justify-between gap-3 px-3 py-2">
+      <span className="flex min-w-0 items-center gap-2 text-sm">
+        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+        <span className="truncate">{doc.fileName}</span>
+      </span>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={disabled}
+        onClick={onAction}
+        aria-label={books ? `${trb.book}: ${doc.fileName}` : tr.attach.replace('{name}', doc.fileName)}
+      >
+        {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : null}
+        {label}
+      </Button>
+    </li>
+  );
+}
+
 export function ReceiptForm({ lineId, lineDate, onBookNow, onClose, onAttached, onBooked }: Readonly<ReceiptFormProps>) {
   const { t } = useI18n();
   const tr = t.weldbooksConnected.processing.receipt;
@@ -112,30 +206,18 @@ export function ReceiptForm({ lineId, lineDate, onBookNow, onClose, onAttached, 
     setProblem(null);
     setUploading(true);
     try {
-      const uploaded = await fileUpload.uploadFile(file);
-      if (!uploaded) {
+      const created = await createUploadedDocument(fileUpload.uploadFile, file);
+      if (!created) {
         setProblem(tr.uploadFailed);
         return;
       }
-      const created = await accountingApi.createDocument({
-        fileName: uploaded.fileName,
-        fileKey: uploaded.fileKey,
-        mimeType: uploaded.mimeType,
-        fileSize: uploaded.fileSize,
-        source: 'upload',
-      });
-      const documentId = created?.data?.id;
-      if (!documentId) {
-        setProblem(tr.uploadFailed);
+      if (!books) {
+        link(created.documentId, created.fileName);
         return;
       }
-      if (books) {
-        // The scan has to be read before the receipt can be booked from it.
-        if (isFeatureAvailable('books-ocr')) await accountingApi.processDocument(documentId);
-        await bookIt(documentId, uploaded.fileName);
-      } else {
-        link(documentId, uploaded.fileName);
-      }
+      // The scan has to be read before the receipt can be booked from it.
+      if (isFeatureAvailable('books-ocr')) await accountingApi.processDocument(created.documentId);
+      await bookIt(created.documentId, created.fileName);
     } catch (error) {
       setProblem(messageOf(error) ?? tr.uploadFailed);
     } finally {
@@ -143,27 +225,7 @@ export function ReceiptForm({ lineId, lineDate, onBookNow, onClose, onAttached, 
     }
   };
 
-  if (attached) {
-    return (
-      <div className="space-y-3 rounded-xl border border-emerald-300/60 bg-emerald-50/60 p-5 dark:border-emerald-900 dark:bg-emerald-950/30" role="status" data-testid="receipt-attached">
-        <p className="flex items-center gap-2 text-sm font-medium text-emerald-900 dark:text-emerald-200">
-          <CheckCircle2 className="h-4 w-4" aria-hidden />
-          {books ? trb.booked : tr.attached}
-        </p>
-        {books ? null : <p className="text-xs text-muted-foreground">{tr.bookNowHint}</p>}
-        <div className="flex items-center gap-2">
-          {books ? null : (
-            <Button type="button" onClick={onBookNow} data-testid="receipt-book-now">
-              {tr.bookNow}
-            </Button>
-          )}
-          <Button type="button" variant="ghost" onClick={onClose}>
-            {tr.close}
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  if (attached) return <ReceiptAttached books={books} onBookNow={onBookNow} onClose={onClose} />;
 
   return (
     <section aria-labelledby={`${ids}-title`} className="space-y-3 rounded-xl border p-5" data-testid="receipt-form">
@@ -193,25 +255,15 @@ export function ReceiptForm({ lineId, lineDate, onBookNow, onClose, onAttached, 
       {shown.length > 0 ? (
         <ul className="max-h-56 divide-y overflow-y-auto rounded-md border" data-testid="receipt-documents">
           {shown.map((doc) => (
-            <li key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2">
-              <span className="flex min-w-0 items-center gap-2 text-sm">
-                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-                <span className="truncate">{doc.fileName}</span>
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={attach.isPending || booking !== null}
-                onClick={() => (books ? void bookIt(doc.id, doc.fileName) : link(doc.id, doc.fileName))}
-                aria-label={books ? `${trb.book}: ${doc.fileName}` : tr.attach.replace('{name}', doc.fileName)}
-              >
-                {(attach.isPending && attach.variables?.documentId === doc.id) || booking === doc.id ? (
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden />
-                ) : null}
-                {books ? (booking === doc.id ? trb.booking : trb.book) : tr.attachShort}
-              </Button>
-            </li>
+            <ReceiptDocumentRow
+              key={doc.id}
+              doc={doc}
+              books={books}
+              disabled={attach.isPending || booking !== null}
+              busy={(attach.isPending && attach.variables?.documentId === doc.id) || booking === doc.id}
+              booking={booking === doc.id}
+              onAction={() => (books ? void bookIt(doc.id, doc.fileName) : link(doc.id, doc.fileName))}
+            />
           ))}
         </ul>
       ) : null}
@@ -233,7 +285,7 @@ export function ReceiptForm({ lineId, lineDate, onBookNow, onClose, onAttached, 
         />
         <Button type="button" variant="outline" size="sm" disabled={uploading || booking !== null} onClick={() => fileInput.current?.click()}>
           {uploading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : <Upload className="h-4 w-4" />}
-          {uploading ? tr.uploading : books ? trb.uploadAndBook : tr.upload}
+          {uploadLabel(uploading, books, tr, trb)}
         </Button>
         <Button type="button" variant="ghost" size="sm" onClick={onClose}>
           {t.weldbooksConnected.processing.category.cancel}

@@ -33,6 +33,12 @@ export interface LinesEditorProps {
   describedBy?: string;
 }
 
+function checkTextClass(check: { matches: boolean; differenceCents: number | null }): string {
+  if (check.matches) return 'text-emerald-700 dark:text-emerald-400';
+  if (check.differenceCents === null) return 'text-muted-foreground';
+  return 'text-amber-700 dark:text-amber-400';
+}
+
 export function LinesEditor({ lines, onChange, accounts, taxRates, documentTotal, currency, describedBy }: Readonly<LinesEditorProps>) {
   const { t } = useI18n();
   const tl = t.weldbooksReceipts.review.lines;
@@ -158,13 +164,7 @@ export function LinesEditor({ lines, onChange, accounts, taxRates, documentTotal
             ) : null}
           </p>
           <p
-            className={
-              check.matches
-                ? 'text-emerald-700 dark:text-emerald-400'
-                : check.differenceCents === null
-                  ? 'text-muted-foreground'
-                  : 'text-amber-700 dark:text-amber-400'
-            }
+            className={checkTextClass(check)}
           >
             {checkText}
           </p>

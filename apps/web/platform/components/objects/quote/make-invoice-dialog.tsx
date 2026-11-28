@@ -41,6 +41,11 @@ function MakeInvoiceForm({ quote, onClose }: Readonly<{ quote: QuoteDetail; onCl
   const several = (entities?.length ?? 0) > 1;
   const invalid = share === 'part' && (percentage === undefined || percentage < 1 || percentage > 100);
 
+  const failureDescription = (error: unknown): string | undefined => {
+    if (statusOf(error) === 409) return copy.tooMuch.replace('{percentage}', String(left));
+    return error instanceof Error ? error.message : undefined;
+  };
+
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     if (invalid) return;
@@ -58,10 +63,7 @@ function MakeInvoiceForm({ quote, onClose }: Readonly<{ quote: QuoteDetail; onCl
           onClose();
           openPanel({ type: 'invoice', id: res.data.id, stack: true });
         },
-        onError: (error) =>
-          toast.error(copy.failed, {
-            description: statusOf(error) === 409 ? copy.tooMuch.replace('{percentage}', String(left)) : error instanceof Error ? error.message : undefined,
-          }),
+        onError: (error) => toast.error(copy.failed, { description: failureDescription(error) }),
       },
     );
   };

@@ -211,63 +211,13 @@ function MatchSuggestionsCard({
   );
 }
 
-export default function BankReconciliationPage() {
-  const navigate = useNavigate();
-  const search = useSearch({ strict: false }) as { accountId?: string; lineId?: string };
-  const { data: bankAccountsData } = useBankAccounts();
-  const bankAccounts = bankAccountsData?.data ?? [];
-  const [selectedAccountId, setSelectedAccountId] = useState(search.accountId ?? '');
-
-  // Nothing to choose with a single bank account.
-  const onlyAccountId = bankAccounts.length === 1 ? bankAccounts[0].id : '';
-  useEffect(() => {
-    if (!selectedAccountId && onlyAccountId) setSelectedAccountId(onlyAccountId);
-  }, [selectedAccountId, onlyAccountId]);
-  // `?lineId=` comes from the bank transaction panel's Match: that line is selected on arrival.
-  const [selectedTxnId, setSelectedTxnId] = useState<string | null>(search.lineId ?? null);
-  const [lineSearch, setLineSearch] = useState('');
-  const debouncedSearch = useDebounce(lineSearch.trim(), 300);
-  // Lines open in the shared panel, synced to `?stack=`.
-  const { open: openPanel } = useObjectPanel();
-  useObjectPanelUrlSync('/weldbooks/banking/reconciliation');
+/** The mutations of the page, and the errors they leave to show. */
+function useReconcileActions(
+  selectedAccountId: string,
+  selectedTxnId: string | null,
+  setSelectedTxnId: (id: string | null) => void,
+) {
   const qc = useQueryClient();
-  const { t } = useI18n();
-  const tbp = t.accounting.bankingPages;
-  const tsl = t.accounting.statusLabels;
-  const tl = t.weldbooksUs.banking.lines;
-  const tr = t.weldbooksUs.banking.reconciliationPage;
-  const { can } = usePermissions();
-  const { code: jurisdictionCode } = useCurrentJurisdiction();
-  const isUs = isUsJurisdictionCode(jurisdictionCode);
-  const bankLinks = isFeatureAvailable('books-bank-links');
-  const { formatMoney: fmt, formatDate, currency: entityCurrency } = useWeldbooksFormat();
-
-  // Every unreconciled line, page by page; the count is the server's total, not what has loaded.
-  const linesQuery = useInfiniteBankLines(
-    selectedAccountId
-      ? { bankAccountId: selectedAccountId, status: 'unreconciled', search: debouncedSearch || undefined }
-      : undefined,
-  );
-  const isLoading = linesQuery.isLoading;
-  const { data: accountsData } = useAccountingAccounts();
-  const ledgerAccounts = (accountsData?.data ?? []) as Account[];
-  const transactions = linesQuery.data?.lines ?? [];
-  const totalCount = linesQuery.data?.totalCount ?? 0;
-
-  // Suggestions for the selected bank line
-  const { data: suggestions = [] } = useBankLineSuggestions(selectedTxnId);
-  const selectedAccount = bankAccounts.find((ba) => ba.id === selectedAccountId);
-  // Money out is not a customer payment: the categorize box speaks of bank fees and tax, not of invoices.
-  // The selected line may not be among the loaded pages (a link from its panel): read it by id.
-  const listedTxn = transactions.find((txn) => txn.id === selectedTxnId);
-  const { data: fetchedTxn } = useBankLine(selectedTxnId && !listedTxn ? selectedTxnId : undefined);
-  const selectedTxn = listedTxn ?? fetchedTxn;
-  useEffect(() => {
-    if (!selectedAccountId && fetchedTxn) setSelectedAccountId(fetchedTxn.bankAccountId);
-  }, [selectedAccountId, fetchedTxn]);
-  const moneyOut = selectedTxn ? Number(selectedTxn.amount) < 0 : false;
-  const displayCurrency = selectedAccount?.currency || entityCurrency;
-
   const reconcileMutation = useMutation({
     mutationFn: ({ txnId, data }: { txnId: string; data: Record<string, unknown> }) =>
       accountingApi.reconcileTransaction(txnId, data),
@@ -322,16 +272,41 @@ export default function BankReconciliationPage() {
     }
   };
 
-  const accountLabel = (ba: (typeof bankAccounts)[number]) =>
-    `${ba.name} — ${ba.accountNumberLast4 ? maskedAccountNumber(ba.accountNumberLast4) : (ba.iban ?? '')}`;
+  return { reconcileMutation, excludeMutation, autoReconcileMutation, matching, categorizeError, matchError, handleMatch };
+}
 
+/** The unreconciled lines: loading, empty, or the list with Load more. */
+function TransactionList({
+  transactions,
+  isLoading,
+  search,
+  selectedTxnId,
+  onSelect,
+  totalCount,
+  currency,
+  linesQuery,
+}: Readonly<{
+  transactions: BankLine[];
+  isLoading: boolean;
+  search: string;
+  selectedTxnId: string | null;
+  onSelect: (id: string) => void;
+  totalCount: number;
+  currency: string | null | undefined;
+  linesQuery: Pick<ReturnType<typeof useInfiniteBankLines>, 'hasNextPage' | 'isFetchingNextPage' | 'fetchNextPage'>;
+}>) {
+  const { t } = useI18n();
+  const tbp = t.accounting.bankingPages;
+  const tsl = t.accounting.statusLabels;
+  const tl = t.weldbooksUs.banking.lines;
+  const { formatMoney: fmt, formatDate } = useWeldbooksFormat();
   let transactionList: ReactNode;
   if (isLoading) {
     transactionList = <div className="p-4"><PageLoader fullScreen={false} /></div>;
   } else if (transactions.length === 0) {
     transactionList = (
       <p className="p-4 text-sm text-muted-foreground">
-        {debouncedSearch ? t.accounting.bankReconcileList.noSearchResults : tbp.allReconciled}
+        {search ? t.accounting.bankReconcileList.noSearchResults : tbp.allReconciled}
       </p>
     );
   } else {
@@ -343,11 +318,11 @@ export default function BankReconciliationPage() {
             txn={txn}
             selected={selectedTxnId === txn.id}
             unknownLabel={tsl.counterpartyUnknown}
-            amountLabel={fmt(txn.amount, displayCurrency)}
+            amountLabel={fmt(txn.amount, currency)}
             dateLabel={formatDate(txn.date)}
             checkNumberLabel={txn.checkNumber ? tl.checkNumberBadge.replace('{number}', txn.checkNumber) : null}
             sourceLabel={txn.source ? tl.sources[txn.source] : null}
-            onSelect={() => setSelectedTxnId(txn.id)}
+            onSelect={() => onSelect(txn.id)}
           />
         ))}
         {linesQuery.hasNextPage ? (
@@ -372,6 +347,75 @@ export default function BankReconciliationPage() {
       </div>
     );
   }
+  return transactionList;
+}
+
+export default function BankReconciliationPage() {
+  const navigate = useNavigate();
+  const search = useSearch({ strict: false }) as { accountId?: string; lineId?: string };
+  const { data: bankAccountsData } = useBankAccounts();
+  const bankAccounts = bankAccountsData?.data ?? [];
+  const [selectedAccountId, setSelectedAccountId] = useState(search.accountId ?? '');
+
+  // Nothing to choose with a single bank account.
+  const onlyAccountId = bankAccounts.length === 1 ? bankAccounts[0].id : '';
+  useEffect(() => {
+    if (!selectedAccountId && onlyAccountId) setSelectedAccountId(onlyAccountId);
+  }, [selectedAccountId, onlyAccountId]);
+  // `?lineId=` comes from the bank transaction panel's Match: that line is selected on arrival.
+  const [selectedTxnId, setSelectedTxnId] = useState<string | null>(search.lineId ?? null);
+  const [lineSearch, setLineSearch] = useState('');
+  const debouncedSearch = useDebounce(lineSearch.trim(), 300);
+  // Lines open in the shared panel, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/banking/reconciliation');
+  const { t } = useI18n();
+  const tbp = t.accounting.bankingPages;
+  const tr = t.weldbooksUs.banking.reconciliationPage;
+  const { can } = usePermissions();
+  const { code: jurisdictionCode } = useCurrentJurisdiction();
+  const isUs = isUsJurisdictionCode(jurisdictionCode);
+  const bankLinks = isFeatureAvailable('books-bank-links');
+  const { formatMoney: fmt, currency: entityCurrency } = useWeldbooksFormat();
+
+  // Every unreconciled line, page by page; the count is the server's total, not what has loaded.
+  const linesQuery = useInfiniteBankLines(
+    selectedAccountId
+      ? { bankAccountId: selectedAccountId, status: 'unreconciled', search: debouncedSearch || undefined }
+      : undefined,
+  );
+  const isLoading = linesQuery.isLoading;
+  const { data: accountsData } = useAccountingAccounts();
+  const ledgerAccounts = (accountsData?.data ?? []) as Account[];
+  const transactions = linesQuery.data?.lines ?? [];
+  const totalCount = linesQuery.data?.totalCount ?? 0;
+
+  // Suggestions for the selected bank line
+  const { data: suggestions = [] } = useBankLineSuggestions(selectedTxnId);
+  const selectedAccount = bankAccounts.find((ba) => ba.id === selectedAccountId);
+  // Money out is not a customer payment: the categorize box speaks of bank fees and tax, not of invoices.
+  // The selected line may not be among the loaded pages (a link from its panel): read it by id.
+  const listedTxn = transactions.find((txn) => txn.id === selectedTxnId);
+  const { data: fetchedTxn } = useBankLine(selectedTxnId && !listedTxn ? selectedTxnId : undefined);
+  const selectedTxn = listedTxn ?? fetchedTxn;
+  useEffect(() => {
+    if (!selectedAccountId && fetchedTxn) setSelectedAccountId(fetchedTxn.bankAccountId);
+  }, [selectedAccountId, fetchedTxn]);
+  const moneyOut = selectedTxn ? Number(selectedTxn.amount) < 0 : false;
+  const displayCurrency = selectedAccount?.currency || entityCurrency;
+
+  const {
+    reconcileMutation,
+    excludeMutation,
+    autoReconcileMutation,
+    matching,
+    categorizeError,
+    matchError,
+    handleMatch,
+  } = useReconcileActions(selectedAccountId, selectedTxnId, setSelectedTxnId);
+
+  const accountLabel = (ba: (typeof bankAccounts)[number]) =>
+    `${ba.name} — ${ba.accountNumberLast4 ? maskedAccountNumber(ba.accountNumberLast4) : (ba.iban ?? '')}`;
 
   return (
     <div className="p-6 space-y-4">
@@ -445,7 +489,16 @@ export default function BankReconciliationPage() {
               />
             </CardHeader>
             <CardContent className="p-0">
-              {transactionList}
+              <TransactionList
+                transactions={transactions}
+                isLoading={isLoading}
+                search={debouncedSearch}
+                selectedTxnId={selectedTxnId}
+                onSelect={setSelectedTxnId}
+                totalCount={totalCount}
+                currency={displayCurrency}
+                linesQuery={linesQuery}
+              />
             </CardContent>
           </Card>
 

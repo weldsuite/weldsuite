@@ -9,21 +9,6 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import {
-  Banknote,
-  BellRing,
-  CircleCheck,
-  CircleX,
-  Clock,
-  CreditCard,
-  Eye,
-  FilePlus2,
-  Link2Off,
-  Mail,
-  MailWarning,
-  Send,
-  Undo2,
-} from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 import { useCan } from '@weldsuite/permissions/react';
 import { ActivityTimeline, type ActivityTimelineItem } from '@weldsuite/ui/components/activity-timeline';
@@ -47,27 +32,23 @@ import type { InvoiceWithTax } from '@/lib/api/domains/weldbooks-sales-tax-previ
 import { useI18n } from '@/lib/i18n/provider';
 import {
   buildActivity,
-  claimAddsCosts,
-  claimTotal,
   hasActiveLink,
   isOpenForPayment,
   linkMadeAt,
   nextReminder,
   recipients,
-  type ActivityEvent,
-  type OnlinePaymentStatus,
 } from '@/lib/weldbooks/invoice-activity';
 import {
   canPayOnline,
   lastOnlinePayment,
   lastReversal,
-  methodLabel,
   methodList,
   paymentEntries,
 } from '@/lib/weldbooks/online-payments';
 import { rememberSettingsReturn } from '@/lib/weldbooks/settings-links';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { InvoiceConnections, useQuoteNumber } from './invoice-connections';
+import { onlineStatusItem, timelineItem, type PaymentWords, type TimelineContext } from './invoice-timeline-items';
 
 function statusOf(error: unknown): number | null {
   const status = error && typeof error === 'object' ? (error as { status?: unknown }).status : null;
@@ -78,137 +59,21 @@ function statusOf(error: unknown): number | null {
 // What happened
 // ----------------------------------------------------------------------------
 
-type PaymentWords = ReturnType<typeof useI18n>['t']['weldbooksPayments']['payment'];
-
-/** "Paid with iDEAL", "Payment failed", ...: the provider's word for an online payment, in the owner's. */
-function onlineStatusItem(
-  pay: PaymentWords,
-  methodNames: Readonly<Record<string, string>>,
-  status: OnlinePaymentStatus,
-  method: string | null,
-): Pick<ActivityTimelineItem, 'icon' | 'tone'> & { title: string } {
-  switch (status) {
-    case 'paid':
-      return {
-        icon: CircleCheck,
-        tone: 'success',
-        title: method ? pay.paidWith.replace('{method}', methodLabel(method, methodNames)) : pay.paid,
-      };
-    case 'failed':
-      return { icon: CircleX, tone: 'danger', title: pay.failed };
-    case 'expired':
-      return { icon: CircleX, tone: 'warning', title: pay.expired };
-    case 'canceled':
-      return { icon: CircleX, tone: 'warning', title: pay.canceled };
-    case 'authorized':
-      return { icon: Clock, tone: 'info', title: pay.authorized };
-    default:
-      return { icon: Clock, tone: 'info', title: pay.pending };
-  }
-}
-
 function useTimelineItems(invoice: InvoiceWithTax, settings: Parameters<typeof buildActivity>[1]): ActivityTimelineItem[] {
   const { t } = useI18n();
-  const copy = t.weldbooksSales.timeline;
   const { formatDateTime, formatDate, formatMoney } = useWeldbooksFormat();
   const quoteNumber = useQuoteNumber(invoice.quoteId);
-  const pay = t.weldbooksPayments.payment;
-  const methodNames = t.weldbooksPayments.methodNames as Readonly<Record<string, string>>;
-
-  const toItem = (event: ActivityEvent): ActivityTimelineItem => {
-    const time = event.at ? (event.kind === 'next_reminder' ? formatDate(event.at) : formatDateTime(event.at)) : undefined;
-    const base = { id: event.id, time, dateTime: event.at ?? undefined };
-    switch (event.kind) {
-      case 'created':
-        return {
-          ...base,
-          icon: FilePlus2,
-          title: event.quoteId ? copy.createdFromQuote.replace('{quote}', quoteNumber ?? copy.aQuote) : copy.created,
-        };
-      case 'marked_sent':
-        return { ...base, icon: Send, tone: 'info', title: copy.markedSent };
-      case 'emailed':
-        return {
-          ...base,
-          icon: Mail,
-          tone: 'info',
-          title: copy.emailed,
-          description: event.to ? copy.to.replace('{to}', event.to) : undefined,
-        };
-      case 'bounced':
-        return {
-          ...base,
-          icon: MailWarning,
-          tone: 'danger',
-          title: copy.bounced,
-          description: [event.to ? copy.to.replace('{to}', event.to) : null, event.error].filter(Boolean).join(' · ') || undefined,
-        };
-      case 'viewed':
-        return {
-          ...base,
-          icon: Eye,
-          tone: 'info',
-          title: event.count > 1 ? copy.viewedTimes.replace('{count}', String(event.count)) : copy.viewed,
-          time: time ? copy.lastViewed.replace('{time}', time) : undefined,
-        };
-      case 'reminder': {
-        const total = claimTotal(event.claim);
-        const parts = [event.to ? copy.to.replace('{to}', event.to) : null];
-        if (total && claimAddsCosts(event.claim)) {
-          parts.push(copy.claims.replace('{amount}', formatMoney(total, invoice.currency)));
-        }
-        return {
-          ...base,
-          icon: BellRing,
-          tone: 'warning',
-          title: copy.reminderSent.replace('{level}', String(event.level)),
-          description: parts.filter(Boolean).join(' · ') || undefined,
-        };
-      }
-      case 'link_revoked':
-        return { ...base, icon: Link2Off, tone: 'neutral', title: copy.linkRevoked };
-      case 'payment':
-        return {
-          ...base,
-          icon: Banknote,
-          tone: 'success',
-          title: (event.paidInFull ? copy.paidInFull : copy.paymentReceived).replace(
-            '{amount}',
-            formatMoney(event.amount, invoice.currency),
-          ),
-        };
-      case 'online_started':
-        return {
-          ...base,
-          icon: CreditCard,
-          tone: 'info',
-          title: pay.started,
-          description: event.amount ? pay.amount.replace('{amount}', formatMoney(event.amount, invoice.currency)) : undefined,
-        };
-      case 'online_status':
-        return { ...base, ...onlineStatusItem(pay, methodNames, event.status, event.method) };
-      case 'online_reversed':
-        return {
-          ...base,
-          icon: Undo2,
-          tone: 'danger',
-          title: (event.reversal === 'chargeback' ? pay.chargeback : pay.refunded).replace(
-            '{amount}',
-            formatMoney(event.amount, invoice.currency),
-          ),
-        };
-      case 'next_reminder':
-        return {
-          ...base,
-          icon: BellRing,
-          upcoming: true,
-          srPrefix: copy.planned,
-          title: copy.nextReminder.replace('{level}', String(event.level)),
-        };
-    }
+  const context: TimelineContext = {
+    copy: t.weldbooksSales.timeline,
+    pay: t.weldbooksPayments.payment,
+    methodNames: t.weldbooksPayments.methodNames as Readonly<Record<string, string>>,
+    currency: invoice.currency,
+    quoteNumber,
+    formatDate,
+    formatDateTime,
+    formatMoney,
   };
-
-  return buildActivity(invoice, settings).map(toItem);
+  return buildActivity(invoice, settings).map((event) => timelineItem(event, context));
 }
 
 export function InvoiceTimeline({ invoice }: Readonly<{ invoice: InvoiceWithTax }>) {
@@ -301,6 +166,30 @@ export function OnlineLinkCard({ invoice }: Readonly<{ invoice: InvoiceWithTax }
 // Online payment
 // ----------------------------------------------------------------------------
 
+type PaymentCardCopy = ReturnType<typeof useI18n>['t']['weldbooksPayments']['card'];
+type OnlineConnection = ReturnType<typeof usePaymentConnection>['data'];
+
+/** What the card says about whether customers can pay online. */
+function availabilityText(
+  connection: OnlineConnection,
+  copy: PaymentCardCopy,
+  methodNames: Readonly<Record<string, string>>,
+  and: string,
+): string {
+  if (canPayOnline(connection)) return copy.canPay.replace('{methods}', methodList(connection?.methods ?? [], methodNames, and));
+  if (!connection) return copy.notConnected;
+  return connection.status === 'active' ? copy.noMethods : copy.needsReauth;
+}
+
+function lastPaymentTitle(
+  last: NonNullable<ReturnType<typeof lastOnlinePayment>>,
+  pay: PaymentWords,
+  methodNames: Readonly<Record<string, string>>,
+): string {
+  if (last.status === 'started') return pay.started;
+  return onlineStatusItem(pay, methodNames, last.status, last.method).title;
+}
+
 /**
  * Whether customers can pay this invoice online, the last payment state, and
  * after a refund or chargeback a note that the money left through Mollie. Rust
@@ -324,18 +213,10 @@ export function OnlinePaymentCard({ invoice }: Readonly<{ invoice: InvoiceWithTa
 
   const connection = connectionQuery.data ?? null;
   const active = connection?.status === 'active';
-  let availability: string;
-  if (canPayOnline(connection)) {
-    availability = copy.canPay.replace('{methods}', methodList(connection?.methods ?? [], methodNames, t.weldbooksPayments.and));
-  } else if (!connection) availability = copy.notConnected;
-  else if (active) availability = copy.noMethods;
-  else availability = copy.needsReauth;
-
-  let lastText: string | null = null;
-  if (last) {
-    const title = last.status === 'started' ? pay.started : onlineStatusItem(pay, methodNames, last.status, last.method).title;
-    lastText = copy.lastPayment.replace('{status}', `${title} ${copy.on.replace('{time}', formatDateTime(last.at))}`);
-  }
+  const availability = availabilityText(connection, copy, methodNames, t.weldbooksPayments.and);
+  const lastText = last
+    ? copy.lastPayment.replace('{status}', `${lastPaymentTitle(last, pay, methodNames)} ${copy.on.replace('{time}', formatDateTime(last.at))}`)
+    : null;
 
   const setUpLabel = connection && !active ? copy.reconnect : copy.setUp;
   const needsSetUp = !canPayOnline(connection);
@@ -386,6 +267,40 @@ export function OnlinePaymentCard({ invoice }: Readonly<{ invoice: InvoiceWithTa
 // Reminders
 // ----------------------------------------------------------------------------
 
+type ReminderCopy = ReturnType<typeof useI18n>['t']['weldbooksSales']['reminders'];
+
+/** The line under the workflow name: what the reminders are doing for this invoice. */
+function reminderStatus({
+  copy,
+  open,
+  paused,
+  level,
+  next,
+  enabled,
+  formatDate,
+}: {
+  copy: ReminderCopy;
+  open: boolean;
+  paused: boolean;
+  level: number;
+  next: ReturnType<typeof nextReminder>;
+  enabled: boolean | undefined;
+  formatDate: (date: string) => string;
+}): string {
+  if (!open) return copy.sentCount.replace('{level}', String(level));
+  if (paused) return copy.paused;
+  if (next) {
+    return (next.auto ? copy.nextAuto : copy.nextManual).replace('{level}', String(next.step.level)).replace('{date}', formatDate(next.date));
+  }
+  return enabled === false ? copy.offHint : copy.allSent;
+}
+
+function sendFailureDescription(code: number | null, copy: ReminderCopy, error: unknown): string | undefined {
+  if (code === 409) return copy.notOpen;
+  if (code === 400) return copy.noRecipient;
+  return error instanceof Error ? error.message : undefined;
+}
+
 export function RemindersCard({ invoice }: Readonly<{ invoice: InvoiceWithTax }>) {
   const { t } = useI18n();
   const copy = t.weldbooksSales.reminders;
@@ -407,15 +322,7 @@ export function RemindersCard({ invoice }: Readonly<{ invoice: InvoiceWithTax }>
   const nextStep = [...steps].sort((a, b) => a.level - b.level).find((step) => step.level > level);
   const workflow = settings.data?.enabled === false ? copy.off : copy.workflowName;
 
-  let status: string;
-  if (!open) status = copy.sentCount.replace('{level}', String(level));
-  else if (paused) status = copy.paused;
-  else if (next) {
-    status = (next.auto ? copy.nextAuto : copy.nextManual)
-      .replace('{level}', String(next.step.level))
-      .replace('{date}', formatDate(next.date));
-  } else if (settings.data?.enabled === false) status = copy.offHint;
-  else status = copy.allSent;
+  const status = reminderStatus({ copy, open, paused, level, next, enabled: settings.data?.enabled, formatDate });
 
   const sendNow = () => {
     remind.mutate(invoice.id, {
@@ -427,7 +334,7 @@ export function RemindersCard({ invoice }: Readonly<{ invoice: InvoiceWithTax }>
         setConfirmOpen(false);
         const code = statusOf(error);
         toast.error(copy.sendFailed, {
-          description: code === 409 ? copy.notOpen : code === 400 ? copy.noRecipient : error instanceof Error ? error.message : undefined,
+          description: sendFailureDescription(code, copy, error),
         });
       },
     });

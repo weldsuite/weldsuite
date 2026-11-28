@@ -53,6 +53,50 @@ function ListFrame({ className, children }: Readonly<{ className?: string; child
   return <div className={cn('overflow-clip [&>div:last-child]:-mb-px', className)}>{children}</div>;
 }
 
+type CreateButtonConfig = NonNullable<EntityListProps<{ id: string }>['createButton']>;
+
+/** The top bar's create button: a plain button, or a menu when there are more ways to create. */
+function CreateButton({ createButton }: Readonly<{ createButton: CreateButtonConfig }>) {
+  const more = createButton.more ?? [];
+  if (more.length === 0) {
+    return (
+      <Button
+        size="sm"
+        className="h-8 bg-primary text-primary-foreground hover:bg-primary/90 relative z-10"
+        onClick={createButton.onClick}
+        // The label is hidden below md, where the button is just a "+".
+        aria-label={createButton.label}
+      >
+        <Plus className="h-4 w-4 md:mr-0.5" />
+        <span className="hidden md:inline">{createButton.label}</span>
+      </Button>
+    );
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          size="sm"
+          className="h-8 bg-primary text-primary-foreground hover:bg-primary/90 relative z-10"
+          // The label is hidden below md, where the button is just a "+".
+          aria-label={createButton.label}
+        >
+          <Plus className="h-4 w-4 md:mr-0.5" />
+          <span className="hidden md:inline">{createButton.label}</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={createButton.onClick}>{createButton.label}</DropdownMenuItem>
+        {more.map((entry) => (
+          <DropdownMenuItem key={entry.label} onClick={entry.onClick}>
+            {entry.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function EntityList<T extends { id: string }>({
   // Data
   items,
@@ -445,40 +489,7 @@ export function EntityList<T extends { id: string }>({
           {actionButtons}
 
           {/* Create button */}
-          {createButton && createButton.more && createButton.more.length > 0 ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  className="h-8 bg-primary text-primary-foreground hover:bg-primary/90 relative z-10"
-                  // The label is hidden below md, where the button is just a "+".
-                  aria-label={createButton.label}
-                >
-                  <Plus className="h-4 w-4 md:mr-0.5" />
-                  <span className="hidden md:inline">{createButton.label}</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={createButton.onClick}>{createButton.label}</DropdownMenuItem>
-                {createButton.more.map((entry) => (
-                  <DropdownMenuItem key={entry.label} onClick={entry.onClick}>
-                    {entry.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : createButton ? (
-            <Button
-              size="sm"
-              className="h-8 bg-primary text-primary-foreground hover:bg-primary/90 relative z-10"
-              onClick={createButton.onClick}
-              // The label is hidden below md, where the button is just a "+".
-              aria-label={createButton.label}
-            >
-              <Plus className="h-4 w-4 md:mr-0.5" />
-              <span className="hidden md:inline">{createButton.label}</span>
-            </Button>
-          ) : null}
+          {createButton ? <CreateButton createButton={createButton} /> : null}
         </div>
       </div>
       )}

@@ -7,7 +7,7 @@
  * (WIK) and interest.
  */
 
-import { useState } from 'react';
+import { useState, type Dispatch, type SetStateAction } from 'react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -64,6 +64,132 @@ export function reminderProblem(draft: Pick<Draft, 'steps' | 'wikEnabled' | 'com
   if (draft.steps.filter((step) => step.final).length > 1) return 'twoFinal';
   if (statutoryAvailable && draft.wikEnabled && !(rateValid(draft.commercialRate) && rateValid(draft.consumerRate))) return 'rateInvalid';
   return null;
+}
+
+type RemindersCopy = ReturnType<typeof useI18n>['t']['weldbooksSales']['remindersSettings'];
+
+interface StepCardProps {
+  step: ReminderStep;
+  index: number;
+  setStep: (index: number, patch: Partial<ReminderStep>) => void;
+  copy: RemindersCopy;
+  templateLabels: Readonly<Record<string, string>>;
+}
+
+function StepCard({ step, index, setStep, copy, templateLabels }: Readonly<StepCardProps>) {
+  return (
+    <div className="space-y-3 rounded-md border border-border p-3" data-testid={`reminder-step-${step.level}`}>
+      <p className="text-sm font-medium">{copy.step.replace('{level}', String(step.level))}</p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="space-y-1.5">
+          <Label htmlFor={`step-${step.level}-days`}>{copy.daysAfterDue}</Label>
+          <Input
+            id={`step-${step.level}-days`}
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={365}
+            value={Number.isNaN(step.daysAfterDue) ? '' : step.daysAfterDue}
+            onChange={(event) => setStep(index, { daysAfterDue: event.target.value === '' ? Number.NaN : Number(event.target.value) })}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor={`step-${step.level}-auto`}>{copy.how}</Label>
+          <Select value={step.auto ? 'auto' : 'ask'} onValueChange={(value) => setStep(index, { auto: value === 'auto' })}>
+            <SelectTrigger id={`step-${step.level}-auto`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">{copy.auto}</SelectItem>
+              <SelectItem value="ask">{copy.ask}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor={`step-${step.level}-template`}>{copy.template}</Label>
+          <Select value={step.template} onValueChange={(template) => setStep(index, { template })}>
+            <SelectTrigger id={`step-${step.level}-template`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TEMPLATES.map((template) => (
+                <SelectItem key={template} value={template}>
+                  {templateLabels[template] ?? template}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <Label htmlFor={`step-${step.level}-final`}>{copy.final}</Label>
+        <Switch id={`step-${step.level}-final`} checked={step.final} onCheckedChange={(final) => setStep(index, { final })} />
+      </div>
+    </div>
+  );
+}
+
+interface WikSectionProps {
+  draft: Draft;
+  setDraft: Dispatch<SetStateAction<Draft>>;
+  canEdit: boolean;
+  defaults: ReminderSettings['defaultRates'];
+  copy: RemindersCopy;
+}
+
+function WikSection({ draft, setDraft, canEdit, defaults, copy }: Readonly<WikSectionProps>) {
+  return (
+    <fieldset className="space-y-3 rounded-md border border-border p-3" disabled={!canEdit} data-testid="wik-section">
+      <legend className="px-1 text-sm font-medium">{copy.wikTitle}</legend>
+      <p className="text-[13px] text-muted-foreground">{copy.wikExplanation}</p>
+      <ul className="m-0 list-disc space-y-1 pl-5 text-[13px] text-muted-foreground">
+        <li>{copy.wikBusiness}</li>
+        <li>{copy.wikConsumer}</li>
+      </ul>
+      <div className="flex items-center justify-between gap-3">
+        <Label htmlFor="wik-enabled">{copy.wikEnable}</Label>
+        <Switch id="wik-enabled" checked={draft.wikEnabled} onCheckedChange={(wikEnabled) => setDraft((current) => ({ ...current, wikEnabled }))} />
+      </div>
+      {draft.wikEnabled ? (
+        <>
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="wik-interest">{copy.wikInterest}</Label>
+            <Switch id="wik-interest" checked={draft.interest} onCheckedChange={(interest) => setDraft((current) => ({ ...current, interest }))} />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="wik-commercial">{copy.commercialRate}</Label>
+              <Input
+                id="wik-commercial"
+                inputMode="decimal"
+                value={draft.commercialRate}
+                aria-invalid={rateValid(draft.commercialRate) ? undefined : true}
+                aria-describedby="wik-commercial-default"
+                onChange={(event) => setDraft((current) => ({ ...current, commercialRate: event.target.value }))}
+              />
+              <p id="wik-commercial-default" className="text-xs text-muted-foreground">
+                {defaults ? copy.defaultRate.replace('{rate}', String(defaults.commercialRate)) : copy.rateHint}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="wik-consumer">{copy.consumerRate}</Label>
+              <Input
+                id="wik-consumer"
+                inputMode="decimal"
+                value={draft.consumerRate}
+                aria-invalid={rateValid(draft.consumerRate) ? undefined : true}
+                aria-describedby="wik-consumer-default"
+                onChange={(event) => setDraft((current) => ({ ...current, consumerRate: event.target.value }))}
+              />
+              <p id="wik-consumer-default" className="text-xs text-muted-foreground">
+                {defaults ? copy.defaultRate.replace('{rate}', String(defaults.consumerRate)) : copy.rateHint}
+              </p>
+            </div>
+          </div>
+        </>
+      ) : null}
+    </fieldset>
+  );
 }
 
 function RemindersForm({ settings }: Readonly<{ settings: ReminderSettings }>) {
@@ -136,108 +262,12 @@ function RemindersForm({ settings }: Readonly<{ settings: ReminderSettings }>) {
         <fieldset className="space-y-3" disabled={!canEdit}>
           <legend className="mb-1 text-sm font-medium">{copy.steps}</legend>
           {draft.steps.map((step, index) => (
-            <div key={step.level} className="space-y-3 rounded-md border border-border p-3" data-testid={`reminder-step-${step.level}`}>
-              <p className="text-sm font-medium">{copy.step.replace('{level}', String(step.level))}</p>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor={`step-${step.level}-days`}>{copy.daysAfterDue}</Label>
-                  <Input
-                    id={`step-${step.level}-days`}
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    max={365}
-                    value={Number.isNaN(step.daysAfterDue) ? '' : step.daysAfterDue}
-                    onChange={(event) => setStep(index, { daysAfterDue: event.target.value === '' ? Number.NaN : Number(event.target.value) })}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor={`step-${step.level}-auto`}>{copy.how}</Label>
-                  <Select value={step.auto ? 'auto' : 'ask'} onValueChange={(value) => setStep(index, { auto: value === 'auto' })}>
-                    <SelectTrigger id={`step-${step.level}-auto`}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">{copy.auto}</SelectItem>
-                      <SelectItem value="ask">{copy.ask}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor={`step-${step.level}-template`}>{copy.template}</Label>
-                  <Select value={step.template} onValueChange={(template) => setStep(index, { template })}>
-                    <SelectTrigger id={`step-${step.level}-template`}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TEMPLATES.map((template) => (
-                        <SelectItem key={template} value={template}>
-                          {templateLabels[template] ?? template}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <Label htmlFor={`step-${step.level}-final`}>{copy.final}</Label>
-                <Switch id={`step-${step.level}-final`} checked={step.final} onCheckedChange={(final) => setStep(index, { final })} />
-              </div>
-            </div>
+            <StepCard key={step.level} step={step} index={index} setStep={setStep} copy={copy} templateLabels={templateLabels} />
           ))}
         </fieldset>
 
         {settings.statutoryAvailable ? (
-          <fieldset className="space-y-3 rounded-md border border-border p-3" disabled={!canEdit} data-testid="wik-section">
-            <legend className="px-1 text-sm font-medium">{copy.wikTitle}</legend>
-            <p className="text-[13px] text-muted-foreground">{copy.wikExplanation}</p>
-            <ul className="m-0 list-disc space-y-1 pl-5 text-[13px] text-muted-foreground">
-              <li>{copy.wikBusiness}</li>
-              <li>{copy.wikConsumer}</li>
-            </ul>
-            <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="wik-enabled">{copy.wikEnable}</Label>
-              <Switch id="wik-enabled" checked={draft.wikEnabled} onCheckedChange={(wikEnabled) => setDraft((current) => ({ ...current, wikEnabled }))} />
-            </div>
-            {draft.wikEnabled ? (
-              <>
-                <div className="flex items-center justify-between gap-3">
-                  <Label htmlFor="wik-interest">{copy.wikInterest}</Label>
-                  <Switch id="wik-interest" checked={draft.interest} onCheckedChange={(interest) => setDraft((current) => ({ ...current, interest }))} />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="wik-commercial">{copy.commercialRate}</Label>
-                    <Input
-                      id="wik-commercial"
-                      inputMode="decimal"
-                      value={draft.commercialRate}
-                      aria-invalid={rateValid(draft.commercialRate) ? undefined : true}
-                      aria-describedby="wik-commercial-default"
-                      onChange={(event) => setDraft((current) => ({ ...current, commercialRate: event.target.value }))}
-                    />
-                    <p id="wik-commercial-default" className="text-xs text-muted-foreground">
-                      {defaults ? copy.defaultRate.replace('{rate}', String(defaults.commercialRate)) : copy.rateHint}
-                    </p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="wik-consumer">{copy.consumerRate}</Label>
-                    <Input
-                      id="wik-consumer"
-                      inputMode="decimal"
-                      value={draft.consumerRate}
-                      aria-invalid={rateValid(draft.consumerRate) ? undefined : true}
-                      aria-describedby="wik-consumer-default"
-                      onChange={(event) => setDraft((current) => ({ ...current, consumerRate: event.target.value }))}
-                    />
-                    <p id="wik-consumer-default" className="text-xs text-muted-foreground">
-                      {defaults ? copy.defaultRate.replace('{rate}', String(defaults.consumerRate)) : copy.rateHint}
-                    </p>
-                  </div>
-                </div>
-              </>
-            ) : null}
-          </fieldset>
+          <WikSection draft={draft} setDraft={setDraft} canEdit={canEdit} defaults={defaults} copy={copy} />
         ) : null}
 
         {problem ? (
@@ -261,6 +291,22 @@ function RemindersForm({ settings }: Readonly<{ settings: ReminderSettings }>) {
   );
 }
 
+function RemindersBody({ query, copy, formKey }: Readonly<{ query: ReturnType<typeof useReminderSettings>; copy: RemindersCopy; formKey: string }>) {
+  if (query.isError) {
+    return (
+      <CardContent>
+        <ErrorState message={copy.loadFailed} onRetry={() => void query.refetch()} />
+      </CardContent>
+    );
+  }
+  if (query.data) return <RemindersForm key={formKey} settings={query.data} />;
+  return (
+    <CardContent>
+      <InlineSpinner />
+    </CardContent>
+  );
+}
+
 export function RemindersCard() {
   const { t } = useI18n();
   const copy = t.weldbooksSales.remindersSettings;
@@ -273,17 +319,7 @@ export function RemindersCard() {
         <CardTitle>{copy.title}</CardTitle>
         <CardDescription>{copy.description}</CardDescription>
       </CardHeader>
-      {query.isError ? (
-        <CardContent>
-          <ErrorState message={copy.loadFailed} onRetry={() => void query.refetch()} />
-        </CardContent>
-      ) : query.data ? (
-        <RemindersForm key={formKey} settings={query.data} />
-      ) : (
-        <CardContent>
-          <InlineSpinner />
-        </CardContent>
-      )}
+      <RemindersBody query={query} copy={copy} formKey={formKey} />
     </Card>
   );
 }

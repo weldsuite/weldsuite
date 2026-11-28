@@ -72,6 +72,59 @@ function DocumentViewControl({
   );
 }
 
+function DocumentRowItem({
+  kind,
+  row,
+  statusLabels,
+}: Readonly<{ kind: 'invoice' | 'bill'; row: DocumentRow; statusLabels: Record<string, string> }>) {
+  const { t } = useI18n();
+  const tc = t.accounting.contacts.connected;
+  const { formatDate, formatMoney } = useWeldbooksFormat();
+  const { open: openPanel } = useObjectPanel();
+  const number = row.number ?? '—';
+  return (
+    <TabListRow label={number} onOpen={() => openPanel({ type: kind, id: row.id, stack: true })}>
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <span className="truncate text-sm font-medium">{number}</span>
+        {row.creditNote ? <span className="flex-shrink-0 text-xs text-muted-foreground">{tc.creditNote}</span> : null}
+        <span className="flex-shrink-0">
+          <StatusChip status={row.status}>{statusLabels[row.status] ?? row.status}</StatusChip>
+        </span>
+      </div>
+      <span className="w-[92px] flex-shrink-0 whitespace-nowrap text-sm tabular-nums @max-[440px]:hidden">{formatDate(row.issueDate)}</span>
+      <span className="flex-shrink-0 text-right text-sm font-medium tabular-nums">
+        {row.creditNote ? '-' : ''}
+        {formatMoney(row.total ?? '0', row.currency)}
+      </span>
+    </TabListRow>
+  );
+}
+
+function DocumentListFooter({
+  shown,
+  totalCount,
+  hasMore,
+  isLoadingMore,
+  onLoadMore,
+}: Readonly<{ shown: number; totalCount?: number; hasMore: boolean; isLoadingMore: boolean; onLoadMore: () => void }>) {
+  const { t } = useI18n();
+  const tc = t.accounting.contacts.connected;
+  const tp = t.weldbooksContactPage.documents;
+  if (!hasMore && totalCount === undefined) return null;
+  return (
+    <div className="flex flex-col items-center gap-1 p-3">
+      {totalCount !== undefined ? (
+        <p className="text-xs text-muted-foreground">{tp.showingOf.replace('{shown}', String(shown)).replace('{total}', String(totalCount))}</p>
+      ) : null}
+      {hasMore ? (
+        <Button variant="outline" size="sm" onClick={onLoadMore} disabled={isLoadingMore}>
+          {isLoadingMore ? t.accounting.contacts.pickerSearching : tc.loadMore}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 function DocumentList({
   kind,
   rows,
@@ -101,9 +154,6 @@ function DocumentList({
 }>) {
   const { t } = useI18n();
   const tc = t.accounting.contacts.connected;
-  const tp = t.weldbooksContactPage.documents;
-  const { formatDate, formatMoney } = useWeldbooksFormat();
-  const { open: openPanel } = useObjectPanel();
 
   if (isError && rows.length === 0) {
     return <div className="p-4 text-sm text-destructive">{tc.loadFailed}</div>;
@@ -134,48 +184,11 @@ function DocumentList({
     <TabListScope>
       {control}
       <div className="border-t border-gray-200/70 dark:border-border">
-        {rows.map((row) => {
-          const number = row.number ?? '—';
-          return (
-            <TabListRow
-              key={row.id}
-              label={number}
-              onOpen={() => openPanel({ type: kind, id: row.id, stack: true })}
-            >
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                <span className="truncate text-sm font-medium">{number}</span>
-                {row.creditNote ? (
-                  <span className="flex-shrink-0 text-xs text-muted-foreground">{tc.creditNote}</span>
-                ) : null}
-                <span className="flex-shrink-0">
-                  <StatusChip status={row.status}>{statusLabels[row.status] ?? row.status}</StatusChip>
-                </span>
-              </div>
-              <span className="w-[92px] flex-shrink-0 whitespace-nowrap text-sm tabular-nums @max-[440px]:hidden">
-                {formatDate(row.issueDate)}
-              </span>
-              <span className="flex-shrink-0 text-right text-sm font-medium tabular-nums">
-                {row.creditNote ? '-' : ''}
-                {formatMoney(row.total ?? '0', row.currency)}
-              </span>
-            </TabListRow>
-          );
-        })}
+        {rows.map((row) => (
+          <DocumentRowItem key={row.id} kind={kind} row={row} statusLabels={statusLabels} />
+        ))}
       </div>
-      {hasMore || totalCount !== undefined ? (
-        <div className="flex flex-col items-center gap-1 p-3">
-          {totalCount !== undefined ? (
-            <p className="text-xs text-muted-foreground">
-              {tp.showingOf.replace('{shown}', String(rows.length)).replace('{total}', String(totalCount))}
-            </p>
-          ) : null}
-          {hasMore ? (
-            <Button variant="outline" size="sm" onClick={onLoadMore} disabled={isLoadingMore}>
-              {isLoadingMore ? t.accounting.contacts.pickerSearching : tc.loadMore}
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
+      <DocumentListFooter shown={rows.length} totalCount={totalCount} hasMore={hasMore} isLoadingMore={isLoadingMore} onLoadMore={onLoadMore} />
     </TabListScope>
   );
 }

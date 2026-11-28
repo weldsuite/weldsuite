@@ -72,6 +72,14 @@ function failureDescription(error: unknown, copy: { notConfigured: string }): st
   return error instanceof Error && error.message ? error.message : undefined;
 }
 
+function dialogTitle(
+  kind: SendEmailKind,
+  copy: { titleQuote: string; titleCreditNote: string; titleInvoice: string },
+): string {
+  if (kind === 'quote') return copy.titleQuote;
+  return kind === 'credit_note' ? copy.titleCreditNote : copy.titleInvoice;
+}
+
 function SendEmailForm({
   kind,
   defaultTo,
@@ -149,7 +157,7 @@ function SendEmailForm({
     (invalid) => setFocus(invalid.to ? 'to' : 'cc'),
   );
 
-  const title = kind === 'quote' ? copy.titleQuote : kind === 'credit_note' ? copy.titleCreditNote : copy.titleInvoice;
+  const title = dialogTitle(kind, copy);
   const who = entityName?.trim() ? entityName.trim() : copy.yourCompany;
 
   return (

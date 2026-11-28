@@ -11,6 +11,16 @@ export type ReceiptBookingResult =
   | { ok: true; input: BookDocumentInput }
   | { ok: false; problem: 'noSupplier' | 'noLines' };
 
+/** The readable lines of the document, else one line for its total, else none. */
+function bookableLines(prefill: DocumentPrefill) {
+  const readable = prefill.lines.filter((line) => Number.isFinite(line.amount) && line.amount > 0);
+  if (readable.length > 0) return readable;
+  if (prefill.total && prefill.total > 0) {
+    return [{ description: prefill.contactName ?? '', amount: prefill.total, taxRate: null, taxRateId: null, accountId: null, projectId: null }];
+  }
+  return [];
+}
+
 /**
  * The `book` request for a document paid by `bankTransactionId`. A receipt with
  * no readable lines but a total becomes one line for the total (the supplier's
@@ -24,13 +34,7 @@ export function receiptBookInput(
 ): ReceiptBookingResult {
   if (!prefill.contactId) return { ok: false, problem: 'noSupplier' };
 
-  const readable = prefill.lines.filter((line) => Number.isFinite(line.amount) && line.amount > 0);
-  const lines =
-    readable.length > 0
-      ? readable
-      : prefill.total && prefill.total > 0
-        ? [{ description: prefill.contactName ?? '', amount: prefill.total, taxRate: null, taxRateId: null, accountId: null, projectId: null }]
-        : [];
+  const lines = bookableLines(prefill);
   if (lines.length === 0) return { ok: false, problem: 'noLines' };
 
   const input: BookDocumentInput = {

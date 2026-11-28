@@ -108,7 +108,8 @@ app.get('/', requirePermission('journal:read'), async (c) => {
     if (q.to) conditions.push(lte(t.date, new Date(q.to)));
     if (q.search) {
       // Part of the entry number, the reference or the description; `%`, `_` and `\` are taken literally.
-      const pattern = `%${q.search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      const escaped = q.search.replace(/[\\%_]/g, (c) => `\\${c}`);
+      const pattern = `%${escaped}%`;
       const matches = or(ilike(t.entryNumber, pattern), ilike(t.reference, pattern), ilike(t.description, pattern));
       if (matches) conditions.push(matches);
     }

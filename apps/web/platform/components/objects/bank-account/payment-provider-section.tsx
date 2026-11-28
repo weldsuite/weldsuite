@@ -15,6 +15,12 @@ import { paymentErrorCode } from '@/lib/api/domains/weldbooks-payments';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 
+/** Why a payout sync failed: the refusal text for an unavailable settlements API, else the error's own message. */
+function syncErrorDescription(error: unknown, refused: string): string | undefined {
+  if (paymentErrorCode(error) === 'SETTLEMENTS_UNAVAILABLE') return refused;
+  return error instanceof Error ? error.message : undefined;
+}
+
 export function PaymentProviderSection({ accountId }: Readonly<{ accountId: string }>) {
   const { t } = useI18n();
   const copy = t.weldbooksPayments;
@@ -47,12 +53,7 @@ export function PaymentProviderSection({ accountId }: Readonly<{ accountId: stri
       },
       onError: (error) =>
         toast.error(copy.settings.sync.failed, {
-          description:
-            paymentErrorCode(error) === 'SETTLEMENTS_UNAVAILABLE'
-              ? copy.settings.sync.refused
-              : error instanceof Error
-                ? error.message
-                : undefined,
+          description: syncErrorDescription(error, copy.settings.sync.refused),
         }),
     });
   };

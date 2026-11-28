@@ -89,10 +89,10 @@ describe('QuotesPage', () => {
     expect(await screen.findByText('OFF-1')).toBeInTheDocument();
     expect(screen.getByText('Project 1')).toBeInTheDocument();
     expect(screen.getAllByText('Jansen Bouw').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('€1210.00').length).toBe(2);
-    expect(screen.getAllByText('d:2026-12-31').length).toBe(2);
+    expect(screen.getAllByText('€1210.00')).toHaveLength(2);
+    expect(screen.getAllByText('d:2026-12-31')).toHaveLength(2);
     // The status chip and the progress chip both say it.
-    expect(screen.getAllByText('Accepted').length).toBe(2);
+    expect(screen.getAllByText('Accepted')).toHaveLength(2);
   });
 
   it('shows the sent, viewed and accepted chips and how many invoices were made', async () => {
