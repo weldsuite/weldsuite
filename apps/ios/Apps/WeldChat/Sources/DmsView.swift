@@ -171,45 +171,49 @@ struct DmsView: View {
     }
 }
 
-/// A row of the DM list: avatar(s) with a pin, name and time, the latest message.
+/// A row of the DM list: the platform's DM row (its sidebar: avatar, name
+/// bold while unread, the red count), with the time and the latest message
+/// under the name as a phone's DM list has them.
 private struct DmRow: View {
     let dm: DmConversation
     let names: [String: String]
 
     var body: some View {
-        HStack(alignment: .top, spacing: Tokens.Spacing.m) {
-            DmAvatar(dm: dm, size: 44)
+        HStack(alignment: .center, spacing: Tokens.Spacing.m) {
+            DmAvatar(dm: dm, size: 40)
                 .overlay(alignment: .bottomTrailing) {
                     if dm.isPinned {
                         Image(systemName: "pin.fill")
                             .font(.system(size: 8))
-                            .foregroundStyle(.white)
-                            .padding(3)
+                            .foregroundStyle(Tokens.Palette.primaryForeground)
+                            .frame(width: 16, height: 16)
                             .background(Tokens.Palette.primary, in: Circle())
+                            .overlay(Circle().stroke(Tokens.Palette.background, lineWidth: 2))
+                            .offset(x: 3, y: 3)
                     }
                 }
             VStack(alignment: .leading, spacing: 2) {
-                HStack {
+                HStack(spacing: Tokens.Spacing.s) {
                     Text(dm.name)
-                        .font(dm.hasUnread ? .body.weight(.bold) : .body.weight(.semibold))
+                        .font(.inter(.subheadline, weight: dm.hasUnread ? .semibold : .medium))
                         .lineLimit(1)
-                    Spacer()
+                    Spacer(minLength: 0)
                     Text(ChatDates.listTime(dm.lastMessageAt))
                         .font(.inter(.caption))
-                        .foregroundStyle(dm.hasUnread ? Tokens.Palette.primary : Color.secondary)
+                        .foregroundStyle(Tokens.Palette.mutedForeground)
                 }
-                HStack(alignment: .top) {
+                HStack(spacing: Tokens.Spacing.s) {
                     Text(dm.lastMessagePreview.map { MentionText.plainText($0, names: names) } ?? ChatStrings.dmsNoMessagesPreview)
-                        .font(.inter(.subheadline))
-                        .foregroundStyle(dm.hasUnread ? Color.primary : Color.secondary)
-                        .lineLimit(2)
-                    Spacer()
-                    if dm.isMuted { Image(systemName: "bell.slash").font(.inter(.caption)).foregroundStyle(.secondary) }
-                    if dm.hasUnread, dm.unreadCount > 0 { CountBadge(count: dm.unreadCount) }
+                        .font(.inter(size: 13))
+                        .foregroundStyle(dm.hasUnread ? Tokens.Palette.foreground : Tokens.Palette.mutedForeground)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if dm.isMuted { Image(systemName: "bell.slash").font(.system(size: 12)).foregroundStyle(Tokens.Palette.mutedForeground) }
+                    if dm.hasUnread { CountBadge(count: dm.unreadCount) }
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
     }
 }

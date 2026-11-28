@@ -49,29 +49,33 @@ struct DraftsView: View {
         .task { await load() }
     }
 
+    /// The platform's draft row: the conversation's # (or a DM's bubble) in
+    /// grey, its name, what was typed, and when.
     private func row(_ draft: DraftItem, names: [String: String]) -> some View {
-        HStack(alignment: .top, spacing: Tokens.Spacing.m) {
-            Image(systemName: "square.and.pencil")
-                .foregroundStyle(Tokens.Palette.primary)
-                .frame(width: 32, height: 32)
-                .background(Tokens.Palette.primary.opacity(0.12), in: Circle())
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: draft.isDM ? "bubble.left" : "number")
+                .font(.system(size: 15))
+                .foregroundStyle(Tokens.Palette.mutedForeground)
+                .frame(width: 24, height: 24)
             VStack(alignment: .leading, spacing: 2) {
-                Text(SavedRules.conversationLabel(name: draft.channelName, isDM: draft.isDM))
-                    .font(.inter(.subheadline, weight: .semibold))
-                    .lineLimit(1)
+                HStack(spacing: Tokens.Spacing.s) {
+                    Text(draft.channelName)
+                        .font(.inter(.subheadline, weight: .medium))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if let date = WeldDate.parse(draft.updatedAt) {
+                        Text(ChatDates.draftTime(date))
+                            .font(.inter(.caption))
+                            .foregroundStyle(Tokens.Palette.mutedForeground)
+                    }
+                }
                 Text(MentionText.plainText(draft.content, names: names))
-                    .font(.inter(.subheadline))
-                    .foregroundStyle(.secondary)
+                    .font(.inter(size: 13))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                     .lineLimit(2)
             }
-            Spacer(minLength: 0)
-            if let date = WeldDate.parse(draft.updatedAt) {
-                Text(ChatDates.draftTime(date))
-                    .font(.inter(.caption))
-                    .foregroundStyle(.secondary)
-            }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
     }
 

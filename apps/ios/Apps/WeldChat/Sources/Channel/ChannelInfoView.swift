@@ -193,7 +193,7 @@ struct ChannelInfoView: View {
             }
         }
         .padding(Tokens.Spacing.s)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+        .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
     }
 
     // MARK: Actions

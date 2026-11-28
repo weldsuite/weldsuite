@@ -149,7 +149,7 @@ fun PendingFilesBar(files: List<PendingFile>, onRemove: (PendingFile) -> Unit, m
     ) {
         val remove = stringResource(R.string.weldchat_composer_remove_attachment)
         files.forEach { file ->
-            Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surfaceVariant) {
+            Surface(shape = RoundedCornerShape(Tokens.Radius.large), color = MaterialTheme.colorScheme.surfaceVariant) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = Tokens.Spacing.s)) {
                     Icon(
                         if (file.isImage) Icons.Filled.Image else Icons.AutoMirrored.Filled.InsertDriveFile,

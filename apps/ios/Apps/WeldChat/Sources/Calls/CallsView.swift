@@ -101,10 +101,13 @@ struct CallsView: View {
     var body: some View {
         List {
             if !model.active.isEmpty {
-                Section(ChatStrings.callsOngoing) {
+                Section {
                     ForEach(model.active) { call in
                         ongoingRow(call)
                     }
+                } header: {
+                    ListGroupHeader(label: ChatStrings.callsOngoing, count: model.active.count)
+                        .listRowInsets(EdgeInsets())
                 }
             }
             Section {
@@ -118,11 +121,13 @@ struct CallsView: View {
                 }
             } header: {
                 if !model.active.isEmpty, !model.recent.isEmpty {
-                    Text(ChatStrings.callsRecent)
+                    ListGroupHeader(label: ChatStrings.callsRecent)
+                        .listRowInsets(EdgeInsets())
                 }
             }
         }
         .listStyle(.plain)
+        .environment(\.defaultMinListRowHeight, 0)
         .accessibilityIdentifier("calls-list")
         .overlay { placeholder }
         .navigationTitle(ChatStrings.tabsCalls)
@@ -139,12 +144,8 @@ struct CallsView: View {
             } else if let error = model.error, !model.loaded {
                 LoadErrorView(error: error) { await model.load() }
             } else {
-                ContentUnavailableView {
-                    Label(ChatStrings.callsEmptyTitle, systemImage: "phone.arrow.up.right")
-                } description: {
-                    Text(ChatStrings.callsEmptyHint)
-                }
-                .accessibilityIdentifier("calls-empty")
+                ChatEmptyState(title: ChatStrings.callsEmptyTitle, description: ChatStrings.callsEmptyHint, symbol: "phone.arrow.up.right")
+                    .accessibilityIdentifier("calls-empty")
             }
         }
     }
@@ -167,17 +168,18 @@ struct CallsView: View {
         let subtitle = model.known(call.callID).map { CallRules.joined([CallRules.title($0), participants]) } ?? participants
         return HStack(spacing: Tokens.Spacing.m) {
             Image(systemName: isVideo ? "video.fill" : "phone.fill")
-                .foregroundStyle(Tokens.Status.success)
-                .frame(width: 44, height: 44)
-                .background(Tokens.Status.success.opacity(0.14), in: Circle())
+                .font(.system(size: 16))
+                .foregroundStyle(ChatColors.joinGreen)
+                .frame(width: 40, height: 40)
+                .background(ChatColors.joinGreen.opacity(0.1), in: AvatarShape())
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(isVideo ? ChatStrings.callsOngoingVideoCall : ChatStrings.callsOngoingVoiceCall)
-                    .font(.inter(.body, weight: .semibold))
+                    .font(.inter(.subheadline, weight: .medium))
                     .lineLimit(1)
                 Text(subtitle)
-                    .font(.inter(.subheadline))
-                    .foregroundStyle(.secondary)
+                    .font(.inter(size: 13))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -192,7 +194,8 @@ struct CallsView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
-            .tint(Tokens.Status.success)
+            // The platform's Join on a running call: `bg-green-600`.
+            .tint(ChatColors.joinGreen)
             .disabled(joiningID == call.callID)
         }
         .accessibilityElement(children: .contain)
@@ -207,24 +210,25 @@ struct CallsView: View {
             avatar(entry, title: title)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.inter(.body, weight: .semibold))
+                    .font(.inter(.subheadline, weight: .medium))
+                    .foregroundStyle(missed ? ChatColors.callRed : Tokens.Palette.foreground)
                     .lineLimit(1)
                 HStack(spacing: Tokens.Spacing.xs) {
                     Image(systemName: incoming ? "arrow.down.left" : "arrow.up.right")
-                        .font(.inter(.caption, weight: .semibold))
-                        .foregroundStyle(missed ? Tokens.Status.danger : Color.secondary)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(missed ? ChatColors.callRed : Tokens.Palette.mutedForeground)
                         .accessibilityHidden(true)
                     Text(CallRules.subtitle(entry))
-                        .font(.inter(.subheadline))
-                        .foregroundStyle(.secondary)
+                        .font(.inter(size: 13))
+                        .foregroundStyle(Tokens.Palette.mutedForeground)
                         .lineLimit(1)
                 }
             }
             Spacer(minLength: 0)
             if let date = WeldDate.parse(entry.createdAt) {
                 Text(CallRules.time(date))
-                    .font(.inter(.footnote))
-                    .foregroundStyle(.secondary)
+                    .font(.inter(.caption))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
             }
             Button {
                 callBack(entry, title: title)
@@ -233,8 +237,8 @@ struct CallsView: View {
                     ProgressView()
                 } else {
                     Image(systemName: entry.callType == .video ? "video" : "phone")
-                        .font(.inter(.title3))
-                        .foregroundStyle(Tokens.Palette.primary)
+                        .font(.system(size: 17))
+                        .foregroundStyle(Tokens.Palette.mutedForeground)
                 }
             }
             .buttonStyle(.borderless)
@@ -259,25 +263,20 @@ struct CallsView: View {
     private func avatar(_ entry: CallHistoryEntry, title: String) -> some View {
         if !CallRules.isDM(entry) {
             Image(systemName: "number")
-                .font(.inter(.title3, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 44, height: 44)
-                .background(Color.secondary.opacity(0.14), in: Circle())
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(Tokens.Palette.mutedForeground)
+                .frame(width: 40, height: 40)
+                .background(Tokens.Palette.muted, in: AvatarShape())
                 .accessibilityHidden(true)
         } else if CallRules.isGroupDM(entry) {
             Image(systemName: "person.2.fill")
-                .font(.inter(.body))
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .background(Tokens.Palette.primary, in: Circle())
+                .font(.system(size: 15))
+                .foregroundStyle(Tokens.Palette.mutedForeground)
+                .frame(width: 40, height: 40)
+                .background(Tokens.Palette.muted, in: AvatarShape())
                 .accessibilityHidden(true)
         } else {
-            AvatarView(
-                name: title,
-                url: entry.counterpart?.avatar.flatMap(URL.init(string:)),
-                size: 44,
-                tint: Tokens.Palette.primary
-            )
+            ChatAvatar(name: title, url: entry.counterpart?.avatar, size: 40)
         }
     }
 

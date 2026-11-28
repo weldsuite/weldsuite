@@ -1109,6 +1109,68 @@ paths:
                 $ref: '#/components/schemas/UpdatedResponse'
         default:
           $ref: '#/components/responses/Error'
+  /api/chat-activity:
+    get:
+      operationId: listChatActivity
+      parameters:
+        - name: filter
+          in: query
+          description: all (the default), mentions, replies, or dms (kept for older clients).
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: >-
+            The caller's WeldChat activity (mentions, replies in their
+            threads, missed calls), newest first: the Activity tab. Other
+            apps' notifications are not in it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatActivityList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-activity/unread-count:
+    get:
+      operationId: getChatActivityUnreadCount
+      responses:
+        '200':
+          description: >-
+            How many of the caller's WeldChat activity items (mentions,
+            replies in their threads, missed calls) are unread: the Activity
+            tab's badge. Other apps' notifications are not counted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CountResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/chat-activity/read:
+    post:
+      operationId: markChatActivityRead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkChatActivityReadInput'
+      responses:
+        '204':
+          description: >-
+            Marked read: the one item, or without `notificationId` every
+            activity item (other apps' notifications stay unread).
+        default:
+          $ref: '#/components/responses/Error'
 components:
   securitySchemes:
     bearer:
@@ -1553,6 +1615,10 @@ components:
           nullable: true
         threadReplyCount:
           type: integer
+        threadLastReplyAt:
+          type: string
+          nullable: true
+          description: When the thread's last reply came in, shown after its count.
         isEdited:
           type: boolean
         editedAt:
@@ -2696,5 +2762,61 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/UpdatedResult'
+    ChatActivityItem:
+      type: object
+      required: [id, type, title, createdAt]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          description: chat_mention, chat_thread_reply or chat_missed_call.
+        title:
+          type: string
+        body:
+          type: string
+          nullable: true
+        channelId:
+          type: string
+          nullable: true
+        channelName:
+          type: string
+          nullable: true
+        messageId:
+          type: string
+          nullable: true
+        actorId:
+          type: string
+          nullable: true
+        actorName:
+          type: string
+          nullable: true
+        actorAvatarUrl:
+          type: string
+          nullable: true
+        actionUrl:
+          type: string
+          nullable: true
+        readAt:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+    ChatActivityList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatActivityItem'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    MarkChatActivityReadInput:
+      type: object
+      properties:
+        notificationId:
+          type: string
+          description: The item to mark read; left out, every activity item.
 security:
   - bearer: []

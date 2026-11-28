@@ -7,6 +7,9 @@ import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -75,17 +78,30 @@ import io.livekit.android.renderer.TextureViewRenderer
 import io.livekit.android.room.Room
 import io.livekit.android.room.track.VideoTrack
 import livekit.org.webrtc.RendererCommon
-import org.weldsuite.ui.Avatar
+import com.weldsuite.weldchat.ui.AvatarShape
+import com.weldsuite.weldchat.ui.ChatAvatar
+import org.weldsuite.ui.DayNight
 import org.weldsuite.ui.Tokens
 import org.weldsuite.ui.tagged
 
-/** The minimized call's bar, WhatsApp's: dark in light and dark mode alike, the status in green. */
-private object CallBar {
-    val background = Color(0xFF242625)
-    val button = Color(0xFF101010)
-    val green = Color(0xFF82E382)
-    val red = Color(0xFFD62E3F)
+/**
+ * The call's colours, as the platform's call screens: the live call strip
+ * (its active-call banner: `green-500/10`, a `green-500/20` line, `green-700`
+ * text), a control that is off (`bg-red-100 text-red-500`), and the ring's
+ * Decline and Accept (`bg-red-600`, `bg-green-600`).
+ */
+private object CallColors {
+    val barFill = DayNight(Color(0x1A22C55E), Color(0x0D22C55E))
+    val barLine = Color(0x3322C55E)
+    val barText = DayNight(Color(0xFF15803D), Color(0xFF4ADE80))
+    val offFill = DayNight(Color(0xFFFEE2E2), Color(0x33EF4444))
+    val offText = DayNight(Color(0xFFEF4444), Color(0xFFF87171))
+    val decline = Color(0xFFDC2626)
+    val accept = Color(0xFF16A34A)
 }
+
+/** The platform's call controls: `rounded-[18px]` squares, 48dp. */
+private val ControlShape = RoundedCornerShape(18.dp)
 
 /** The call's height at the top of the screen while minimized, below the status bar. */
 val CallBarHeight = 56.dp
@@ -205,13 +221,13 @@ private fun CallScreen(manager: CallManager, state: CallUiState, session: CallSe
 @Composable
 private fun PeerAvatar(session: CallSession, size: Int) {
     if (session.isDirect) {
-        Avatar(session.peerName, session.peerAvatar, size = size.dp)
+        ChatAvatar(session.peerName, session.peerAvatar, size = size.dp)
     } else {
         Box(
-            Modifier.size(size.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+            Modifier.size(size.dp).clip(AvatarShape).background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Filled.Tag, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size((size / 2).dp))
+            Icon(Icons.Filled.Tag, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size((size / 2).dp))
         }
     }
 }
@@ -259,7 +275,7 @@ private fun CallControls(manager: CallManager, state: CallUiState, video: Boolea
     var more by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.l),
-        horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
+        horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ControlButton(
@@ -316,11 +332,12 @@ private fun CallControls(manager: CallManager, state: CallUiState, video: Boolea
                 )
             }
         }
+        // Leave: the platform's destructive button, a little wider than the others.
         FilledIconButton(
             onClick = manager::leaveCall,
-            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CallBar.red, contentColor = Color.White),
-            shape = RoundedCornerShape(Tokens.Radius.medium),
-            modifier = Modifier.weight(1f).height(48.dp).tagged("call-leave"),
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = Tokens.Status.danger.current(), contentColor = Color.White),
+            shape = ControlShape,
+            modifier = Modifier.size(width = 64.dp, height = 48.dp).tagged("call-leave"),
         ) {
             Icon(Icons.Filled.CallEnd, contentDescription = stringResource(R.string.weldchat_in_call_leave_call))
         }
@@ -329,22 +346,26 @@ private fun CallControls(manager: CallManager, state: CallUiState, video: Boolea
 
 @Composable
 private fun ControlButton(icon: ImageVector, label: String, on: Boolean, tag: String, onClick: () -> Unit) {
+    // On: the platform's secondary button with a ring; off: red-tinted.
     val colors = if (on) {
         IconButtonDefaults.filledIconButtonColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSurface,
         )
     } else {
         IconButtonDefaults.filledIconButtonColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            containerColor = CallColors.offFill.current(),
+            contentColor = CallColors.offText.current(),
         )
     }
     FilledIconButton(
         onClick = onClick,
         colors = colors,
-        shape = RoundedCornerShape(Tokens.Radius.medium),
-        modifier = Modifier.size(48.dp).tagged(tag),
+        shape = ControlShape,
+        modifier = Modifier
+            .size(48.dp)
+            .then(if (on) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, ControlShape) else Modifier)
+            .tagged(tag),
     ) {
         Icon(icon, contentDescription = label)
     }
@@ -358,20 +379,27 @@ private fun MinimizedBar(manager: CallManager, state: CallUiState, session: Call
     Row(
         Modifier
             .fillMaxWidth()
-            .background(CallBar.background)
+            .background(MaterialTheme.colorScheme.background)
+            .background(CallColors.barFill.current())
+            .drawBehind { drawRect(CallColors.barLine, topLeft = Offset(0f, size.height - 1.dp.toPx()), size = size.copy(height = 1.dp.toPx())) }
             .windowInsetsPadding(WindowInsets.statusBars)
             .height(CallBarHeight)
             .padding(horizontal = Tokens.Spacing.m)
             .tagged("call-bar"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        val barShape = RoundedCornerShape(12.dp)
         FilledIconButton(
             onClick = manager::toggleMic,
             colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = if (state.micOn) CallBar.button else Color.White,
-                contentColor = if (state.micOn) Color.White else CallBar.button,
+                containerColor = if (state.micOn) MaterialTheme.colorScheme.secondaryContainer else CallColors.offFill.current(),
+                contentColor = if (state.micOn) MaterialTheme.colorScheme.onSurface else CallColors.offText.current(),
             ),
-            modifier = Modifier.size(40.dp).tagged("call-bar-mute"),
+            shape = barShape,
+            modifier = Modifier
+                .size(40.dp)
+                .then(if (state.micOn) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, barShape) else Modifier)
+                .tagged("call-bar-mute"),
         ) {
             Icon(Icons.Filled.MicOff, contentDescription = stringResource(if (state.micOn) R.string.weldchat_call_mute else R.string.weldchat_call_unmute))
         }
@@ -384,11 +412,11 @@ private fun MinimizedBar(manager: CallManager, state: CallUiState, session: Call
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Filled.Call, contentDescription = null, tint = CallBar.green, modifier = Modifier.size(16.dp))
+            Icon(Icons.Filled.Call, contentDescription = null, tint = CallColors.barText.current(), modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(Tokens.Spacing.s))
             Text(
                 session.peerName?.let { stringResource(R.string.weldchat_call_bar_title, it, status) } ?: status,
-                color = CallBar.green,
+                color = CallColors.barText.current(),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -397,7 +425,8 @@ private fun MinimizedBar(manager: CallManager, state: CallUiState, session: Call
         }
         FilledIconButton(
             onClick = manager::leaveCall,
-            colors = IconButtonDefaults.filledIconButtonColors(containerColor = CallBar.red, contentColor = Color.White),
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = Tokens.Status.danger.current(), contentColor = Color.White),
+            shape = barShape,
             modifier = Modifier.size(40.dp).tagged("call-bar-end"),
         ) {
             Icon(Icons.Filled.CallEnd, contentDescription = stringResource(R.string.weldchat_call_end_call))
@@ -416,7 +445,7 @@ private fun IncomingCallScreen(call: IncomingCall, onAccept: () -> Unit, onDecli
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.weight(1f))
-            Avatar(name, call.callerAvatar, size = 120.dp)
+            ChatAvatar(name, call.callerAvatar, size = 120.dp)
             Text(
                 name,
                 style = MaterialTheme.typography.headlineSmall,
@@ -436,14 +465,14 @@ private fun IncomingCallScreen(call: IncomingCall, onAccept: () -> Unit, onDecli
                 RingButton(
                     icon = Icons.Filled.CallEnd,
                     label = stringResource(R.string.weldchat_call_decline),
-                    color = CallBar.red,
+                    color = CallColors.decline,
                     tag = "incoming-decline",
                     onClick = onDecline,
                 )
                 RingButton(
                     icon = if (video) Icons.Filled.Videocam else Icons.Filled.Call,
                     label = stringResource(R.string.weldchat_call_accept),
-                    color = Color(0xFF22C55E),
+                    color = CallColors.accept,
                     tag = "incoming-accept",
                     onClick = onAccept,
                 )
@@ -458,6 +487,8 @@ private fun RingButton(icon: ImageVector, label: String, color: Color, tag: Stri
         FilledIconButton(
             onClick = onClick,
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = color, contentColor = Color.White),
+            // The platform's ring buttons: rounded squares (`rounded-[13px]` at 36px).
+            shape = RoundedCornerShape(26.dp),
             modifier = Modifier.size(72.dp).tagged(tag),
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(32.dp))

@@ -139,6 +139,8 @@ data class ChatMessage(
     val type: String = "text",
     val parentId: String? = null,
     val threadReplyCount: Int = 0,
+    /** When the thread's last reply came in. */
+    val threadLastReplyAt: String? = null,
     val editedAt: String? = null,
     val isPinned: Boolean = false,
     val hasAttachments: Boolean = false,
@@ -204,6 +206,10 @@ data class ActivityNotification(
     val createdAt: String,
     val actorName: String? = null,
     val actorAvatar: String? = null,
+    val actorId: String? = null,
+    /** The conversation it happened in, and its name (a channel's; a DM's is who it is with). */
+    val channelId: String? = null,
+    val channelName: String? = null,
 )
 
 data class ChatDraft(val id: String, val channelId: String?, val content: String, val updatedAt: String)

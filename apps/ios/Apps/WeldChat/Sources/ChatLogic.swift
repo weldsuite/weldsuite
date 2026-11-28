@@ -33,12 +33,17 @@ enum ChatLogic {
         return last > read
     }
 
-    /// Regular channels by section, the unsectioned ones in a "Channels" group
-    /// (unless a section is called that). Sections keep their order.
+    /// Regular channels by section, as the platform's sidebar: the sections
+    /// in their order, then the default group with the unsectioned ones. The
+    /// default group is always there while there are no sections (so a new
+    /// workspace still sees "Channels" and its "Add channel"), and whenever
+    /// a channel has no section (or one that is gone); it is called
+    /// `otherName` when a section already has the name "Channels".
     static func groupSections(
         channels: [ChatChannel],
         sections: [ChatSection],
-        defaultName: String
+        defaultName: String,
+        otherName: String? = nil
     ) -> [ChannelGroup] {
         var groups = sections.map { section in
             ChannelGroup(id: section.id, name: section.name, channels: channels.filter { $0.sectionID == section.id })
@@ -48,12 +53,18 @@ enum ChatLogic {
             guard let section = channel.sectionID else { return true }
             return !known.contains(section)
         }
-        if !unsectioned.isEmpty, !sections.contains(where: { $0.name == "Channels" }) {
-            groups.append(ChannelGroup(id: unsectionedID, name: defaultName, channels: unsectioned))
+        if sections.isEmpty || !unsectioned.isEmpty {
+            let name = sections.contains(where: { $0.name == "Channels" }) ? (otherName ?? defaultName) : defaultName
+            groups.append(ChannelGroup(id: unsectionedID, name: name, channels: unsectioned))
         }
         return groups
     }
 
+    /// Whether `content` mentions `userID`, by name or with @everyone (the platform's highlight).
+    static func mentionsUser(_ content: String, userID: String) -> Bool {
+        guard !userID.isEmpty else { return false }
+        return content.contains("<@\(userID)>") || content.contains("<@\(userID):") || content.contains("<@everyone>")
+    }
     struct ChannelGroup: Identifiable, Equatable {
         let id: String
         var name: String
@@ -137,6 +148,28 @@ enum ChatLogic {
     /// Activity lists WeldChat's notifications only.
     static func isChatNotification(category: String, type: String) -> Bool {
         category == "weldchat" || type.hasPrefix("chat_")
+    }
+
+    /// What the Activity tab lists and its badge counts: the server's chat activity feed (`/chat-activity`).
+    static let activityTypes = ["chat_mention", "chat_thread_reply", "chat_missed_call"]
+
+    /// Whether a notification belongs on Activity: a mention, a reply in your thread or a missed call (a DM's message shows in the DM).
+    static func isActivityItem(category: String, type: String) -> Bool {
+        category == "weldchat" && activityTypes.contains(type)
+    }
+
+    /// Activity's groups, in the platform's order.
+    enum ActivityCategory: CaseIterable {
+        case mentions, replies, calls, other
+    }
+
+    /// Which group an activity item goes in (the platform's `activityCategory`).
+    static func activityCategory(_ type: String) -> ActivityCategory {
+        let lower = type.lowercased()
+        if lower.contains("mention") { return .mentions }
+        if lower.contains("reply") || lower.contains("thread") { return .replies }
+        if lower.contains("call") { return .calls }
+        return .other
     }
 
     /// Where a notification's `actionUrl` points: `/weldchat/dm/<id>` or `/weldchat/<id>`.
@@ -919,6 +952,12 @@ enum ChatDates {
     /// A message's time of day.
     static func time(_ date: Date?) -> String {
         date?.formatted(date: .omitted, time: .shortened) ?? ""
+    }
+
+    /// When a thread's last reply came in, after its count: the time today, else the day ("21:45", "20 Nov").
+    static func lastReply(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: now) { return time(date) }
+        return date.formatted(.dateTime.day().month(.abbreviated))
     }
 }
 

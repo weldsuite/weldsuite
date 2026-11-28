@@ -213,7 +213,7 @@ struct NewMessageView: View {
                         Image(systemName: "plus")
                             .font(.system(size: 18, weight: .semibold))
                             .frame(width: 36, height: 36)
-                            .background(Color(.secondarySystemBackground), in: Circle())
+                            .background(Tokens.Palette.muted, in: Circle())
                     }
                     .buttonStyle(.plain)
                     .disabled(sending)
@@ -225,7 +225,7 @@ struct NewMessageView: View {
                         .focused($messageFocused)
                         .padding(.horizontal, Tokens.Spacing.m)
                         .padding(.vertical, 8)
-                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20))
+                        .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: 20))
                         .accessibilityIdentifier("new-message-input")
 
                     if canSend || sending {
@@ -254,7 +254,7 @@ struct NewMessageView: View {
                             Image(systemName: "mic")
                                 .font(.system(size: 18, weight: .semibold))
                                 .frame(width: 36, height: 36)
-                                .background(Color(.secondarySystemBackground), in: Circle())
+                                .background(Tokens.Palette.muted, in: Circle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(ChatStrings.composerRecordVoice)

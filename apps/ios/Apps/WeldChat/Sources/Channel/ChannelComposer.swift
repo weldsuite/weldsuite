@@ -3,6 +3,19 @@ import UIKit
 import WeldCore
 import WeldUI
 
+/// The platform's composer colours (`@weldsuite/ui` `composer`).
+enum ComposerColors {
+    /// The box's border: `gray-200` (`border` dark).
+    static let border = ChatColors.dynamic(0xE5E7EB, 0x2E3238)
+    /// A notice above the field: `bg-gray-100` (`secondary/60` dark).
+    static let notice = ChatColors.dynamic(0xF3F4F6, 0x2E3238, darkOpacity: 0.6)
+    /// Send with nothing to send: `bg-gray-300 text-gray-500` (`muted` dark).
+    static let sendIdle = ChatColors.dynamic(0xD1D5DB, 0x232529)
+    static let sendIdleText = ChatColors.dynamic(0x6B7280, 0xB5BDC9)
+    /// The action icons: `text-gray-500` (`muted-foreground` dark).
+    static let icon = ChatColors.dynamic(0x6B7280, 0xB5BDC9)
+}
+
 /// The people and agents a composer offers while `@…` is typed.
 struct ChannelMentionPicker: View {
     let candidates: [MentionCandidate]
@@ -17,8 +30,10 @@ struct ChannelMentionPicker: View {
                     rows
                 }
             }
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Tokens.Radius.large))
-            .padding(.horizontal, Tokens.Spacing.m)
+            .padding(.vertical, 4)
+            .background(Tokens.Palette.card, in: RoundedRectangle(cornerRadius: Tokens.Radius.xlarge))
+            .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.xlarge).stroke(Tokens.Palette.border, lineWidth: 1))
+            .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
             .accessibilityIdentifier("mention-picker")
         }
     }
@@ -29,22 +44,14 @@ struct ChannelMentionPicker: View {
                 Button {
                     onSelect(candidate)
                 } label: {
-                    HStack(spacing: Tokens.Spacing.m) {
+                    HStack(spacing: Tokens.Spacing.s) {
                         avatar(candidate)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(candidate.name).font(.inter(.subheadline, weight: .semibold)).lineLimit(1)
-                            if !candidate.isAgent, let email = candidate.email, !email.isEmpty {
-                                Text(email).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
-                            }
+                        Text(candidate.name).font(.inter(.subheadline, weight: .medium)).lineLimit(1)
+                        if !candidate.isAgent, let email = candidate.email, !email.isEmpty {
+                            Text(email).font(.inter(.caption)).foregroundStyle(Tokens.Palette.mutedForeground).lineLimit(1)
                         }
                         Spacer(minLength: 0)
-                        if candidate.isAgent {
-                            Text(ChatStrings.channelAgentBadge)
-                                .font(.inter(.caption2, weight: .bold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Tokens.Palette.primary.opacity(0.15), in: Capsule())
-                        }
+                        if candidate.isAgent { AgentBadge() }
                     }
                     .padding(.horizontal, Tokens.Spacing.m)
                     .padding(.vertical, Tokens.Spacing.s)
@@ -59,24 +66,123 @@ struct ChannelMentionPicker: View {
     @ViewBuilder
     private func avatar(_ candidate: MentionCandidate) -> some View {
         if candidate.isAgent {
-            Group {
-                if let icon = candidate.agentIcon, !icon.isEmpty {
-                    Text(icon).font(.system(size: 15))
-                } else {
-                    Image(systemName: "sparkles").font(.inter(.caption)).foregroundStyle(.white)
-                }
-            }
-            .frame(width: 30, height: 30)
-            .background(Tokens.Palette.primary, in: Circle())
+            AgentAvatar(icon: candidate.agentIcon, size: 24)
         } else {
-            ChatAvatar(name: candidate.name, url: candidate.picture, size: 30)
+            ChatAvatar(name: candidate.name, url: candidate.picture, size: 24)
         }
     }
 }
 
-/// The bottom of a conversation: the mention picker, the edit and thread
-/// bars, the files about to be sent, who is typing, the archived notice and
-/// the input (or the recording bar).
+/// The composer's box: `rounded-[20px]`, bordered, on the background, 10pt inside.
+struct ComposerFrame<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) { content() }
+            .padding(10)
+            .background(Tokens.Palette.background, in: RoundedRectangle(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(ComposerColors.border, lineWidth: 1))
+            .accessibilityIdentifier("composer")
+    }
+}
+
+/// An action in the composer's row: a grey icon in a 36pt `rounded-lg` target.
+struct ComposerIconButton: View {
+    let symbol: String
+    let label: String
+    let id: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 17))
+                .foregroundStyle(ComposerColors.icon)
+                .frame(width: 36, height: 36)
+                .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(id)
+    }
+}
+
+/// Send: a `rounded-[12px]` square, the primary colour while there is something to send, plain grey while there isn't.
+struct ComposerSendButton: View {
+    let canSend: Bool
+    let sending: Bool
+    let id: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Group {
+                if sending {
+                    ProgressView().controlSize(.small).tint(canSend ? Tokens.Palette.primaryForeground : ComposerColors.sendIdleText)
+                } else {
+                    Image(systemName: "arrow.up").font(.system(size: 15, weight: .bold))
+                }
+            }
+            .foregroundStyle(canSend ? Tokens.Palette.primaryForeground : ComposerColors.sendIdleText)
+            .frame(width: 34, height: 34)
+            .background(canSend ? Tokens.Palette.primary : ComposerColors.sendIdle, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .disabled(!canSend || sending)
+        .accessibilityLabel(ChatStrings.composerSend)
+        .accessibilityIdentifier(id)
+    }
+}
+
+/// A strip above the field about the next message (what it replies to,
+/// that it edits one, a suggestion): `rounded-[10px]` on `gray-100`, 13pt,
+/// a grey icon, and a close button.
+struct ComposerNotice<Content: View, Actions: View>: View {
+    let symbol: String
+    let dismissLabel: String
+    let dismissID: String
+    let onDismiss: () -> Void
+    @ViewBuilder var actions: () -> Actions
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        HStack(spacing: Tokens.Spacing.s) {
+            Image(systemName: symbol).font(.system(size: 12)).foregroundStyle(Tokens.Palette.mutedForeground)
+            content()
+                .font(.inter(size: 13))
+                .foregroundStyle(Tokens.Palette.foreground)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            actions()
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(dismissLabel)
+            .accessibilityIdentifier(dismissID)
+        }
+        .padding(.leading, Tokens.Spacing.m)
+        .padding(.trailing, 4)
+        .padding(.vertical, 4)
+        .frame(minHeight: 36)
+        .background(ComposerColors.notice, in: RoundedRectangle(cornerRadius: 10))
+        .padding(.bottom, 4)
+    }
+}
+
+extension ComposerNotice where Actions == EmptyView {
+    init(symbol: String, dismissLabel: String, dismissID: String, onDismiss: @escaping () -> Void, @ViewBuilder content: @escaping () -> Content) {
+        self.init(symbol: symbol, dismissLabel: dismissLabel, dismissID: dismissID, onDismiss: onDismiss, actions: { EmptyView() }, content: content)
+    }
+}
+
+/// The bottom of a conversation: the mention picker, who is typing, the
+/// archived notice, and the composer box (the edit, thread and reply
+/// notices, the files about to be sent, the field, and attach, mention,
+/// record and send), or the recording bar.
 struct ChannelComposer: View {
     @Bindable var model: ChannelModel
     let kind: ConversationKind
@@ -93,23 +199,18 @@ struct ChannelComposer: View {
     @State private var showAttach = false
 
     var body: some View {
-        VStack(spacing: Tokens.Spacing.s) {
+        VStack(spacing: Tokens.Spacing.xs) {
             if model.mentionQuery != nil, !model.isRecording {
                 ChannelMentionPicker(candidates: candidates) { candidate in
                     model.insertMention(userID: candidate.userID)
                 }
             }
-            if model.editing != nil { editBar }
-            if model.showThreadSuggestion { threadSuggestion }
-            PendingFilesBar(files: model.pendingFiles) { file in
-                model.pendingFiles.removeAll { $0.id == file.id }
-            }
             if let room = model.room, let typing = ChatLogic.typingLabel(room.typingUserIDs, names: model.names) {
                 Text(typing)
                     .font(.inter(.caption))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, Tokens.Spacing.l)
+                    .padding(.horizontal, Tokens.Spacing.m)
                     .accessibilityIdentifier("typing-indicator")
             }
             if isArchived { archivedBanner }
@@ -121,14 +222,14 @@ struct ChannelComposer: View {
                     onCancel: { model.recorder.cancel() },
                     onSend: onSendVoice
                 )
-                .padding(.horizontal, Tokens.Spacing.m)
             } else {
-                inputBar
+                composer
             }
         }
+        .padding(.horizontal, Tokens.Spacing.s)
         .padding(.top, Tokens.Spacing.xs)
         .padding(.bottom, Tokens.Spacing.s)
-        .background(.bar)
+        .background(Tokens.Palette.background)
         // Typing: the draft, the room's "typing", the mention picker.
         .onChange(of: model.input) { _, text in model.inputChanged(text) }
         .attachmentPicker(isPresented: $showAttach) { files in
@@ -136,151 +237,107 @@ struct ChannelComposer: View {
         }
     }
 
-    private var inputBar: some View {
-        HStack(alignment: .bottom, spacing: Tokens.Spacing.s) {
-            if model.editing == nil {
-                Button {
-                    focus.wrappedValue = false
-                    showAttach = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(width: 36, height: 36)
-                        .background(Color(.secondarySystemBackground), in: Circle())
+    private var composer: some View {
+        let editing = model.editing != nil
+        return ComposerFrame {
+            if editing {
+                ComposerNotice(symbol: "pencil", dismissLabel: CoreStrings.commonCancel, dismissID: "edit-cancel", onDismiss: { model.cancelEdit() }) {
+                    Text(ChatStrings.channelEditingMessage).lineLimit(1)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(ChatStrings.composerAttach)
-                .accessibilityIdentifier("composer-attach")
             }
-
-            VStack(alignment: .leading, spacing: 4) {
-                if let reply = model.replyTo, model.editing == nil {
-                    replyHeader(reply)
-                }
-                TextField(ChannelRules.placeholder(kind: kind, name: name), text: $model.input, axis: .vertical)
-                    .lineLimit(1...6)
-                    .focused(focus)
-                    .submitLabel(.return)
-                    .accessibilityIdentifier("composer-input")
-            }
-            .padding(.horizontal, Tokens.Spacing.m)
-            .padding(.vertical, 8)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20))
-
-            if model.canSend || model.editing != nil {
-                Button(action: onSend) {
-                    Group {
-                        if model.uploading {
-                            ProgressView().tint(.white)
-                        } else {
-                            Image(systemName: model.editing != nil ? "checkmark" : "arrow.up")
-                                .font(.system(size: 16, weight: .bold))
+            if model.showThreadSuggestion {
+                ComposerNotice(
+                    symbol: "bubble.left.and.bubble.right",
+                    dismissLabel: ChatStrings.channelDismissThreadSuggestion,
+                    dismissID: "thread-suggestion-dismiss",
+                    onDismiss: { model.dismissThreadSuggestion() },
+                    actions: {
+                        Button(action: onContinueInThread) {
+                            Text(ChatStrings.channelCreateThread).font(.inter(size: 12, weight: .medium))
                         }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.mini)
+                        .accessibilityIdentifier("thread-suggestion-create")
                     }
-                    .frame(width: 36, height: 36)
-                    .foregroundStyle(.white)
-                    .background(Tokens.Palette.primary, in: Circle())
+                ) {
+                    Text(ChatStrings.channelThreadSuggestion).lineLimit(2)
                 }
-                .buttonStyle(.plain)
-                .disabled(model.uploading)
-                .accessibilityLabel(ChatStrings.composerSend)
-                .accessibilityIdentifier("composer-send")
-            } else {
-                Button(action: onStartRecording) {
-                    Image(systemName: "mic")
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(width: 36, height: 36)
-                        .background(Color(.secondarySystemBackground), in: Circle())
+            }
+            if let reply = model.replyTo, !editing {
+                replyNotice(reply)
+            }
+            PendingFilesBar(files: model.pendingFiles) { file in
+                model.pendingFiles.removeAll { $0.id == file.id }
+            }
+            TextField(ChannelRules.placeholder(kind: kind, name: name), text: $model.input, axis: .vertical)
+                .font(.inter(size: 15))
+                .lineLimit(1...6)
+                .focused(focus)
+                .submitLabel(.return)
+                .padding(.leading, 10)
+                .padding(.trailing, 4)
+                .padding(.top, 6)
+                .padding(.bottom, 10)
+                .accessibilityIdentifier("composer-input")
+            HStack(spacing: 0) {
+                if !editing {
+                    ComposerIconButton(symbol: "plus", label: ChatStrings.composerAttach, id: "composer-attach") {
+                        focus.wrappedValue = false
+                        showAttach = true
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(ChatStrings.composerRecordVoice)
-                .accessibilityIdentifier("composer-mic")
+                ComposerIconButton(symbol: "at", label: ChatStrings.composerMentionSomeone, id: "composer-mention") {
+                    let text = model.input
+                    model.input = text + (text.isEmpty || text.last?.isWhitespace == true ? "@" : " @")
+                    focus.wrappedValue = true
+                }
+                if !editing {
+                    ComposerIconButton(symbol: "mic", label: ChatStrings.composerRecordVoice, id: "composer-mic", action: onStartRecording)
+                }
+                Spacer(minLength: 0)
+                ComposerSendButton(canSend: (model.canSend || editing) && !model.uploading, sending: model.uploading, id: "composer-send", action: onSend)
             }
         }
-        .padding(.horizontal, Tokens.Spacing.m)
     }
 
     /// Who the reply goes to, whether they are pinged, and close.
-    private func replyHeader(_ reply: ReplyReference) -> some View {
-        HStack(spacing: Tokens.Spacing.s) {
-            Text(ChatStrings.channelReplyingTo(name: reply.authorName))
-                .font(.inter(.caption))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            Button {
-                model.replyMention.toggle()
-            } label: {
-                Image(systemName: "at")
-                    .font(.inter(.caption, weight: .bold))
-                    .foregroundStyle(model.replyMention ? Tokens.Palette.primary : Color.secondary)
-                    .padding(4)
-                    .background(model.replyMention ? Tokens.Palette.primary.opacity(0.15) : Color.clear, in: Circle())
+    private func replyNotice(_ reply: ReplyReference) -> some View {
+        ComposerNotice(
+            symbol: "arrowshape.turn.up.left",
+            dismissLabel: ChatStrings.channelCancelReply,
+            dismissID: "reply-cancel",
+            onDismiss: { model.cancelReply() },
+            actions: {
+                Button {
+                    model.replyMention.toggle()
+                } label: {
+                    Image(systemName: "at")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(model.replyMention ? Tokens.Palette.foreground : Tokens.Palette.mutedForeground)
+                        .frame(width: 28, height: 28)
+                        .background(model.replyMention ? Tokens.Palette.background : Color.clear, in: RoundedRectangle(cornerRadius: Tokens.Radius.small))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(ChatStrings.channelMentionAuthor(name: reply.authorName))
+                .accessibilityAddTraits(model.replyMention ? .isSelected : [])
+                .accessibilityIdentifier("reply-mention")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(ChatStrings.channelMentionAuthor(name: reply.authorName))
-            .accessibilityAddTraits(model.replyMention ? .isSelected : [])
-            .accessibilityIdentifier("reply-mention")
-            Button {
-                model.cancelReply()
-            } label: {
-                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(ChatStrings.channelCancelReply)
-            .accessibilityIdentifier("reply-cancel")
+        ) {
+            Text(ChatStrings.channelReplyingTo(name: reply.authorName)).lineLimit(1)
         }
-    }
-
-    private var editBar: some View {
-        HStack(spacing: Tokens.Spacing.s) {
-            Image(systemName: "pencil").foregroundStyle(Tokens.Palette.primary)
-            Text(ChatStrings.channelEditingMessage).font(.inter(.subheadline, weight: .semibold)).lineLimit(1)
-            Spacer()
-            Button {
-                model.cancelEdit()
-            } label: {
-                Image(systemName: "xmark").font(.inter(.caption, weight: .bold))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(CoreStrings.commonCancel)
-            .accessibilityIdentifier("edit-cancel")
-        }
-        .padding(.horizontal, Tokens.Spacing.l)
-    }
-
-    private var threadSuggestion: some View {
-        HStack(spacing: Tokens.Spacing.s) {
-            Image(systemName: "bubble.left.and.bubble.right").foregroundStyle(Tokens.Palette.primary)
-            Text(ChatStrings.channelThreadSuggestion).font(.inter(.caption)).lineLimit(2)
-            Spacer(minLength: 0)
-            Button(ChatStrings.channelCreateThread, action: onContinueInThread)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .accessibilityIdentifier("thread-suggestion-create")
-            Button {
-                model.dismissThreadSuggestion()
-            } label: {
-                Image(systemName: "xmark").font(.inter(.caption, weight: .bold)).foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(ChatStrings.channelDismissThreadSuggestion)
-            .accessibilityIdentifier("thread-suggestion-dismiss")
-        }
-        .padding(Tokens.Spacing.s)
-        .background(Tokens.Palette.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
-        .padding(.horizontal, Tokens.Spacing.m)
     }
 
     private var archivedBanner: some View {
         HStack(spacing: Tokens.Spacing.s) {
-            Image(systemName: "archivebox").foregroundStyle(.secondary)
-            Text(ChatStrings.channelArchivedNotice).font(.inter(.subheadline)).foregroundStyle(.secondary)
+            Image(systemName: "archivebox").foregroundStyle(Tokens.Palette.mutedForeground)
+            Text(ChatStrings.channelArchivedNotice).font(.inter(.subheadline)).foregroundStyle(Tokens.Palette.mutedForeground)
             Spacer(minLength: 0)
             Button(ChatStrings.channelUnarchive, action: onUnarchive)
                 .font(.inter(.subheadline, weight: .semibold))
                 .accessibilityIdentifier("channel-unarchive")
         }
-        .padding(.horizontal, Tokens.Spacing.l)
+        .padding(.horizontal, Tokens.Spacing.s)
+        .padding(.vertical, Tokens.Spacing.xs)
+        .overlay(alignment: .top) { Rectangle().fill(Tokens.Palette.border).frame(height: 1) }
     }
 }

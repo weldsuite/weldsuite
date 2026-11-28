@@ -286,11 +286,11 @@ struct RecordsRow: View {
             Image(systemName: RecordChatRules.symbol(chat.entityType))
                 .font(.inter(.subheadline))
                 .frame(width: 36, height: 36)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: Tokens.Radius.small))
+                .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: Tokens.Radius.small))
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(chat.displayName)
-                        .font(highlighted ? .body.weight(.semibold) : .body)
+                        .font(.inter(.subheadline, weight: highlighted ? .semibold : .regular))
                         .lineLimit(1)
                     Spacer(minLength: Tokens.Spacing.s)
                     let time = ChatDates.listTime(chat.lastMessageAt)

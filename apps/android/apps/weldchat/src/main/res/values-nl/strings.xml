@@ -3,12 +3,17 @@
 <resources>
     <string name="weldchat_activity_days_short">%1$d d</string>
     <string name="weldchat_activity_earlier_this_month">Eerder deze maand</string>
-    <string name="weldchat_activity_empty_hint">Vermeldingen, antwoorden in threads en DM\'s verschijnen hier.</string>
+    <string name="weldchat_activity_empty_hint">Vermeldingen, antwoorden in je threads en gemiste oproepen verschijnen hier.</string>
     <string name="weldchat_activity_empty_title">Nog geen activiteit</string>
     <string name="weldchat_activity_hours_short">%1$d u</string>
+    <string name="weldchat_activity_in_channel">in #%1$s</string>
     <string name="weldchat_activity_mark_all_read">Alles als gelezen markeren</string>
+    <string name="weldchat_activity_mentions">Vermeldingen</string>
     <string name="weldchat_activity_minutes_short">%1$d min</string>
+    <string name="weldchat_activity_missed_calls">Gemiste oproepen</string>
     <string name="weldchat_activity_now">nu</string>
+    <string name="weldchat_activity_other">Overig</string>
+    <string name="weldchat_activity_replies">Antwoorden</string>
     <string name="weldchat_activity_this_week">Deze week</string>
     <string name="weldchat_app_name">WeldChat</string>
     <string name="weldchat_auth_subtitle">Teamcommunicatie voor je workspace</string>
@@ -76,6 +81,7 @@
     </plurals>
     <string name="weldchat_channel_call_ongoing">Lopende oproep</string>
     <string name="weldchat_channel_call_started">Oproep gestart</string>
+    <string name="weldchat_channel_called_no_answer">Belde, maar er werd niet opgenomen.</string>
     <string name="weldchat_channel_cancel_reply">Antwoord annuleren</string>
     <string name="weldchat_channel_channel_details">Kanaaldetails</string>
     <string name="weldchat_channel_copied">Gekopieerd</string>
@@ -89,6 +95,7 @@
     <string name="weldchat_channel_edited">(bewerkt)</string>
     <string name="weldchat_channel_editing_message">Bericht bewerken</string>
     <string name="weldchat_channel_join_call">Deelnemen</string>
+    <string name="weldchat_channel_join_call_link">Deelnemen aan gesprek</string>
     <string name="weldchat_channel_loading_title">Laden…</string>
     <string name="weldchat_channel_mention_author">%1$s vermelden</string>
     <string name="weldchat_channel_missed_call">Gemiste oproep</string>
@@ -123,6 +130,8 @@
     <string name="weldchat_channel_start_of_conversation">Dit is het begin van het gesprek.</string>
     <string name="weldchat_channel_start_video_call">Videogesprek starten</string>
     <string name="weldchat_channel_start_voice_call">Audiogesprek starten</string>
+    <string name="weldchat_channel_started_call">Heeft een gesprek gestart.</string>
+    <string name="weldchat_channel_started_call_lasted">Heeft een gesprek gestart dat %1$s duurde.</string>
     <string name="weldchat_channel_thread_suggestion">Dit lijkt een gesprek. Verder in een thread?</string>
     <string name="weldchat_channel_typing_many">%1$s en %2$d anderen typen…</string>
     <string name="weldchat_channel_typing_one">%1$s typt…</string>
@@ -138,6 +147,7 @@
     <string name="weldchat_channel_visual_shown">%1$s “%2$s”: open het op het web om het te zien</string>
     <string name="weldchat_channel_welcome">Welkom in #%1$s</string>
     <string name="weldchat_channel_you">Jij</string>
+    <string name="weldchat_channel_you_missed_call">Je hebt het gesprek gemist.</string>
     <string name="weldchat_channel_info_actions">Acties</string>
     <string name="weldchat_channel_info_delete">Kanaal verwijderen</string>
     <string name="weldchat_channel_info_delete_body">Hiermee verwijder je het kanaal voor iedereen. Dit kan niet ongedaan worden gemaakt.</string>
@@ -173,6 +183,7 @@
     <string name="weldchat_composer_attach_title">Bijvoegen</string>
     <string name="weldchat_composer_delete_recording">Opname verwijderen</string>
     <string name="weldchat_composer_file">Bestand</string>
+    <string name="weldchat_composer_mention_someone">Iemand vermelden</string>
     <string name="weldchat_composer_message_channel">Bericht in #%1$s</string>
     <string name="weldchat_composer_message_dm">Bericht...</string>
     <string name="weldchat_composer_mic_permission_body">Geef WeldChat in Instellingen toegang tot de microfoon om spraakberichten op te nemen.</string>
@@ -233,6 +244,7 @@
     <string name="weldchat_drafts_just_now">zojuist</string>
     <string name="weldchat_drafts_minutes_ago">%1$d min geleden</string>
     <string name="weldchat_drafts_title">Concepten</string>
+    <string name="weldchat_home_add_channel">Kanaal toevoegen</string>
     <plurals name="weldchat_home_channel_count">
         <item quantity="one">%1$d kanaal</item>
         <item quantity="other">%1$d kanalen</item>
@@ -260,8 +272,9 @@
         <item quantity="other">%1$d actief</item>
     </plurals>
     <string name="weldchat_home_new_item">Nieuw</string>
+    <string name="weldchat_home_other_channels_group">Overige kanalen</string>
     <string name="weldchat_home_profile_and_settings">Profiel en instellingen</string>
-    <string name="weldchat_home_saved">Bewaard</string>
+    <string name="weldchat_home_saved">Opgeslagen items</string>
     <string name="weldchat_home_section_actions">Acties voor deze sectie</string>
     <string name="weldchat_home_see_all">Alles bekijken</string>
     <string name="weldchat_home_switch_workspace">Workspace wisselen</string>

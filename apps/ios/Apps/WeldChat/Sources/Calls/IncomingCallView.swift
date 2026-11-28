@@ -17,31 +17,26 @@ struct IncomingCallView: View {
     var body: some View {
         VStack(spacing: Tokens.Spacing.l) {
             Spacer()
-            AvatarView(
-                name: ring.callerName,
-                url: ring.callerAvatar.flatMap(URL.init(string:)),
-                size: 128,
-                tint: Tokens.Palette.primary
-            )
+            ChatAvatar(name: ring.callerName, url: ring.callerAvatar, size: 128)
             Text(callerName)
-                .font(.inter(.title, weight: .bold))
+                .font(.inter(.title2, weight: .semibold))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
             Text(ring.callType == .video ? ChatStrings.callIncomingVideo : ChatStrings.callIncomingVoice)
                 .font(.inter(.subheadline))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Tokens.Palette.mutedForeground)
             Spacer()
             HStack(spacing: 72) {
                 RingButton(
                     symbol: "phone.down.fill",
-                    color: Tokens.Status.danger,
+                    color: CallStyle.decline,
                     label: ChatStrings.callDecline,
                     identifier: "incoming-decline",
                     action: onDecline
                 )
                 RingButton(
                     symbol: ring.callType == .video ? "video.fill" : "phone.fill",
-                    color: Tokens.Status.success,
+                    color: CallStyle.accept,
                     label: ChatStrings.callAccept,
                     identifier: "incoming-accept",
                     action: onAccept
@@ -51,12 +46,12 @@ struct IncomingCallView: View {
         }
         .padding(.horizontal, Tokens.Spacing.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(uiColor: .systemBackground).ignoresSafeArea())
+        .background(Tokens.Palette.background.ignoresSafeArea())
         .accessibilityElement(children: .contain)
     }
 }
 
-/// A round button with its label underneath.
+/// The platform's ring button (a rounded square, `rounded-[13px]` at 36pt) with its label underneath.
 private struct RingButton: View {
     let symbol: String
     let color: Color
@@ -68,13 +63,13 @@ private struct RingButton: View {
         Button(action: action) {
             VStack(spacing: Tokens.Spacing.s) {
                 Image(systemName: symbol)
-                    .font(.inter(.title))
+                    .font(.system(size: 28))
                     .foregroundStyle(.white)
                     .frame(width: 72, height: 72)
-                    .background(color, in: Circle())
+                    .background(color, in: RoundedRectangle(cornerRadius: 26))
                 Text(label)
-                    .font(.inter(.footnote))
-                    .foregroundStyle(.primary)
+                    .font(.inter(.footnote, weight: .medium))
+                    .foregroundStyle(Tokens.Palette.foreground)
             }
         }
         .buttonStyle(.plain)

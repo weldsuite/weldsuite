@@ -25,7 +25,7 @@ struct ChatSearchField: View {
         }
         .padding(.horizontal, Tokens.Spacing.m)
         .padding(.vertical, 9)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+        .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
     }
 
     @ViewBuilder

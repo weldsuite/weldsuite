@@ -52,39 +52,43 @@ struct SavedView: View {
         .task { await load() }
     }
 
+    /// The platform's saved item: the author's avatar and name, the
+    /// message, the conversation (# or a DM) and when.
     private func row(_ bookmark: ChatBookmark, name: String, isDM: Bool, names: [String: String]) -> some View {
-        HStack(alignment: .top, spacing: Tokens.Spacing.m) {
-            Image(systemName: "bookmark")
-                .foregroundStyle(Tokens.Palette.primary)
-                .frame(width: 32, height: 32)
-                .background(Tokens.Palette.primary.opacity(0.12), in: Circle())
+        let author = bookmark.messageAuthorName ?? ChatStrings.savedUnknownAuthor
+        return HStack(alignment: .top, spacing: 10) {
+            ChatAvatar(name: author, url: bookmark.messageAuthorAvatar, size: 28)
             VStack(alignment: .leading, spacing: 2) {
-                Text(SavedRules.conversationLabel(name: name, isDM: isDM))
-                    .font(.inter(.subheadline, weight: .semibold))
-                    .lineLimit(1)
-                Text(bookmark.messageAuthorName ?? ChatStrings.savedUnknownAuthor)
-                    .font(.inter(.caption, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: Tokens.Spacing.s) {
+                    Text(author)
+                        .font(.inter(.subheadline, weight: .medium))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if let date = WeldDate.parse(bookmark.createdAt) {
+                        Text(date.formatted(.dateTime.day().month(.abbreviated)))
+                            .font(.inter(.caption))
+                            .foregroundStyle(Tokens.Palette.mutedForeground)
+                    }
+                }
                 Text(SavedRules.bookmarkText(bookmark, names: names))
-                    .font(.inter(.subheadline))
+                    .font(.inter(size: 13))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                     .lineLimit(2)
+                HStack(spacing: 4) {
+                    Image(systemName: isDM ? "bubble.left" : "number").font(.system(size: 10))
+                    Text(name).font(.inter(.caption)).lineLimit(1)
+                }
+                .foregroundStyle(Tokens.Palette.mutedForeground)
                 if let note = bookmark.note, !note.isEmpty {
                     Text(note)
                         .font(.inter(.caption))
                         .italic()
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Tokens.Palette.mutedForeground)
                         .lineLimit(1)
                 }
             }
-            Spacer(minLength: 0)
-            if let date = WeldDate.parse(bookmark.createdAt) {
-                Text(date.formatted(.dateTime.day().month(.abbreviated)))
-                    .font(.inter(.caption))
-                    .foregroundStyle(.secondary)
-            }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
     }
 

@@ -259,7 +259,7 @@ struct MemberNoteView: View {
                     .focused($focused)
                     .disabled(!loaded)
                     .padding(Tokens.Spacing.m)
-                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+                    .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
                     .accessibilityIdentifier("member-note")
                 if focused {
                     Text(ChatStrings.memberNoteLength(length: String(draft.count), max: String(MemberScreenRules.noteLimit)))
@@ -402,7 +402,7 @@ struct MemberCommonTab: View {
                         .font(.inter(.caption, weight: .semibold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1)
-                        .background(Color(.secondarySystemBackground), in: Capsule())
+                        .background(Tokens.Palette.muted, in: Capsule())
                 }
                 content()
             }
@@ -485,7 +485,7 @@ struct MemberActivityTab: View {
                 .font(.inter(.caption2))
                 .foregroundStyle(.secondary)
                 .frame(width: 24, height: 24)
-                .background(Color(.secondarySystemBackground), in: Circle())
+                .background(Tokens.Palette.muted, in: Circle())
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(sentence(event)).font(.inter(.subheadline))
@@ -510,7 +510,7 @@ struct MemberActivityTab: View {
                         Spacer(minLength: 0)
                     }
                     .padding(Tokens.Spacing.s)
-                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: Tokens.Radius.small))
+                    .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: Tokens.Radius.small))
                 }
             }
         }

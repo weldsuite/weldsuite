@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Chat
+import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,6 +38,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.weldsuite.weldchat.ChatDates
 import com.weldsuite.weldchat.ChatStore
 import com.weldsuite.weldchat.MentionText
@@ -43,6 +46,8 @@ import com.weldsuite.weldchat.R
 import com.weldsuite.weldchat.text
 import com.weldsuite.weldchat.ui.BackButton
 import com.weldsuite.weldchat.ui.ChatNavigator
+import com.weldsuite.weldchat.ui.EmptyIcon
+import com.weldsuite.weldchat.ui.RowDivider
 import com.weldsuite.weldchat.ui.SwipeAction
 import com.weldsuite.weldchat.ui.SwipeActions
 import kotlinx.coroutines.CancellationException
@@ -140,7 +145,7 @@ fun DraftsScreen(store: ChatStore, nav: ChatNavigator) {
                         EmptyState(
                             stringResource(R.string.weldchat_drafts_empty_title),
                             stringResource(R.string.weldchat_drafts_empty_hint),
-                            icon = { Icon(Icons.Filled.EditNote, contentDescription = null, modifier = Modifier.size(40.dp)) },
+                            icon = { EmptyIcon(Icons.Filled.EditNote) },
                         )
                     }
                 }
@@ -161,7 +166,12 @@ fun DraftsScreen(store: ChatStore, nav: ChatNavigator) {
                                 Modifier
                                     .clickable { nav.openConversation(draft.channelId, draft.channelName, if (draft.isDm) "dm" else null) }
                                     .tagged("draft-row-${draft.id}"),
-                            ) { DraftRow(draft, names) }
+                            ) {
+                                Column {
+                                    DraftRow(draft, names)
+                                    RowDivider()
+                                }
+                            }
                         }
                     }
                 }
@@ -172,40 +182,41 @@ fun DraftsScreen(store: ChatStore, nav: ChatNavigator) {
 
 @Composable
 private fun DraftRow(draft: DraftItem, names: Map<String, String>) {
+    // The platform's draft row: the conversation's # (or a DM's bubble) in
+    // grey, its name, what was typed, and when.
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
+        Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.m),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        RowIcon(Icons.Filled.EditNote)
-        Column(Modifier.weight(1f)) {
-            Text(
-                SavedRules.conversationLabel(draft.channelName, draft.isDm),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+        Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+            Icon(
+                if (draft.isDm) Icons.AutoMirrored.Outlined.Chat else Icons.Filled.Tag,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
             )
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
+                Text(
+                    draft.channelName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                WeldDate.parse(draft.updatedAt)?.let {
+                    Text(ChatDates.draftTime(it).text(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             Text(
                 MentionText.plainText(draft.content, names),
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        WeldDate.parse(draft.updatedAt)?.let {
-            Text(ChatDates.draftTime(it).text(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-/** A list row's round icon in WeldChat's colour (drafts, saved). */
-@Composable
-internal fun RowIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    Box(
-        Modifier.size(32.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
     }
 }

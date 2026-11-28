@@ -1,5 +1,6 @@
 package com.weldsuite.weldchat.ui.channel
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -257,14 +258,13 @@ private fun ReplyCountDivider(count: Int) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s),
     ) {
-        HorizontalDivider(Modifier.weight(1f))
+        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
         Text(
             pluralStringResource(R.plurals.weldchat_channel_reply_count, count, count),
             style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        HorizontalDivider(Modifier.weight(1f))
+        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 
@@ -279,42 +279,19 @@ private fun ThreadComposer(
     onSend: () -> Unit,
 ) {
     val canSend = !sending && input.text.isNotBlank()
-    Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(vertical = Tokens.Spacing.s), verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
-            if (candidates != null) MentionPicker(candidates, onSelect = onMention)
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.m),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s),
-            ) {
-                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.weight(1f)) {
-                    ComposerField(
-                        value = input,
-                        onValueChange = onInputChange,
-                        placeholder = stringResource(R.string.weldchat_thread_reply_placeholder),
-                        modifier = Modifier.padding(horizontal = Tokens.Spacing.m, vertical = 10.dp).tagged("thread-input"),
-                    )
-                }
-                Surface(
-                    onClick = onSend,
-                    enabled = canSend,
-                    shape = CircleShape,
-                    color = if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
-                    modifier = Modifier.size(40.dp).tagged("thread-send"),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        if (sending) {
-                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                        } else {
-                            Icon(
-                                Icons.Filled.ArrowUpward,
-                                contentDescription = stringResource(R.string.weldchat_composer_send),
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                            )
-                        }
-                    }
-                }
-            }
+    Column(
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(start = Tokens.Spacing.s, end = Tokens.Spacing.s, bottom = Tokens.Spacing.s),
+        verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.xs),
+    ) {
+        if (candidates != null) MentionPicker(candidates, onSelect = onMention)
+        ComposerFrame {
+            ComposerField(
+                value = input,
+                onValueChange = onInputChange,
+                placeholder = stringResource(R.string.weldchat_thread_reply_placeholder),
+                modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 6.dp, bottom = 10.dp).tagged("thread-input"),
+            )
+            ComposerActions(send = { ComposerSendButton(canSend = canSend, sending = sending, tag = "thread-send", onClick = onSend) }) {}
         }
     }
 }

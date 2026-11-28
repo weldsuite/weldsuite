@@ -58,7 +58,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.weldsuite.core.AppEnvironment
 import org.weldsuite.core.R as CoreR
-import org.weldsuite.ui.Avatar
+import com.weldsuite.weldchat.ui.AvatarShape
+import com.weldsuite.weldchat.ui.ChatAvatar
+import com.weldsuite.weldchat.ui.ChatColors
+import com.weldsuite.weldchat.ui.EmptyIcon
+import com.weldsuite.weldchat.ui.ListGroupHeader
+import com.weldsuite.weldchat.ui.RowDivider
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.ui.unit.sp
 import org.weldsuite.ui.EmptyState
 import org.weldsuite.ui.Tokens
 import org.weldsuite.ui.tagged
@@ -199,24 +206,17 @@ fun CallsScreen(
                         EmptyState(
                             title = stringResource(R.string.weldchat_calls_empty_title),
                             description = stringResource(R.string.weldchat_calls_empty_hint),
-                            icon = {
-                                Icon(
-                                    Icons.Filled.PhoneInTalk,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(36.dp),
-                                )
-                            },
+                            icon = { EmptyIcon(Icons.Filled.PhoneInTalk) },
                         )
                     }
                 }
                 else -> LazyColumn(Modifier.fillMaxSize().tagged("calls-list"), state = listState) {
                     if (active.isNotEmpty()) {
-                        item("ongoing-header") { SectionLabel(stringResource(R.string.weldchat_calls_ongoing)) }
+                        item("ongoing-header") { ListGroupHeader(stringResource(R.string.weldchat_calls_ongoing), active.size) }
                         items(active, key = { "active-${it.callId}" }) { call ->
                             OngoingRow(call, byId[call.callId], unknown, joining = joiningId == call.callId, onJoin = { join(call.callId) })
                         }
-                        if (recent.isNotEmpty()) item("recent-header") { SectionLabel(stringResource(R.string.weldchat_calls_recent)) }
+                        if (recent.isNotEmpty()) item("recent-header") { ListGroupHeader(stringResource(R.string.weldchat_calls_recent), null) }
                     }
                     items(recent, key = { it.id }) { item ->
                         HistoryRow(
@@ -227,7 +227,7 @@ fun CallsScreen(
                             onOpen = { onOpenConversation(item.channelId, if (CallRules.isDm(item)) CallRules.title(item, unknown) else item.channelName.orEmpty(), CallRules.isDm(item)) },
                             onCallBack = { callBack(item) },
                         )
-                        HorizontalDivider(Modifier.padding(start = 72.dp))
+                        RowDivider(Modifier.padding(start = 68.dp))
                     }
                     if (loadingMore) {
                         item("more") {
@@ -243,16 +243,6 @@ fun CallsScreen(
 }
 
 @Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = Tokens.Spacing.l, end = Tokens.Spacing.l, top = Tokens.Spacing.l, bottom = Tokens.Spacing.xs),
-    )
-}
-
-@Composable
 private fun OngoingRow(call: ActiveCallSummary, known: CallHistoryEntry?, unknown: String, joining: Boolean, onJoin: () -> Unit) {
     val video = call.callType == CallType.VIDEO
     val participants = pluralStringResource(R.plurals.weldchat_calls_participant_count, call.participantCount, call.participantCount)
@@ -261,30 +251,31 @@ private fun OngoingRow(call: ActiveCallSummary, known: CallHistoryEntry?, unknow
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.size(44.dp).background(SuccessGreen.copy(alpha = 0.15f), CircleShape),
+            Modifier.size(40.dp).background(SuccessGreen.copy(alpha = 0.1f), AvatarShape),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(if (video) Icons.Filled.Videocam else Icons.Filled.Call, contentDescription = null, tint = SuccessGreen)
+            Icon(if (video) Icons.Filled.Videocam else Icons.Filled.Call, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(20.dp))
         }
         Column(Modifier.weight(1f).padding(horizontal = Tokens.Spacing.m)) {
             Text(
                 stringResource(if (video) R.string.weldchat_calls_ongoing_video_call else R.string.weldchat_calls_ongoing_voice_call),
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 known?.let { stringResource(R.string.weldchat_call_bar_title, CallRules.title(it, unknown), participants) } ?: participants,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Button(onClick = onJoin, enabled = !joining) {
+        // The platform's Join on a running call: `bg-green-600`.
+        Button(onClick = onJoin, enabled = !joining, colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen, contentColor = Color.White)) {
             if (joining) {
-                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
             } else {
                 Text(stringResource(R.string.weldchat_calls_join))
             }
@@ -332,15 +323,15 @@ private fun HistoryRow(
     ) {
         when {
             !CallRules.isDm(item) -> IconTile(Icons.Filled.Tag, MaterialTheme.colorScheme.onSurfaceVariant)
-            CallRules.isGroupDm(item) -> IconTile(Icons.Filled.Groups, MaterialTheme.colorScheme.primary)
-            else -> Avatar(title, item.counterpart?.avatar, size = 44.dp)
+            CallRules.isGroupDm(item) -> IconTile(Icons.Filled.Groups, MaterialTheme.colorScheme.onSurfaceVariant)
+            else -> ChatAvatar(title, item.counterpart?.avatar, size = 40.dp)
         }
         Column(Modifier.weight(1f).padding(horizontal = Tokens.Spacing.m)) {
             Text(
                 title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = if (missed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = if (missed) ChatColors.callRed.current() else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -348,13 +339,13 @@ private fun HistoryRow(
                 Icon(
                     if (incoming) Icons.AutoMirrored.Filled.CallReceived else Icons.AutoMirrored.Filled.CallMade,
                     contentDescription = null,
-                    tint = if (missed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = if (missed) ChatColors.callRed.current() else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(14.dp),
                 )
                 Spacer(Modifier.width(Tokens.Spacing.xs))
                 Text(
                     parts.joinToString(" · "),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -373,7 +364,7 @@ private fun HistoryRow(
                 Icon(
                     if (video) Icons.Filled.Videocam else Icons.Filled.Call,
                     contentDescription = "$callBackLabel: $title",
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -383,7 +374,7 @@ private fun HistoryRow(
 @Composable
 private fun IconTile(icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color) {
     Box(
-        Modifier.size(44.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+        Modifier.size(40.dp).background(MaterialTheme.colorScheme.surfaceVariant, AvatarShape),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = null, tint = tint)

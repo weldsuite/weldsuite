@@ -20,6 +20,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
@@ -200,7 +201,7 @@ private fun TabBar(nav: ChatNavigator, store: ChatStore, callsAvailable: Boolean
                 icon = {
                     val unread = store.activityUnread
                     if (tab == ChatTab.ACTIVITY && unread > 0) {
-                        BadgedBox(badge = { Badge { Text(if (unread > 99) "99+" else unread.toString()) } }) {
+                        BadgedBox(badge = { Badge(containerColor = ChatColors.count, contentColor = Color.White) { Text(if (unread > 99) "99+" else unread.toString()) } }) {
                             Icon(tab.icon, contentDescription = null)
                         }
                     } else {

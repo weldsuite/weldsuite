@@ -15,7 +15,7 @@
     "dms": "DMs"
   },
   "home": {
-    "saved": "Saved",
+    "saved": "Saved items",
     "drafts": "Drafts",
     "channelsGroup": "Channels",
     "createChannel": "Create channel",
@@ -48,7 +48,9 @@
       "one": "{count} live",
       "other": "{count} live"
     },
-    "sectionActions": "Section actions"
+    "sectionActions": "Section actions",
+    "addChannel": "Add channel",
+    "otherChannelsGroup": "Other Channels"
   },
   "dms": {
     "filterAll": "All",
@@ -74,14 +76,19 @@
   },
   "activity": {
     "emptyTitle": "No activity yet",
-    "emptyHint": "Mentions, thread replies, and DMs will show up here.",
+    "emptyHint": "Mentions, replies in your threads and missed calls show up here.",
     "markAllRead": "Mark all as read",
     "thisWeek": "This week",
     "earlierThisMonth": "Earlier this month",
     "now": "now",
     "minutesShort": "{count}m",
     "hoursShort": "{count}h",
-    "daysShort": "{count}d"
+    "daysShort": "{count}d",
+    "mentions": "Mentions",
+    "replies": "Replies",
+    "missedCalls": "Missed calls",
+    "other": "Other",
+    "inChannel": "in #{name}"
   },
   "calls": {
     "join": "Join",
@@ -215,7 +222,12 @@
     "unpin": "Unpin",
     "deleteMessageTitle": "Delete message",
     "deleteMessageBody": "Are you sure you want to delete this message? This cannot be undone.",
-    "sending": "Sending…"
+    "sending": "Sending…",
+    "startedCall": "Started a call.",
+    "startedCallLasted": "Started a call that lasted {duration}.",
+    "calledNoAnswer": "Called, but there was no answer.",
+    "youMissedCall": "You missed the call.",
+    "joinCallLink": "Join call"
   },
   "inCall": {
     "backToChat": "Back to chat",
@@ -407,7 +419,8 @@
     "voiceMessage": "Voice message",
     "play": "Play",
     "pause": "Pause",
-    "playbackSpeed": "{speed}×"
+    "playbackSpeed": "{speed}×",
+    "mentionSomeone": "Mention someone"
   },
   "messageActions": {
     "reactWithEmoji": "React with emoji",

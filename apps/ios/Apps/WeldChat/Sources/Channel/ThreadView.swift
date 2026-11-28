@@ -122,7 +122,7 @@ struct ThreadView: View {
 
     private var composer: some View {
         let query = MentionText.mentionQuery(input)
-        return VStack(spacing: Tokens.Spacing.s) {
+        return VStack(spacing: Tokens.Spacing.xs) {
             if let query {
                 ChannelMentionPicker(
                     candidates: ChannelRules.mentionCandidates(query: query, agents: agents, people: store.roster)
@@ -130,37 +130,29 @@ struct ThreadView: View {
                     input = MentionText.insertMention(input, userID: candidate.userID)
                 }
             }
-            HStack(alignment: .bottom, spacing: Tokens.Spacing.s) {
+            // The platform's composer box, as in the conversation.
+            ComposerFrame {
                 TextField(ChatStrings.threadReplyPlaceholder, text: $input, axis: .vertical)
+                    .font(.inter(size: 15))
                     .lineLimit(1...6)
                     .focused($focused)
-                    .padding(.horizontal, Tokens.Spacing.m)
-                    .padding(.vertical, 8)
-                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20))
+                    .padding(.leading, 10)
+                    .padding(.trailing, 4)
+                    .padding(.top, 6)
+                    .padding(.bottom, 10)
                     .accessibilityIdentifier("thread-input")
-                Button {
-                    Task { await send() }
-                } label: {
-                    Group {
-                        if sending {
-                            ProgressView().tint(.white)
-                        } else {
-                            Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold))
-                        }
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    ComposerSendButton(canSend: canSend, sending: sending, id: "thread-send") {
+                        Task { await send() }
                     }
-                    .frame(width: 36, height: 36)
-                    .foregroundStyle(.white)
-                    .background(canSend ? Tokens.Palette.primary : Color.secondary.opacity(0.4), in: Circle())
                 }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
-                .accessibilityLabel(ChatStrings.composerSend)
-                .accessibilityIdentifier("thread-send")
             }
-            .padding(.horizontal, Tokens.Spacing.m)
         }
-        .padding(.vertical, Tokens.Spacing.s)
-        .background(.bar)
+        .padding(.horizontal, Tokens.Spacing.s)
+        .padding(.top, Tokens.Spacing.xs)
+        .padding(.bottom, Tokens.Spacing.s)
+        .background(Tokens.Palette.background)
     }
 
     private var canSend: Bool {
