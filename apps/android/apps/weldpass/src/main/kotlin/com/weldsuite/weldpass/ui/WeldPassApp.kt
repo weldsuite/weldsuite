@@ -1,11 +1,13 @@
 package com.weldsuite.weldpass.ui
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import org.weldsuite.ui.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -50,10 +52,11 @@ import org.weldsuite.ui.tagged
 val LocalNotify = staticCompositionLocalOf<(String) -> Unit> { {} }
 
 private enum class Tab(val route: String, val label: Int, val icon: ImageVector, val tag: String) {
-    Items("items", R.string.weldpass_tabs_items, Icons.Filled.Key, "tab-items"),
+    // The platform sidebar's icons where Material has them: LockKeyhole, Wand2, Settings.
+    Items("items", R.string.weldpass_tabs_items, Icons.Outlined.Lock, "tab-items"),
     Vaults("vaults", R.string.weldpass_tabs_vaults, Icons.Outlined.Inventory2, "tab-vaults"),
     Generator("generator", R.string.weldpass_tabs_generator, Icons.Outlined.AutoFixHigh, "tab-generator"),
-    Settings("settings", R.string.weldpass_tabs_settings, Icons.Filled.Settings, "tab-settings"),
+    Settings("settings", R.string.weldpass_tabs_settings, Icons.Outlined.Settings, "tab-settings"),
 }
 
 /** WeldPass once signed in, in a workspace and unlocked. */
@@ -79,8 +82,8 @@ fun WeldPassApp(
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val notify: (String) -> Unit = { message -> scope.launch { snackbar.showSnackbar(message) } }
-    // The new-item sheet: null when closed, else the vault to add to ("" = the default one).
-    var addingTo by remember { mutableStateOf<String?>(null) }
+    // "Add item": the form, where the type is picked, as on the platform ("" = the default vault).
+    val addItem: (String) -> Unit = { vaultId -> nav.navigate("item/new?type=${Item.Type.LOGIN.value}&vaultId=$vaultId") }
     val openItem: (String, String) -> Unit = { vaultId, itemId -> nav.navigate("item/$vaultId/$itemId") }
 
     LaunchedEffect(session.workspace.id) {
@@ -89,13 +92,16 @@ fun WeldPassApp(
     }
 
     CompositionLocalProvider(LocalNotify provides notify) {
+        // The tab bar only: each screen's own top bar takes the status bar's
+        // inset, so this one mustn't add it again (as WeldDesk does).
         Scaffold(
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = { TabBar(nav) },
         ) { padding ->
-            NavHost(nav, startDestination = Tab.Items.route, modifier = Modifier.padding(padding)) {
+            NavHost(nav, startDestination = Tab.Items.route, modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
                 composable(Tab.Items.route) {
-                    ItemsScreen(repository, onOpen = openItem, onAdd = { addingTo = "" })
+                    ItemsScreen(repository, onOpen = openItem, onAdd = { addItem("") })
                 }
                 composable(Tab.Vaults.route) {
                     VaultsScreen(repository, onOpen = { vaultId -> nav.navigate("vault/$vaultId") })
@@ -106,7 +112,7 @@ fun WeldPassApp(
                         vaultId = entry.arguments?.getString("vaultId").orEmpty(),
                         onBack = { nav.popBackStack() },
                         onOpen = openItem,
-                        onAdd = { vaultId -> addingTo = vaultId },
+                        onAdd = addItem,
                     )
                 }
                 composable(
@@ -163,12 +169,6 @@ fun WeldPassApp(
                 composable("health") {
                     HealthScreen(repository, onBack = { nav.popBackStack() }, onOpen = openItem)
                 }
-            }
-        }
-        addingTo?.let { vault ->
-            NewItemSheet(onDismiss = { addingTo = null }) { type ->
-                addingTo = null
-                nav.navigate("item/new?type=${type.value}&vaultId=$vault")
             }
         }
     }

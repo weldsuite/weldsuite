@@ -12,21 +12,28 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 {
     private var logins: [Login] = []
     private var hosts: [String] = []
-    private let table = UITableView(frame: .zero, style: .insetGrouped)
+    // The platform's list: plain rows on the background with full-width hairlines.
+    private let table = UITableView(frame: .zero, style: .plain)
     private let message = UILabel()
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemGroupedBackground
+        view.backgroundColor = Palette.background
         table.dataSource = self
         table.delegate = self
+        table.backgroundColor = Palette.background
+        table.separatorColor = Palette.border
+        table.separatorInset = .zero
+        table.tableFooterView = UIView()
         table.translatesAutoresizingMaskIntoConstraints = false
         message.translatesAutoresizingMaskIntoConstraints = false
         message.numberOfLines = 0
         message.textAlignment = .center
-        message.textColor = .secondaryLabel
+        message.font = .preferredFont(forTextStyle: .subheadline)
+        message.textColor = Palette.mutedForeground
         // The extension has no navigation bar of its own: a plain Cancel button.
         let cancelButton = UIButton(type: .system)
+        cancelButton.tintColor = Palette.primary
         cancelButton.setTitle(PassStrings.commonCancel, for: .normal)
         cancelButton.addTarget(self, action: #selector(cancel), for: .touchUpInside)
         cancelButton.translatesAutoresizingMaskIntoConstraints = false
@@ -121,16 +128,52 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         logins.count
     }
 
+    /// A login as the app's list shows one: the login's globe, the title, and
+    /// the username and site under it.
     func tableView(_: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
         let login = logins[indexPath.row]
-        cell.textLabel?.text = login.title
-        cell.detailTextLabel?.text = [login.username, login.host ?? ""].filter { !$0.isEmpty }.joined(separator: " · ")
-        cell.detailTextLabel?.textColor = .secondaryLabel
+        var content = cell.defaultContentConfiguration()
+        content.image = UIImage(systemName: "globe")
+        content.imageProperties.tintColor = Palette.mutedForeground
+        content.imageProperties.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 15)
+        content.text = login.title
+        content.textProperties.font = UIFontMetrics(forTextStyle: .subheadline)
+            .scaledFont(for: .systemFont(ofSize: 15, weight: .medium))
+        content.textProperties.color = Palette.foreground
+        content.textProperties.numberOfLines = 1
+        content.secondaryText = [login.username, login.host ?? ""].filter { !$0.isEmpty }.joined(separator: " · ")
+        content.secondaryTextProperties.font = .preferredFont(forTextStyle: .footnote)
+        content.secondaryTextProperties.color = Palette.mutedForeground
+        content.secondaryTextProperties.numberOfLines = 1
+        cell.contentConfiguration = content
+        cell.backgroundColor = Palette.background
         return cell
     }
 
     func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
         complete(with: logins[indexPath.row])
+    }
+}
+
+/// The platform's colours the extension uses. It doesn't link WeldUI, so
+/// these repeat `Tokens.Palette` (from `apps/mobile-shared/tokens.json`).
+private enum Palette {
+    static let background = dynamic(light: 0xFFFFFF, dark: 0x1C1D1F)
+    static let foreground = dynamic(light: 0x0A0A0A, dark: 0xFFFFFF)
+    static let mutedForeground = dynamic(light: 0x737373, dark: 0xB5BDC9)
+    static let border = dynamic(light: 0xE5E5E5, dark: 0x2E3238)
+    static let primary = dynamic(light: 0x171717, dark: 0x266DF0)
+
+    private static func dynamic(light: UInt32, dark: UInt32) -> UIColor {
+        UIColor { traits in
+            let value = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(
+                red: CGFloat((value >> 16) & 0xFF) / 255,
+                green: CGFloat((value >> 8) & 0xFF) / 255,
+                blue: CGFloat(value & 0xFF) / 255,
+                alpha: 1
+            )
+        }
     }
 }

@@ -29,6 +29,47 @@ enum PassLogic {
             .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
+    /// One vault's items in a list grouped by vault. `vault` is nil for items
+    /// of a vault the list doesn't know.
+    struct VaultGroup: Identifiable {
+        let vault: PassVault?
+        let items: [PassItem]
+
+        var id: String { vault?.id ?? "" }
+    }
+
+    /// `items` in one group per vault, as the platform's Passwords page groups
+    /// them: the personal vault first, then shared vaults by name, and no group
+    /// for a vault with nothing to show. Items of a vault missing from
+    /// `vaults` come last, in a group without a vault.
+    static func groupByVault(_ items: [PassItem], vaults: [PassVault]) -> [VaultGroup] {
+        let byVault = Dictionary(grouping: items, by: \.vaultID)
+        let known = sortVaults(vaults)
+        var groups = known.compactMap { vault in byVault[vault.id].map { VaultGroup(vault: vault, items: $0) } }
+        let knownIDs = Set(known.map(\.id))
+        let orphans = items.filter { !knownIDs.contains($0.vaultID) }
+        if !orphans.isEmpty { groups.append(VaultGroup(vault: nil, items: orphans)) }
+        return groups
+    }
+
+    /// Password issues, worst first, as the platform's health page orders them.
+    static let issueOrder: [PassHealthEntry.Issue] = [.weak, .reused, .old]
+
+    /// The logins of the health report whose worst issue is `issue`.
+    struct IssueGroup: Identifiable {
+        let issue: PassHealthEntry.Issue
+        let entries: [PassHealthEntry]
+
+        var id: PassHealthEntry.Issue { issue }
+    }
+
+    /// The health report's logins in one group per issue, worst first, each
+    /// login under its worst issue only; no group for an issue nobody has.
+    static func groupByWorstIssue(_ entries: [PassHealthEntry]) -> [IssueGroup] {
+        let byWorst = Dictionary(grouping: entries) { entry in issueOrder.first { entry.issues.contains($0) } }
+        return issueOrder.compactMap { issue in byWorst[issue].map { IssueGroup(issue: issue, entries: $0) } }
+    }
+
     /// Editor and manager can add, change, move and delete items.
     static func canEdit(_ vault: PassVault?) -> Bool {
         vault?.role == .editor || vault?.role == .manager

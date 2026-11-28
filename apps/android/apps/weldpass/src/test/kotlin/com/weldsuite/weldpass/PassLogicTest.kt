@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.weldsuite.api.weldpass.models.HealthEntry
 import org.weldsuite.api.weldpass.models.Item
 import org.weldsuite.api.weldpass.models.Vault
 import java.time.Instant
@@ -50,6 +51,50 @@ class PassLogicTest {
     fun `items of one vault only`() {
         val items = listOf(item("1", "A", vaultId = "v1"), item("2", "B", vaultId = "v2"))
         assertEquals(listOf("2"), PassLogic.filterItems(items, "", vaultId = "v2", locale = locale).map { it.id })
+    }
+
+    @Test
+    fun `items are grouped by vault, personal first, without empty groups`() {
+        val vaults = listOf(
+            vault("b", Vault.Kind.SHARED, "beta"),
+            vault("p", Vault.Kind.PERSONAL, "Personal"),
+            vault("a", Vault.Kind.SHARED, "Alpha"),
+        )
+        val items = listOf(item("1", "x", vaultId = "b"), item("2", "y", vaultId = "p"), item("3", "z", vaultId = "b"))
+        val groups = PassLogic.groupByVault(items, vaults, locale)
+        assertEquals(listOf("p", "b"), groups.map { it.first?.id })
+        assertEquals(listOf("1", "3"), groups[1].second.map { it.id })
+    }
+
+    @Test
+    fun `items of a vault the list doesn't know come last, without a vault`() {
+        val groups = PassLogic.groupByVault(
+            listOf(item("1", "x", vaultId = "gone"), item("2", "y", vaultId = "p")),
+            listOf(vault("p", Vault.Kind.PERSONAL, "Personal")),
+            locale,
+        )
+        assertEquals(listOf("p", null), groups.map { it.first?.id })
+        assertEquals(listOf("1"), groups[1].second.map { it.id })
+    }
+
+    @Test
+    fun `a login is listed under its worst issue only, worst issues first`() {
+        fun entry(id: String, vararg issues: HealthEntry.Issues) = HealthEntry(
+            id = id, vaultId = "v", type = HealthEntry.Type.LOGIN, title = id, subtitle = null, url = null, host = null,
+            hasTotp = false, passwordChangedAt = null, version = 1, createdBy = null, updatedBy = null,
+            createdAt = "2026-01-01T00:00:00Z", updatedAt = "2026-01-01T00:00:00Z", issues = issues.toList(), reuseCount = 1,
+        )
+        val groups = PassLogic.groupByWorstIssue(
+            listOf(
+                entry("old", HealthEntry.Issues.OLD),
+                entry("reused-and-old", HealthEntry.Issues.OLD, HealthEntry.Issues.REUSED),
+                entry("weak", HealthEntry.Issues.WEAK, HealthEntry.Issues.REUSED),
+            ),
+        )
+        assertEquals(listOf(HealthEntry.Issues.WEAK, HealthEntry.Issues.REUSED, HealthEntry.Issues.OLD), groups.map { it.first })
+        assertEquals(listOf("weak"), groups[0].second.map { it.id })
+        assertEquals(listOf("reused-and-old"), groups[1].second.map { it.id })
+        assertEquals(listOf("old"), groups[2].second.map { it.id })
     }
 
     @Test

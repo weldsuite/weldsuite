@@ -1,5 +1,6 @@
 package com.weldsuite.weldpass
 
+import org.weldsuite.api.weldpass.models.HealthEntry
 import org.weldsuite.api.weldpass.models.Item
 import org.weldsuite.api.weldpass.models.Vault
 import java.net.URI
@@ -47,6 +48,33 @@ object PassLogic {
                 words.all { haystack.contains(it) }
             }
             .sortedWith { a, b -> collator.compare(a.title, b.title) }
+    }
+
+    /**
+     * [items] in one group per vault, as the platform's Passwords page groups
+     * them: the personal vault first, then shared vaults by name, and no group
+     * for a vault with nothing to show. Items of a vault missing from [vaults]
+     * come last, in a group without a vault.
+     */
+    fun groupByVault(items: List<Item>, vaults: List<Vault>, locale: Locale = Locale.getDefault()): List<Pair<Vault?, List<Item>>> {
+        val byVault = items.groupBy { it.vaultId }
+        val known = sortVaults(vaults, locale)
+        val groups: List<Pair<Vault?, List<Item>>> = known.mapNotNull { vault -> byVault[vault.id]?.let { vault to it } }
+        val knownIds = known.mapTo(HashSet()) { it.id }
+        val orphans = items.filter { it.vaultId !in knownIds }
+        return if (orphans.isEmpty()) groups else groups + (null to orphans)
+    }
+
+    /** Password issues, worst first, as the platform's health page orders them. */
+    val issueOrder = listOf(HealthEntry.Issues.WEAK, HealthEntry.Issues.REUSED, HealthEntry.Issues.OLD)
+
+    /**
+     * The health report's logins in one group per issue, worst first, each
+     * login under its worst issue only; no group for an issue nobody has.
+     */
+    fun groupByWorstIssue(entries: List<HealthEntry>): List<Pair<HealthEntry.Issues, List<HealthEntry>>> {
+        val byWorst = entries.groupBy { entry -> issueOrder.firstOrNull { it in entry.issues } }
+        return issueOrder.mapNotNull { issue -> byWorst[issue]?.let { issue to it } }
     }
 
     /** Editor and manager can add, change, move and delete items. */

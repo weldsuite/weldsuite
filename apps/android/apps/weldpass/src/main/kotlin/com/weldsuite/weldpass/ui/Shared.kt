@@ -1,22 +1,20 @@
 package com.weldsuite.weldpass.ui
 
 import androidx.annotation.StringRes
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.outlined.StickyNote2
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.CreditCard
-import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -51,22 +49,17 @@ fun typeLabel(type: Item.Type): Int = when (type) {
     else -> R.string.weldpass_types_login
 }
 
-/** The item type's icon on a tinted tile. */
+/** The platform's icon for an item type (`ItemTypeIcon`: globe, sticky note, credit card). */
+fun typeIcon(type: Item.Type): ImageVector = when (type) {
+    Item.Type.NOTE -> Icons.AutoMirrored.Outlined.StickyNote2
+    Item.Type.CARD -> Icons.Outlined.CreditCard
+    else -> Icons.Outlined.Language
+}
+
+/** The item type's icon, plain, in the muted colour unless told otherwise. */
 @Composable
-fun ItemIcon(type: Item.Type, size: Dp = 40.dp) {
-    val icon = when (type) {
-        Item.Type.NOTE -> Icons.AutoMirrored.Outlined.StickyNote2
-        Item.Type.CARD -> Icons.Outlined.CreditCard
-        else -> Icons.Outlined.Key
-    }
-    Box(
-        modifier = Modifier
-            .size(size)
-            .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(size * 0.28f)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(size * 0.5f))
-    }
+fun TypeIcon(type: Item.Type, modifier: Modifier = Modifier, size: Dp = 18.dp, tint: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    Icon(typeIcon(type), contentDescription = null, tint = tint, modifier = modifier.size(size))
 }
 
 /** A server timestamp as the phone shows dates and times ("26 Nov 2026, 17:40"). */
@@ -75,7 +68,16 @@ fun formatWhen(iso: String): String = runCatching {
         .format(java.time.Instant.parse(iso).atZone(java.time.ZoneId.systemDefault()))
 }.getOrDefault(iso)
 
-/** "New item", in a top bar. */
+/** A server timestamp as time ago ("5 minutes ago", "Yesterday"), like the platform's `TimeAgo`. */
+fun formatAgo(iso: String, nowMillis: Long = System.currentTimeMillis()): String = runCatching {
+    android.text.format.DateUtils.getRelativeTimeSpanString(
+        java.time.Instant.parse(iso).toEpochMilli(),
+        nowMillis,
+        android.text.format.DateUtils.MINUTE_IN_MILLIS,
+    ).toString()
+}.getOrDefault(iso)
+
+/** "Add item", in a top bar. */
 @Composable
 fun AddButton(onClick: () -> Unit, tag: String) {
     IconButton(onClick = onClick, modifier = Modifier.tagged(tag)) {
