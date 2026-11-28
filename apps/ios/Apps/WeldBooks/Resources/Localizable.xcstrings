@@ -800,6 +800,23 @@
         }
       }
     },
+    "bankDetail.excluded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluded"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uitgesloten"
+          }
+        }
+      }
+    },
     "bankDetail.loadError": {
       "extractionState": "manual",
       "localizations": {
@@ -829,7 +846,7 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afgeletterd"
+            "value": "Afgestemd"
           }
         }
       }
@@ -891,13 +908,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unmatched"
+            "value": "Unreconciled"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Niet gekoppeld"
+            "value": "Niet afgestemd"
           }
         }
       }
@@ -1347,13 +1364,47 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "It stays in your books but won't be scheduled for payment."
+            "value": "Please provide a reason for rejecting this bill."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "De factuur blijft in de administratie maar wordt niet gepland voor betaling."
+            "value": "Geef een reden voor het afwijzen van deze inkoopfactuur."
+          }
+        }
+      }
+    },
+    "billDetail.rejectReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reason"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reden"
+          }
+        }
+      }
+    },
+    "billDetail.rejectReasonPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter rejection reason…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voer afwijzingsreden in…"
           }
         }
       }
@@ -1364,13 +1415,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reject this bill?"
+            "value": "Reject bill"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deze inkoopfactuur afwijzen?"
+            "value": "Inkoopfactuur afwijzen"
           }
         }
       }
@@ -3993,6 +4044,47 @@
         }
       }
     },
+    "dashboard.bankAccountCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "1 bank account"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld bank accounts"
+                }
+              }
+            }
+          }
+        },
+        "nl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "1 bankrekening"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld bankrekeningen"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "dashboard.billCount": {
       "extractionState": "manual",
       "localizations": {
@@ -4034,6 +4126,74 @@
         }
       }
     },
+    "dashboard.cashBalance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cash balance"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banksaldo"
+          }
+        }
+      }
+    },
+    "dashboard.documents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Documents to process"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te verwerken documenten"
+          }
+        }
+      }
+    },
+    "dashboard.documentsWaiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting to be booked"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wachten op boeking"
+          }
+        }
+      }
+    },
+    "dashboard.dueThisWeek": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Due this week"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vervalt deze week"
+          }
+        }
+      }
+    },
     "dashboard.expense": {
       "extractionState": "manual",
       "localizations": {
@@ -4047,6 +4207,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Uitgave"
+          }
+        }
+      }
+    },
+    "dashboard.expenses": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expenses"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kosten"
           }
         }
       }
@@ -4150,6 +4327,40 @@
         }
       }
     },
+    "dashboard.lastYear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last year"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorig jaar"
+          }
+        }
+      }
+    },
+    "dashboard.latestPayments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latest payments"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laatste betalingen"
+          }
+        }
+      }
+    },
     "dashboard.loadError": {
       "extractionState": "manual",
       "localizations": {
@@ -4163,6 +4374,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dashboard kon niet worden geladen."
+          }
+        }
+      }
+    },
+    "dashboard.metric": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Figure"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cijfer"
+          }
+        }
+      }
+    },
+    "dashboard.netProfit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Net profit"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nettowinst"
+          }
+        }
+      }
+    },
+    "dashboard.noDueThisWeek": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing falls due this week."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Er vervalt deze week niets."
           }
         }
       }
@@ -4197,6 +4459,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nog geen facturen"
+          }
+        }
+      }
+    },
+    "dashboard.noRecentPayments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No recent payments."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geen recente betalingen."
           }
         }
       }
@@ -4242,6 +4521,88 @@
         }
       }
     },
+    "dashboard.openBillCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "1 open bill"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld open bills"
+                }
+              }
+            }
+          }
+        },
+        "nl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "1 openstaande inkoopfactuur"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld openstaande inkoopfacturen"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "dashboard.openInvoiceCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "1 open invoice"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld open invoices"
+                }
+              }
+            }
+          }
+        },
+        "nl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "1 openstaande factuur"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld openstaande facturen"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "dashboard.outstanding": {
       "extractionState": "manual",
       "localizations": {
@@ -4276,6 +4637,23 @@
         }
       }
     },
+    "dashboard.overdueAmount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ overdue"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ vervallen"
+          }
+        }
+      }
+    },
     "dashboard.payables": {
       "extractionState": "manual",
       "localizations": {
@@ -4289,6 +4667,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Te betalen"
+          }
+        }
+      }
+    },
+    "dashboard.paymentReceived": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Received"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ontvangen"
+          }
+        }
+      }
+    },
+    "dashboard.paymentSent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paid"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Betaald"
           }
         }
       }
@@ -4327,6 +4739,23 @@
         }
       }
     },
+    "dashboard.revenue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revenue"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omzet"
+          }
+        }
+      }
+    },
     "dashboard.scan": {
       "extractionState": "manual",
       "localizations": {
@@ -4357,6 +4786,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Deze maand"
+          }
+        }
+      }
+    },
+    "dashboard.toPay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To pay"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te betalen"
+          }
+        }
+      }
+    },
+    "dashboard.toReceive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To receive"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te ontvangen"
+          }
+        }
+      }
+    },
+    "dashboard.today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Today"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vandaag"
+          }
+        }
+      }
+    },
+    "document.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
           }
         }
       }
@@ -6435,6 +6932,193 @@
         }
       }
     },
+    "groups.approved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approved"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Goedgekeurd"
+          }
+        }
+      }
+    },
+    "groups.draft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draft"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Concept"
+          }
+        }
+      }
+    },
+    "groups.excluded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluded"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uitgesloten"
+          }
+        }
+      }
+    },
+    "groups.finalized": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finalized"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gefinaliseerd"
+          }
+        }
+      }
+    },
+    "groups.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overig"
+          }
+        }
+      }
+    },
+    "groups.overdue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overdue"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Achterstallig"
+          }
+        }
+      }
+    },
+    "groups.paid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paid"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Betaald"
+          }
+        }
+      }
+    },
+    "groups.partiallyPaid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partially paid"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gedeeltelijk betaald"
+          }
+        }
+      }
+    },
+    "groups.reconciled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconciled"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afgestemd"
+          }
+        }
+      }
+    },
+    "groups.sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verzonden"
+          }
+        }
+      }
+    },
+    "groups.unreconciled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unreconciled"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niet afgestemd"
+          }
+        }
+      }
+    },
     "invoiceDetail.actionsTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -8506,6 +9190,23 @@
         }
       }
     },
+    "more.bank": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bank"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bank"
+          }
+        }
+      }
+    },
     "more.bankAccounts": {
       "extractionState": "manual",
       "localizations": {
@@ -8541,6 +9242,23 @@
       }
     },
     "more.contacts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contacts"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contacten"
+          }
+        }
+      }
+    },
+    "more.contactsGroup": {
       "extractionState": "manual",
       "localizations": {
         "en": {

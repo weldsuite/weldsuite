@@ -284,10 +284,26 @@ class BooksRepository(private val env: AppEnvironment) {
 
     // ── dashboard and reports ──
 
+    /**
+     * The dashboard's figures, plus the approved bills (first page) whose due
+     * date falls in the week: the platform's "Due this week" where the server
+     * has no to-process list.
+     */
     suspend fun dashboard(): Dashboard = coroutineScope {
         val figures = async { call { api.getAccountingDashboard() }.data }
-        val recent = async { call { api.listInvoices(page = 1, pageSize = 5) }.data.map(::invoice) }
+        val approved = async { runCatching { bills(page = 1, pageSize = 50, search = null, status = "approved").items }.getOrDefault(emptyList()) }
         val data = figures.await()
+        val accounts = data.bankAccounts
+        // The ledger balance when the server has it; else the bank accounts in the base currency.
+        val cash = data.cashBalance?.let { Amounts.of(it) } ?: accounts
+            .filter { it.currency == null || it.currency == data.currency }
+            .fold(java.math.BigDecimal.ZERO) { sum, account -> sum + Amounts.of(account.currentBalance) }
+        val invoicesDue = data.upcomingDue.orEmpty().map {
+            com.weldsuite.weldbooks.logic.DueItem("invoice", it.id, it.invoiceNumber, it.contactName, it.dueDate, Amounts.of(it.balanceDue), data.currency)
+        }
+        val billsDue = approved.await()
+            .filter { it.balanceDue.signum() > 0 }
+            .map { com.weldsuite.weldbooks.logic.DueItem("bill", it.id, it.number, it.contactName, it.dueDate, it.balanceDue, it.currency) }
         Dashboard(
             currency = data.currency,
             outstanding = Amounts.of(data.receivables.outstanding),
@@ -297,7 +313,18 @@ class BooksRepository(private val env: AppEnvironment) {
             payables = Amounts.of(data.payables.outstanding),
             payablesCount = data.payables.outstandingCount,
             profitMonth = Amounts.of(data.profit.month),
-            recentInvoices = recent.await(),
+            cashBalance = cash,
+            bankAccountCount = accounts.size,
+            pendingDocuments = data.pendingDocuments,
+            dueThisWeek = com.weldsuite.weldbooks.logic.DashboardSeries.dueThisWeek(invoicesDue + billsDue),
+            recentPayments = data.recentPayments.orEmpty().map {
+                com.weldsuite.weldbooks.logic.RecentPayment(
+                    it.id, it.type, it.date, Amounts.of(it.amount), it.currency, it.paymentMethod, it.reference, it.invoiceId, it.billId,
+                )
+            },
+            trend = data.monthlyTrend.orEmpty().map {
+                com.weldsuite.weldbooks.logic.TrendMonth(it.month, it.revenue?.let { v -> Amounts.of(v) }, it.expenses?.let { v -> Amounts.of(v) }, it.profit?.let { v -> Amounts.of(v) })
+            },
         )
     }
 
@@ -918,6 +945,7 @@ class BooksRepository(private val env: AppEnvironment) {
         amount = Amounts.of(row.amount),
         status = row.status,
         counterpartyName = row.counterpartyName?.ifBlank { null },
+        reference = row.reference?.ifBlank { null },
     )
 
     internal fun vatReturn(row: ApiVatReturn): VatReturn {

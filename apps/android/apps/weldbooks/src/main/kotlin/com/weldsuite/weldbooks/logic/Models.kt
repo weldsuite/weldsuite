@@ -171,6 +171,8 @@ data class BankTransaction(
     val amount: BigDecimal,
     val status: String,
     val counterpartyName: String?,
+    /** The bank's reference (payment reference, end-to-end id), as the platform's Reference column. */
+    val reference: String? = null,
 )
 
 data class MatchSuggestion(
@@ -210,6 +212,33 @@ data class Contact(
 
 data class ContactBalance(val receivable: BigDecimal, val payable: BigDecimal)
 
+/** An invoice to be paid or a bill to pay, on the dashboard's "Due this week". */
+data class DueItem(
+    val kind: String,
+    val id: String,
+    val number: String?,
+    val contactName: String?,
+    val dueDate: String,
+    val amount: BigDecimal,
+    val currency: String?,
+)
+
+/** A payment on the dashboard: `received` on an invoice, `sent` on a bill. */
+data class RecentPayment(
+    val id: String,
+    val type: String?,
+    val date: String,
+    val amount: BigDecimal,
+    val currency: String?,
+    val method: String?,
+    val reference: String?,
+    val invoiceId: String?,
+    val billId: String?,
+)
+
+/** One month of the ledger: revenue, expenses and net profit; null when nothing is known. */
+data class TrendMonth(val month: String, val revenue: BigDecimal?, val expenses: BigDecimal?, val profit: BigDecimal?)
+
 data class Dashboard(
     val currency: String,
     val outstanding: BigDecimal,
@@ -219,8 +248,72 @@ data class Dashboard(
     val payables: BigDecimal,
     val payablesCount: Int,
     val profitMonth: BigDecimal,
-    val recentInvoices: List<Invoice>,
+    /** The ledger balance of the money accounts, or the bank accounts' sum on an older server. */
+    val cashBalance: BigDecimal = BigDecimal.ZERO,
+    val bankAccountCount: Int = 0,
+    val pendingDocuments: Int = 0,
+    /** Invoices and bills due within the week, soonest first. */
+    val dueThisWeek: List<DueItem> = emptyList(),
+    val recentPayments: List<RecentPayment> = emptyList(),
+    /** The last 24 months, oldest first. */
+    val trend: List<TrendMonth> = emptyList(),
 )
+
+/** This year's running total of a metric against last year's, month by month (the platform's `yearToDateSeries`). */
+data class YearToDate(
+    val year: Int,
+    /** `YYYY-MM` of the last month with figures; null without a trend. */
+    val throughMonth: String?,
+    /** Twelve points, January to December: this year's running total (null after this month) and last year's. */
+    val points: List<Pair<BigDecimal?, BigDecimal?>>,
+    val total: BigDecimal,
+    val lastYearTotal: BigDecimal,
+)
+
+object DashboardSeries {
+    /** Revenue, expenses or net profit of a month. */
+    fun value(month: TrendMonth, metric: String): BigDecimal? = when (metric) {
+        "expenses" -> month.expenses
+        "profit" -> month.profit
+        else -> month.revenue
+    }
+
+    /** An older server returns only revenue: expenses and profit are then unknown. */
+    fun hasTrend(months: List<TrendMonth>): Boolean = months.isNotEmpty() && months.all { it.expenses != null }
+
+    fun yearToDate(months: List<TrendMonth>, metric: String, today: java.time.LocalDate = Days.today()): YearToDate {
+        val current = months.lastOrNull()?.month
+        val year = current?.take(4)?.toIntOrNull() ?: today.year
+        val byMonth = months.associate { it.month to value(it, metric) }
+        fun key(y: Int, m: Int) = "%04d-%02d".format(y, m)
+        var running: BigDecimal? = BigDecimal.ZERO
+        var lastYearRunning: BigDecimal? = BigDecimal.ZERO
+        var total = BigDecimal.ZERO
+        var lastYearTotal = BigDecimal.ZERO
+        val points = (1..12).map { m ->
+            val month = key(year, m)
+            val inRange = current != null && month <= current
+            val value = byMonth[month]
+            val lastYearValue = byMonth[key(year - 1, m)]
+            running = if (inRange && running != null && value != null) running!! + value else null
+            lastYearRunning = if (lastYearRunning != null && lastYearValue != null) lastYearRunning!! + lastYearValue else null
+            if (month == current) {
+                total = running ?: BigDecimal.ZERO
+                lastYearTotal = lastYearRunning ?: BigDecimal.ZERO
+            }
+            (if (inRange) running else null) to lastYearRunning
+        }
+        return YearToDate(year, current, points, total, lastYearTotal)
+    }
+
+    /** Invoices and bills due by the end of the week (overdue ones too), soonest first, at most [limit]. */
+    fun dueThisWeek(items: List<DueItem>, today: java.time.LocalDate = Days.today(), limit: Int = 10): List<DueItem> {
+        val end = today.plusDays(7).toString()
+        return items.filter { it.dueDate.take(10).isNotEmpty() && it.dueDate.take(10) <= end }
+            .sortedBy { it.dueDate.take(10) }
+            .take(limit)
+    }
+}
 
 data class ProfitLoss(val revenue: BigDecimal, val expenses: BigDecimal, val netProfit: BigDecimal) {
     /** Percent of revenue, 0 without revenue. */

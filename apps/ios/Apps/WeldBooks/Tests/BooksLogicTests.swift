@@ -122,8 +122,11 @@ final class BooksLogicTests: XCTestCase {
         XCTAssertEqual(Statuses.bill("approved", approvalStatus: "approved", dueDate: "2026-11-01", balanceDue: d("5"), today: today), "overdue")
         XCTAssertEqual(Statuses.bill("approved", approvalStatus: "approved", dueDate: "2026-12-01", balanceDue: d("5"), today: today), "approved")
         XCTAssertEqual(Statuses.vatReturn("filed"), "submitted")
-        XCTAssertEqual(Statuses.tone("overdue"), "danger")
-        XCTAssertEqual(Statuses.tone("paid"), "success")
+        XCTAssertEqual(Statuses.tone("overdue"), "red")
+        XCTAssertEqual(Statuses.tone("paid"), "green")
+        XCTAssertEqual(Statuses.tone("approved"), "blue")
+        XCTAssertEqual(Statuses.tone("partially_paid"), "amber")
+        XCTAssertEqual(Statuses.tone("draft"), "gray")
     }
 
     func testADraftBillAwaitsApprovalAndAnApprovedOneWithABalanceCanBePaid() {
@@ -580,9 +583,11 @@ final class BooksLogicTests: XCTestCase {
 
     func testABankLineFromTheServerAndAStoragePathSegment() {
         let line = BooksStore.transaction(Components.Schemas.BankTransaction(
-            id: "t1", bankAccountId: "b1", date: "2026-11-02", description: " ", amount: "-12.50", status: "unreconciled"
+            id: "t1", bankAccountId: "b1", date: "2026-11-02", description: " ", amount: "-12.50", status: "unreconciled",
+            reference: "RF18 5390 0754 7034"
         ))
         XCTAssertNil(line.description)
+        XCTAssertEqual(line.reference, "RF18 5390 0754 7034")
         XCTAssertEqual(line.amount, d("-12.5"))
         XCTAssertEqual(BooksStore.segment("receipts/a b.jpg"), "receipts%2Fa%20b.jpg")
     }
@@ -682,5 +687,43 @@ final class BooksLogicTests: XCTestCase {
         XCTAssertEqual("hello".dropping(2), "llo")
         XCTAssertEqual("hello".slice(1, 3), "el")
         XCTAssertEqual("resale".capitalizedFirst, "Resale")
+    }
+
+    func testTheDashboardAddsThisYearUpToThisMonthAndLastYearUpToTheSameMonth() {
+        let months = [
+            TrendMonth(month: "2025-01", revenue: d("100"), expenses: d("40"), profit: d("60")),
+            TrendMonth(month: "2025-02", revenue: d("50"), expenses: d("10"), profit: d("40")),
+            TrendMonth(month: "2025-03", revenue: d("999"), expenses: d("0"), profit: d("999")),
+            TrendMonth(month: "2026-01", revenue: d("200"), expenses: d("20"), profit: d("180")),
+            TrendMonth(month: "2026-02", revenue: d("30"), expenses: d("5"), profit: d("25")),
+        ]
+        let revenue = DashboardSeries.yearToDate(months, metric: "revenue")
+        XCTAssertEqual(revenue.year, 2026)
+        XCTAssertEqual(revenue.throughMonth, "2026-02")
+        XCTAssertEqual(revenue.total, d("230"))
+        XCTAssertEqual(revenue.lastYearTotal, d("150"))
+        XCTAssertEqual(revenue.points.count, 12)
+        XCTAssertNil(revenue.points[2].value)
+        XCTAssertEqual(DashboardSeries.yearToDate(months, metric: "profit").total, d("205"))
+        XCTAssertTrue(DashboardSeries.hasTrend(months))
+    }
+
+    func testDueThisWeekKeepsWhatFallsDueWithinSevenDaysLateOnesTooSoonestFirst() {
+        func item(_ id: String, _ due: String) -> DueItem {
+            DueItem(kind: "invoice", id: id, number: id, contactName: nil, dueDate: due, amount: 1, currency: "EUR")
+        }
+        let rows = DashboardSeries.dueThisWeek(
+            [item("late", "2026-11-20T00:00:00.000Z"), item("later", "2026-12-10"), item("soon", "2026-12-03")],
+            today: day(2026, 11, 27)
+        )
+        XCTAssertEqual(rows.map(\.id), ["late", "soon"])
+    }
+
+    func testThePrintableInvoiceIsLaidOutAtItsPageWidthNotThePhones() {
+        let page = "<html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"></head><body></body></html>"
+        let fitted = DocumentHtml.fitToPage(page)
+        XCTAssertTrue(fitted.contains("<meta name=\"viewport\" content=\"width=800\">"))
+        XCTAssertFalse(fitted.contains("device-width"))
+        XCTAssertTrue(DocumentHtml.fitToPage("<html><head><title>x</title></head></html>").hasPrefix("<html><head><meta name=\"viewport\""))
     }
 }

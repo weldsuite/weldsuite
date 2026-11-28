@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Receipt photos the camera takes; CaptureScreens' receiptsDir. -->
+    <cache-path name="receipts" path="receipts/" />
+    <!-- Invoice PDFs handed to the share sheet; InvoiceScreens' document view. -->
+    <cache-path name="shared" path="shared/" />
+</paths>

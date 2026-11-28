@@ -94,6 +94,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.weldsuite.core.api.ApiException
+import androidx.compose.foundation.layout.size
 import org.weldsuite.ui.Tokens
 import org.weldsuite.ui.tagged
 import java.io.ByteArrayOutputStream
@@ -143,7 +144,6 @@ fun ScanScreen(onClose: () -> Unit, onContinue: (target: String, documentId: Str
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val online by books.queue.isOnline.collectAsStateWithLifecycle()
-    val errors = LocalErrors.current
     var receipt by remember { mutableStateOf<CapturedReceipt?>(null) }
     var status by remember { mutableStateOf("idle") }
     var documentId by remember { mutableStateOf<String?>(null) }
@@ -209,7 +209,6 @@ fun ScanScreen(onClose: () -> Unit, onContinue: (target: String, documentId: Str
                 }
             }
         }
-        errors.hashCode()
     }
 
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
@@ -241,9 +240,18 @@ fun ScanScreen(onClose: () -> Unit, onContinue: (target: String, documentId: Str
     BooksScaffold(title = stringResource(if (captured == null) R.string.weldbooks_scan_scan_receipt else R.string.weldbooks_scan_receipt), onBack = onClose) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().padding(Tokens.Spacing.l), verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
             if (captured == null) {
-                Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.AutoMirrored.Outlined.ReceiptLong, contentDescription = null, modifier = Modifier.padding(Tokens.Spacing.m))
-                    Text(stringResource(R.string.weldbooks_scan_align_hint), style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+                Column(
+                    Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.m, Alignment.CenterVertically),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Box(
+                        Modifier.size(48.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(Tokens.Radius.large)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.AutoMirrored.Outlined.ReceiptLong, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
+                    }
+                    Text(stringResource(R.string.weldbooks_scan_align_hint), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
                 }
                 ChoiceButton(Icons.Outlined.CameraAlt, stringResource(R.string.weldbooks_scan_scan_document), "scan-camera") { openCamera() }
                 ChoiceButton(Icons.Outlined.PhotoLibrary, stringResource(R.string.weldbooks_scan_pick_from_gallery), "scan-gallery") {
@@ -254,9 +262,9 @@ fun ScanScreen(onClose: () -> Unit, onContinue: (target: String, documentId: Str
             } else {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     if (captured.mimeType == "application/pdf") {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
-                            Text(stringResource(R.string.weldbooks_scan_pdf_selected))
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
+                            Icon(Icons.Outlined.PictureAsPdf, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.weldbooks_scan_pdf_selected), style = MaterialTheme.typography.bodyMedium)
                         }
                     } else {
                         val bitmap = remember(captured.path) { BitmapFactory.decodeFile(captured.path) }
@@ -305,8 +313,8 @@ fun ScanScreen(onClose: () -> Unit, onContinue: (target: String, documentId: Str
 
 @Composable
 private fun ChoiceButton(icon: ImageVector, label: String, tag: String, onClick: () -> Unit) {
-    OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth().tagged(tag)) {
-        Icon(icon, contentDescription = null)
+    OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth().height(44.dp).tagged(tag)) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
         Text(label, modifier = Modifier.padding(start = Tokens.Spacing.s))
     }
 }
@@ -467,7 +475,7 @@ fun QuickExpenseScreen(documentId: String?, receipt: String?, receiptType: Strin
                 notify(saved)
                 onDone()
             } catch (error: QuickExpenseNotBooked) {
-                notify(notBookedTemplate.replace("%REASON%", errors.describe(error.cause, error.message ?: saveFailed)))
+                notify(notBookedTemplate.replace("%REASON%", errors.describe(error.cause, saveFailed)))
                 onDone()
             } catch (error: ApiException) {
                 if (!error.isNetwork) {
@@ -484,7 +492,6 @@ fun QuickExpenseScreen(documentId: String?, receipt: String?, receiptType: Strin
         }
     }
 
-    val brand = Brand.current()
     BooksScaffold(title = stringResource(R.string.weldbooks_expense_quick_title), onBack = onDone) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().imePadding().verticalScroll(rememberScrollState()).tagged("quick-expense")) {
             if (!online) Banner(stringResource(R.string.weldbooks_expense_quick_offline_banner), tone = "warning")
@@ -494,10 +501,7 @@ fun QuickExpenseScreen(documentId: String?, receipt: String?, receiptType: Strin
                 "failed" -> Banner(stringResource(R.string.weldbooks_expense_quick_ocr_failed), tone = "warning")
             }
             LocalReceiptPreview(receipt, receiptType)
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.m, vertical = Tokens.Spacing.xs),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            ) {
+            Card(modifier = Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = 6.dp)) {
                 Column(Modifier.fillMaxWidth().padding(Tokens.Spacing.l), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(stringResource(R.string.weldbooks_expense_quick_amount), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     BasicTextField(
@@ -506,13 +510,13 @@ fun QuickExpenseScreen(documentId: String?, receipt: String?, receiptType: Strin
                             amount = it
                             amountError = null
                         },
-                        textStyle = TextStyle(fontSize = 44.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurface),
+                        textStyle = MaterialTheme.typography.displaySmall.merge(Tabular).copy(fontSize = 44.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurface),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        cursorBrush = SolidColor(brand),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
                         decorationBox = { inner ->
                             Box(contentAlignment = Alignment.Center) {
-                                if (amount.isEmpty()) Text("0.00", style = TextStyle(fontSize = 44.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.outline))
+                                if (amount.isEmpty()) Text("0.00", style = MaterialTheme.typography.displaySmall.merge(Tabular).copy(fontSize = 44.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)))
                                 inner()
                             }
                         },
@@ -535,13 +539,17 @@ fun QuickExpenseScreen(documentId: String?, receipt: String?, receiptType: Strin
                     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
                         row.forEach { key ->
                             val selected = key == category
-                            val color = if (selected) brand else MaterialTheme.colorScheme.onSurfaceVariant
+                            val color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                             OutlinedButton(
                                 onClick = { category = key },
-                                border = BorderStroke(1.dp, if (selected) brand else MaterialTheme.colorScheme.outlineVariant),
+                                border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.outlineVariant),
                                 shape = RoundedCornerShape(Tokens.Radius.medium),
+                                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.background,
+                                    contentColor = color,
+                                ),
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(4.dp),
-                                modifier = Modifier.weight(1f).height(76.dp).let { if (selected) it.background(brand.copy(alpha = 0.12f), RoundedCornerShape(Tokens.Radius.medium)) else it }.tagged("category-$key"),
+                                modifier = Modifier.weight(1f).height(76.dp).tagged("category-$key"),
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Icon(categoryIcons.getValue(key), contentDescription = null, tint = color)

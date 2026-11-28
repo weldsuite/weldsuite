@@ -200,7 +200,7 @@ private struct InvoiceNavTitle: View {
             if let subtitle {
                 Text(subtitle)
                     .font(.inter(.caption))
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                     .lineLimit(1)
             }
         }
@@ -231,16 +231,7 @@ private struct InvoiceBodyView: View {
         let rejected = mutations.missingFields
         ScrollView {
             VStack(spacing: 0) {
-                DocumentSummary(
-                    balanceDue: invoice.balanceDue,
-                    total: invoice.total,
-                    currency: currency,
-                    dueDate: invoice.dueDate,
-                    status: invoice.displayStatus(),
-                    balanceLabel: BooksStrings.invoiceDetailBalanceDue,
-                    totalLabel: BooksStrings.invoiceDetailTotal,
-                    isInvoice: true
-                )
+                actions(isDraft: isDraft)
                 if missingUsAddress {
                     Banner(BooksStrings.invoiceDetailAddressMissing, tone: "warning")
                 }
@@ -264,7 +255,7 @@ private struct InvoiceBodyView: View {
                         addCompanyButton(tag: nil)
                     }
                 }
-                details
+                details(currency: currency)
                 DocumentLines(lines: invoice.lines, currency: currency, title: BooksStrings.invoiceDetailLineItems, isInvoice: true)
                 DocumentTotals(
                     subtotal: invoice.subtotal,
@@ -283,7 +274,6 @@ private struct InvoiceBodyView: View {
                     TreatmentBreakdownCard(rows: invoice.taxBreakdown, currency: currency)
                 }
                 notes
-                actions(isDraft: isDraft)
             }
             .padding(.bottom, Tokens.Spacing.xl)
         }
@@ -295,34 +285,42 @@ private struct InvoiceBodyView: View {
             Text(BooksStrings.invoiceDetailAddCompanyDetails)
         }
         .buttonStyle(.bordered)
+        .tint(Tokens.Palette.foreground)
         .tagged(tag)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Tokens.Spacing.l)
         .padding(.vertical, Tokens.Spacing.xs)
     }
 
-    private var details: some View {
-        SectionCard(title: BooksStrings.invoiceDetailDetails) {
+    /// The platform's properties: the figures and status, who it is for, the dates, the reference, the addresses.
+    private func details(currency: String) -> some View {
+        PanelSection {
             if invoice.isCreditNote {
-                DetailRow(BooksStrings.invoiceDetailDocumentType, books.labels.creditNote)
+                PropertyRow("doc.text", BooksStrings.invoiceDetailDocumentType) {
+                    StatusBadge(books.labels.creditNote, color: Tones.purple)
+                }
             }
-            DetailRow(BooksStrings.invoiceDetailCustomer, invoice.contactName ?? BooksStrings.commonDash)
-            if let email = invoice.contactEmail {
-                DetailRow(BooksStrings.invoiceDetailEmail, email)
-            }
-            DetailRow(BooksStrings.invoiceDetailIssueDate, books.date(invoice.issueDate))
-            DetailRow(BooksStrings.invoiceDetailDueDate, books.date(invoice.dueDate))
-            if let reference = invoice.reference {
-                DetailRow(BooksStrings.invoiceDetailReference, reference)
-            }
+            DocumentFigures(
+                total: invoice.total,
+                amountPaid: invoice.amountPaid,
+                balanceDue: invoice.balanceDue,
+                currency: currency,
+                status: invoice.displayStatus(),
+                isInvoice: true
+            )
+            PropertyRow("person", BooksStrings.invoiceDetailCustomer, invoice.contactName)
+            PropertyRow("envelope", BooksStrings.invoiceDetailEmail, invoice.contactEmail)
+            PropertyRow("calendar", BooksStrings.invoiceDetailIssueDate, books.date(invoice.issueDate))
+            DueDateRow(label: BooksStrings.invoiceDetailDueDate, dueDate: invoice.dueDate, balanceDue: invoice.balanceDue, isInvoice: true)
+            PropertyRow("number", BooksStrings.invoiceDetailReference, invoice.reference)
             if books.isUs {
                 let shipTo = Addresses.lines(invoice.shippingAddress)
                 let billTo = Addresses.lines(invoice.billingAddress)
                 if !shipTo.isEmpty {
-                    DetailRow(BooksStrings.invoiceDetailShipTo, shipTo.joined(separator: "\n"))
+                    PropertyRow("shippingbox", BooksStrings.invoiceDetailShipTo, shipTo.joined(separator: "\n"))
                 }
                 if !billTo.isEmpty, billTo != shipTo {
-                    DetailRow(BooksStrings.invoiceDetailBillTo, billTo.joined(separator: "\n"))
+                    PropertyRow("mappin.and.ellipse", BooksStrings.invoiceDetailBillTo, billTo.joined(separator: "\n"))
                 }
             }
         }
@@ -331,72 +329,70 @@ private struct InvoiceBodyView: View {
     @ViewBuilder
     private var notes: some View {
         if let notes = invoice.notes {
-            SectionCard(title: BooksStrings.invoiceDetailNotes) {
+            PanelSection(title: BooksStrings.invoiceDetailNotes) {
                 Text(notes)
                     .font(.inter(.subheadline))
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
-    /// Finalise a draft; send, record a payment, or view the document of a booked invoice.
+    /// The platform's action bar under the title: what the status allows, the main one filled.
     private func actions(isDraft: Bool) -> some View {
         let canSend = !isDraft && !Statuses.invoiceIsSettled(invoice.status)
         let canPay = invoice.balanceDue > 0 && !isDraft && invoice.status != "cancelled"
         let store = books.store
         let invoiceId = invoice.id
-        return VStack(spacing: Tokens.Spacing.s) {
-            if isDraft {
-                Button {
-                    mutations.run(toaster, success: BooksStrings.invoiceDetailFinalised, reload: reload) {
-                        try await store.finalizeInvoice(id: invoiceId)
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Tokens.Spacing.s) {
+                if isDraft {
+                    Button {
+                        mutations.run(toaster, success: BooksStrings.invoiceDetailFinalised, reload: reload) {
+                            try await store.finalizeInvoice(id: invoiceId)
+                        }
+                    } label: {
+                        Label(BooksStrings.invoiceDetailFinalise, systemImage: "lock")
                     }
-                } label: {
-                    Label(BooksStrings.invoiceDetailFinalise, systemImage: "lock")
-                        .frame(maxWidth: .infinity)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(mutations.busy)
+                    .tagged("finalise-invoice")
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(mutations.busy)
-                .tagged("finalise-invoice")
-            }
-            if canSend {
-                Button {
-                    mutations.run(toaster, success: BooksStrings.invoiceDetailSent, reload: reload) {
-                        try await store.sendInvoice(id: invoiceId)
+                if canPay {
+                    Button(action: onPay) {
+                        Label(BooksStrings.invoiceDetailRecordPayment, systemImage: "banknote")
                     }
-                } label: {
-                    Label(BooksStrings.invoiceDetailSend, systemImage: "paperplane")
-                        .frame(maxWidth: .infinity)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(mutations.busy)
+                    .tagged("record-payment")
+                }
+                if canSend {
+                    Button {
+                        mutations.run(toaster, success: BooksStrings.invoiceDetailSent, reload: reload) {
+                            try await store.sendInvoice(id: invoiceId)
+                        }
+                    } label: {
+                        Label(BooksStrings.invoiceDetailSend, systemImage: "paperplane")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Tokens.Palette.foreground)
+                    .disabled(mutations.busy)
+                    .tagged("send-invoice")
+                }
+                Button(action: onOpenDocument) {
+                    Label(BooksStrings.invoiceDetailViewDocument, systemImage: "doc.text")
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.large)
-                .disabled(mutations.busy)
-                .tagged("send-invoice")
+                .tint(Tokens.Palette.foreground)
             }
-            if canPay {
-                Button(action: onPay) {
-                    Label(BooksStrings.invoiceDetailRecordPayment, systemImage: "banknote")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(mutations.busy)
-                .tagged("record-payment")
-            }
-            Button(action: onOpenDocument) {
-                Label(BooksStrings.invoiceDetailViewDocument, systemImage: "doc.text")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderless)
-            .controlSize(.large)
+            .font(.inter(.subheadline, weight: .medium))
+            .padding(.horizontal, Tokens.Spacing.l)
+            .padding(.vertical, Tokens.Spacing.s)
         }
-        .padding(Tokens.Spacing.m)
     }
 }
 
-// MARK: - Document
+/ MARK: - Document
 
 /// The printable invoice (HTML from the server), with sharing as a PDF.
 struct InvoiceDocumentView: View {
@@ -509,7 +505,8 @@ private struct InvoiceWebView: UIViewRepresentable {
         guard context.coordinator.html != html else { return }
         context.coordinator.html = html
         context.coordinator.loaded = false
-        view.loadHTMLString(html, baseURL: nil)
+        // A viewport of the page's width: the whole page scaled to the screen, like a PDF, and zoomable.
+        view.loadHTMLString(DocumentHtml.fitToPage(html), baseURL: nil)
     }
 
     static func dismantleUIView(_ view: WKWebView, coordinator: Coordinator) {
@@ -756,7 +753,7 @@ struct InvoiceFormView: View {
         case .idle:
             Text(BooksStrings.salesTaxNeedsAddress)
                 .font(.inter(.footnote))
-                .foregroundStyle(Color.secondary)
+                .foregroundStyle(Tokens.Palette.mutedForeground)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, Tokens.Spacing.xl)
                 .padding(.vertical, Tokens.Spacing.xs)

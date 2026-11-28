@@ -5,6 +5,9 @@ import android.graphics.pdf.PdfDocument
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,7 +19,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.LocalShipping
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Place
+import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.automirrored.outlined.Send
@@ -43,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import com.weldsuite.weldbooks.NewInvoice
@@ -53,6 +63,7 @@ import com.weldsuite.weldbooks.logic.Addresses
 import com.weldsuite.weldbooks.logic.BooksTopics
 import com.weldsuite.weldbooks.logic.CompanyForm
 import com.weldsuite.weldbooks.logic.Days
+import com.weldsuite.weldbooks.logic.DocumentHtml
 import com.weldsuite.weldbooks.logic.Invoice
 import com.weldsuite.weldbooks.logic.Jurisdictions
 import com.weldsuite.weldbooks.logic.LineItems
@@ -211,6 +222,7 @@ fun InvoiceDetailScreen(id: String, onBack: () -> Unit, onOpenDocument: (String)
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun InvoiceBody(
     invoice: Invoice,
@@ -228,12 +240,41 @@ private fun InvoiceBody(
     val companyMissing = CompanyForm.missingInvoiceFields(books.entity, required)
     val missingUsAddress = books.isUs && isDraft &&
         !AddressDraft.of(invoice.shippingAddress).isUsTaxable && !AddressDraft.of(invoice.billingAddress).isUsTaxable
+    val canSend = !isDraft && !Statuses.invoiceIsSettled(invoice.status)
+    val canPay = invoice.balanceDue.signum() > 0 && !isDraft && invoice.status != "cancelled"
+    val finalised = stringResource(R.string.weldbooks_invoice_detail_finalised)
+    val sent = stringResource(R.string.weldbooks_invoice_detail_sent)
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).tagged("invoice-detail")) {
-        DocumentSummary(
-            invoice.balanceDue, invoice.total, currency, invoice.dueDate, status,
-            stringResource(R.string.weldbooks_invoice_detail_balance_due), stringResource(R.string.weldbooks_invoice_detail_total), isInvoice = true,
-        )
+        // The platform's action bar under the title: what the status allows, the main one filled.
+        FlowRow(
+            Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s),
+            horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s),
+            verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.s),
+        ) {
+            if (isDraft) {
+                Button(onClick = { mutations.run(finalised, reload) { books.repository.finalizeInvoice(invoice.id) } }, enabled = !mutations.busy, modifier = Modifier.tagged("finalise-invoice")) {
+                    Icon(Icons.Outlined.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Text(stringResource(R.string.weldbooks_invoice_detail_finalise), modifier = Modifier.padding(start = 6.dp))
+                }
+            }
+            if (canPay) {
+                Button(onClick = onPay, enabled = !mutations.busy, modifier = Modifier.tagged("record-payment")) {
+                    Icon(Icons.Outlined.Payments, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Text(stringResource(R.string.weldbooks_invoice_detail_record_payment), modifier = Modifier.padding(start = 6.dp))
+                }
+            }
+            if (canSend) {
+                OutlinedButton(onClick = { mutations.run(sent, reload) { books.repository.sendInvoice(invoice.id) } }, enabled = !mutations.busy, modifier = Modifier.tagged("send-invoice")) {
+                    Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Text(stringResource(R.string.weldbooks_invoice_detail_send), modifier = Modifier.padding(start = 6.dp))
+                }
+            }
+            OutlinedButton(onClick = onOpenDocument) {
+                Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(stringResource(R.string.weldbooks_invoice_detail_view_document), modifier = Modifier.padding(start = 6.dp))
+            }
+        }
         if (missingUsAddress) Banner(stringResource(R.string.weldbooks_invoice_detail_address_missing), tone = "warning")
         val rejected = mutations.missingFields
         if (isDraft && companyMissing.isNotEmpty() && rejected.isEmpty()) {
@@ -255,18 +296,23 @@ private fun InvoiceBody(
                 }
             }
         }
-        SectionCard(title = stringResource(R.string.weldbooks_invoice_detail_details)) {
-            if (invoice.isCreditNote) DetailRow(stringResource(R.string.weldbooks_invoice_detail_document_type), books.labels.creditNote)
-            DetailRow(stringResource(R.string.weldbooks_invoice_detail_customer), invoice.contactName ?: stringResource(R.string.weldbooks_common_dash))
-            invoice.contactEmail?.let { DetailRow(stringResource(R.string.weldbooks_invoice_detail_email), it) }
-            DetailRow(stringResource(R.string.weldbooks_invoice_detail_issue_date), books.date(invoice.issueDate))
-            DetailRow(stringResource(R.string.weldbooks_invoice_detail_due_date), books.date(invoice.dueDate))
-            invoice.reference?.let { DetailRow(stringResource(R.string.weldbooks_invoice_detail_reference), it) }
+        PanelSection {
+            if (invoice.isCreditNote) {
+                PropertyRow(Icons.Outlined.Description, stringResource(R.string.weldbooks_invoice_detail_document_type), null) {
+                    ToneChip(books.labels.creditNote, Tones.purple)
+                }
+            }
+            DocumentFigures(invoice.total, invoice.amountPaid, invoice.balanceDue, currency, status, isInvoice = true)
+            PropertyRow(Icons.Outlined.Person, stringResource(R.string.weldbooks_invoice_detail_customer), invoice.contactName)
+            PropertyRow(Icons.Outlined.Email, stringResource(R.string.weldbooks_invoice_detail_email), invoice.contactEmail)
+            PropertyRow(Icons.Outlined.CalendarToday, stringResource(R.string.weldbooks_invoice_detail_issue_date), books.date(invoice.issueDate))
+            DueDateRow(stringResource(R.string.weldbooks_invoice_detail_due_date), invoice.dueDate, invoice.balanceDue, isInvoice = true)
+            PropertyRow(Icons.Outlined.Tag, stringResource(R.string.weldbooks_invoice_detail_reference), invoice.reference)
             if (books.isUs) {
                 val shipTo = Addresses.lines(invoice.shippingAddress)
                 val billTo = Addresses.lines(invoice.billingAddress)
-                if (shipTo.isNotEmpty()) DetailRow(stringResource(R.string.weldbooks_invoice_detail_ship_to), shipTo.joinToString("\n"))
-                if (billTo.isNotEmpty() && billTo != shipTo) DetailRow(stringResource(R.string.weldbooks_invoice_detail_bill_to), billTo.joinToString("\n"))
+                if (shipTo.isNotEmpty()) PropertyRow(Icons.Outlined.LocalShipping, stringResource(R.string.weldbooks_invoice_detail_ship_to), shipTo.joinToString("\n"))
+                if (billTo.isNotEmpty() && billTo != shipTo) PropertyRow(Icons.Outlined.Place, stringResource(R.string.weldbooks_invoice_detail_bill_to), billTo.joinToString("\n"))
             }
         }
         DocumentLines(invoice.lines, currency, stringResource(R.string.weldbooks_invoice_detail_line_items), isInvoice = true)
@@ -277,36 +323,8 @@ private fun InvoiceBody(
             TreatmentBreakdownCard(invoice.taxBreakdown, currency)
         }
         invoice.notes?.let { notes ->
-            SectionCard(title = stringResource(R.string.weldbooks_invoice_detail_notes)) {
+            PanelSection(title = stringResource(R.string.weldbooks_invoice_detail_notes)) {
                 Text(notes, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        val canSend = !isDraft && !Statuses.invoiceIsSettled(invoice.status)
-        val canPay = invoice.balanceDue.signum() > 0 && !isDraft && invoice.status != "cancelled"
-        val finalised = stringResource(R.string.weldbooks_invoice_detail_finalised)
-        val sent = stringResource(R.string.weldbooks_invoice_detail_sent)
-        Column(Modifier.padding(Tokens.Spacing.m), verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
-            if (isDraft) {
-                Button(onClick = { mutations.run(finalised, reload) { books.repository.finalizeInvoice(invoice.id) } }, enabled = !mutations.busy, modifier = Modifier.fillMaxWidth().tagged("finalise-invoice")) {
-                    Icon(Icons.Outlined.Lock, contentDescription = null)
-                    Text(stringResource(R.string.weldbooks_invoice_detail_finalise), modifier = Modifier.padding(start = Tokens.Spacing.s))
-                }
-            }
-            if (canSend) {
-                OutlinedButton(onClick = { mutations.run(sent, reload) { books.repository.sendInvoice(invoice.id) } }, enabled = !mutations.busy, modifier = Modifier.fillMaxWidth().tagged("send-invoice")) {
-                    Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = null)
-                    Text(stringResource(R.string.weldbooks_invoice_detail_send), modifier = Modifier.padding(start = Tokens.Spacing.s))
-                }
-            }
-            if (canPay) {
-                Button(onClick = onPay, enabled = !mutations.busy, modifier = Modifier.fillMaxWidth().tagged("record-payment")) {
-                    Icon(Icons.Outlined.Payments, contentDescription = null)
-                    Text(stringResource(R.string.weldbooks_invoice_detail_record_payment), modifier = Modifier.padding(start = Tokens.Spacing.s))
-                }
-            }
-            TextButton(onClick = onOpenDocument, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.Description, contentDescription = null)
-                Text(stringResource(R.string.weldbooks_invoice_detail_view_document), modifier = Modifier.padding(start = Tokens.Spacing.s))
             }
         }
         BottomSpace()
@@ -364,11 +382,17 @@ fun InvoiceDocumentScreen(id: String, onBack: () -> Unit) {
                     WebView(ctx).apply {
                         // The document is our own markup without scripts; it may not navigate anywhere.
                         settings.javaScriptEnabled = false
+                        // The whole page scaled to the screen's width, like a PDF, and zoomable.
+                        settings.useWideViewPort = true
+                        settings.loadWithOverviewMode = true
+                        settings.setSupportZoom(true)
+                        settings.builtInZoomControls = true
+                        settings.displayZoomControls = false
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest): Boolean = true
                         }
                         setBackgroundColor(android.graphics.Color.WHITE)
-                        loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+                        loadDataWithBaseURL(null, DocumentHtml.fitToPage(html), "text/html", "utf-8", null)
                         webView = this
                     }
                 },
@@ -390,7 +414,9 @@ private suspend fun writePdf(view: WebView, file: File) {
     val pageWidth = 595
     val pageHeight = 842
     val width = view.width.coerceAtLeast(1)
-    val height = (view.contentHeight * view.resources.displayMetrics.density).toInt().coerceAtLeast(view.height)
+    // contentHeight is in CSS pixels; the page is drawn at the web view's scale (the page fitted to the width).
+    @Suppress("DEPRECATION")
+    val height = (view.contentHeight * view.scale).toInt().coerceAtLeast(view.height)
     val scale = pageWidth.toFloat() / width
     val slice = (pageHeight / scale).toInt().coerceAtLeast(1)
     val document = PdfDocument()

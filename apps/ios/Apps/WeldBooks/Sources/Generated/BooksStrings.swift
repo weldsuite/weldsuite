@@ -97,6 +97,8 @@ enum BooksStrings {
     static var bankDetailEmptyDescription: String { tr("bankDetail.emptyDescription") }
     /// No transactions
     static var bankDetailEmptyTitle: String { tr("bankDetail.emptyTitle") }
+    /// Excluded
+    static var bankDetailExcluded: String { tr("bankDetail.excluded") }
     /// Couldn't load this account.
     static var bankDetailLoadError: String { tr("bankDetail.loadError") }
     /// Reconciled
@@ -107,7 +109,7 @@ enum BooksStrings {
     static var bankDetailTitle: String { tr("bankDetail.title") }
     /// Transaction
     static var bankDetailTransaction: String { tr("bankDetail.transaction") }
-    /// Unmatched
+    /// Unreconciled
     static var bankDetailUnmatched: String { tr("bankDetail.unmatched") }
     /// Approve
     static var billDetailApprove: String { tr("billDetail.approve") }
@@ -155,9 +157,13 @@ enum BooksStrings {
     static var billDetailReference: String { tr("billDetail.reference") }
     /// Reject
     static var billDetailReject: String { tr("billDetail.reject") }
-    /// It stays in your books but won't be scheduled for payment.
+    /// Please provide a reason for rejecting this bill.
     static var billDetailRejectMessage: String { tr("billDetail.rejectMessage") }
-    /// Reject this bill?
+    /// Reason
+    static var billDetailRejectReason: String { tr("billDetail.rejectReason") }
+    /// Enter rejection reason…
+    static var billDetailRejectReasonPlaceholder: String { tr("billDetail.rejectReasonPlaceholder") }
+    /// Reject bill
     static var billDetailRejectTitle: String { tr("billDetail.rejectTitle") }
     /// Bill rejected
     static var billDetailRejected: String { tr("billDetail.rejected") }
@@ -467,38 +473,82 @@ enum BooksStrings {
     static var contactsTitle: String { tr("contacts.title") }
     /// Unnamed contact
     static var contactsUnnamed: String { tr("contacts.unnamed") }
+    /// {count} bank accounts
+    static func dashboardBankAccountCount(_ count: Int) -> String { tr("dashboard.bankAccountCount", count) }
     /// {count} bills
     static func dashboardBillCount(_ count: Int) -> String { tr("dashboard.billCount", count) }
+    /// Cash balance
+    static var dashboardCashBalance: String { tr("dashboard.cashBalance") }
+    /// Documents to process
+    static var dashboardDocuments: String { tr("dashboard.documents") }
+    /// Waiting to be booked
+    static var dashboardDocumentsWaiting: String { tr("dashboard.documentsWaiting") }
+    /// Due this week
+    static var dashboardDueThisWeek: String { tr("dashboard.dueThisWeek") }
     /// Expense
     static var dashboardExpense: String { tr("dashboard.expense") }
+    /// Expenses
+    static var dashboardExpenses: String { tr("dashboard.expenses") }
     /// Invoice
     static var dashboardInvoice: String { tr("dashboard.invoice") }
     /// {count} invoices
     static func dashboardInvoiceCount(_ count: Int) -> String { tr("dashboard.invoiceCount", count) }
     /// {count} items waiting to sync.
     static func dashboardItemsWaiting(_ count: Int) -> String { tr("dashboard.itemsWaiting", count) }
+    /// Last year
+    static var dashboardLastYear: String { tr("dashboard.lastYear") }
+    /// Latest payments
+    static var dashboardLatestPayments: String { tr("dashboard.latestPayments") }
     /// Couldn't load your dashboard.
     static var dashboardLoadError: String { tr("dashboard.loadError") }
+    /// Figure
+    static var dashboardMetric: String { tr("dashboard.metric") }
+    /// Net profit
+    static var dashboardNetProfit: String { tr("dashboard.netProfit") }
+    /// Nothing falls due this week.
+    static var dashboardNoDueThisWeek: String { tr("dashboard.noDueThisWeek") }
     /// Create your first invoice to start tracking revenue.
     static var dashboardNoInvoicesDescription: String { tr("dashboard.noInvoicesDescription") }
     /// No invoices yet
     static var dashboardNoInvoicesTitle: String { tr("dashboard.noInvoicesTitle") }
+    /// No recent payments.
+    static var dashboardNoRecentPayments: String { tr("dashboard.noRecentPayments") }
     /// Offline. {count} items queued.
     static func dashboardOfflineQueued(_ count: Int) -> String { tr("dashboard.offlineQueued", count) }
+    /// {count} open bills
+    static func dashboardOpenBillCount(_ count: Int) -> String { tr("dashboard.openBillCount", count) }
+    /// {count} open invoices
+    static func dashboardOpenInvoiceCount(_ count: Int) -> String { tr("dashboard.openInvoiceCount", count) }
     /// Outstanding
     static var dashboardOutstanding: String { tr("dashboard.outstanding") }
     /// Overdue
     static var dashboardOverdue: String { tr("dashboard.overdue") }
+    /// {amount} overdue
+    static func dashboardOverdueAmount(amount: String) -> String { tr("dashboard.overdueAmount", amount) }
     /// Payables
     static var dashboardPayables: String { tr("dashboard.payables") }
+    /// Received
+    static var dashboardPaymentReceived: String { tr("dashboard.paymentReceived") }
+    /// Paid
+    static var dashboardPaymentSent: String { tr("dashboard.paymentSent") }
     /// Profit
     static var dashboardProfit: String { tr("dashboard.profit") }
     /// Reports
     static var dashboardReports: String { tr("dashboard.reports") }
+    /// Revenue
+    static var dashboardRevenue: String { tr("dashboard.revenue") }
     /// Scan
     static var dashboardScan: String { tr("dashboard.scan") }
     /// This month
     static var dashboardThisMonth: String { tr("dashboard.thisMonth") }
+    /// To pay
+    static var dashboardToPay: String { tr("dashboard.toPay") }
+    /// To receive
+    static var dashboardToReceive: String { tr("dashboard.toReceive") }
+    /// Today
+    static var dashboardToday: String { tr("dashboard.today") }
+    /// Status
+    static var documentStatus: String { tr("document.status") }
     /// Add a company
     static var entitySetupAddSheetTitle: String { tr("entitySetup.addSheetTitle") }
     /// Printed on your invoices and used as the origin for sales tax.
@@ -743,6 +793,28 @@ enum BooksStrings {
     static var expensesTitle: String { tr("expenses.title") }
     /// Unknown {supplier}
     static func expensesUnknownVendor(supplier: String) -> String { tr("expenses.unknownVendor", supplier) }
+    /// Approved
+    static var groupsApproved: String { tr("groups.approved") }
+    /// Draft
+    static var groupsDraft: String { tr("groups.draft") }
+    /// Excluded
+    static var groupsExcluded: String { tr("groups.excluded") }
+    /// Finalized
+    static var groupsFinalized: String { tr("groups.finalized") }
+    /// Other
+    static var groupsOther: String { tr("groups.other") }
+    /// Overdue
+    static var groupsOverdue: String { tr("groups.overdue") }
+    /// Paid
+    static var groupsPaid: String { tr("groups.paid") }
+    /// Partially paid
+    static var groupsPartiallyPaid: String { tr("groups.partiallyPaid") }
+    /// Reconciled
+    static var groupsReconciled: String { tr("groups.reconciled") }
+    /// Sent
+    static var groupsSent: String { tr("groups.sent") }
+    /// Unreconciled
+    static var groupsUnreconciled: String { tr("groups.unreconciled") }
     /// Invoice actions
     static var invoiceDetailActionsTitle: String { tr("invoiceDetail.actionsTitle") }
     /// Add company details
@@ -981,12 +1053,16 @@ enum BooksStrings {
     static var moreBalanceSheet: String { tr("more.balanceSheet") }
     /// Assets, liabilities and equity
     static var moreBalanceSheetSub: String { tr("more.balanceSheetSub") }
+    /// Bank
+    static var moreBank: String { tr("more.bank") }
     /// Bank accounts
     static var moreBankAccounts: String { tr("more.bankAccounts") }
     /// Balances and transactions
     static var moreBankAccountsSub: String { tr("more.bankAccountsSub") }
     /// Contacts
     static var moreContacts: String { tr("more.contacts") }
+    /// Contacts
+    static var moreContactsGroup: String { tr("more.contactsGroup") }
     /// Customers and {suppliers}
     static func moreContactsSub(suppliers: String) -> String { tr("more.contactsSub", suppliers) }
     /// Financial

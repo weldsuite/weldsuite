@@ -30,13 +30,16 @@ object Statuses {
     /** A VAT return's: the server calls a filed return `filed`; the app calls it submitted. */
     fun vatReturn(status: String): String = if (status == "filed") "submitted" else status
 
-    /** Colour family of a status: `success`, `warning`, `danger`, `neutral` or `brand`. */
+    /**
+     * The platform's chip tone of a status (`STATUS_TONES` in
+     * `weldbooks-row-cells.tsx`): `green`, `blue`, `amber`, `red` or `gray`.
+     */
     fun tone(status: String): String = when (status) {
-        "paid", "accepted" -> "success"
-        "partially_paid", "pending" -> "warning"
-        "overdue", "uncollectible", "rejected" -> "danger"
-        "draft", "cancelled", "calculated", "reviewed" -> "neutral"
-        else -> "brand"
+        "paid", "posted", "reconciled", "matched", "filed", "accepted" -> "green"
+        "approved", "sent", "viewed", "finalized", "open", "submitted", "processing" -> "blue"
+        "partial", "partially_paid", "pending", "review", "needs_review", "due" -> "amber"
+        "overdue", "failed", "rejected", "error" -> "red"
+        else -> "gray"
     }
 
     fun billAwaitsApproval(bill: Bill): Boolean =
@@ -475,4 +478,25 @@ object BooksTopics {
     val contacts = listOf("accounting_contact", "accounting_entity")
     val vat = listOf("vat_return", "accounting_entity")
     val reports = listOf("invoice", "bill", "journal_entry", "account", "accounting_entity")
+}
+
+/** The printable invoice the server renders (HTML), made to show as a page on a phone. */
+object DocumentHtml {
+    /** The width the server lays the document out at (its container is 800 px wide). */
+    const val PAGE_WIDTH = 800
+
+    private val viewport = Regex("""<meta[^>]*name\s*=\s*["']?viewport["']?[^>]*>""", RegexOption.IGNORE_CASE)
+    private val head = Regex("<head[^>]*>", RegexOption.IGNORE_CASE)
+
+    /**
+     * The document with a viewport of the page's width instead of the phone's,
+     * so it shows as the whole page scaled to the screen, like a PDF, and not
+     * reflowed to phone width with its table cut off.
+     */
+    fun fitToPage(html: String, width: Int = PAGE_WIDTH): String {
+        val meta = "<meta name=\"viewport\" content=\"width=$width\">"
+        if (viewport.containsMatchIn(html)) return viewport.replaceFirst(html, meta)
+        val opening = head.find(html) ?: return meta + html
+        return html.substring(0, opening.range.last + 1) + meta + html.substring(opening.range.last + 1)
+    }
 }

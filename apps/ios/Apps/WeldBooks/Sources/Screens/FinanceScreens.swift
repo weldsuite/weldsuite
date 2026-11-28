@@ -35,7 +35,7 @@ private struct FinanceNavTitle: View {
             if let subtitle {
                 Text(subtitle)
                     .font(.inter(.caption))
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                     .lineLimit(1)
             }
         }
@@ -97,31 +97,19 @@ private struct FinanceBankAccountsList: View {
     var body: some View {
         List {
             if let total {
-                Section {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(BooksStrings.bankTotalBalance)
-                            .font(.inter(.footnote))
-                            .foregroundStyle(Color.secondary)
-                        Text(total)
-                            .font(.inter(.title2, weight: .bold))
-                    }
-                    .padding(.vertical, Tokens.Spacing.xs)
-                    .accessibilityElement(children: .combine)
-                }
+                KpiCard(label: BooksStrings.bankTotalBalance, value: total, systemImage: "building.columns", tag: "bank-total")
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Tokens.Palette.background)
             }
-            Section {
-                ForEach(accounts) { account in
-                    accountRow(account)
-                }
+            ForEach(accounts) { account in
+                accountRow(account)
+                    .platformRow()
             }
         }
+        .platformList()
         .overlay {
             if accounts.isEmpty {
-                ContentUnavailableView(
-                    BooksStrings.bankEmptyTitle,
-                    systemImage: "building.columns",
-                    description: Text(BooksStrings.bankEmptyDescription)
-                )
+                BooksEmptyState(systemImage: "building.columns", title: BooksStrings.bankEmptyTitle, description: BooksStrings.bankEmptyDescription)
             }
         }
         .tagged("bank-accounts")
@@ -137,10 +125,10 @@ private struct FinanceBankAccountsList: View {
             amount: books.money(account.balance, currency: account.currency),
             amountColor: color,
             tag: "bank-account-row",
-            onTap: { navigator.open(.bankAccount(id: account.id)) }
-        ) {
-            IconTile(systemImage: "building.columns", color: Accents.banking)
-        }
+            onTap: { navigator.open(.bankAccount(id: account.id)) },
+            leading: { EmptyView() },
+            badge: { EmptyView() }
+        )
     }
 }
 
@@ -186,52 +174,70 @@ private struct FinanceBankAccountDetail: View {
 
     var body: some View {
         List {
-            Section {
-                balanceCard
+            balanceCard
+                .listRowSeparator(.hidden)
+                .listRowBackground(Tokens.Palette.background)
+            if transactions.isEmpty {
+                BooksEmptyState(
+                    systemImage: "arrow.left.arrow.right",
+                    title: BooksStrings.bankDetailEmptyTitle,
+                    description: BooksStrings.bankDetailEmptyDescription
+                )
+                .listRowSeparator(.hidden)
+                .listRowBackground(Tokens.Palette.background)
             }
-            Section {
-                if transactions.isEmpty {
-                    ContentUnavailableView(
-                        BooksStrings.bankDetailEmptyTitle,
-                        systemImage: "building.columns",
-                        description: Text(BooksStrings.bankDetailEmptyDescription)
-                    )
-                }
-                ForEach(transactions) { line in
-                    FinanceTransactionRow(line: line, currency: account.currency)
+            // Grouped by status like the platform's transaction list.
+            ForEach(groups, id: \.key) { group in
+                let rows = transactions.filter { transactionGroup($0) == group.key }
+                if !rows.isEmpty {
+                    Section {
+                        ForEach(rows) { line in
+                            FinanceTransactionRow(line: line, currency: account.currency)
+                                .platformRow()
+                        }
+                    } header: {
+                        GroupHeader(label: group.label, count: rows.count)
+                            .groupHeaderInsets()
+                    }
                 }
             }
         }
+        .platformList()
         .tagged("bank-account")
     }
 
+    private var groups: [Choice] {
+        [
+            Choice("unreconciled", BooksStrings.groupsUnreconciled),
+            Choice("reconciled", BooksStrings.groupsReconciled),
+            Choice("excluded", BooksStrings.groupsExcluded),
+        ]
+    }
+
+    private func transactionGroup(_ line: BankTransaction) -> String {
+        line.status == "reconciled" || line.status == "excluded" ? line.status : "unreconciled"
+    }
+
+    /// The balance as the platform's KPI card, then the account's properties.
     private var balanceCard: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
-            HStack(spacing: Tokens.Spacing.m) {
-                IconTile(systemImage: "building.columns", color: Accents.banking, size: 44)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(BooksStrings.bankDetailCurrentBalance)
-                        .font(.inter(.footnote))
-                        .foregroundStyle(Color.secondary)
-                    Text(books.money(account.balance, currency: account.currency))
-                        .font(.inter(.title2, weight: .bold))
-                        .foregroundStyle(account.balance < 0 ? Tokens.Status.danger : Color.primary)
-                }
-            }
-            if let bank = account.bankName {
-                Text(bank)
-                    .font(.inter(.footnote))
-                    .foregroundStyle(Color.secondary)
-            }
+            KpiCard(
+                label: BooksStrings.bankDetailCurrentBalance,
+                value: books.money(account.balance, currency: account.currency),
+                hint: account.bankName,
+                systemImage: "building.columns",
+                tone: account.balance < 0 ? Tokens.Status.danger : nil,
+                tag: "bank-balance"
+            )
             if account.routingNumber != nil || account.accountNumberLast4 != nil {
                 if let type = account.accountType, Payments.bankAccountTypes.contains(type) {
-                    DetailRow(BooksStrings.bankDetailAccountType, bankAccountTypeLabel(type))
+                    PropertyRow("building.columns", BooksStrings.bankDetailAccountType, bankAccountTypeLabel(type))
                 }
                 if let routing = account.routingNumber {
-                    DetailRow(BooksStrings.bankDetailRoutingNumber, routing)
+                    PropertyRow("number", BooksStrings.bankDetailRoutingNumber, routing)
                 }
                 if let number = Payments.masked(account.accountNumberLast4) {
-                    DetailRow(BooksStrings.bankDetailAccountNumber, number)
+                    PropertyRow("creditcard", BooksStrings.bankDetailAccountNumber, number)
                 }
             }
         }
@@ -250,29 +256,30 @@ private struct FinanceTransactionRow: View {
         self.currency = currency
     }
 
+    /// A bank line as the platform's transaction list draws it: the description,
+    /// the counterparty, the date, the amount (green coming in) and the status chip.
     var body: some View {
         let incoming = line.amount >= 0
-        let amountColor: Color? = incoming ? Tokens.Status.success : nil
+        let amountColor: Color? = incoming ? Tones.positive : nil
         RecordRow(
             title: line.description ?? line.counterpartyName ?? BooksStrings.bankDetailTransaction,
-            subtitle: line.description != nil ? line.counterpartyName : nil,
+            // The counterparty and the bank's reference: the platform's Counterparty and Reference columns.
+            subtitle: [line.description != nil ? line.counterpartyName : nil, line.reference].compactMap { $0 }.joined(separator: " · ").nilIfEmpty,
             meta: books.shortDate(line.date),
-            amount: (incoming ? "+" : "") + books.money(line.amount, currency: currency),
+            amount: books.money(line.amount, currency: currency),
             amountColor: amountColor,
-            tag: "transaction-row"
-        ) {
-            IconTile(
-                systemImage: incoming ? "arrow.down.left" : "arrow.up.right",
-                color: incoming ? Tokens.Status.success : Tokens.Status.danger,
-                size: 32
-            )
-        } badge: {
-            if line.status == "reconciled" {
-                StatusBadge(BooksStrings.bankDetailReconciled, color: Tokens.Status.success)
-            } else {
-                StatusBadge(BooksStrings.bankDetailUnmatched, color: Color.secondary)
+            tag: "transaction-row",
+            badge: {
+                switch line.status {
+                case "reconciled":
+                    StatusBadge(BooksStrings.bankDetailReconciled, color: Tones.green)
+                case "excluded":
+                    StatusBadge(BooksStrings.bankDetailExcluded, color: Tones.gray)
+                default:
+                    StatusBadge(BooksStrings.bankDetailUnmatched, color: Tones.gray)
+                }
             }
-        }
+        )
     }
 }
 
@@ -352,21 +359,15 @@ private struct FinanceReconciliationBody: View {
             VStack(spacing: 0) {
                 // Without a bank account there is nothing to reconcile: "everything reconciled" would be a lie.
                 if !page.hasBankAccount {
-                    ContentUnavailableView(
-                        BooksStrings.bankEmptyTitle,
-                        systemImage: "building.columns",
-                        description: Text(BooksStrings.bankEmptyDescription)
-                    )
-                    .padding(.top, Tokens.Spacing.xl)
+                    BooksEmptyState(systemImage: "building.columns", title: BooksStrings.bankEmptyTitle, description: BooksStrings.bankEmptyDescription)
                 } else {
                     statsRow
                     if page.lines.isEmpty {
-                        ContentUnavailableView(
-                            BooksStrings.reconciliationEmptyTitle,
+                        BooksEmptyState(
                             systemImage: "arrow.triangle.merge",
-                            description: Text(BooksStrings.reconciliationEmptyDescription)
+                            title: BooksStrings.reconciliationEmptyTitle,
+                            description: BooksStrings.reconciliationEmptyDescription
                         )
-                        .padding(.top, Tokens.Spacing.l)
                     }
                     ForEach(page.lines) { line in
                         FinanceUnmatchedCard(line: line, busy: matching == line.id) { suggestion in
@@ -381,39 +382,17 @@ private struct FinanceReconciliationBody: View {
         .tagged("reconciliation")
     }
 
+    /// The platform's KPI cards: what is open, what is done, and the money still to match.
     private var statsRow: some View {
-        HStack(spacing: Tokens.Spacing.s) {
-            FinanceStatTile(value: String(page.stats.unmatched), label: BooksStrings.reconciliationUnmatched, color: nil)
-            FinanceStatTile(value: String(page.stats.matched), label: BooksStrings.reconciliationReconciled, color: Tokens.Status.success)
-            FinanceStatTile(value: books.money(page.stats.pendingAmount), label: BooksStrings.reconciliationPending, color: nil)
-                .layoutPriority(1)
+        VStack(spacing: Tokens.Spacing.m) {
+            HStack(spacing: Tokens.Spacing.m) {
+                KpiCard(label: BooksStrings.reconciliationUnmatched, value: String(page.stats.unmatched), tag: "stat-unmatched")
+                KpiCard(label: BooksStrings.reconciliationReconciled, value: String(page.stats.matched), tone: Tones.positive, tag: "stat-reconciled")
+            }
+            KpiCard(label: BooksStrings.reconciliationPending, value: books.money(page.stats.pendingAmount), tag: "stat-pending")
         }
-        .padding(.horizontal, Tokens.Spacing.m)
+        .padding(.horizontal, Tokens.Spacing.l)
         .padding(.vertical, Tokens.Spacing.s)
-    }
-}
-
-private struct FinanceStatTile: View {
-    let value: String
-    let label: String
-    let color: Color?
-
-    var body: some View {
-        VStack(spacing: 2) {
-            Text(value)
-                .font(.inter(.headline, weight: .bold))
-                .foregroundStyle(color ?? Color.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-            Text(label)
-                .font(.inter(.caption2))
-                .foregroundStyle(Color.secondary)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(Tokens.Spacing.m)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: Tokens.Radius.large))
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -435,31 +414,28 @@ private struct FinanceUnmatchedCard: View {
         let incoming = tx.amount >= 0
         SectionCard {
             HStack(spacing: Tokens.Spacing.m) {
-                IconTile(
-                    systemImage: incoming ? "arrow.down.left" : "arrow.up.right",
-                    color: incoming ? Tokens.Status.success : Tokens.Status.danger,
-                    size: 34
-                )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(tx.description ?? tx.counterpartyName ?? BooksStrings.reconciliationTransaction)
-                        .font(.inter(.body, weight: .semibold))
+                        .font(.inter(.subheadline, weight: .medium))
                         .lineLimit(1)
                     Text(books.shortDate(tx.date))
-                        .font(.inter(.footnote))
-                        .foregroundStyle(Color.secondary)
+                        .font(.inter(.caption))
+                        .monospacedDigit()
+                        .foregroundStyle(Tokens.Palette.mutedForeground)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                Text((incoming ? "+" : "") + books.money(tx.amount))
-                    .font(.inter(.body, weight: .semibold))
+                Text(books.money(tx.amount))
+                    .font(.inter(.subheadline, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(incoming ? Tones.positive : Tokens.Palette.foreground)
             }
             if line.suggestions.isEmpty {
                 HintText(BooksStrings.reconciliationNoSuggestions)
             } else {
-                Divider().padding(.vertical, Tokens.Spacing.s)
+                Hairline().padding(.vertical, Tokens.Spacing.m)
                 Text(BooksStrings.reconciliationSuggestedMatches)
-                    .font(.inter(.caption, weight: .semibold))
-                    .foregroundStyle(Color.secondary)
-                    .textCase(.uppercase)
+                    .font(.inter(.caption, weight: .medium))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                 ForEach(line.suggestions) { suggestion in
                     suggestionRow(suggestion)
                 }
@@ -476,11 +452,11 @@ private struct FinanceUnmatchedCard: View {
         let percent = Int(suggestion.confidence * 100)
         let tone: Color
         if suggestion.confidence >= 0.8 {
-            tone = Tokens.Status.success
+            tone = Tones.green
         } else if suggestion.confidence >= 0.6 {
-            tone = Tokens.Status.warning
+            tone = Tones.amber
         } else {
-            tone = Color.secondary
+            tone = Tones.gray
         }
         return Button {
             onMatch(suggestion)
@@ -492,19 +468,19 @@ private struct FinanceUnmatchedCard: View {
                         .lineLimit(1)
                     Text(books.money(suggestion.amount))
                         .font(.inter(.footnote))
-                        .foregroundStyle(Color.secondary)
+                        .foregroundStyle(Tokens.Palette.mutedForeground)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 StatusBadge("\(percent)%", color: tone)
                 Image(systemName: "checkmark")
                     .font(.inter(.footnote))
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                     .accessibilityHidden(true)
             }
             .padding(Tokens.Spacing.m)
             .overlay(
                 RoundedRectangle(cornerRadius: Tokens.Radius.medium)
-                    .stroke(Color(uiColor: .separator), lineWidth: 1)
+                    .stroke(Tokens.Palette.border, lineWidth: 1)
             )
             .contentShape(Rectangle())
         }
@@ -522,7 +498,6 @@ private struct FinanceReport: Identifiable {
     let title: String
     let subtitle: String
     let systemImage: String
-    let color: Color
     let route: Route
     let tag: String
 
@@ -539,11 +514,11 @@ struct ReportsView: View {
         [
             FinanceReport(
                 title: BooksStrings.reportsProfitLoss, subtitle: BooksStrings.reportsProfitLossSub,
-                systemImage: "chart.line.uptrend.xyaxis", color: Accents.profitLoss, route: .profitLoss, tag: "report-profit-loss"
+                systemImage: "chart.line.uptrend.xyaxis", route: .profitLoss, tag: "report-profit-loss"
             ),
             FinanceReport(
                 title: BooksStrings.reportsBalanceSheet, subtitle: BooksStrings.reportsBalanceSheetSub,
-                systemImage: "scalemass", color: Accents.balanceSheet, route: .balanceSheet, tag: "report-balance-sheet"
+                systemImage: "scalemass", route: .balanceSheet, tag: "report-balance-sheet"
             ),
         ]
     }
@@ -556,27 +531,29 @@ struct ReportsView: View {
                         navigator.open(report.route)
                     } label: {
                         HStack(spacing: Tokens.Spacing.m) {
-                            IconTile(systemImage: report.systemImage, color: report.color)
+                            ListIcon(report.systemImage)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(report.title)
-                                    .font(.inter(.body, weight: .semibold))
-                                    .foregroundStyle(Color.primary)
+                                    .font(.inter(.subheadline, weight: .medium))
+                                    .foregroundStyle(Tokens.Palette.foreground)
                                 Text(report.subtitle)
                                     .font(.inter(.footnote))
-                                    .foregroundStyle(Color.secondary)
+                                    .foregroundStyle(Tokens.Palette.mutedForeground)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             Image(systemName: "chevron.right")
                                 .font(.inter(.footnote, weight: .semibold))
-                                .foregroundStyle(Color(uiColor: .tertiaryLabel))
+                                .foregroundStyle(Tokens.Palette.mutedForeground)
                                 .accessibilityHidden(true)
                         }
                         .contentShape(Rectangle())
                     }
+                    .platformRow()
                     .tagged(report.tag)
                 }
             }
         }
+        .platformList()
         .tagged("reports")
         .financeTitle(BooksStrings.reportsTitle)
     }
@@ -639,19 +616,16 @@ private struct FinanceProfitLossBody: View {
         let net = profitable ? BooksStrings.profitLossNetProfit : BooksStrings.profitLossNetLoss
         ScrollView {
             VStack(spacing: 0) {
-                SectionCard {
-                    Text(net)
-                        .font(.inter(.footnote))
-                        .foregroundStyle(Color.secondary)
-                    Text(books.money(data.netProfit.magnitude))
-                        .font(.inter(.largeTitle, weight: .bold))
-                        .foregroundStyle(profitable ? Tokens.Status.success : Tokens.Status.danger)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.5)
-                    Text(BooksStrings.profitLossMargin(percent: "\(Amounts.plain(data.margin))%"))
-                        .font(.inter(.footnote))
-                        .foregroundStyle(Color.secondary)
-                }
+                KpiCard(
+                    label: net,
+                    value: books.money(data.netProfit.magnitude),
+                    hint: BooksStrings.profitLossMargin(percent: "\(Amounts.plain(data.margin))%"),
+                    systemImage: "chart.line.uptrend.xyaxis",
+                    tone: profitable ? Tones.positive : Tokens.Status.danger,
+                    tag: "net-profit"
+                )
+                .padding(.horizontal, Tokens.Spacing.l)
+                .padding(.vertical, Tokens.Spacing.s)
                 SectionCard(title: BooksStrings.profitLossBreakdown) {
                     TotalsBlock(
                         rows: [
@@ -698,15 +672,14 @@ private struct FinanceBalanceSheetBody: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                SectionCard {
-                    Text(BooksStrings.balanceSheetTotalAssets)
-                        .font(.inter(.footnote))
-                        .foregroundStyle(Color.secondary)
-                    Text(books.money(data.totalAssets))
-                        .font(.inter(.largeTitle, weight: .bold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.5)
-                }
+                KpiCard(
+                    label: BooksStrings.balanceSheetTotalAssets,
+                    value: books.money(data.totalAssets),
+                    systemImage: "scalemass",
+                    tag: "total-assets"
+                )
+                .padding(.horizontal, Tokens.Spacing.l)
+                .padding(.vertical, Tokens.Spacing.s)
                 if !data.isBalanced {
                     Banner(
                         BooksStrings.balanceSheetUnbalancedBody(
@@ -779,7 +752,7 @@ private struct FinanceBalanceSection: View {
                             if !row.code.isBlank {
                                 Text(row.code)
                                     .font(.inter(.caption))
-                                    .foregroundStyle(Color.secondary)
+                                    .foregroundStyle(Tokens.Palette.mutedForeground)
                             }
                         }
                         Spacer(minLength: Tokens.Spacing.m)
@@ -788,7 +761,7 @@ private struct FinanceBalanceSection: View {
                     .padding(.vertical, 5)
                     .accessibilityElement(children: .combine)
                 }
-                Divider().padding(.vertical, Tokens.Spacing.s)
+                Hairline().padding(.vertical, Tokens.Spacing.s)
                 HStack {
                     Text(totalLabel).font(.inter(.subheadline, weight: .semibold))
                     Spacer()
@@ -856,17 +829,8 @@ private struct FinanceVatReturnsList: View {
     }
 
     private func chip(_ label: String, selected: Bool, tag: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(.inter(.subheadline, weight: .medium))
-                .padding(.horizontal, Tokens.Spacing.m)
-                .padding(.vertical, 6)
-                .foregroundStyle(selected ? Color.white : Color.primary)
-                .background(selected ? Accents.brand : Color(uiColor: .secondarySystemFill), in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-        .tagged(tag)
+        FilterChipView(label: label, on: selected, action: action)
+            .tagged(tag)
     }
 }
 
@@ -891,31 +855,29 @@ private struct FinanceVatReturnRows: View {
         List {
             ForEach(returns) { item in
                 row(item)
+                    .platformRow()
             }
         }
-        .listStyle(.plain)
+        .platformList()
         .overlay {
             if returns.isEmpty {
-                ContentUnavailableView(BooksStrings.vatEmptyTitle, systemImage: "checkmark.seal", description: Text(emptyText))
+                BooksEmptyState(systemImage: "checkmark.seal", title: BooksStrings.vatEmptyTitle, description: emptyText)
             }
         }
         .tagged("vat-returns")
     }
 
     private func row(_ item: VatReturn) -> some View {
-        let color: Color? = item.netAmount < 0 ? Tokens.Status.success : nil
+        let color: Color? = item.netAmount < 0 ? Tones.positive : nil
         return RecordRow(
             title: item.period,
             subtitle: BooksStrings.vatOutputInput(output: books.money(item.salesTax), input: books.money(item.purchaseTax)),
             amount: books.money(item.netAmount),
             amountColor: color,
             tag: "vat-return-row",
-            onTap: { navigator.open(.vatReturn(id: item.id)) }
-        ) {
-            IconTile(systemImage: "checkmark.seal", color: Accents.vat)
-        } badge: {
-            StatusPill(item.status)
-        }
+            onTap: { navigator.open(.vatReturn(id: item.id)) },
+            badge: { StatusPill(item.status) }
+        )
     }
 }
 
@@ -1029,20 +991,21 @@ private struct FinanceVatReturnBody: View {
         let payable = item.netAmount >= 0
         ScrollView {
             VStack(spacing: 0) {
-                SectionCard {
-                    HStack(alignment: .center) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(payable ? BooksStrings.vatDetailToPay : BooksStrings.vatDetailToReclaim)
-                                .font(.inter(.footnote))
-                                .foregroundStyle(Color.secondary)
-                            Text(books.money(item.netAmount.magnitude))
-                                .font(.inter(.title2, weight: .bold))
-                                .foregroundStyle(payable ? Color.primary : Tokens.Status.success)
-                        }
-                        Spacer()
-                        StatusPill(item.status)
-                    }
+                KpiCard(
+                    label: payable ? BooksStrings.vatDetailToPay : BooksStrings.vatDetailToReclaim,
+                    value: books.money(item.netAmount.magnitude),
+                    systemImage: "checkmark.seal",
+                    tone: payable ? nil : Tones.positive,
+                    tag: "vat-net"
+                )
+                .padding(.horizontal, Tokens.Spacing.l)
+                .padding(.vertical, Tokens.Spacing.s)
+                HStack {
+                    StatusPill(item.status)
+                    Spacer()
                 }
+                .padding(.horizontal, Tokens.Spacing.l)
+                .padding(.vertical, Tokens.Spacing.xs)
                 if item.isFiled {
                     Banner(filedText, tone: "success")
                 }

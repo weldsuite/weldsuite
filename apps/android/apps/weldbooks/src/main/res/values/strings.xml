@@ -48,12 +48,13 @@
     <string name="weldbooks_bank_detail_current_balance">Current balance</string>
     <string name="weldbooks_bank_detail_empty_description">Import a bank statement to see transactions for this account.</string>
     <string name="weldbooks_bank_detail_empty_title">No transactions</string>
+    <string name="weldbooks_bank_detail_excluded">Excluded</string>
     <string name="weldbooks_bank_detail_load_error">Couldn\'t load this account.</string>
     <string name="weldbooks_bank_detail_reconciled">Reconciled</string>
     <string name="weldbooks_bank_detail_routing_number">Routing number</string>
     <string name="weldbooks_bank_detail_title">Account</string>
     <string name="weldbooks_bank_detail_transaction">Transaction</string>
-    <string name="weldbooks_bank_detail_unmatched">Unmatched</string>
+    <string name="weldbooks_bank_detail_unmatched">Unreconciled</string>
     <string name="weldbooks_bill_detail_approve">Approve</string>
     <string name="weldbooks_bill_detail_approved">Bill approved</string>
     <string name="weldbooks_bill_detail_balance_due">Balance due</string>
@@ -83,8 +84,10 @@
     <string name="weldbooks_bill_detail_record_payment">Record payment</string>
     <string name="weldbooks_bill_detail_reference">Reference</string>
     <string name="weldbooks_bill_detail_reject">Reject</string>
-    <string name="weldbooks_bill_detail_reject_message">It stays in your books but won\'t be scheduled for payment.</string>
-    <string name="weldbooks_bill_detail_reject_title">Reject this bill?</string>
+    <string name="weldbooks_bill_detail_reject_message">Please provide a reason for rejecting this bill.</string>
+    <string name="weldbooks_bill_detail_reject_reason">Reason</string>
+    <string name="weldbooks_bill_detail_reject_reason_placeholder">Enter rejection reason…</string>
+    <string name="weldbooks_bill_detail_reject_title">Reject bill</string>
     <string name="weldbooks_bill_detail_rejected">Bill rejected</string>
     <string name="weldbooks_bill_detail_subtotal">Subtotal</string>
     <string name="weldbooks_bill_detail_tax_paid">%1$s paid (part of the cost)</string>
@@ -239,11 +242,20 @@
     <string name="weldbooks_contacts_shown">%1$d shown</string>
     <string name="weldbooks_contacts_title">Contacts</string>
     <string name="weldbooks_contacts_unnamed">Unnamed contact</string>
+    <plurals name="weldbooks_dashboard_bank_account_count">
+        <item quantity="one">1 bank account</item>
+        <item quantity="other">%1$d bank accounts</item>
+    </plurals>
     <plurals name="weldbooks_dashboard_bill_count">
         <item quantity="one">%1$d bill</item>
         <item quantity="other">%1$d bills</item>
     </plurals>
+    <string name="weldbooks_dashboard_cash_balance">Cash balance</string>
+    <string name="weldbooks_dashboard_documents">Documents to process</string>
+    <string name="weldbooks_dashboard_documents_waiting">Waiting to be booked</string>
+    <string name="weldbooks_dashboard_due_this_week">Due this week</string>
     <string name="weldbooks_dashboard_expense">Expense</string>
+    <string name="weldbooks_dashboard_expenses">Expenses</string>
     <string name="weldbooks_dashboard_invoice">Invoice</string>
     <plurals name="weldbooks_dashboard_invoice_count">
         <item quantity="one">%1$d invoice</item>
@@ -253,20 +265,42 @@
         <item quantity="one">%1$d item waiting to sync.</item>
         <item quantity="other">%1$d items waiting to sync.</item>
     </plurals>
+    <string name="weldbooks_dashboard_last_year">Last year</string>
+    <string name="weldbooks_dashboard_latest_payments">Latest payments</string>
     <string name="weldbooks_dashboard_load_error">Couldn\'t load your dashboard.</string>
+    <string name="weldbooks_dashboard_metric">Figure</string>
+    <string name="weldbooks_dashboard_net_profit">Net profit</string>
+    <string name="weldbooks_dashboard_no_due_this_week">Nothing falls due this week.</string>
     <string name="weldbooks_dashboard_no_invoices_description">Create your first invoice to start tracking revenue.</string>
     <string name="weldbooks_dashboard_no_invoices_title">No invoices yet</string>
+    <string name="weldbooks_dashboard_no_recent_payments">No recent payments.</string>
     <plurals name="weldbooks_dashboard_offline_queued">
         <item quantity="one">Offline. %1$d item queued.</item>
         <item quantity="other">Offline. %1$d items queued.</item>
     </plurals>
+    <plurals name="weldbooks_dashboard_open_bill_count">
+        <item quantity="one">1 open bill</item>
+        <item quantity="other">%1$d open bills</item>
+    </plurals>
+    <plurals name="weldbooks_dashboard_open_invoice_count">
+        <item quantity="one">1 open invoice</item>
+        <item quantity="other">%1$d open invoices</item>
+    </plurals>
     <string name="weldbooks_dashboard_outstanding">Outstanding</string>
     <string name="weldbooks_dashboard_overdue">Overdue</string>
+    <string name="weldbooks_dashboard_overdue_amount">%1$s overdue</string>
     <string name="weldbooks_dashboard_payables">Payables</string>
+    <string name="weldbooks_dashboard_payment_received">Received</string>
+    <string name="weldbooks_dashboard_payment_sent">Paid</string>
     <string name="weldbooks_dashboard_profit">Profit</string>
     <string name="weldbooks_dashboard_reports">Reports</string>
+    <string name="weldbooks_dashboard_revenue">Revenue</string>
     <string name="weldbooks_dashboard_scan">Scan</string>
     <string name="weldbooks_dashboard_this_month">This month</string>
+    <string name="weldbooks_dashboard_to_pay">To pay</string>
+    <string name="weldbooks_dashboard_to_receive">To receive</string>
+    <string name="weldbooks_dashboard_today">Today</string>
+    <string name="weldbooks_document_status">Status</string>
     <string name="weldbooks_entity_setup_add_sheet_title">Add a company</string>
     <string name="weldbooks_entity_setup_address_hint">Printed on your invoices and used as the origin for sales tax.</string>
     <string name="weldbooks_entity_setup_address_hint_invoice">Printed on your invoices.</string>
@@ -389,6 +423,17 @@
     <string name="weldbooks_expenses_search_placeholder">Search bills and expenses</string>
     <string name="weldbooks_expenses_title">Expenses</string>
     <string name="weldbooks_expenses_unknown_vendor">Unknown %1$s</string>
+    <string name="weldbooks_groups_approved">Approved</string>
+    <string name="weldbooks_groups_draft">Draft</string>
+    <string name="weldbooks_groups_excluded">Excluded</string>
+    <string name="weldbooks_groups_finalized">Finalized</string>
+    <string name="weldbooks_groups_other">Other</string>
+    <string name="weldbooks_groups_overdue">Overdue</string>
+    <string name="weldbooks_groups_paid">Paid</string>
+    <string name="weldbooks_groups_partially_paid">Partially paid</string>
+    <string name="weldbooks_groups_reconciled">Reconciled</string>
+    <string name="weldbooks_groups_sent">Sent</string>
+    <string name="weldbooks_groups_unreconciled">Unreconciled</string>
     <string name="weldbooks_invoice_detail_actions_title">Invoice actions</string>
     <string name="weldbooks_invoice_detail_add_company_details">Add company details</string>
     <string name="weldbooks_invoice_detail_address_missing">This draft has no ship-to address with a state and ZIP code, so its sales tax can\'t be calculated and it can\'t be finalised. Delete the draft and create the invoice again with the address.</string>
@@ -514,9 +559,11 @@
     <string name="weldbooks_more_administration">Administration</string>
     <string name="weldbooks_more_balance_sheet">Balance sheet</string>
     <string name="weldbooks_more_balance_sheet_sub">Assets, liabilities and equity</string>
+    <string name="weldbooks_more_bank">Bank</string>
     <string name="weldbooks_more_bank_accounts">Bank accounts</string>
     <string name="weldbooks_more_bank_accounts_sub">Balances and transactions</string>
     <string name="weldbooks_more_contacts">Contacts</string>
+    <string name="weldbooks_more_contacts_group">Contacts</string>
     <string name="weldbooks_more_contacts_sub">Customers and %1$s</string>
     <string name="weldbooks_more_financial">Financial</string>
     <string name="weldbooks_more_other">Other</string>

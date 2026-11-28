@@ -23,7 +23,11 @@ import androidx.compose.material.icons.automirrored.outlined.CallReceived
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.automirrored.outlined.TrendingUp
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.automirrored.outlined.CompareArrows
 import androidx.compose.material.icons.outlined.AccountBalance
+import androidx.compose.material.icons.outlined.CreditCard
+import androidx.compose.material.icons.outlined.Tag
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material.icons.outlined.Balance
 import androidx.compose.material.icons.automirrored.outlined.FactCheck
 import androidx.compose.material.icons.automirrored.outlined.MergeType
@@ -141,8 +145,6 @@ fun <T> LoadedContent(loaded: Loaded<T>, loadError: String, modifier: Modifier =
     }
 }
 
-@Composable
-private fun EmptyIcon(icon: ImageVector) = Icon(icon, contentDescription = null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
 
 @Composable
 fun bankAccountTypeLabel(type: String): String = when (type) {
@@ -175,24 +177,24 @@ fun BankAccountsScreen(onBack: () -> Unit, open: (String) -> Unit) {
                 val currency = accounts.firstOrNull()?.currency
                 if (accounts.isNotEmpty() && accounts.all { it.currency == currency }) {
                     item {
-                        SectionCard {
-                            Text(stringResource(R.string.weldbooks_bank_total_balance), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(
-                                books.money(accounts.fold(BigDecimal.ZERO) { sum, account -> sum + account.balance }, currency),
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
+                        KpiCard(
+                            stringResource(R.string.weldbooks_bank_total_balance),
+                            books.money(accounts.fold(BigDecimal.ZERO) { sum, account -> sum + account.balance }, currency),
+                            icon = Icons.Outlined.AccountBalance,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s),
+                            tag = "bank-total",
+                        )
                     }
                 }
                 if (accounts.isEmpty()) {
                     item {
-                        EmptyState(stringResource(R.string.weldbooks_bank_empty_title), stringResource(R.string.weldbooks_bank_empty_description), icon = { EmptyIcon(Icons.Outlined.AccountBalance) })
+                        BooksEmptyState(Icons.Outlined.AccountBalance, stringResource(R.string.weldbooks_bank_empty_title), stringResource(R.string.weldbooks_bank_empty_description))
                     }
+                } else {
+                    item { Hairline(Modifier.padding(top = Tokens.Spacing.s)) }
                 }
                 items(accounts, key = { it.id }) { account ->
                     RecordRow(
-                        leading = { IconTile(Icons.Outlined.AccountBalance, Accents.banking) },
                         title = account.name,
                         subtitle = bankSubtitle(account),
                         meta = account.lastImportDate?.let { stringResource(R.string.weldbooks_bank_last_import, books.date(it)) }
@@ -216,6 +218,9 @@ fun BankAccountScreen(id: String, onBack: () -> Unit) {
     val loaded = rememberLoaded(id) { books.repository.bankAccount(id) }
     RealtimeRefresh(books.env, BooksTopics.banking) { loaded.load() }
     val account = loaded.data?.first
+    val unreconciled = stringResource(R.string.weldbooks_groups_unreconciled)
+    val reconciled = stringResource(R.string.weldbooks_groups_reconciled)
+    val excluded = stringResource(R.string.weldbooks_groups_excluded)
     BooksScaffold(
         title = account?.name ?: stringResource(R.string.weldbooks_bank_detail_title),
         subtitle = account?.let { bankSubtitle(it) },
@@ -226,67 +231,78 @@ fun BankAccountScreen(id: String, onBack: () -> Unit) {
                 item { BankBalanceCard(bank) }
                 if (transactions.isEmpty()) {
                     item {
-                        EmptyState(
+                        BooksEmptyState(
+                            Icons.AutoMirrored.Outlined.CompareArrows,
                             stringResource(R.string.weldbooks_bank_detail_empty_title),
                             stringResource(R.string.weldbooks_bank_detail_empty_description),
-                            icon = { EmptyIcon(Icons.Outlined.AccountBalance) },
                         )
                     }
                 }
-                items(transactions, key = { it.id }) { line -> TransactionRow(line, bank.currency) }
+                // Grouped by status like the platform's transaction list.
+                groupedItems(
+                    transactions,
+                    listOf(
+                        "unreconciled" to unreconciled,
+                        "reconciled" to reconciled,
+                        "excluded" to excluded,
+                    ),
+                    groupOf = { line -> if (line.status == "reconciled" || line.status == "excluded") line.status else "unreconciled" },
+                    more = false,
+                    key = { it.id },
+                ) { line -> TransactionRow(line, bank.currency) }
                 item { BottomSpace() }
             }
         }
     }
 }
 
+/** The balance as the platform's KPI card, then the account's properties. */
 @Composable
 private fun BankBalanceCard(account: BankAccount) {
     val books = LocalBooks.current
-    SectionCard {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m)) {
-            IconTile(Icons.Outlined.AccountBalance, Accents.banking, size = 44.dp)
-            Column {
-                Text(stringResource(R.string.weldbooks_bank_detail_current_balance), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(
-                    books.money(account.balance, account.currency),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = if (account.balance.signum() < 0) Tokens.Status.danger.current() else MaterialTheme.colorScheme.onSurface,
-                )
+    KpiCard(
+        stringResource(R.string.weldbooks_bank_detail_current_balance),
+        books.money(account.balance, account.currency),
+        hint = account.bankName,
+        icon = Icons.Outlined.AccountBalance,
+        tone = Tokens.Status.danger.current().takeIf { account.balance.signum() < 0 },
+        modifier = Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s),
+        tag = "bank-balance",
+    )
+    if (account.routingNumber != null || account.accountNumberLast4 != null) {
+        PanelSection {
+            account.accountType?.takeIf { it in Payments.bankAccountTypes }?.let {
+                PropertyRow(Icons.Outlined.AccountBalance, stringResource(R.string.weldbooks_bank_detail_account_type), bankAccountTypeLabel(it))
             }
-        }
-        account.bankName?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = Tokens.Spacing.s)) }
-        if (account.routingNumber != null || account.accountNumberLast4 != null) {
-            Column(Modifier.padding(top = Tokens.Spacing.s)) {
-                account.accountType?.takeIf { it in Payments.bankAccountTypes }?.let { DetailRow(stringResource(R.string.weldbooks_bank_detail_account_type), bankAccountTypeLabel(it)) }
-                account.routingNumber?.let { DetailRow(stringResource(R.string.weldbooks_bank_detail_routing_number), it) }
-                Payments.masked(account.accountNumberLast4)?.let { DetailRow(stringResource(R.string.weldbooks_bank_detail_account_number), it) }
-            }
+            account.routingNumber?.let { PropertyRow(Icons.Outlined.Tag, stringResource(R.string.weldbooks_bank_detail_routing_number), it) }
+            Payments.masked(account.accountNumberLast4)?.let { PropertyRow(Icons.Outlined.CreditCard, stringResource(R.string.weldbooks_bank_detail_account_number), it) }
         }
     }
+    Hairline(Modifier.padding(top = Tokens.Spacing.s))
 }
 
+/**
+ * A bank line as the platform's transaction list draws it: the description,
+ * the counterparty with its avatar, the date, the amount (green coming in) and
+ * the status chip.
+ */
 @Composable
 private fun TransactionRow(line: BankTransaction, currency: String?) {
     val books = LocalBooks.current
     val incoming = line.amount.signum() >= 0
-    val success = Tokens.Status.success.current()
-    val danger = Tokens.Status.danger.current()
+    val (label, tone) = when (line.status) {
+        "reconciled" -> stringResource(R.string.weldbooks_bank_detail_reconciled) to Tones.green
+        "excluded" -> stringResource(R.string.weldbooks_bank_detail_excluded) to Tones.gray
+        else -> stringResource(R.string.weldbooks_bank_detail_unmatched) to Tones.gray
+    }
     RecordRow(
-        leading = { IconTile(if (incoming) Icons.AutoMirrored.Outlined.CallReceived else Icons.AutoMirrored.Outlined.CallMade, if (incoming) success else danger, size = 32.dp) },
         title = line.description ?: line.counterpartyName ?: stringResource(R.string.weldbooks_bank_detail_transaction),
-        subtitle = line.counterpartyName?.takeIf { line.description != null },
+        // The counterparty and the bank's reference, the platform's Counterparty and Reference columns.
+        subtitle = listOfNotNull(line.counterpartyName?.takeIf { line.description != null }, line.reference).joinToString(" · ").ifEmpty { null },
         meta = books.shortDate(line.date),
-        amount = (if (incoming) "+" else "") + books.money(line.amount, currency),
-        amountColor = if (incoming) success else null,
-        badge = {
-            if (line.status == "reconciled") {
-                StatusBadge(stringResource(R.string.weldbooks_bank_detail_reconciled), success)
-            } else {
-                StatusBadge(stringResource(R.string.weldbooks_bank_detail_unmatched), MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        },
+        amount = books.money(line.amount, currency),
+        amountColor = if (incoming) Tones.positive.current() else null,
+        badge = { ToneChip(label, tone) },
         tag = "transaction-row",
     )
 }
@@ -304,6 +320,7 @@ private data class Reconciliation(val stats: ReconciliationStats, val lines: Lis
 fun ReconciliationScreen(onBack: () -> Unit) {
     val books = LocalBooks.current
     val notify = LocalNotify.current
+    val errors = LocalErrors.current
     val scope = rememberCoroutineScope()
     val loaded = rememberLoaded {
         val stats = books.repository.reconciliationStats()
@@ -330,7 +347,7 @@ fun ReconciliationScreen(onBack: () -> Unit) {
                         )
                     }
                 }
-                .onFailure { notify(it.message ?: failed) }
+                .onFailure { notify(errors.describe(it, failed)) }
             matching = null
         }
     }
@@ -341,17 +358,17 @@ fun ReconciliationScreen(onBack: () -> Unit) {
                 // Without a bank account there is nothing to reconcile: "everything reconciled" would be a lie.
                 if (!data.hasBankAccount) {
                     item {
-                        EmptyState(stringResource(R.string.weldbooks_bank_empty_title), stringResource(R.string.weldbooks_bank_empty_description), icon = { EmptyIcon(Icons.Outlined.AccountBalance) })
+                        BooksEmptyState(Icons.Outlined.AccountBalance, stringResource(R.string.weldbooks_bank_empty_title), stringResource(R.string.weldbooks_bank_empty_description))
                     }
                     return@LazyColumn
                 }
                 item { ReconciliationStatsRow(data.stats) }
                 if (data.lines.isEmpty()) {
                     item {
-                        EmptyState(
+                        BooksEmptyState(
+                            Icons.AutoMirrored.Outlined.MergeType,
                             stringResource(R.string.weldbooks_reconciliation_empty_title),
                             stringResource(R.string.weldbooks_reconciliation_empty_description),
-                            icon = { EmptyIcon(Icons.AutoMirrored.Outlined.MergeType) },
                         )
                     }
                 }
@@ -367,24 +384,19 @@ fun ReconciliationScreen(onBack: () -> Unit) {
 @Composable
 private fun ReconciliationStatsRow(stats: ReconciliationStats) {
     val books = LocalBooks.current
-    Row(Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.m, vertical = Tokens.Spacing.s), horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
-        StatTile(stats.unmatched.toString(), stringResource(R.string.weldbooks_reconciliation_unmatched), null, Modifier.weight(1f))
-        StatTile(stats.matched.toString(), stringResource(R.string.weldbooks_reconciliation_reconciled), Tokens.Status.success.current(), Modifier.weight(1f))
-        StatTile(books.money(stats.pendingAmount), stringResource(R.string.weldbooks_reconciliation_pending), null, Modifier.weight(1.3f))
-    }
-}
-
-@Composable
-private fun StatTile(value: String, label: String, color: Color?, modifier: Modifier) {
-    org.weldsuite.ui.Card(
-        modifier = modifier,
-        colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        shape = RoundedCornerShape(Tokens.Radius.large),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(Tokens.Spacing.m), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = color ?: MaterialTheme.colorScheme.onSurface, maxLines = 1)
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+    // The platform's KPI cards: what is open, what is done, and the money still to match.
+    Column(Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s), verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.m)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m)) {
+            KpiCard(stringResource(R.string.weldbooks_reconciliation_unmatched), stats.unmatched.toString(), modifier = Modifier.weight(1f), tag = "stat-unmatched")
+            KpiCard(
+                stringResource(R.string.weldbooks_reconciliation_reconciled),
+                stats.matched.toString(),
+                tone = Tones.positive.current(),
+                modifier = Modifier.weight(1f),
+                tag = "stat-reconciled",
+            )
         }
+        KpiCard(stringResource(R.string.weldbooks_reconciliation_pending), books.money(stats.pendingAmount), modifier = Modifier.fillMaxWidth(), tag = "stat-pending")
     }
 }
 
@@ -393,32 +405,30 @@ private fun UnmatchedCard(line: UnmatchedTransaction, busy: Boolean, onMatch: (M
     val books = LocalBooks.current
     val tx = line.transaction
     val incoming = tx.amount.signum() >= 0
-    val success = Tokens.Status.success.current()
-    val danger = Tokens.Status.danger.current()
+    val positive = Tones.positive.current()
     val invoiceWord = stringResource(R.string.weldbooks_reconciliation_invoice)
     val billWord = stringResource(R.string.weldbooks_reconciliation_bill)
     SectionCard(modifier = Modifier.tagged("unmatched-transaction")) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m)) {
-            IconTile(if (incoming) Icons.AutoMirrored.Outlined.CallReceived else Icons.AutoMirrored.Outlined.CallMade, if (incoming) success else danger, size = 34.dp)
-            Column(Modifier.weight(1f)) {
-                Text(tx.description ?: tx.counterpartyName ?: stringResource(R.string.weldbooks_reconciliation_transaction), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                Text(books.shortDate(tx.date), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(tx.description ?: tx.counterpartyName ?: stringResource(R.string.weldbooks_reconciliation_transaction), style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                Text(books.shortDate(tx.date), style = MaterialTheme.typography.bodySmall.merge(Tabular), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text((if (incoming) "+" else "") + books.money(tx.amount), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            Text(books.money(tx.amount), style = MaterialTheme.typography.titleSmall.merge(Tabular), color = if (incoming) positive else MaterialTheme.colorScheme.onSurface)
         }
         if (line.suggestions.isEmpty()) {
             HintText(stringResource(R.string.weldbooks_reconciliation_no_suggestions))
             return@SectionCard
         }
-        HorizontalDivider(Modifier.padding(vertical = Tokens.Spacing.s))
-        Text(stringResource(R.string.weldbooks_reconciliation_suggested_matches).uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Hairline(Modifier.padding(vertical = Tokens.Spacing.m))
+        Text(stringResource(R.string.weldbooks_reconciliation_suggested_matches), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         line.suggestions.forEach { suggestion ->
             val description = listOfNotNull(if (suggestion.type == "invoice") invoiceWord else billWord, suggestion.number, suggestion.contactName).joinToString(" · ")
             val percent = (suggestion.confidence * 100).toInt()
             val tone = when {
-                suggestion.confidence >= 0.8 -> success
-                suggestion.confidence >= 0.6 -> Tokens.Status.warning.current()
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                suggestion.confidence >= 0.8 -> Tones.green
+                suggestion.confidence >= 0.6 -> Tones.amber
+                else -> Tones.gray
             }
             val label = stringResource(R.string.weldbooks_reconciliation_match_with, description)
             Row(
@@ -432,9 +442,9 @@ private fun UnmatchedCard(line: UnmatchedTransaction, busy: Boolean, onMatch: (M
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(description, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                    Text(books.money(suggestion.amount), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(books.money(suggestion.amount), style = MaterialTheme.typography.bodySmall.merge(Tabular), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                StatusBadge("$percent%", tone)
+                ToneChip("$percent%", tone)
                 Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
             }
         }
@@ -446,33 +456,33 @@ private fun UnmatchedCard(line: UnmatchedTransaction, busy: Boolean, onMatch: (M
 @Composable
 fun ReportsScreen(onBack: () -> Unit, open: (String) -> Unit) {
     val reports = listOf(
-        ReportEntry(stringResource(R.string.weldbooks_reports_profit_loss), stringResource(R.string.weldbooks_reports_profit_loss_sub), Icons.AutoMirrored.Outlined.TrendingUp, Accents.profitLoss, "reports/profit-loss", "report-profit-loss"),
-        ReportEntry(stringResource(R.string.weldbooks_reports_balance_sheet), stringResource(R.string.weldbooks_reports_balance_sheet_sub), Icons.Outlined.Balance, Accents.balanceSheet, "reports/balance-sheet", "report-balance-sheet"),
+        ReportEntry(stringResource(R.string.weldbooks_reports_profit_loss), stringResource(R.string.weldbooks_reports_profit_loss_sub), Icons.AutoMirrored.Outlined.TrendingUp, "reports/profit-loss", "report-profit-loss"),
+        ReportEntry(stringResource(R.string.weldbooks_reports_balance_sheet), stringResource(R.string.weldbooks_reports_balance_sheet_sub), Icons.Outlined.Balance, "reports/balance-sheet", "report-balance-sheet"),
     )
     BooksScaffold(title = stringResource(R.string.weldbooks_reports_title), onBack = onBack) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).tagged("reports")) {
-            SectionCard(padded = false) {
-                reports.forEachIndexed { index, report ->
-                    if (index > 0) HorizontalDivider(Modifier.padding(start = 68.dp))
-                    Row(
-                        Modifier.fillMaxWidth().clickable { open(report.route) }.padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.m).tagged(report.tag),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
-                    ) {
-                        IconTile(report.icon, report.color)
-                        Column(Modifier.weight(1f)) {
-                            Text(report.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                            Text(report.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Hairline()
+            // Plain rows with the platform menu's report icon.
+            reports.forEach { report ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { open(report.route) }.padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.m).tagged(report.tag),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
+                ) {
+                    ListIcon(report.icon)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(report.title, style = MaterialTheme.typography.titleSmall)
+                        Text(report.subtitle, style = secondaryStyle(), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
                 }
+                Hairline(Modifier.padding(start = 48.dp))
             }
         }
     }
 }
 
-private data class ReportEntry(val title: String, val subtitle: String, val icon: ImageVector, val color: Color, val route: String, val tag: String)
+private data class ReportEntry(val title: String, val subtitle: String, val icon: ImageVector, val route: String, val tag: String)
 
 /** Profit and loss for this month or this year; the margin is worked out here, 0% without revenue. */
 @Composable
@@ -519,17 +529,15 @@ private fun ProfitLossBody(data: ProfitLoss) {
     val profitable = data.netProfit.signum() >= 0
     val net = stringResource(if (profitable) R.string.weldbooks_profit_loss_net_profit else R.string.weldbooks_profit_loss_net_loss)
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).tagged("profit-loss")) {
-        SectionCard {
-            Text(net, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(
-                books.money(data.netProfit.abs()),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = if (profitable) Tokens.Status.success.current() else Tokens.Status.danger.current(),
-                maxLines = 1,
-            )
-            Text(stringResource(R.string.weldbooks_profit_loss_margin, "${Amounts.plain(data.margin)}%"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        KpiCard(
+            net,
+            books.money(data.netProfit.abs()),
+            hint = stringResource(R.string.weldbooks_profit_loss_margin, "${Amounts.plain(data.margin)}%"),
+            icon = Icons.AutoMirrored.Outlined.TrendingUp,
+            tone = if (profitable) Tones.positive.current() else Tokens.Status.danger.current(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s),
+            tag = "net-profit",
+        )
         SectionCard(title = stringResource(R.string.weldbooks_profit_loss_breakdown)) {
             TotalsBlock(
                 rows = listOf(
@@ -558,10 +566,13 @@ fun BalanceSheetScreen(onBack: () -> Unit) {
 private fun BalanceSheetBody(data: BalanceSheet) {
     val books = LocalBooks.current
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).tagged("balance-sheet")) {
-        SectionCard {
-            Text(stringResource(R.string.weldbooks_balance_sheet_total_assets), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(books.money(data.totalAssets), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        }
+        KpiCard(
+            stringResource(R.string.weldbooks_balance_sheet_total_assets),
+            books.money(data.totalAssets),
+            icon = Icons.Outlined.Balance,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s),
+            tag = "total-assets",
+        )
         if (!data.isBalanced) {
             Banner(
                 stringResource(R.string.weldbooks_balance_sheet_unbalanced_body, books.money(data.totalAssets), books.money(data.totalLiabilitiesAndEquity)),
@@ -574,8 +585,8 @@ private fun BalanceSheetBody(data: BalanceSheet) {
         BalanceSection(stringResource(R.string.weldbooks_balance_sheet_equity), stringResource(R.string.weldbooks_balance_sheet_total_equity), data.equity, data.totalEquity)
         SectionCard {
             Row(Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.weldbooks_balance_sheet_liabilities_and_equity), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                Text(books.money(data.totalLiabilitiesAndEquity), style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.weldbooks_balance_sheet_liabilities_and_equity), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text(books.money(data.totalLiabilitiesAndEquity), style = MaterialTheme.typography.bodyLarge.merge(Tabular), fontWeight = FontWeight.SemiBold)
             }
         }
         BottomSpace()
@@ -593,13 +604,13 @@ private fun BalanceSection(title: String, totalLabel: String, rows: List<Balance
                     Text(row.name, style = MaterialTheme.typography.bodyMedium)
                     if (row.code.isNotBlank()) Text(row.code, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text(books.money(row.balance), style = MaterialTheme.typography.bodyMedium)
+                Text(books.money(row.balance), style = MaterialTheme.typography.bodyMedium.merge(Tabular))
             }
         }
-        HorizontalDivider(Modifier.padding(vertical = Tokens.Spacing.s))
+        Hairline(Modifier.padding(vertical = Tokens.Spacing.s))
         Row(Modifier.fillMaxWidth()) {
-            Text(totalLabel, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-            Text(books.money(total), style = MaterialTheme.typography.titleSmall)
+            Text(totalLabel, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(books.money(total), style = MaterialTheme.typography.bodyLarge.merge(Tabular), fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -618,13 +629,34 @@ fun VatReturnsScreen(onBack: () -> Unit, open: (String) -> Unit) {
     var year by rememberSaveable { mutableStateOf<Int?>(thisYear) }
     val loaded = rememberLoaded { books.repository.vatReturns() }
     RealtimeRefresh(books.env, BooksTopics.vat) { loaded.load() }
-    val success = Tokens.Status.success.current()
+    val success = Tones.positive.current()
     BooksScaffold(title = stringResource(R.string.weldbooks_vat_title), onBack = onBack) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
+            val years = listOf("all" to stringResource(R.string.weldbooks_vat_all_years)) +
+                listOf(thisYear, thisYear - 1, thisYear - 2).map { it.toString() to it.toString() }
+            // The year chips, as the lists' filters; tags vat-year-all and vat-year-<year>.
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(selected = year == null, onClick = { year = null }, label = { Text(stringResource(R.string.weldbooks_vat_all_years)) }, modifier = Modifier.tagged("vat-year-all"))
-                listOf(thisYear, thisYear - 1, thisYear - 2).forEach { option ->
-                    FilterChip(selected = year == option, onClick = { year = option }, label = { Text(option.toString()) }, modifier = Modifier.tagged("vat-year-$option"))
+                years.forEach { (key, label) ->
+                    val on = (year?.toString() ?: "all") == key
+                    FilterChip(
+                        selected = on,
+                        onClick = { year = key.toIntOrNull() },
+                        label = { Text(label, style = MaterialTheme.typography.labelLarge) },
+                        shape = MaterialTheme.shapes.small,
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = MaterialTheme.colorScheme.background,
+                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = on,
+                            borderColor = MaterialTheme.colorScheme.outlineVariant,
+                            selectedBorderColor = MaterialTheme.colorScheme.outline,
+                        ),
+                        modifier = Modifier.tagged("vat-year-$key"),
+                    )
                 }
             }
             LoadedContent(loaded, stringResource(R.string.weldbooks_vat_load_error)) { all ->
@@ -632,16 +664,17 @@ fun VatReturnsScreen(onBack: () -> Unit, open: (String) -> Unit) {
                 LazyColumn(Modifier.fillMaxSize().tagged("vat-returns")) {
                     if (returns.isEmpty()) {
                         item {
-                            EmptyState(
+                            BooksEmptyState(
+                                Icons.AutoMirrored.Outlined.FactCheck,
                                 stringResource(R.string.weldbooks_vat_empty_title),
                                 year?.let { stringResource(R.string.weldbooks_vat_empty_year, it.toString()) } ?: stringResource(R.string.weldbooks_vat_empty_all),
-                                icon = { EmptyIcon(Icons.AutoMirrored.Outlined.FactCheck) },
                             )
                         }
+                    } else {
+                        item { Hairline() }
                     }
                     items(returns, key = { it.id }) { item ->
                         RecordRow(
-                            leading = { IconTile(Icons.AutoMirrored.Outlined.FactCheck, Accents.vat) },
                             title = item.period,
                             subtitle = stringResource(R.string.weldbooks_vat_output_input, books.money(item.salesTax), books.money(item.purchaseTax)),
                             amount = books.money(item.netAmount),
@@ -667,6 +700,7 @@ fun VatReturnScreen(id: String, onBack: () -> Unit) {
         return
     }
     val notify = LocalNotify.current
+    val errors = LocalErrors.current
     val scope = rememberCoroutineScope()
     val loaded = rememberLoaded(id) { books.repository.vatReturn(id) }
     RealtimeRefresh(books.env, BooksTopics.vat) { loaded.load() }
@@ -694,7 +728,7 @@ fun VatReturnScreen(id: String, onBack: () -> Unit) {
                             notify(filed)
                             loaded.load()
                         }
-                        .onFailure { notify(it.message ?: failed) }
+                        .onFailure { notify(errors.describe(it, failed)) }
                     filing = false
                 }
             },
@@ -717,20 +751,15 @@ private fun VatReturnBody(item: VatReturn, filing: Boolean, onFile: () -> Unit) 
         "r4b" to R.string.weldbooks_vat_detail_r4b,
     ).filter { item.boxes.containsKey(it.first) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).tagged("vat-return")) {
-        SectionCard {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(if (payable) R.string.weldbooks_vat_detail_to_pay else R.string.weldbooks_vat_detail_to_reclaim), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        books.money(item.netAmount.abs()),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = if (payable) MaterialTheme.colorScheme.onSurface else Tokens.Status.success.current(),
-                    )
-                }
-                StatusPill(item.status)
-            }
-        }
+        KpiCard(
+            stringResource(if (payable) R.string.weldbooks_vat_detail_to_pay else R.string.weldbooks_vat_detail_to_reclaim),
+            books.money(item.netAmount.abs()),
+            icon = Icons.AutoMirrored.Outlined.FactCheck,
+            tone = if (payable) null else Tones.positive.current(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s),
+            tag = "vat-net",
+        )
+        Row(Modifier.padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.xs)) { StatusPill(item.status) }
         if (item.isFiled) {
             Banner(item.filedAt?.let { stringResource(R.string.weldbooks_vat_detail_filed_on, books.date(it)) } ?: stringResource(R.string.weldbooks_vat_detail_filed), tone = "success")
         }

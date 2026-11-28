@@ -342,7 +342,37 @@
     "billCount": {
       "one": "{count} bill",
       "other": "{count} bills"
-    }
+    },
+    "today": "Today",
+    "revenue": "Revenue",
+    "expenses": "Expenses",
+    "netProfit": "Net profit",
+    "lastYear": "Last year",
+    "metric": "Figure",
+    "cashBalance": "Cash balance",
+    "bankAccountCount": {
+      "one": "1 bank account",
+      "other": "{count} bank accounts"
+    },
+    "toReceive": "To receive",
+    "overdueAmount": "{amount} overdue",
+    "openInvoiceCount": {
+      "one": "1 open invoice",
+      "other": "{count} open invoices"
+    },
+    "toPay": "To pay",
+    "openBillCount": {
+      "one": "1 open bill",
+      "other": "{count} open bills"
+    },
+    "documents": "Documents to process",
+    "documentsWaiting": "Waiting to be booked",
+    "dueThisWeek": "Due this week",
+    "noDueThisWeek": "Nothing falls due this week.",
+    "latestPayments": "Latest payments",
+    "noRecentPayments": "No recent payments.",
+    "paymentReceived": "Received",
+    "paymentSent": "Paid"
   },
   "invoices": {
     "title": "Invoices",
@@ -567,8 +597,8 @@
     "rejected": "Bill rejected",
     "recordPayment": "Record payment",
     "paymentRecorded": "Payment recorded",
-    "rejectTitle": "Reject this bill?",
-    "rejectMessage": "It stays in your books but won't be scheduled for payment.",
+    "rejectTitle": "Reject bill",
+    "rejectMessage": "Please provide a reason for rejecting this bill.",
     "deleteTitle": "Delete this bill?",
     "deleteMessage": "The bill will be removed. This cannot be undone.",
     "deleted": "Bill deleted",
@@ -581,7 +611,9 @@
     "dueIn": {
       "one": "Due in {count} day",
       "other": "Due in {count} days"
-    }
+    },
+    "rejectReason": "Reason",
+    "rejectReasonPlaceholder": "Enter rejection reason…"
   },
   "scan": {
     "cameraNeeded": "Camera access needed",
@@ -637,7 +669,9 @@
     "contacts": "Contacts",
     "contactsSub": "Customers and {suppliers}",
     "settings": "Settings",
-    "settingsSub": "App and company preferences"
+    "settingsSub": "App and company preferences",
+    "bank": "Bank",
+    "contactsGroup": "Contacts"
   },
   "bank": {
     "title": "Bank accounts",
@@ -661,12 +695,13 @@
     "currentBalance": "Current balance",
     "transaction": "Transaction",
     "reconciled": "Reconciled",
-    "unmatched": "Unmatched",
+    "unmatched": "Unreconciled",
     "emptyTitle": "No transactions",
     "emptyDescription": "Import a bank statement to see transactions for this account.",
     "accountType": "Account type",
     "routingNumber": "Routing number",
-    "accountNumber": "Account number"
+    "accountNumber": "Account number",
+    "excluded": "Excluded"
   },
   "reconciliation": {
     "title": "Reconciliation",
@@ -935,5 +970,21 @@
   "screen": {
     "switchAdministration": "Switch administration, currently {name}",
     "goBack": "Go back"
+  },
+  "groups": {
+    "overdue": "Overdue",
+    "finalized": "Finalized",
+    "sent": "Sent",
+    "partiallyPaid": "Partially paid",
+    "approved": "Approved",
+    "draft": "Draft",
+    "paid": "Paid",
+    "other": "Other",
+    "unreconciled": "Unreconciled",
+    "reconciled": "Reconciled",
+    "excluded": "Excluded"
+  },
+  "document": {
+    "status": "Status"
   }
 }

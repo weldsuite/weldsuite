@@ -8,6 +8,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,7 +21,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Apartment
+import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.LocalShipping
+import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.PictureAsPdf
@@ -80,9 +87,9 @@ import java.time.LocalDate
 fun ReceiptPreview(bitmap: Bitmap?, loading: Boolean = false, pdf: Boolean = false, failed: Boolean = false) {
     if (bitmap == null && !loading && !pdf && !failed) return
     var open by remember { mutableStateOf(false) }
-    SectionCard(title = stringResource(R.string.weldbooks_receipt_title)) {
+    PanelSection(title = stringResource(R.string.weldbooks_receipt_title)) {
         Box(
-            Modifier.fillMaxWidth().height(160.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(Tokens.Radius.medium))
+            Modifier.fillMaxWidth().height(160.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(Tokens.Radius.large))
                 .let { if (bitmap != null) it.clickable { open = true } else it }
                 .tagged("receipt-preview"),
             contentAlignment = Alignment.Center,
@@ -192,15 +199,10 @@ fun BillDetailScreen(id: String, onBack: () -> Unit) {
         when (confirm) {
             BillConfirm.Reject -> {
                 val rejected = stringResource(R.string.weldbooks_bill_detail_rejected)
-                val reason = stringResource(R.string.weldbooks_bill_detail_reject_message)
-                ConfirmDialog(
-                    stringResource(R.string.weldbooks_bill_detail_reject_title),
-                    reason,
-                    stringResource(R.string.weldbooks_bill_detail_reject),
-                    destructive = true,
-                    onConfirm = {
+                RejectBillDialog(
+                    onReject = { reason ->
                         confirm = null
-                        mutations.run(rejected, reload = { load() }) { books.repository.rejectBill(bill.id, "Rejected from the WeldBooks mobile app") }
+                        mutations.run(rejected, reload = { load() }) { books.repository.rejectBill(bill.id, reason) }
                     },
                     onDismiss = { confirm = null },
                 )
@@ -225,6 +227,51 @@ fun BillDetailScreen(id: String, onBack: () -> Unit) {
     }
 }
 
+/**
+ * Rejecting a bill asks why, as on the platform: the reason is required and
+ * goes to the server with the rejection. It isn't kept once the dialog closes.
+ */
+@Composable
+private fun RejectBillDialog(onReject: (String) -> Unit, onDismiss: () -> Unit) {
+    var reason by remember { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.weldbooks_bill_detail_reject_title), style = MaterialTheme.typography.titleMedium) },
+        text = {
+            Column {
+                Text(
+                    stringResource(R.string.weldbooks_bill_detail_reject_message),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FormField(
+                    stringResource(R.string.weldbooks_bill_detail_reject_reason),
+                    reason,
+                    { reason = it },
+                    placeholder = stringResource(R.string.weldbooks_bill_detail_reject_reason_placeholder),
+                    singleLine = false,
+                    minLines = 3,
+                    tag = "reject-reason",
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onReject(reason.trim()) },
+                enabled = reason.isNotBlank(),
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Tokens.Status.danger.current(), contentColor = Color.White),
+                modifier = Modifier.tagged("confirm"),
+            ) { Text(stringResource(R.string.weldbooks_bill_detail_reject)) }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss, modifier = Modifier.tagged("cancel")) {
+                Text(stringResource(org.weldsuite.core.R.string.core_common_cancel))
+            }
+        },
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BillBody(bill: Bill, mutations: Mutations, onPay: () -> Unit, onReject: () -> Unit, reload: suspend () -> Unit) {
     val books = LocalBooks.current
@@ -232,20 +279,44 @@ private fun BillBody(bill: Bill, mutations: Mutations, onPay: () -> Unit, onReje
     // US: the vendor's tax is part of the cost; use tax accrued where it charged none is owed to the state.
     val useTax = if (books.isUs) TaxBreakdown.useTaxTotal(bill.taxBreakdown) else java.math.BigDecimal.ZERO
     val approved = stringResource(R.string.weldbooks_bill_detail_approved)
+    val awaitsApproval = Statuses.billAwaitsApproval(bill)
+    val payable = Statuses.billIsPayable(bill)
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).tagged("bill-detail")) {
-        DocumentSummary(
-            bill.balanceDue, bill.total, currency, bill.dueDate, bill.displayStatus(),
-            stringResource(R.string.weldbooks_bill_detail_balance_due), stringResource(R.string.weldbooks_bill_detail_total), isInvoice = false,
-        )
+        if (awaitsApproval || payable) {
+            // The platform's action bar under the title: approve or reject a bill that waits, pay an approved one.
+            FlowRow(
+                Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s),
+                horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s),
+                verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.s),
+            ) {
+                if (awaitsApproval) {
+                    Button(onClick = { mutations.run(approved, reload) { books.repository.approveBill(bill.id) } }, enabled = !mutations.busy, modifier = Modifier.tagged("approve-bill")) {
+                        Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Text(stringResource(R.string.weldbooks_bill_detail_approve), modifier = Modifier.padding(start = 6.dp))
+                    }
+                    OutlinedButton(onClick = onReject, enabled = !mutations.busy, modifier = Modifier.tagged("reject-bill")) {
+                        Icon(Icons.Filled.Close, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                        Text(stringResource(R.string.weldbooks_bill_detail_reject), modifier = Modifier.padding(start = 6.dp))
+                    }
+                }
+                if (payable) {
+                    Button(onClick = onPay, enabled = !mutations.busy, modifier = Modifier.tagged("record-bill-payment")) {
+                        Icon(Icons.Outlined.Payments, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Text(stringResource(R.string.weldbooks_bill_detail_record_payment), modifier = Modifier.padding(start = 6.dp))
+                    }
+                }
+            }
+        }
         mutations.error?.let { Banner(it, tone = "error", onClose = { mutations.clear() }) }
-        SectionCard(title = stringResource(R.string.weldbooks_bill_detail_details)) {
-            DetailRow(books.labels.supplier, bill.contactName ?: stringResource(R.string.weldbooks_common_dash))
-            DetailRow(stringResource(R.string.weldbooks_bill_detail_issue_date), books.date(bill.issueDate))
-            DetailRow(stringResource(R.string.weldbooks_bill_detail_due_date), books.date(bill.dueDate))
-            bill.reference?.let { DetailRow(stringResource(R.string.weldbooks_bill_detail_reference), it) }
+        PanelSection {
+            DocumentFigures(bill.total, bill.amountPaid, bill.balanceDue, currency, bill.displayStatus(), isInvoice = false)
+            PropertyRow(Icons.Outlined.Apartment, books.labels.supplier, bill.contactName)
+            PropertyRow(Icons.Outlined.CalendarToday, stringResource(R.string.weldbooks_bill_detail_issue_date), books.date(bill.issueDate))
+            DueDateRow(stringResource(R.string.weldbooks_bill_detail_due_date), bill.dueDate, bill.balanceDue, isInvoice = false)
+            PropertyRow(Icons.Outlined.Tag, stringResource(R.string.weldbooks_bill_detail_reference), bill.reference)
             if (books.isUs) {
                 val delivered = Addresses.lines(bill.deliveryAddress)
-                if (delivered.isNotEmpty()) DetailRow(stringResource(R.string.weldbooks_bill_detail_delivered_to), delivered.joinToString("\n"))
+                if (delivered.isNotEmpty()) PropertyRow(Icons.Outlined.LocalShipping, stringResource(R.string.weldbooks_bill_detail_delivered_to), delivered.joinToString("\n"))
             }
         }
         StoredReceiptPreview(bill.sourceDocumentId)
@@ -266,26 +337,8 @@ private fun BillBody(bill: Bill, mutations: Mutations, onPay: () -> Unit, onReje
             )
         }
         bill.notes?.let { notes ->
-            SectionCard(title = stringResource(R.string.weldbooks_bill_detail_notes)) {
+            PanelSection(title = stringResource(R.string.weldbooks_bill_detail_notes)) {
                 Text(notes, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        Column(Modifier.padding(Tokens.Spacing.m), verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
-            if (Statuses.billAwaitsApproval(bill)) {
-                Button(onClick = { mutations.run(approved, reload) { books.repository.approveBill(bill.id) } }, enabled = !mutations.busy, modifier = Modifier.fillMaxWidth().tagged("approve-bill")) {
-                    Icon(Icons.Outlined.Check, contentDescription = null)
-                    Text(stringResource(R.string.weldbooks_bill_detail_approve), modifier = Modifier.padding(start = Tokens.Spacing.s))
-                }
-                OutlinedButton(onClick = onReject, enabled = !mutations.busy, modifier = Modifier.fillMaxWidth().tagged("reject-bill")) {
-                    Icon(Icons.Filled.Close, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                    Text(stringResource(R.string.weldbooks_bill_detail_reject), modifier = Modifier.padding(start = Tokens.Spacing.s))
-                }
-            }
-            if (Statuses.billIsPayable(bill)) {
-                Button(onClick = onPay, enabled = !mutations.busy, modifier = Modifier.fillMaxWidth().tagged("record-bill-payment")) {
-                    Icon(Icons.Outlined.Payments, contentDescription = null)
-                    Text(stringResource(R.string.weldbooks_bill_detail_record_payment), modifier = Modifier.padding(start = Tokens.Spacing.s))
-                }
             }
         }
         BottomSpace()
