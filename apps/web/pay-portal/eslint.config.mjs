@@ -10,6 +10,12 @@ const eslintConfig = [
     files: ['node/**/*.mjs'],
     languageOptions: { globals: { process: 'readonly', console: 'readonly' } },
   },
+  {
+    // The Node server reads its settings when it starts (PORT, HOST): runtime
+    // configuration of the container, not inputs of a cached build.
+    files: ['node/**'],
+    rules: { 'turbo/no-undeclared-env-vars': 'off' },
+  },
 ]
 
 export default eslintConfig
