@@ -162,14 +162,21 @@ export type ActivityEvent =
   | { id: string; kind: 'reminder'; at: string; level: number; to: string; claim: ReminderClaim | undefined }
   | { id: string; kind: 'link_revoked'; at: string }
   | { id: string; kind: 'payment'; at: string; amount: string; paidInFull: boolean }
+  | { id: string; kind: 'online_started'; at: string; amount: string | null }
+  | { id: string; kind: 'online_status'; at: string; status: OnlinePaymentStatus; method: string | null }
+  | { id: string; kind: 'online_reversed'; at: string; reversal: 'refund' | 'chargeback'; amount: string }
   | { id: string; kind: 'next_reminder'; at: string; level: number; auto: boolean };
+
+/** What the payment provider reported about an online payment. */
+export type OnlinePaymentStatus = 'paid' | 'failed' | 'expired' | 'canceled' | 'pending' | 'authorized';
 
 const byTime = (a: { at: string | null }, b: { at: string | null }) => (a.at ?? '').localeCompare(b.at ?? '');
 
 /**
  * The timeline, oldest first and the planned reminder last: created (from a
  * quote), e-mailed or marked as sent, bounced, viewed (one entry with the
- * count), reminders, a withdrawn link, payments, and the next reminder when
+ * count), reminders, a withdrawn link, online payment events (started, paid or
+ * failed, refunded or charged back), payments, and the next reminder when
  * the workflow sends it by itself.
  */
 export function buildActivity(invoice: ActivityInvoice, settings?: Pick<ReminderSettings, 'enabled' | 'steps'>): ActivityEvent[] {
@@ -199,6 +206,21 @@ export function buildActivity(invoice: ActivityInvoice, settings?: Pick<Reminder
         break;
       case 'link_revoked':
         events.push({ id, kind: 'link_revoked', at: entry.at });
+        break;
+      case 'payment_started':
+        events.push({ id, kind: 'online_started', at: entry.at, amount: entry.amount === undefined ? null : String(entry.amount) });
+        break;
+      case 'payment_status':
+        if (entry.status) events.push({ id, kind: 'online_status', at: entry.at, status: entry.status, method: entry.method ?? null });
+        break;
+      case 'payment_reversed':
+        events.push({
+          id,
+          kind: 'online_reversed',
+          at: entry.at,
+          reversal: entry.kind === 'chargeback' ? 'chargeback' : 'refund',
+          amount: String(entry.amount ?? '0'),
+        });
         break;
       default:
         // `viewed` is folded into one entry below, `link` is not an event the owner cares about.

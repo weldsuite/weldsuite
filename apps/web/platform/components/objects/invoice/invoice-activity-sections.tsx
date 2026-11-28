@@ -2,8 +2,9 @@
  * The sections the sales phase adds to the invoice panel's Details tab, each
  * gated on its own edition feature: "What happened" (a timeline of the
  * e-mails, views, reminders and payments), the Online link card (copy it,
- * revoke it) and the Reminders card (the workflow, the next step, send one now,
- * pause).
+ * revoke it), the Online payment card (can customers pay online, the last
+ * payment, a refund or chargeback; phase 4b) and the Reminders card (the
+ * workflow, the next step, send one now, pause).
  */
 
 import { useState } from 'react';
@@ -11,13 +12,19 @@ import { toast } from 'sonner';
 import {
   Banknote,
   BellRing,
+  CircleCheck,
+  CircleX,
+  Clock,
+  CreditCard,
   Eye,
   FilePlus2,
   Link2Off,
   Mail,
   MailWarning,
   Send,
+  Undo2,
 } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
 import { useCan } from '@weldsuite/permissions/react';
 import { ActivityTimeline, type ActivityTimelineItem } from '@weldsuite/ui/components/activity-timeline';
 import { Button } from '@weldsuite/ui/components/button';
@@ -34,6 +41,8 @@ import {
   useRemindInvoice,
   useRevokeInvoiceLink,
 } from '@/hooks/queries/use-weldbooks-sales-queries';
+import { isOnlinePaymentsAvailable, usePaymentConnection } from '@/hooks/queries/use-weldbooks-payments-queries';
+import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import type { InvoiceWithTax } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { useI18n } from '@/lib/i18n/provider';
 import {
@@ -46,7 +55,17 @@ import {
   nextReminder,
   recipients,
   type ActivityEvent,
+  type OnlinePaymentStatus,
 } from '@/lib/weldbooks/invoice-activity';
+import {
+  canPayOnline,
+  lastOnlinePayment,
+  lastReversal,
+  methodLabel,
+  methodList,
+  paymentEntries,
+} from '@/lib/weldbooks/online-payments';
+import { rememberSettingsReturn } from '@/lib/weldbooks/settings-links';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { InvoiceConnections, useQuoteNumber } from './invoice-connections';
 
@@ -59,11 +78,42 @@ function statusOf(error: unknown): number | null {
 // What happened
 // ----------------------------------------------------------------------------
 
+type PaymentWords = ReturnType<typeof useI18n>['t']['weldbooksPayments']['payment'];
+
+/** "Paid with iDEAL", "Payment failed", ...: the provider's word for an online payment, in the owner's. */
+function onlineStatusItem(
+  pay: PaymentWords,
+  methodNames: Readonly<Record<string, string>>,
+  status: OnlinePaymentStatus,
+  method: string | null,
+): Pick<ActivityTimelineItem, 'icon' | 'tone'> & { title: string } {
+  switch (status) {
+    case 'paid':
+      return {
+        icon: CircleCheck,
+        tone: 'success',
+        title: method ? pay.paidWith.replace('{method}', methodLabel(method, methodNames)) : pay.paid,
+      };
+    case 'failed':
+      return { icon: CircleX, tone: 'danger', title: pay.failed };
+    case 'expired':
+      return { icon: CircleX, tone: 'warning', title: pay.expired };
+    case 'canceled':
+      return { icon: CircleX, tone: 'warning', title: pay.canceled };
+    case 'authorized':
+      return { icon: Clock, tone: 'info', title: pay.authorized };
+    default:
+      return { icon: Clock, tone: 'info', title: pay.pending };
+  }
+}
+
 function useTimelineItems(invoice: InvoiceWithTax, settings: Parameters<typeof buildActivity>[1]): ActivityTimelineItem[] {
   const { t } = useI18n();
   const copy = t.weldbooksSales.timeline;
   const { formatDateTime, formatDate, formatMoney } = useWeldbooksFormat();
   const quoteNumber = useQuoteNumber(invoice.quoteId);
+  const pay = t.weldbooksPayments.payment;
+  const methodNames = t.weldbooksPayments.methodNames as Readonly<Record<string, string>>;
 
   const toItem = (event: ActivityEvent): ActivityTimelineItem => {
     const time = event.at ? (event.kind === 'next_reminder' ? formatDate(event.at) : formatDateTime(event.at)) : undefined;
@@ -123,6 +173,26 @@ function useTimelineItems(invoice: InvoiceWithTax, settings: Parameters<typeof b
           icon: Banknote,
           tone: 'success',
           title: (event.paidInFull ? copy.paidInFull : copy.paymentReceived).replace(
+            '{amount}',
+            formatMoney(event.amount, invoice.currency),
+          ),
+        };
+      case 'online_started':
+        return {
+          ...base,
+          icon: CreditCard,
+          tone: 'info',
+          title: pay.started,
+          description: event.amount ? pay.amount.replace('{amount}', formatMoney(event.amount, invoice.currency)) : undefined,
+        };
+      case 'online_status':
+        return { ...base, ...onlineStatusItem(pay, methodNames, event.status, event.method) };
+      case 'online_reversed':
+        return {
+          ...base,
+          icon: Undo2,
+          tone: 'danger',
+          title: (event.reversal === 'chargeback' ? pay.chargeback : pay.refunded).replace(
             '{amount}',
             formatMoney(event.amount, invoice.currency),
           ),
@@ -228,6 +298,91 @@ export function OnlineLinkCard({ invoice, onSend }: Readonly<{ invoice: InvoiceW
         loading={revoke.isPending}
         onConfirm={revokeLink}
       />
+    </CardShell>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Online payment
+// ----------------------------------------------------------------------------
+
+/**
+ * Whether customers can pay this invoice online, the last payment state, and
+ * after a refund or chargeback a note that the money left through Mollie. Rust
+ * only (`books-online-payments`).
+ */
+export function OnlinePaymentCard({ invoice }: Readonly<{ invoice: InvoiceWithTax }>) {
+  const { t } = useI18n();
+  const copy = t.weldbooksPayments.card;
+  const pay = t.weldbooksPayments.payment;
+  const methodNames = t.weldbooksPayments.methodNames as Readonly<Record<string, string>>;
+  const { formatDateTime, formatMoney } = useWeldbooksFormat();
+  const canSetUp = useCan('accounts:update');
+  const connectionQuery = usePaymentConnection();
+  const { entityId } = useCurrentAccountingEntity();
+
+  const last = lastOnlinePayment(invoice.emailHistory);
+  const reversal = lastReversal(invoice.emailHistory);
+  // Nothing to say about an invoice that is closed and never saw an online payment.
+  if (!isOpenForPayment(invoice) && paymentEntries(invoice.emailHistory).length === 0) return null;
+  if (connectionQuery.isLoading) return null;
+
+  const connection = connectionQuery.data ?? null;
+  const active = connection?.status === 'active';
+  let availability: string;
+  if (canPayOnline(connection)) {
+    availability = copy.canPay.replace('{methods}', methodList(connection?.methods ?? [], methodNames, t.weldbooksPayments.and));
+  } else if (!connection) availability = copy.notConnected;
+  else if (active) availability = copy.noMethods;
+  else availability = copy.needsReauth;
+
+  let lastText: string | null = null;
+  if (last) {
+    const title = last.status === 'started' ? pay.started : onlineStatusItem(pay, methodNames, last.status, last.method).title;
+    lastText = copy.lastPayment.replace('{status}', `${title} ${copy.on.replace('{time}', formatDateTime(last.at))}`);
+  }
+
+  const setUpLabel = connection && !active ? copy.reconnect : copy.setUp;
+  const needsSetUp = !canPayOnline(connection);
+
+  return (
+    <CardShell title={copy.title} testId="online-payment-card">
+      <p className="text-[13px] text-muted-foreground" data-testid="online-payment-availability">
+        {availability}
+      </p>
+      {connection?.testmode && active ? <p className="text-xs text-muted-foreground">{copy.testMode}</p> : null}
+      {lastText ? (
+        <p className="text-[13px] font-medium" data-testid="online-payment-last">
+          {lastText}
+        </p>
+      ) : null}
+      {reversal ? (
+        <div className="space-y-1" role="status" data-testid="online-payment-reversal">
+          <p className="text-[13px]">
+            {copy.reversed[reversal.kind].replace('{amount}', formatMoney(reversal.amount, invoice.currency))}
+          </p>
+          {connection?.bankAccountId ? (
+            <Link
+              to="/weldbooks/banking/process"
+              search={{ accountId: connection.bankAccountId }}
+              className="text-[13px] text-primary underline-offset-4 hover:underline"
+            >
+              {copy.reversed.open}
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
+      {needsSetUp && canSetUp && entityId ? (
+        <Link
+          to="/settings/entities/$id/edit"
+          params={{ id: entityId }}
+          search={{ tab: 'weldbooks' }}
+          onClick={rememberSettingsReturn}
+          className="inline-block text-[13px] text-primary underline-offset-4 hover:underline"
+        >
+          {setUpLabel}
+        </Link>
+      ) : null}
     </CardShell>
   );
 }
@@ -340,19 +495,21 @@ export function InvoiceSalesSections({
 }>) {
   const email = isInvoiceEmailAvailable();
   const reminders = isRemindersAvailable() && !isCreditMemo;
-  if (!email && !reminders && !isQuotesAvailable()) return null;
+  const online = isOnlinePaymentsAvailable() && !isCreditMemo;
+  if (!email && !reminders && !online && !isQuotesAvailable()) return null;
   // A draft has nothing to tell and nothing to remind about yet.
   const sent = invoice.status !== 'draft';
   return (
     <div className="@container space-y-4 px-4 pt-4" data-testid="invoice-sales-sections">
       <InvoiceConnections invoice={invoice} onOpenPayments={onOpenPayments} />
-      {sent && (email || reminders) ? (
+      {sent && (email || reminders || online) ? (
         <div className="grid gap-3 @md:grid-cols-2">
           {email ? <OnlineLinkCard invoice={invoice} onSend={onSend} /> : null}
+          {online ? <OnlinePaymentCard invoice={invoice} /> : null}
           {reminders ? <RemindersCard invoice={invoice} /> : null}
         </div>
       ) : null}
-      {email || reminders ? <InvoiceTimeline invoice={invoice} /> : null}
+      {email || reminders || online ? <InvoiceTimeline invoice={invoice} /> : null}
     </div>
   );
 }

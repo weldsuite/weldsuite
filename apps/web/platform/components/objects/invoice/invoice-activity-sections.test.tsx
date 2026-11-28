@@ -7,6 +7,7 @@ import type { InvoiceWithTax } from '@/lib/api/domains/weldbooks-sales-tax-previ
 const env = vi.hoisted(() => ({
   canUpdate: true,
   toast: { success: vi.fn(), error: vi.fn() },
+  paymentsApi: { getConnection: vi.fn() },
   salesApi: {
     getReminderSettings: vi.fn(),
     getQuote: vi.fn(),
@@ -20,6 +21,12 @@ vi.mock('sonner', () => ({ toast: env.toast }));
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => env.canUpdate }));
 vi.mock('@/components/object-panel', () => import('@/components/objects/_shared/object-panel-test-mock'));
 vi.mock('@/lib/api/domains/weldbooks-sales', () => ({ salesApi: env.salesApi }));
+vi.mock('@/lib/api/domains/weldbooks-payments', () => ({ paymentsApi: env.paymentsApi }));
+vi.mock('@/hooks/use-current-accounting-entity', () => ({ useCurrentAccountingEntity: () => ({ entityId: 'ent_1', setEntityId: vi.fn() }) }));
+vi.mock('@tanstack/react-router', async () => {
+  const { RouteLink } = await import('@/app/weldbooks/invoices/components/test-utils');
+  return { Link: RouteLink };
+});
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   useWeldbooksFormat: () => ({
     formatMoney: (value: number | string | null | undefined) => `€${Number(value ?? 0).toFixed(2)}`,
@@ -87,6 +94,8 @@ describe('InvoiceSalesSections', () => {
     for (const fn of Object.values(env.salesApi)) fn.mockReset();
     env.toast.success.mockReset();
     env.toast.error.mockReset();
+    env.paymentsApi.getConnection.mockReset();
+    env.paymentsApi.getConnection.mockResolvedValue({ data: null });
     env.salesApi.getReminderSettings.mockResolvedValue({ data: SETTINGS });
     env.salesApi.getQuote.mockResolvedValue({ data: { id: 'q_1', quoteNumber: 'OFF-12', name: 'Offerte' } });
     panelOpen.mockReset();
@@ -276,6 +285,158 @@ describe('InvoiceSalesSections', () => {
       renderSections(invoice());
       await screen.findByTestId('online-link-card');
       expect(screen.queryByTestId('reminders-card')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Online payments in the timeline', () => {
+    const paidOnline = [
+      { type: 'sent', at: '2026-11-03T09:20:00Z', to: ['klant@example.test'] },
+      { type: 'payment_started', at: '2026-11-04T10:00:00Z', molliePaymentId: 'tr_1', amount: '100.00' },
+      { type: 'payment_status', at: '2026-11-04T10:02:00Z', status: 'paid', method: 'ideal' },
+      { type: 'payment_reversed', at: '2026-11-09T10:00:00Z', kind: 'refund', amount: '25.00' },
+    ];
+
+    it('says a payment started, was paid with the method, and was refunded', async () => {
+      setRuntimeConfig(RUST);
+      renderSections(invoice({ emailHistory: paidOnline, status: 'paid', balanceDue: '0' }));
+      const timeline = await screen.findByRole('list', { name: 'What happened' });
+      expect(within(timeline).getByText('Payment started via the online link')).toBeInTheDocument();
+      expect(within(timeline).getByText('Amount €100.00')).toBeInTheDocument();
+      expect(within(timeline).getByText('Paid with iDEAL')).toBeInTheDocument();
+      expect(within(timeline).getByText('Refunded €25.00')).toBeInTheDocument();
+    });
+
+    it('says a failed, expired and cancelled payment, a chargeback, and a method it has no name for', async () => {
+      setRuntimeConfig(RUST);
+      renderSections(
+        invoice({
+          emailHistory: [
+            { type: 'payment_status', at: '2026-11-04T10:00:00Z', status: 'failed' },
+            { type: 'payment_status', at: '2026-11-05T10:00:00Z', status: 'expired' },
+            { type: 'payment_status', at: '2026-11-06T10:00:00Z', status: 'canceled' },
+            { type: 'payment_status', at: '2026-11-07T10:00:00Z', status: 'paid', method: 'bancontact' },
+            { type: 'payment_status', at: '2026-11-08T10:00:00Z', status: 'paid', method: 'somenewmethod' },
+            { type: 'payment_reversed', at: '2026-11-09T10:00:00Z', kind: 'chargeback', amount: '100.00' },
+          ],
+        }),
+      );
+      const timeline = await screen.findByRole('list', { name: 'What happened' });
+      for (const text of ['Payment failed', 'Payment expired', 'Payment cancelled', 'Paid with Bancontact', 'Paid with somenewmethod', 'Chargeback €100.00']) {
+        expect(within(timeline).getByText(text)).toBeInTheDocument();
+      }
+    });
+  });
+
+  describe('Online payment card', () => {
+    const CONNECTED = {
+      id: 'pc_1',
+      status: 'active',
+      methods: ['ideal', 'bancontact'],
+      testmode: false,
+      bankAccountId: 'ba_mollie',
+    };
+    const refunded = [
+      { type: 'payment_status', at: '2026-11-04T10:02:00Z', status: 'paid', method: 'ideal' },
+      { type: 'payment_reversed', at: '2026-11-09T10:00:00Z', kind: 'refund', amount: '25.00' },
+    ];
+
+    it('shows nothing where the edition has no online payments (Global)', async () => {
+      setRuntimeConfig({ ...RUST, unavailableFeatures: ['books-online-payments'] });
+      renderSections(invoice());
+      await screen.findByTestId('online-link-card');
+      expect(screen.queryByTestId('online-payment-card')).not.toBeInTheDocument();
+      expect(env.paymentsApi.getConnection).not.toHaveBeenCalled();
+    });
+
+    it("says customers can pay online with the entity's methods", async () => {
+      setRuntimeConfig(RUST);
+      env.paymentsApi.getConnection.mockResolvedValue({ data: CONNECTED });
+      renderSections(invoice());
+      const card = await screen.findByTestId('online-payment-card');
+      expect(await within(card).findByText('Customers can pay this invoice online with iDEAL and Bancontact.')).toBeInTheDocument();
+      expect(within(card).queryByRole('link', { name: 'Set up online payments' })).not.toBeInTheDocument();
+    });
+
+    it("links to the entity's settings, and remembers where to come back to, when Mollie is not connected", async () => {
+      const user = userEvent.setup();
+      setRuntimeConfig(RUST);
+      renderSections(invoice());
+      const card = await screen.findByTestId('online-payment-card');
+      const link = await within(card).findByRole('link', { name: 'Set up online payments' });
+      expect(link).toHaveAttribute('href', '/settings/entities/ent_1/edit');
+      expect(card).toHaveTextContent('Customers cannot pay this invoice online yet.');
+      window.history.replaceState(null, '', '/weldbooks/invoices');
+      // jsdom cannot navigate: only the click matters here.
+      link.addEventListener('click', (event) => event.preventDefault());
+      await user.click(link);
+      expect(sessionStorage.getItem('settings-return-url')).toBe('/weldbooks/invoices');
+    });
+
+    it('asks to reconnect when Mollie needs reconnecting', async () => {
+      setRuntimeConfig(RUST);
+      env.paymentsApi.getConnection.mockResolvedValue({ data: { ...CONNECTED, status: 'needs_reauth' } });
+      renderSections(invoice());
+      const card = await screen.findByTestId('online-payment-card');
+      expect(await within(card).findByText(/Online payments are paused/)).toBeInTheDocument();
+      expect(within(card).getByRole('link', { name: 'Reconnect Mollie' })).toBeInTheDocument();
+    });
+
+    it('asks to choose a method when none is on', async () => {
+      setRuntimeConfig(RUST);
+      env.paymentsApi.getConnection.mockResolvedValue({ data: { ...CONNECTED, methods: [] } });
+      renderSections(invoice());
+      expect(await screen.findByText(/no payment method is chosen/)).toBeInTheDocument();
+    });
+
+    it('shows the last payment status and when', async () => {
+      setRuntimeConfig(RUST);
+      env.paymentsApi.getConnection.mockResolvedValue({ data: CONNECTED });
+      renderSections(
+        invoice({
+          emailHistory: [
+            { type: 'payment_started', at: '2026-11-04T10:00:00Z' },
+            { type: 'payment_status', at: '2026-11-04T10:02:00Z', status: 'failed', method: 'ideal' },
+          ],
+        }),
+      );
+      expect(await screen.findByTestId('online-payment-last')).toHaveTextContent('Last payment: Payment failed on at 2026-11-04T10:02:00Z');
+    });
+
+    it('notes that a refund went out through Mollie and links to its lines to process', async () => {
+      setRuntimeConfig(RUST);
+      env.paymentsApi.getConnection.mockResolvedValue({ data: CONNECTED });
+      renderSections(invoice({ status: 'paid', balanceDue: '0', emailHistory: refunded }));
+      const note = await screen.findByTestId('online-payment-reversal');
+      expect(note).toHaveTextContent('A refund of €25.00 went out through Mollie. The money has left your Mollie account: book it in To process.');
+      expect(within(note).getByRole('link', { name: 'Open the Mollie account lines' })).toHaveAttribute('href', '/weldbooks/banking/process');
+    });
+
+    it('says a chargeback in its own words', async () => {
+      setRuntimeConfig(RUST);
+      env.paymentsApi.getConnection.mockResolvedValue({ data: CONNECTED });
+      renderSections(
+        invoice({
+          status: 'paid',
+          balanceDue: '0',
+          emailHistory: [{ type: 'payment_reversed', at: '2026-11-09T10:00:00Z', kind: 'chargeback', amount: '100.00' }],
+        }),
+      );
+      expect(await screen.findByTestId('online-payment-reversal')).toHaveTextContent('(a chargeback)');
+    });
+
+    it('leaves a closed invoice that never saw an online payment alone', async () => {
+      setRuntimeConfig(RUST);
+      env.paymentsApi.getConnection.mockResolvedValue({ data: CONNECTED });
+      renderSections(invoice({ status: 'paid', balanceDue: '0' }));
+      await screen.findByTestId('online-link-card');
+      expect(screen.queryByTestId('online-payment-card')).not.toBeInTheDocument();
+    });
+
+    it('is not shown on a credit note', async () => {
+      setRuntimeConfig(RUST);
+      renderSections(invoice(), { isCreditMemo: true });
+      await screen.findByTestId('online-link-card');
+      expect(screen.queryByTestId('online-payment-card')).not.toBeInTheDocument();
     });
   });
 

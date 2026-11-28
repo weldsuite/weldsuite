@@ -79,6 +79,8 @@ import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { BankFeedsPanel } from '@/app/weldbooks/banking/feeds/bank-feeds-panel';
 import { BankAccountFormDialog } from '@/app/weldbooks/banking/components/bank-account-form-dialog';
+import { isPaymentProviderAccount } from '@/lib/weldbooks/online-payments';
+import { PaymentProviderSection } from './payment-provider-section';
 import { RevealAccountNumber } from '@/app/weldbooks/banking/components/reveal-account-number';
 import { getBankAccountTabs, type BankAccountTab } from './bank-account-tabs';
 
@@ -101,6 +103,12 @@ function BankAccountTitle({ account, t }: Readonly<{ account?: UsBankAccount; t:
       ) : null}
       {account.isActive === false ? (
         <span className={cn(PILL, PILL_GRAY, 'flex-shrink-0')}>{tbp.badges.inactive}</span>
+      ) : null}
+      {isPaymentProviderAccount(account) ? (
+        <span className={cn(PILL, PILL_GRAY, 'flex-shrink-0 gap-1')}>
+          <CreditCard className="h-3 w-3" aria-hidden />
+          {t.weldbooksPayments.bankAccount.providerLabel}
+        </span>
       ) : null}
     </div>
   );
@@ -251,6 +259,7 @@ function BankAccountDetailsTab({
     ? ledgerAccountsRes?.data?.find((candidate) => candidate.id === account.ledgerAccountId)
     : undefined;
   const ledgerAccountId = account.ledgerAccountId ?? null;
+  const provider = isPaymentProviderAccount(account);
   let ledgerLabel: string | null = null;
   if (!ledgerAccountId) ledgerLabel = st('sweep.weldbooks.records.notLinked');
   else if (ledgerAccount) ledgerLabel = `${ledgerAccount.code} — ${ledgerAccount.name}`;
@@ -258,6 +267,7 @@ function BankAccountDetailsTab({
 
   return (
     <div className="@container p-4 space-y-4">
+      {provider ? <PaymentProviderSection accountId={account.id} /> : null}
       <div className="space-y-1">
         <PropertyRow
           icon={Banknote}
@@ -320,7 +330,14 @@ function BankAccountDetailsTab({
             )
           }
         />
-        {isUs ? (
+        {provider ? (
+          <PropertyRow
+            icon={Wallet}
+            label={t.weldbooksPayments.bankAccount.type}
+            value={t.weldbooksPayments.bankAccount.providerLabel}
+            readOnly
+          />
+        ) : isUs ? (
           <UsAccountRows account={account} t={t} />
         ) : (
           <>

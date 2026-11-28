@@ -144,3 +144,45 @@ describe('the timeline', () => {
     expect(buildActivity({ ...base, reminderLevel: 1 }, settings).map((event) => event.kind)).toEqual(['created']);
   });
 });
+
+describe('the timeline of online payments', () => {
+  const base = { id: 'i', status: 'sent', createdAt: at(1), balanceDue: '10', dueDate: '2026-11-10', reminderLevel: 0 };
+
+  it('tells a payment from the start to a refund, in order', () => {
+    const events = buildActivity({
+      ...base,
+      emailHistory: [
+        entry('payment_started', 2, { amount: '100.00', molliePaymentId: 'tr_1' }),
+        entry('payment_status', 3, { status: 'paid', method: 'ideal' }),
+        entry('payment_reversed', 4, { kind: 'refund', amount: '25.00' }),
+      ],
+    });
+    expect(events.map((event) => event.kind)).toEqual(['created', 'online_started', 'online_status', 'online_reversed']);
+    expect(events[1]).toMatchObject({ amount: '100.00' });
+    expect(events[2]).toMatchObject({ status: 'paid', method: 'ideal' });
+    expect(events[3]).toMatchObject({ reversal: 'refund', amount: '25.00' });
+  });
+
+  it('keeps a failed, expired and cancelled payment, and tells a chargeback from a refund', () => {
+    const events = buildActivity({
+      ...base,
+      emailHistory: [
+        entry('payment_status', 2, { status: 'failed' }),
+        entry('payment_status', 3, { status: 'expired' }),
+        entry('payment_status', 4, { status: 'canceled' }),
+        entry('payment_reversed', 5, { kind: 'chargeback', amount: 12 }),
+      ],
+    });
+    expect(events.slice(1).map((event) => (event.kind === 'online_status' ? event.status : event.kind))).toEqual([
+      'failed',
+      'expired',
+      'canceled',
+      'online_reversed',
+    ]);
+    expect(events.at(-1)).toMatchObject({ reversal: 'chargeback', amount: '12' });
+  });
+
+  it('skips a status entry without a status', () => {
+    expect(buildActivity({ ...base, emailHistory: [entry('payment_status', 2)] }).map((event) => event.kind)).toEqual(['created']);
+  });
+});

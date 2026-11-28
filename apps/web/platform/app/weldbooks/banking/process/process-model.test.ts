@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { BankLine, MatchSuggestion } from '@/lib/api/domains/weldbooks-banking';
-import { bestSuggestion, directionOf, mergeQueue, nextLineId, ownAccountForLine, stepLineId } from './process-model';
+import {
+  bestSuggestion,
+  directionOf,
+  mergeQueue,
+  nextLineId,
+  ownAccountForLine,
+  stepLineId,
+  transferTargets,
+} from './process-model';
 
 const line = (id: string, amount = '10.00'): BankLine =>
   ({ id, amount, bankAccountId: 'ba_1', date: '2026-11-25', status: 'unreconciled' }) as BankLine;
@@ -70,5 +78,37 @@ describe('own accounts and direction', () => {
     expect(ownAccountForLine(l, accounts)?.id).toBe('ba_2');
     expect(ownAccountForLine({ bankAccountId: 'ba_1', counterpartyIban: 'NL91ABNA0417164300' }, accounts)).toBeNull();
     expect(ownAccountForLine({ bankAccountId: 'ba_1', counterpartyIban: null }, accounts)).toBeNull();
+  });
+});
+
+describe('transfer targets', () => {
+  const accounts = [
+    { id: 'ba_1', name: 'Business', iban: 'NL91ABNA0417164300', accountType: 'checking' },
+    { id: 'ba_2', name: 'Savings', iban: 'NL02ABNA0123456789', accountType: 'savings' },
+    { id: 'ba_mollie', name: 'Mollie', iban: null, accountType: 'payment_provider' },
+  ];
+  const onLine = (overrides: Partial<BankLine>) =>
+    ({ id: 'bl_1', bankAccountId: 'ba_1', amount: '-10.00', date: '2026-11-25', status: 'unreconciled', ...overrides }) as BankLine;
+  const ids = (list: ReadonlyArray<{ id: string }>) => list.map((account) => account.id);
+
+  it("offers the other bank accounts, never the line's own and not the Mollie account", () => {
+    expect(ids(transferTargets(onLine({ counterpartyName: 'Savings account' }), accounts))).toEqual(['ba_2']);
+    expect(ids(transferTargets(onLine({}), accounts))).toEqual(['ba_2']);
+  });
+
+  it('offers the Mollie account for a payout line, whose counterparty is Mollie', () => {
+    expect(ids(transferTargets(onLine({ counterpartyName: 'Mollie Payments' }), accounts))).toEqual(['ba_2', 'ba_mollie']);
+    expect(ids(transferTargets(onLine({ counterpartyName: 'Molliesque Bakery' }), accounts))).toEqual(['ba_2']);
+  });
+
+  it('offers real banks, not Mollie itself, for a line that sits on the Mollie account', () => {
+    expect(ids(transferTargets(onLine({ bankAccountId: 'ba_mollie', counterpartyName: 'Mollie' }), accounts))).toEqual(['ba_1', 'ba_2']);
+  });
+
+  it('does not preselect the Mollie account from a counterparty IBAN unless the line is a Mollie payout', () => {
+    const withIban = [...accounts.slice(0, 2), { id: 'ba_mollie', name: 'Mollie', iban: 'NL00MOLL0000000001', accountType: 'payment_provider' }];
+    expect(ownAccountForLine(onLine({ counterpartyIban: 'NL00MOLL0000000001' }), withIban)).toBeNull();
+    expect(ownAccountForLine(onLine({ counterpartyIban: 'NL00MOLL0000000001', counterpartyName: 'Mollie' }), withIban)?.id).toBe('ba_mollie');
+    expect(ownAccountForLine(onLine({ counterpartyIban: 'nl02 abna 0123 4567 89' }), withIban)?.id).toBe('ba_2');
   });
 });

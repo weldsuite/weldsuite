@@ -63,6 +63,7 @@ import { ReceiptForm } from './receipt-form';
 import { RuleOffer } from './rule-offer';
 import { SuggestionCard, suggestionTarget } from './suggestion-card';
 import { TransferForm } from './transfer-form';
+import { isPaymentProviderAccount } from '@/lib/weldbooks/online-payments';
 
 type Mode = 'category' | 'receipt' | 'transfer' | 'several';
 type DoneKind = 'suggestion' | 'category' | 'transfer' | 'private' | 'ignore' | 'documents';
@@ -444,8 +445,11 @@ export function ProcessView() {
     setLastDoneId(null);
   };
 
-  const accountLabel = (account: (typeof bankAccounts)[number]) =>
-    `${account.name} — ${account.accountNumberLast4 ? maskedAccountNumber(account.accountNumberLast4) : (account.iban ?? '')}`;
+  const accountLabel = (account: (typeof bankAccounts)[number]) => {
+    // The Mollie money account has no IBAN: say what it is instead.
+    if (isPaymentProviderAccount(account)) return t.weldbooksPayments.bankAccount.providerOption.replace('{name}', account.name);
+    return `${account.name} — ${account.accountNumberLast4 ? maskedAccountNumber(account.accountNumberLast4) : (account.iban ?? '')}`;
+  };
 
   const tabs = [
     { id: 'toProcess', label: tp.tabs.toProcess, count: totalCount },

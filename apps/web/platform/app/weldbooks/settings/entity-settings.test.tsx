@@ -33,6 +33,7 @@ vi.mock('./components/entity-inbox-card', () => ({
 vi.mock('./components/differences-card', () => ({ DifferencesCard: () => <div data-testid="differences-card" /> }));
 vi.mock('./components/email-templates-card', () => ({ EmailTemplatesCard: () => <div data-testid="email-templates-card" /> }));
 vi.mock('./components/reminders-card', () => ({ RemindersCard: () => <div data-testid="reminders-settings-card" /> }));
+vi.mock('./components/online-payments-card', () => ({ OnlinePaymentsCard: () => <div data-testid="online-payments-card" /> }));
 vi.mock('@/lib/api/weldbooks-client', () => ({ setWeldbooksEntityId: mocks.setWeldbooksEntityId }));
 vi.mock('@/lib/api/domains/weldbooks', () => ({ accountingApi: {} }));
 vi.mock('./components/ledger-catch-up-card', () => ({ LedgerCatchUpCard: () => <div data-testid="ledger-catch-up" /> }));
@@ -122,6 +123,15 @@ describe('WeldbooksEntitySettings', () => {
     renderSettings();
     expect(screen.getByTestId('email-templates-card')).toBeInTheDocument();
     expect(screen.getByTestId('reminders-settings-card')).toBeInTheDocument();
+  });
+
+  it('shows the online payments card only where the edition has it, and nothing on Global', () => {
+    const { unmount } = renderSettings();
+    expect(screen.queryByTestId('online-payments-card')).not.toBeInTheDocument();
+    unmount();
+    mocks.processing = true;
+    renderSettings();
+    expect(screen.getByTestId('online-payments-card')).toBeInTheDocument();
   });
 
   it('shows the payment differences card only where the edition has bank processing', () => {

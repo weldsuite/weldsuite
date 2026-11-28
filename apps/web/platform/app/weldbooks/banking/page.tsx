@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Link } from '@tanstack/react-router';
-import { ClipboardCheck, Download, Landmark, Wallet } from 'lucide-react';
+import { ClipboardCheck, CreditCard, Download, Landmark, Wallet } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
@@ -19,6 +19,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { isPaymentProviderAccount } from '@/lib/weldbooks/online-payments';
 import { applyPillFilters } from '@/lib/weldbooks/list-filters';
 import { BankFeedsStrip } from './feeds/bank-feeds-strip';
 import { useConnectBankLauncher } from './feeds/connect-bank-button';
@@ -86,6 +87,11 @@ export default function BankAccountsPage() {
             <>
               {a.isDefault ? <RowChip>{tbp.badges.default}</RowChip> : null}
               {a.isActive === false ? <RowChip tone="gray">{tbp.badges.inactive}</RowChip> : null}
+              {isPaymentProviderAccount(a) ? (
+                <RowChip icon={<CreditCard aria-hidden />} tone="blue">
+                  {t.weldbooksPayments.bankAccount.providerLabel}
+                </RowChip>
+              ) : null}
             </>
           }
         >

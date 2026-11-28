@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { screen, waitFor } from '@testing-library/react';
+import { setRuntimeConfig } from '@/lib/runtime-config';
 import userEvent from '@testing-library/user-event';
 
 const env = vi.hoisted(() => ({
@@ -8,10 +9,15 @@ const env = vi.hoisted(() => ({
   ledgerAccounts: [] as Array<{ id: string; code: string; name: string }>,
   unreconciled: 0,
   jurisdiction: 'NL' as string,
+  paymentsApi: { getConnection: vi.fn(), syncSettlements: vi.fn() },
 }));
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
-vi.mock('@weldsuite/permissions/react', () => ({ usePermissions: () => ({ can: () => true }) }));
+vi.mock('@weldsuite/permissions/react', () => ({ usePermissions: () => ({ can: () => true }), useCan: () => true }));
+vi.mock('@/lib/api/domains/weldbooks-payments', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/domains/weldbooks-payments')>()),
+  paymentsApi: env.paymentsApi,
+}));
 vi.mock('@/hooks/use-workspace-url', () => ({ useWorkspaceUrl: () => (path: string) => `https://app.test${path}` }));
 vi.mock('@weldsuite/ui/components/drawer-field-settings', () => ({ DrawerFieldSettings: () => null }));
 vi.mock('@weldsuite/ui/components/entity-detail-view', () => ({
@@ -156,5 +162,65 @@ describe('getBankAccountTabs', () => {
     );
     expect(history?.defaultVisibleInPanel).toBe(true);
     expect(history?.defaultVisibleInFullscreen).toBe(true);
+  });
+});
+
+describe('BankAccountPanel of a payment provider (Mollie)', () => {
+  const RUST = { backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] as string[] };
+  const connection = (overrides: Record<string, unknown> = {}) => ({
+    id: 'pc_1',
+    status: 'active',
+    settlementsAvailable: true,
+    bankAccountId: 'ba_1',
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    env.account = account({ name: 'Mollie', iban: null, bic: null, accountType: 'payment_provider' });
+    env.jurisdiction = 'NL';
+    env.paymentsApi.getConnection.mockReset();
+    env.paymentsApi.syncSettlements.mockReset();
+    env.paymentsApi.getConnection.mockResolvedValue({ data: connection() });
+    env.ledgerAccounts = [];
+    setRuntimeConfig(RUST);
+  });
+  afterEach(() => setRuntimeConfig(null));
+
+  it('labels the account a payment provider, in the title and the details, and shows no bank numbers', async () => {
+    renderPanel();
+    expect(screen.getAllByText('Payment provider').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByTestId('payment-provider-section')).toHaveTextContent('Online payments land here first.');
+    expect(screen.queryByText('IBAN')).not.toBeInTheDocument();
+  });
+
+  it('syncs payouts from the panel and says what came of it', async () => {
+    const user = userEvent.setup();
+    env.paymentsApi.syncSettlements.mockResolvedValue({
+      data: { imported: 4, skipped: 0, lines: 4, booked: 3, toProcess: 1, fees: 1, payouts: 1 },
+    });
+    renderPanel();
+    await user.click(await screen.findByTestId('sync-payouts'));
+    await waitFor(() => expect(env.paymentsApi.syncSettlements).toHaveBeenCalledWith('pc_1'));
+    expect(await screen.findByText(/3 of 4 lines booked automatically, 1 waiting in To process/)).toBeInTheDocument();
+  });
+
+  it('offers no sync for an API-key connection, or for another connection\'s account', async () => {
+    env.paymentsApi.getConnection.mockResolvedValue({ data: connection({ settlementsAvailable: false }) });
+    const first = renderPanel();
+    await waitFor(() => expect(env.paymentsApi.getConnection).toHaveBeenCalled());
+    expect(screen.queryByTestId('sync-payouts')).not.toBeInTheDocument();
+    first.unmount();
+
+    env.paymentsApi.getConnection.mockResolvedValue({ data: connection({ bankAccountId: 'ba_other' }) });
+    renderPanel();
+    await waitFor(() => expect(env.paymentsApi.getConnection).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId('sync-payouts')).not.toBeInTheDocument();
+  });
+
+  it('shows a regular account without the provider section', async () => {
+    env.account = account();
+    renderPanel();
+    expect(screen.queryByTestId('payment-provider-section')).not.toBeInTheDocument();
+    expect(screen.queryByText('Payment provider')).not.toBeInTheDocument();
   });
 });

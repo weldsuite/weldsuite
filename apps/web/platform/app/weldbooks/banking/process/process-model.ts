@@ -5,6 +5,7 @@
  */
 
 import type { BankLine, BankLineAutoReason, BankLineLinks, MatchSuggestion } from '@/lib/api/domains/weldbooks-banking';
+import { isPaymentProviderAccount } from '@/lib/weldbooks/online-payments';
 
 /** A suggestion below this confidence is not "sure": the view says so instead of offering a button. */
 export const SURE_CONFIDENCE = 0.6;
@@ -76,16 +77,37 @@ export function stepLineId(
   return queue[target]!.id;
 }
 
+/** Whether the line's counterparty is Mollie: a payout of the payment provider money account. */
+export function isProviderCounterparty(line: Partial<Pick<BankLine, 'counterpartyName'>>): boolean {
+  return /\bmollie\b/i.test(line.counterpartyName ?? '');
+}
+
+/**
+ * The accounts a line can be a transfer to or from: the entity's other bank
+ * accounts. The payment provider money account (Mollie) is not a bank the
+ * money moves to by hand; it is offered only for a line that is a payout from
+ * it, whose counterparty is the provider.
+ */
+export function transferTargets<T extends { id: string; accountType?: string | null }>(
+  line: Pick<BankLine, 'bankAccountId'> & Partial<Pick<BankLine, 'counterpartyName'>>,
+  accounts: readonly T[],
+): T[] {
+  const provider = isProviderCounterparty(line);
+  return accounts.filter(
+    (account) => account.id !== line.bankAccountId && (!isPaymentProviderAccount(account) || provider),
+  );
+}
+
 const normalizeIban = (iban: string | null | undefined): string => (iban ?? '').replace(/\s+/g, '').toUpperCase();
 
 /** One of the entity's other bank accounts that the line's counterparty IBAN belongs to. */
-export function ownAccountForLine<T extends { id: string; iban: string | null }>(
-  line: Pick<BankLine, 'bankAccountId' | 'counterpartyIban'>,
+export function ownAccountForLine<T extends { id: string; iban: string | null; accountType?: string | null }>(
+  line: Pick<BankLine, 'bankAccountId' | 'counterpartyIban'> & Partial<Pick<BankLine, 'counterpartyName'>>,
   accounts: readonly T[],
 ): T | null {
   const iban = normalizeIban(line.counterpartyIban);
   if (!iban) return null;
-  return accounts.find((account) => account.id !== line.bankAccountId && normalizeIban(account.iban) === iban) ?? null;
+  return transferTargets(line, accounts).find((account) => normalizeIban(account.iban) === iban) ?? null;
 }
 
 /** The words of every automatic reason, with `{name}` in the rule's. */

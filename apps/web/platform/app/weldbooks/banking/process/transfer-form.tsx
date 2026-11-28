@@ -11,12 +11,15 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import type { BankLine } from '@/lib/api/domains/weldbooks-banking';
 import { useI18n } from '@/lib/i18n/provider';
-import { ownAccountForLine } from './process-model';
+import { isPaymentProviderAccount } from '@/lib/weldbooks/online-payments';
+import { ownAccountForLine, transferTargets } from './process-model';
 
 interface OwnAccount {
   id: string;
   name: string;
   iban: string | null;
+  /** `payment_provider` for the Mollie money account. */
+  accountType?: string | null;
 }
 
 export interface TransferFormProps {
@@ -34,7 +37,8 @@ export function TransferForm({ line, accounts, pending, errorMessage, onSubmit, 
   const ids = useId();
   const matched = ownAccountForLine(line, accounts);
   const [accountId, setAccountId] = useState(matched?.id ?? '');
-  const others = accounts.filter((account) => account.id !== line.bankAccountId);
+  // Mollie's money account is offered only for a payout line, not as a bank to move money to.
+  const others = transferTargets(line, accounts);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -64,7 +68,9 @@ export function TransferForm({ line, accounts, pending, errorMessage, onSubmit, 
             <SelectContent>
               {others.map((account) => (
                 <SelectItem key={account.id} value={account.id}>
-                  {account.name}
+                  {isPaymentProviderAccount(account)
+                    ? t.weldbooksPayments.bankAccount.providerOption.replace('{name}', account.name)
+                    : account.name}
                 </SelectItem>
               ))}
             </SelectContent>

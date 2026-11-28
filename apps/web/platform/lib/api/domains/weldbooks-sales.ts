@@ -68,7 +68,17 @@ export interface LinkRevoked {
 }
 
 /** One entry of an invoice's `emailHistory`. */
-export type EmailHistoryType = 'sent' | 'reminder' | 'viewed' | 'bounced' | 'link' | 'link_revoked';
+export type EmailHistoryType =
+  | 'sent'
+  | 'reminder'
+  | 'viewed'
+  | 'bounced'
+  | 'link'
+  | 'link_revoked'
+  // Online payment (phase 4b): the customer started paying, the provider reported a status, a refund or chargeback.
+  | 'payment_started'
+  | 'payment_status'
+  | 'payment_reversed';
 
 /** What a final notice claims (`claim_json` of the reminder module); amounts are decimal text. */
 export interface ReminderClaimParts {
@@ -95,6 +105,16 @@ export interface EmailHistoryEntry {
   link?: string;
   error?: string;
   claim?: ReminderClaim;
+  /** `payment_started`. */
+  molliePaymentId?: string;
+  /** `payment_started` and `payment_reversed`: decimal text. */
+  amount?: string | number;
+  /** `payment_status`. */
+  status?: 'paid' | 'failed' | 'expired' | 'canceled' | 'pending' | 'authorized';
+  /** `payment_status`: the Mollie method id. */
+  method?: string;
+  /** `payment_reversed`. */
+  kind?: 'refund' | 'chargeback';
 }
 
 // ============================================================================
