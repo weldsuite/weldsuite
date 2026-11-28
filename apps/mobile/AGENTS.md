@@ -34,10 +34,12 @@ Hosts, sign-in and edition flags come from `@weldsuite/mobile-platform`:
 
 ## API
 
-Use the app-api client in each app's `services/app-api.ts`. It picks the host
-per path like the platform does: modules listed in `EXPO_PUBLIC_API_MODULES`
-go straight to their `<module>-api` worker, everything else to app-api. The
-endpoints are the same ones the platform uses; don't add mobile-only routes.
+Use the app-api client in each app's `services/app-api.ts`. Every path goes
+to one host, the chosen server's API origin (`apiOrigin()` from
+`@weldsuite/mobile-platform/api`): one backend serves every module. Which
+modules the server runs comes from its `/config.json` (`ApiModuleId`s,
+`@weldsuite/app-api-client/schemas/runtime-config`). The endpoints are the
+same ones the platform uses; don't add mobile-only routes.
 
 ## Commands
 

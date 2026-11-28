@@ -3,7 +3,6 @@
  * `/config.json`) to the `MobileRuntime` the app reads. Pure.
  */
 
-import { GLOBAL_UNAVAILABLE_FEATURES, parseModuleList, type ApiModuleId } from '@weldsuite/api-modules';
 import type { RuntimeConfig } from '@weldsuite/app-api-client/schemas/runtime-config';
 import { trimTrailing } from '../text';
 import { normaliseServerAddress } from './address';
@@ -16,9 +15,10 @@ import type {
   ServerKind,
 } from './types';
 
-const LOCAL_APP_API = 'http://localhost:8789';
-const LOCAL_PERSONAL_API = 'http://localhost:8787';
-const LOCAL_REALTIME = 'ws://localhost:8790';
+/** `weldsuite serve` (rust/README.md): every module, personal-api and realtime on one origin. */
+const LOCAL_APP_API = 'http://localhost:8080';
+const LOCAL_PERSONAL_API = `${LOCAL_APP_API}/personal-api`;
+const LOCAL_REALTIME = 'ws://localhost:8080';
 
 /**
  * Global's personal-api host for each app-api host: a token from one Clerk
@@ -68,7 +68,11 @@ export function globalPersonalApiOrigin(build: MobileBuildEnv): string {
   return PERSONAL_API_BY_APP_API[appApi] ?? trimSlash(build.personalApiUrl || LOCAL_PERSONAL_API);
 }
 
-/** Global: the build's own values, as before the server choice existed. */
+/**
+ * Global: the build's own values, as before the server choice existed. Its
+ * `.org` hosts now alias the EU server (ADR OPS-025), so every API path goes
+ * to `appApiUrl` and nothing is hidden.
+ */
 export function buildGlobalRuntime(app: MobileAppIdentity, build: MobileBuildEnv): MobileRuntime {
   const apiOrigin = trimSlash(build.appApiUrl || LOCAL_APP_API);
   return {
@@ -76,14 +80,12 @@ export function buildGlobalRuntime(app: MobileAppIdentity, build: MobileBuildEnv
     server: { kind: 'global' },
     edition: 'global',
     apiOrigin,
-    apiModules: parseModuleList(build.apiModules),
     personalApiOrigin: globalPersonalApiOrigin(build),
     realtimeUrl: trimSlash(build.realtimeUrl || LOCAL_REALTIME),
     platformUrl: trimSlash(build.platformUrl || apiOrigin.replace('//app-api', '//app')),
     auth: { provider: 'clerk', publishableKey: build.clerkPublishableKey ?? '' },
     modules: 'all',
-    // Features built only in Rust since OPS-025; Global serves no /config.json.
-    unavailableFeatures: new Set(GLOBAL_UNAVAILABLE_FEATURES),
+    unavailableFeatures: new Set<string>(),
     env: {},
     videoProvider: null,
     videoUrl: null,
@@ -133,7 +135,6 @@ export function buildServerRuntime(
     server: { kind: choice.kind, origin: choice.origin },
     edition: choice.kind === 'eu' ? 'eu' : 'self-hosted',
     apiOrigin,
-    apiModules: new Set<ApiModuleId>(),
     personalApiOrigin: `${apiOrigin}/personal-api`,
     // Without one in /config.json, the server's own origin (it serves /ws).
     realtimeUrl: realtimeBase(config.realtimeUrl ?? apiOrigin.replace(/^http/, 'ws')),

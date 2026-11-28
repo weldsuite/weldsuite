@@ -21,18 +21,18 @@ use crate::js::{now_ms, parse_ms};
 
 /// WeldSuite's own sending address (`SYSTEM_SENDER`).
 const SYSTEM_SENDER: &str = "notifications@mail.weldsuite.org";
-/// `DEFAULT_MEETING_PORTAL_URL`.
-const DEFAULT_PORTAL_URL: &str = "https://meet.weldsuite.org";
+/// Where the platform runs when `PLATFORM_URL` is unset (as WeldForms' links).
+const DEFAULT_PLATFORM_URL: &str = "https://app.weldsuite.org";
 /// The `.ics` event's length without an end (`DEFAULT_DURATION_MS`).
 const DEFAULT_DURATION_MS: i64 = 60 * 60 * 1000;
 
-/// `getMeetingPortalUrl(configured)`.
-pub(crate) fn portal_url(configured: Option<&str>) -> String {
-    let url = configured
+/// The meeting portal's origin when the install names one
+/// (`MEETING_PORTAL_URL`), else none: guests then join on the platform.
+pub(crate) fn portal_url(configured: Option<&str>) -> Option<String> {
+    configured
         .map(str::trim)
         .filter(|u| !u.is_empty())
-        .unwrap_or(DEFAULT_PORTAL_URL);
-    url.trim_end_matches('/').to_owned()
+        .map(|u| u.trim_end_matches('/').to_owned())
 }
 
 /// `encodeURIComponent`.
@@ -54,13 +54,28 @@ pub(crate) fn encode_uri_component(value: &str) -> String {
     out
 }
 
-/// `buildMeetingJoinUrl(portalUrl, workspaceId, joinCode)`.
-pub(crate) fn join_url(portal: &str, workspace_id: &str, join_code: &str) -> String {
-    format!(
-        "{portal}/{}/{}",
-        encode_uri_component(workspace_id),
-        encode_uri_component(join_code)
-    )
+/// The meeting's join link, as `buildMeetingShareUrl` in
+/// `apps/web/platform/lib/weldmeet/share-link.ts` builds it: the portal's
+/// `/{workspace}/{code}` when there is one, else the platform's own join page
+/// at `PLATFORM_URL`, `/w/{workspace}/weldmeet/join/{code}`, where people join
+/// after signing in.
+pub(crate) fn join_url(
+    portal: Option<&str>,
+    platform: Option<&str>,
+    workspace_id: &str,
+    join_code: &str,
+) -> String {
+    let workspace = encode_uri_component(workspace_id);
+    let code = encode_uri_component(join_code);
+    if let Some(portal) = portal {
+        return format!("{portal}/{workspace}/{code}");
+    }
+    let platform = platform
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+        .unwrap_or(DEFAULT_PLATFORM_URL)
+        .trim_end_matches('/');
+    format!("{platform}/w/{workspace}/weldmeet/join/{code}")
 }
 
 /// The meeting as the mail shows it (`InvitationMeeting`).
@@ -275,14 +290,32 @@ mod tests {
 
     #[test]
     fn builds_the_join_link() {
-        assert_eq!(portal_url(None), "https://meet.weldsuite.org");
+        assert_eq!(portal_url(None), None);
+        assert_eq!(portal_url(Some("  ")), None);
         assert_eq!(
-            portal_url(Some(" https://meet.example/ ")),
-            "https://meet.example"
+            portal_url(Some(" https://meet.example/ ")).as_deref(),
+            Some("https://meet.example")
         );
         assert_eq!(
-            join_url("https://meet.example", "org 1", "wm-abc-def-ghi"),
+            join_url(
+                Some("https://meet.example"),
+                None,
+                "org 1",
+                "wm-abc-def-ghi"
+            ),
             "https://meet.example/org%201/wm-abc-def-ghi"
+        );
+    }
+
+    #[test]
+    fn joins_on_the_platform_without_a_portal() {
+        assert_eq!(
+            join_url(None, Some("https://app.weldsuite.eu/"), "org_1", "wm-abc"),
+            "https://app.weldsuite.eu/w/org_1/weldmeet/join/wm-abc"
+        );
+        assert_eq!(
+            join_url(None, None, "org 1", "wm-abc"),
+            "https://app.weldsuite.org/w/org%201/weldmeet/join/wm-abc"
         );
     }
 }

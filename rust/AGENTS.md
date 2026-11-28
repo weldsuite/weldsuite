@@ -1,29 +1,30 @@
 # Rust backend (`rust/`)
 
-The backend of the EU and self-hosted editions (ADR API-014): one `weldsuite`
-binary, shipped as one container image and installed with the Helm chart in
-`deploy/helm/weldsuite`. Global runs the TypeScript workers on Cloudflare until
-it is retired (ADR OPS-025): its workspaces then move into the EU install and
-the workers are deleted. Until then, both backends answer the same API, and new
-features are built here first (root `AGENTS.md`, "Both backends").
+WeldSuite's backend (ADR API-014): one `weldsuite` binary, shipped as one
+container image and installed with the Helm chart in `deploy/helm/weldsuite`,
+for the hosted EU install and for self-hosted installs. Global's TypeScript
+workers, which it was ported from, were deleted after Global retired (ADR
+OPS-025), so this is the only backend.
 Read the root `AGENTS.md` first. [`README.md`](README.md) here is the full
-reference (layout, commands, conformance, migrations, running it); read the
-section you need rather than all of it.
+reference (layout, commands, migrations, running it); read the section you
+need rather than all of it.
 
 ## Rules
 
-- **A ported route answers exactly like its TypeScript route**: path, body,
-  status, message and side effects (entity events, realtime). The conformance
-  suite (`conformance/suites.json`, `pnpm rust:conformance`) is the judge, and
-  CI runs it on every PR that touches the module. So a behaviour change to a
-  ported route lands in TypeScript and Rust in the same PR.
-- **A module is ported** when its suites pass with every route covered; then
-  its id goes into `RUST_PORTED_MODULES` in `@weldsuite/api-modules` and you
-  run `pnpm rust:catalogs`.
-- **`catalogs/` is generated from TypeScript.** After changing entity events,
-  permissions, feature flags, `api-modules` or `FIRST_PARTY_ORIGINS`, run
-  `pnpm rust:catalogs` and commit the result. The `rust:*-fixtures` scripts
-  re-export parity fixtures the same way.
+- **Routes keep their contract.** The platform, the mobile apps, the SDKs and
+  the public API call these paths with these bodies; a route's tests are its
+  contract now that there is no TypeScript twin to compare against. Change an
+  answer the native apps read only as `apps/mobile-shared/README.md` says
+  ("Changing the contract").
+- **Part of `catalogs/` is generated from TypeScript.** After changing entity
+  events, permissions, feature flags, the AI catalog, the forms templates or
+  the WeldConnect templates, run `pnpm rust:catalogs` and commit the result;
+  `pnpm rust:emails` and `pnpm rust:payroll-fixtures` do the same for the email
+  templates and the payroll tables. The catalogs only the backend reads
+  (`api-modules.json`, `record-chat.json`, `core-platform-prefixes.json`,
+  `first-party-origins.json`, `connectors.json`, `odata.json`, WeldConnect's
+  pickers and providers in `weldconnect.json`) are edited here by hand, as are
+  the fixtures the deleted workers once wrote.
 - **Module crates never depend on each other**, only on shared crates.
 - Lints are workspace-wide: `unsafe` is forbidden, clippy pedantic is on,
   warnings are errors. Every crate has `[lints] workspace = true`; dependency
@@ -53,11 +54,10 @@ pnpm rust:fmt
 pnpm rust:lint          # rustfmt --check + clippy, warnings are errors
 pnpm rust:test
 pnpm rust:deny          # needs cargo-deny
-pnpm rust:catalogs      # re-export catalogs/ from TypeScript
-pnpm rust:conformance   # the ported routes' worker tests, run against Rust
+pnpm rust:catalogs      # re-export the TypeScript-owned catalogs
 ```
 
 Integration tests need throwaway services (Postgres, Valkey, NATS, S3, …) and
 are skipped without them; the variables are listed in the README. CI's
 `Rust` check aggregates `Rust · checks`, `Rust · image and chart`,
-`Rust · deploy config` and `Rust · conformance`.
+`Rust · image arm64` and `Rust · deploy config`.

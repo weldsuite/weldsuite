@@ -105,12 +105,6 @@ describe('InvoiceSalesSections', () => {
   });
   afterEach(() => setRuntimeConfig(null));
 
-  it('shows nothing where the edition has none of the sales features (Global)', () => {
-    setRuntimeConfig(null);
-    renderSections(invoice());
-    expect(screen.queryByTestId('invoice-sales-sections')).not.toBeInTheDocument();
-  });
-
   describe('What happened', () => {
     it('tells the story: created, e-mailed, viewed with a count, and the next reminder when it is automatic', async () => {
       setRuntimeConfig(RUST);

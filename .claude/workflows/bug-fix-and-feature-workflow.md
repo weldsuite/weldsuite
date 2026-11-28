@@ -5,7 +5,7 @@
 > **Last updated:** 2026-05-22.
 > **Status:** Active.
 
-A **strict-sequential**, conflict-free way to drain the WeldSuite backlog. Designed because parallel branches were exploding into merge conflicts, double-run Drizzle migrations, and broken realtime / entity-event wiring.
+A **strict-sequential**, conflict-free way to drain the WeldSuite backlog. Designed because parallel branches were exploding into merge conflicts, double-numbered migrations, and broken realtime / entity-event wiring.
 
 ---
 
@@ -53,8 +53,8 @@ Five files in this monorepo are touched by ~30% of all bug-fix branches. If two 
 
 | Hotspot | Why it conflicts |
 |---|---|
-| `packages/core/db/src/schema/*` + Drizzle migration folder | Drizzle generates one migration file per run. Two branches → two files with the same number → broken history. |
-| `apps/workers/app-api/src/index.ts` | Every new route appends a `.route(...)` line to the same mount block. |
+| `rust/crates/schema/src/*` + `rust/migrations/` | `pnpm db:generate` writes one numbered migration per run. Two branches → two files with the same number → broken history. |
+| `rust/bins/weldsuite/src/routes/mod.rs` + `rust/catalogs/api-modules.json` | Every module mount and new path prefix lands in the same router and the same JSON. |
 | `packages/core/i18n/src/locales/{en,nl}/*.ts` | Every UI string lands in both locale files. |
 | `packages/core/entity-events/src/events/*` | Typed event catalog, any new event extends a union. |
 | `apps/web/platform/src/routes/__root.tsx` + provider chain | Cross-cutting state (notifications, presence, realtime) wires through here. |
@@ -84,10 +84,9 @@ Classifies the enriched task and routes to the correct specialist:
 - `frontend-platform` (Vite SPA, `apps/web/platform/`)
 - `frontend-nextjs` (sites, portals, helpcenter)
 - `mobile-expo` (`apps/mobile/*`)
-- `backend-app-api` (✅ new routes go here)
-- `backend-workers` (cron / Trigger.dev / agent workers)
-- `database` (`packages/core/db/schema/`)
-- Domain agents: `weldcrm`, `weldmeet-meetings`, `welddesk-helpdesk`, `weldmail`, `weldflow-projects`, `weldsuite-wms`, `weldhost-domains`, `weldbooks-accounting`, `weldagent-ai`, `weldsuite-social`, `weldsuite-invoicing`, `weldsuite-time-tracking`, `weldchat`, `weldcommerce`
+- `backend-rust` (`rust/`: routes, crons, queue consumers, webhooks, realtime)
+- `database` (`rust/crates/schema/`)
+- Domain agents: `weldcrm`, `weldmeet-meetings`, `welddesk-helpdesk`, `weldmail`, `weldflow-projects`, `weldsuite-wms`, `weldhost-domains`, `weldbooks-accounting`, `weldagent-ai`, `weldsuite-social`, `weldsuite-invoicing`, `weldsuite-time-tracking`, `weldcommerce`
 
 ### 3. Triage (`bug-triage` agent, bugs only)
 
@@ -104,11 +103,11 @@ The specialist writes the code in a **new branch off `main`**, named `fix/<task-
 Definition of Done (run before opening PR):
 
 - [ ] Reproduces before the fix, does **not** reproduce after
-- [ ] Tenant scoping (`workspaceId`) on every touched Drizzle query
-- [ ] Permission check (`weld*` prefix) on new/changed routes
-- [ ] Zod v3 validation on both directions (request + response)
+- [ ] Tenant scoping on every touched query
+- [ ] Permission gate on new/changed routes
+- [ ] Request bodies validated on the server; Zod v3 in the client
 - [ ] i18n entries in **both** `en` and `nl` for any new user-visible string
-- [ ] `pnpm lint` passes in changed workspace
+- [ ] `pnpm lint` passes in changed workspace; `pnpm rust:lint` and `cargo test -p <crate>` for touched Rust crates
 - [ ] `pnpm build` of touched app passes
 - [ ] No stray `console.log`, `any`, `@ts-ignore`
 - [ ] Schema changes flagged to Gert, **no migration files without approval**
@@ -220,9 +219,9 @@ main ─────A───B───C───D─────────�
 ## Anti-patterns (don't do these)
 
 - ❌ Two open PRs from the same person at the same time
-- ❌ Generating a Drizzle migration without asking
-- ❌ Adding routes to `apps/api-worker` or `apps/core-api` (both obsolete, use `apps/workers/app-api`)
-- ❌ Adding Anthropic SDK calls outside `apps/agent-worker`
+- ❌ Generating a migration without asking
+- ❌ Adding routes outside the owning `rust/modules/<module>` crate (the TypeScript workers are deleted)
+- ❌ Calling a model provider outside `rust/crates/ai`
 - ❌ Skipping the `nl` translation when adding a new string
 - ❌ "Fixing" a bug you couldn't reproduce
 - ❌ Pushing an `## Enriched analysis` block without user approval

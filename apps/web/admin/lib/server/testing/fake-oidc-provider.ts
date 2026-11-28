@@ -1,5 +1,5 @@
 /**
- * A small OpenID provider for the sign-in tests and for trying the Node build
+ * A small OpenID provider for the sign-in tests and for trying the console
  * locally: discovery, an authorization endpoint that signs in one configured
  * person without asking, a token endpoint that checks the client secret, the
  * redirect URI and PKCE, RS256 ID tokens, userinfo (with Zitadel's

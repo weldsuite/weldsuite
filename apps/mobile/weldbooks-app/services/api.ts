@@ -27,7 +27,7 @@
  */
 
 import { createClientApi } from '@weldsuite/api-client/client';
-import { apiOrigin, apiOriginForPath, workspaceHeaders } from '@weldsuite/mobile-platform/api';
+import { apiOrigin, workspaceHeaders } from '@weldsuite/mobile-platform/api';
 import { createWorkspacesApi } from '@weldsuite/app-api-client/domains/workspaces';
 import type {
   ApiResponse,
@@ -280,7 +280,8 @@ async function getToken(): Promise<string | null> {
 }
 
 const client = createClientApi({
-  baseUrl: apiOriginForPath,
+  // Read per request: this client is built before the server runtime boots.
+  baseUrl: () => apiOrigin(),
   getToken,
   getExtraHeaders: async (): Promise<Record<string, string>> => {
     // X-Weld-App: which app's permissions apply (per-app permission model).

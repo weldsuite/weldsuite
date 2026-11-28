@@ -4,14 +4,15 @@
  *
  * - **global**: WeldSuite cloud. The hosts and Clerk key baked into the
  *   build by `eas.json` (`EXPO_PUBLIC_*`), exactly as before the switch.
+ *   Global is retired (ADR OPS-025) and its `.org` hosts alias the EU
+ *   server, which serves every module from one origin.
  * - **eu**: the EU edition, at the origin this build names in
  *   `EXPO_PUBLIC_EU_SERVER_URL`. Described by its `/config.json`.
  * - **self-hosted**: an address the person types. Described by its
  *   `/config.json`, like EU.
  */
 
-import type { ApiModuleId } from '@weldsuite/api-modules';
-import type { RuntimeConfig } from '@weldsuite/app-api-client/schemas/runtime-config';
+import type { ApiModuleId, RuntimeConfig } from '@weldsuite/app-api-client/schemas/runtime-config';
 
 export type ServerKind = 'global' | 'eu' | 'self-hosted';
 
@@ -27,10 +28,8 @@ export interface ServerChoice {
  * reads (Expo inlines them only in the app's own code).
  */
 export interface MobileBuildEnv {
-  /** `EXPO_PUBLIC_APP_API_URL`: Global's app-api. */
+  /** `EXPO_PUBLIC_APP_API_URL`: Global's API host; every path goes there. */
   appApiUrl?: string;
-  /** `EXPO_PUBLIC_API_MODULES`: Global modules served by their own worker. */
-  apiModules?: string;
   /** `EXPO_PUBLIC_PERSONAL_API_URL`: Global's personal-api. */
   personalApiUrl?: string;
   /** `EXPO_PUBLIC_REALTIME_URL`: Global's realtime WebSocket. */
@@ -106,10 +105,8 @@ export interface MobileRuntime {
   app: MobileAppIdentity;
   server: ServerChoice;
   edition: MobileEdition;
-  /** app-api on Global; the server's origin on Kubernetes. */
+  /** The API origin, which serves every path of every module. */
   apiOrigin: string;
-  /** Modules with their own worker host (Global); empty on Kubernetes. */
-  apiModules: ReadonlySet<ApiModuleId>;
   /** personal-api: its own host on Global, `<origin>/personal-api` on Kubernetes. */
   personalApiOrigin: string;
   /**
@@ -120,9 +117,9 @@ export interface MobileRuntime {
   /** The web app, for links that open it. */
   platformUrl: string;
   auth: MobileAuthConfig;
-  /** Modules the server serves; `all` on Global. */
+  /** Modules the server serves (`ApiModuleId`s); `all` on Global, which reads no `/config.json`. */
   modules: ReadonlySet<string> | 'all';
-  /** Features the server lacks (`EditionFeature` names). */
+  /** Features the server lacks (`EditionFeature` names); none on Global. */
   unavailableFeatures: ReadonlySet<string>;
   /** Public settings from `/config.json` `env`, by their `VITE_*` name. */
   env: Readonly<Record<string, string>>;

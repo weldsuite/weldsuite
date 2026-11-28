@@ -1,27 +1,20 @@
-import { getRuntimeConfig, publicEnv } from '@/lib/runtime-config';
+import { publicEnv } from '@/lib/runtime-config';
 /**
  * Public share link of a WeldMeet meeting.
  *
- * Guests join through the public meeting portal (`apps/web/meeting-portal`,
- * route `/[orgId]/[joinCode]`), never through the platform, which requires a
- * login. The workspace id is part of the path because the portal uses it to
- * resolve the tenant database.
- *
- * A Kubernetes edition (EU, self-hosted) names its portal in `/config.json`
- * (`env.VITE_MEETING_PORTAL_URL`, the chart's `config.publicEnv`). Without one
- * it has no portal, and Global's knows none of its meetings, so the link is
- * the platform's own join page (`/w/{workspace}/weldmeet/join/{code}`):
- * members join there after signing in.
+ * An install that runs a public meeting portal names it in `/config.json`
+ * (`env.VITE_MEETING_PORTAL_URL`, the chart's `config.publicEnv`); the link is
+ * then the portal's `/{workspace}/{code}`, which guests open without a login.
+ * Without one the link is the platform's own join page
+ * (`/w/{workspace}/weldmeet/join/{code}`): people join there after signing in.
+ * The server's invitation emails build the same link
+ * (`rust/modules/meet/src/invitations.rs`).
  */
 
-/** Production meeting portal. Used on Global when `VITE_MEETING_PORTAL_URL` is not set. */
-export const DEFAULT_MEETING_PORTAL_URL = 'https://meet.weldsuite.org';
-
-/** The meeting portal's origin, or null on a Kubernetes edition that has none. */
+/** The meeting portal's origin, or null when the install has none. */
 export function getMeetingPortalUrl(): string | null {
   const configured = publicEnv('VITE_MEETING_PORTAL_URL')?.trim();
-  if (configured) return configured.replace(/(?<!\/)\/+$/, '');
-  return getRuntimeConfig() ? null : DEFAULT_MEETING_PORTAL_URL;
+  return configured ? configured.replace(/(?<!\/)\/+$/, '') : null;
 }
 
 /** The platform's join page for the meeting, inside its workspace. */

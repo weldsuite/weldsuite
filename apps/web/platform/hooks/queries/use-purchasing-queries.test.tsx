@@ -1,6 +1,6 @@
 /**
- * WeldStash purchasing queries: which client method each hook calls, which
- * hooks stay idle on Global, and which query keys a mutation refreshes.
+ * WeldStash purchasing queries: which client method each hook calls, and
+ * which query keys a mutation refreshes.
  */
 
 import type { ReactNode } from 'react';
@@ -215,13 +215,6 @@ describe('purchase order reads', () => {
     expect(purchaseOrders.listLines).not.toHaveBeenCalled();
   });
 
-  it('usePurchaseOrderReceipts stays idle on Global even with an id', () => {
-    const { wrapper } = setup();
-    const { result } = renderHook(() => usePurchaseOrderReceipts('po1'), { wrapper });
-    expect(result.current.fetchStatus).toBe('idle');
-    expect(purchaseOrders.listReceipts).not.toHaveBeenCalled();
-  });
-
   it('usePurchaseOrderReceipts loads on Kubernetes editions and stays idle without an id', async () => {
     enableReplenishment();
     purchaseOrders.listReceipts.mockResolvedValue({ data: [{ id: 'rc1' }] });
@@ -400,13 +393,6 @@ describe('status actions', () => {
 });
 
 describe('product suppliers', () => {
-  it('useProductSuppliers stays idle on Global', () => {
-    const { wrapper } = setup();
-    const { result } = renderHook(() => useProductSuppliers({ productId: 'p1' }), { wrapper });
-    expect(result.current.fetchStatus).toBe('idle');
-    expect(productSuppliers.list).not.toHaveBeenCalled();
-  });
-
   it('useProductSuppliers lists with the filters on Kubernetes editions', async () => {
     enableReplenishment();
     productSuppliers.list.mockResolvedValue({ data: [{ id: 'ps1' }] });

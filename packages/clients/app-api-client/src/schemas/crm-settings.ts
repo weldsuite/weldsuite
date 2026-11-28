@@ -4,8 +4,7 @@
  * people it emails or who answer its email, the external people its members
  * invite to meetings, the helpdesk requesters its agents reply to), and can
  * link them to the company of their email domain. Served by the Rust backend
- * on the Kubernetes editions only; Global has no such route (`crm-auto-add`
- * in `GLOBAL_UNAVAILABLE_FEATURES`). Zod v3.
+ * (the `crm-auto-add` edition feature). Zod v3.
  */
 
 import { z } from 'zod';

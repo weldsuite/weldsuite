@@ -89,12 +89,6 @@ describe('ProductPanel Suppliers tab', () => {
     expect(screen.getByTestId('suppliers-section')).toHaveTextContent('product:prod_1');
   });
 
-  it('has no Suppliers tab on Global', () => {
-    render(<ProductPanel {...props} />);
-    expect(screen.queryByTestId('tab-suppliers')).not.toBeInTheDocument();
-    expect(screen.getByTestId('tab-stock')).toBeInTheDocument();
-  });
-
   it('has no Suppliers tab without the permission to read suppliers', () => {
     offerReplenishment();
     env.permissions = { can: () => false };
@@ -143,11 +137,5 @@ describe('ProductPanel in WeldCommerce', () => {
     expect(screen.queryByTestId('tab-prices')).not.toBeInTheDocument();
     expect(screen.queryByTestId('tab-categories')).not.toBeInTheDocument();
     expect(screen.getByTestId('open-href')).toHaveAttribute('href', '/weldstash/products?stack=product:prod_1');
-  });
-
-  it('has neither tab where WeldCommerce is not offered (Global)', () => {
-    env.permissions = { app: 'weldcommerce', can: () => true };
-    render(<ProductPanel {...props} />);
-    expect(screen.queryByTestId('tab-variants')).not.toBeInTheDocument();
   });
 });

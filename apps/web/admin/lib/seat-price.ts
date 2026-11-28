@@ -6,7 +6,7 @@
 // list price takes over (rust/modules/core-billing/src/renewals.rs, engine.rs).
 
 import type { MollieBillingAccount, PlanOption, WorkspaceBilling } from './billing-types';
-import { parseMajorUnitsToCents } from './sso-admin';
+import { parseMajorUnitsToCents } from './billing-format';
 
 /** The most staff may set a seat to, per billing cycle: €10,000. */
 export const MAX_SEAT_PRICE_CENTS = 1_000_000;

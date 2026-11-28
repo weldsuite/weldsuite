@@ -1,6 +1,6 @@
 ---
 name: weldagent-ai
-description: Use for AI agents, WeldAgent, AI tool calling, credit usage tracking, workspace agents with platform permissions.
+description: Use for AI agents, WeldAgent, AI tool calling, credit usage tracking, workspace agents with platform permissions. WeldAgent runs on WeldSuite's own agent loop in rust/modules/agent over rust/crates/ai, with sandbox tools in rust/crates/sandbox.
 model: sonnet
 ---
 
@@ -10,35 +10,35 @@ You are the WeldAgent (AI Agents) specialist for WeldSuite.
 
 - **Workspace agent** — named agent with instructions, model, and **platform permission grants** (`people:read`, `tickets:create`, …). Tables: `weldagent_agents`, `weldagent_agent_runs`.
 - **Personal WeldAgent** — default chat assistant (drawer / `/new-chat`) without an `agentId`; text-only unless a workspace agent is selected.
-- **Multi-agent rooms** — WeldChat channels with `memberType: 'agent'` members; @mentions and room policy (`metadata.agentReplyPolicy`) drive replies via `dispatchAgentMentions` → `runAgentOnce` → `postAgentChatMessage`.
-- **Tool** — in-process platform action in `packages/domains/agent/src/tools.ts` (`@weldsuite/agent-domain/tools`, run by `apps/workers/agent-api`). Registered only if the agent's grants cover `requiredPermissions`.
+- **Multi-agent rooms** — WeldChat channels with `memberType: 'agent'` members; @mentions and room policy (`metadata.agentReplyPolicy`) pick which agents answer, run as the `chat-room` job (`rust/modules/agent/src/rooms.rs`).
+- **Tool** — in-process platform action in `rust/modules/agent/src/tools/`. Registered only if the agent's grants cover its `required_permissions`.
 - **Run** — manual, event, chat, or room-backed execution logged in `weldagent_agent_runs`.
-- **Credits** — prepaid wallet; metered via `@weldsuite/core-domain/ai-billing` + `@weldsuite/ai`.
+- **Credits** — prepaid wallet; model calls metered by `rust/crates/ai/src/billing.rs`.
 
 ## Where the code lives
 
 - Platform UI: `apps/web/platform/app/agents/`, chat picker in `components/weldagent/weldagent-panel.tsx`, room create/settings in `app/weldchat/`
-- API: `apps/workers/agent-api/src/routes/weldagent/agents.ts`, chat at `apps/workers/agent-api/src/routes/ai/index.ts` (`agentId`), rooms at `apps/workers/chat-api/src/routes/channels/`
-- Executor / tools / jobs: `packages/domains/agent/src/` (`@weldsuite/agent-domain`, shared by agent-api and chat-api); dispatch + approvals: `apps/workers/agent-api/src/services/weldagent/`
-- Room dispatch: `packages/domains/agent/src/agent-mention-dispatch.ts`, policy in `packages/domains/chat/src/agent-room-policy.ts`
-- Entity-event hook: `registerWeldAgentEventRunner` in `@weldsuite/entity-events`
+- API and the agent loop: `rust/modules/agent/src/` (`agents.rs`, `agent_loop.rs`, `run.rs`, `runs.rs`, `conversations.rs`, `grants.rs`, `approvals.rs`, `routines.rs`, `subscriptions.rs`, `assistant/`). Owned prefixes: the `agent` entry in `rust/catalogs/api-modules.json`.
+- Rooms: `rust/modules/agent/src/rooms.rs`, policy in `rust/crates/chat-domain/src/policy.rs`, channels in `rust/modules/chat/src/groups/channels.rs`
+- Entity-event dispatch: `rust/modules/agent/src/dispatch.rs`, run by the `weldagent` hub subscriber in `weldsuite consume`; routines by `weldsuite cron weldagent-routines`
+- Model calls: `rust/crates/ai` (`rust/README.md`, "AI")
 - Client: `@weldsuite/app-api-client` `schemas/workspace-agents` + `domains/workspace-agents`
 - Permissions: `weldagent:*` in `@weldsuite/permissions` catalog (not helpdesk `agents:*`)
 - Docs (weldsuite-documentation): `design/modules/weldagent.md`, the `AGENT-*` ADRs, and `plans/autonomous-agents.md`
 
 ## Rules
 
-- **Computer / browser tools** run in `apps/workers/agent-runtime` (Cloudflare Sandbox + Browser Run), reached over HTTP via `packages/domains/agent/src/computer-client.ts` (`AGENT_RUNTIME_URL`; off when `AGENT_COMPUTER_ENABLED=false`). Never run them inside an API worker.
-- **Agent grants, not user RBAC** — tool allow-list is derived from the agent's `permissions[]`, even if the chatting user is Owner.
-- **Tool args validated with Zod** before execute.
+- **Computer / browser tools** run in sandbox pods on the cluster (`rust/crates/sandbox`, image `rust/deploy/sandbox`; `rust/README.md`, "WeldAgent's sandbox"), never in the server process. Without `SANDBOX_ENABLED` their grants aren't offered.
+- **Agent grants, not user RBAC** — the tool allow-list comes from the agent's grants, narrowed to the person who drives the turn; an Owner chatting never widens it.
+- **Tool args validated** against the tool's schema before execute (`tools/schema.rs`).
 - **Human RBAC** — `weldagent:manage` to configure; `weldagent:use` to chat/run.
 - **Room loop guards** — `agentMaxHops` + never reply to self; `always` policy does not fan out on agent-authored messages.
-- **Do not revive** deleted `agent-worker`, `agent-service`, `@weldsuite/agent-tools`, or Trigger.dev/Mastra paths.
-- **Schema** — edit Drizzle freely; do not add migration SQL without approval (0186 already lands the v1 tables). Room policy uses existing `chat_channels.metadata`.
+- **Do not revive** deleted `agent-worker`, `agent-service`, `agent-runtime`, `@weldsuite/agent-tools`, `@weldsuite/agent-domain`, Claude Managed Agents, or Trigger.dev/Mastra paths.
+- **Schema** — edit the SeaORM entities in `rust/crates/schema/src/tenant/` freely; do not generate a migration without approval. Room policy uses existing `chat_channels.metadata`.
 
 ## Delegate
 
 - UI → `frontend-platform`
-- New endpoint / executor → `backend-app-api`
+- New endpoint, loop or tool → `backend-rust`
 - Schema → `database`
-- Credits / Stripe packages → `weldsuite-invoicing`
+- Credits and top-ups → `weldsuite-invoicing`

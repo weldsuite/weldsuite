@@ -7,10 +7,10 @@ import type { StepUpHandler } from './step-up.js';
 export interface ClientApiOptions {
   getToken: () => Promise<string | null>;
   /**
-   * API origin. Either one origin for every request, or a function that picks
-   * the origin per request from the full path (`/api/tickets/123`), which is
-   * how clients route modules that moved to their own worker
-   * (`createApiOriginResolver` in @weldsuite/api-modules).
+   * API origin. Either a fixed origin, or a function called on every request
+   * with the full path (`/api/tickets/123`), for a client built before its
+   * origin is known (the platform reads it from `/config.json` at boot, the
+   * mobile apps from the chosen server).
    */
   baseUrl: string | ((path: string) => string);
   apiPrefix?: string;

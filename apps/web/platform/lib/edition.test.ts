@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { API_MODULES, GLOBAL_UNAVAILABLE_FEATURES } from '@weldsuite/api-modules';
 import { APP_CODE_ALIASES, PERMISSION_APPS } from '@weldsuite/permissions';
+import { API_MODULE_IDS } from '@weldsuite/app-api-client/schemas/runtime-config';
 import {
   billingProvider,
   EDITION_FEATURES,
@@ -31,7 +31,7 @@ describe('AI edition flags', () => {
     providers: [{ id: 'mistral', region: 'eu', keySources: ['weldsuite'] }],
   };
 
-  it('has no AI settings on Global or on an install without a provider', () => {
+  it('has no AI settings without a runtime config or on an install without a provider', () => {
     expect(hasAiSettings()).toBe(false);
     setRuntimeConfig(EU_CONFIG);
     expect(getAiConfig()).toBeNull();
@@ -52,12 +52,7 @@ describe('AI edition flags', () => {
   });
 });
 
-describe('WeldBooks Rust-only features', () => {
-  it('hides the annual reports and the KvK deposit on Global', () => {
-    expect(isFeatureAvailable('annual-reports')).toBe(false);
-    expect(isFeatureAvailable('kvk-digipoort')).toBe(false);
-  });
-
+describe('WeldBooks annual reports', () => {
   it('offers annual reports on Rust, and the KvK deposit only with a Digipoort connection', () => {
     setRuntimeConfig({ backend: 'rust', unavailableFeatures: ['kvk-digipoort'] });
     expect(isFeatureAvailable('annual-reports')).toBe(true);
@@ -69,7 +64,7 @@ describe('WeldBooks Rust-only features', () => {
 });
 
 describe('billing provider', () => {
-  it('is Stripe on Global and when the config names none', () => {
+  it('is Stripe without a runtime config and when the config names none', () => {
     expect(billingProvider()).toBe('stripe');
     setRuntimeConfig(EU_CONFIG);
     expect(billingProvider()).toBe('stripe');
@@ -90,17 +85,15 @@ describe('billing provider', () => {
 });
 
 describe('edition flags', () => {
-  it('offers everything on Global (no runtime config) but the Rust-only features', () => {
+  it('offers everything without a runtime config', () => {
     expect(offeredModules()).toBeNull();
     expect(isModuleOffered('crm')).toBe(true);
     expect(isAppOffered('welddesk')).toBe(true);
-    for (const feature of EDITION_FEATURES) {
-      expect(isFeatureAvailable(feature), feature).toBe(!GLOBAL_UNAVAILABLE_FEATURES.includes(feature));
-    }
+    for (const feature of EDITION_FEATURES) expect(isFeatureAvailable(feature), feature).toBe(true);
   });
 
   it('offers everything when the config has no module list', () => {
-    setRuntimeConfig({ backend: 'workers' });
+    setRuntimeConfig({ backend: 'rust' });
     expect(offeredModules()).toBeNull();
     expect(isAppOffered('weldmail')).toBe(true);
     expect(isModuleOffered('agent')).toBe(true);
@@ -166,44 +159,25 @@ describe('edition flags', () => {
     const codes = new Set([
       ...PERMISSION_APPS.map((app) => app.code),
       ...Object.keys(APP_CODE_ALIASES),
-      ...API_MODULES.flatMap((module) => module.apps ?? []),
       'weldagent',
     ]);
     for (const code of codes) {
       if (core.has(code)) expect(moduleForApp(code), code).toBe('core');
       else expect(moduleForApp(code), code).not.toBe('core');
     }
-    for (const module of API_MODULES) {
-      const own = module.apps?.[0];
-      if (own) expect(moduleForApp(own), own).toBe(module.id);
+    for (const id of API_MODULE_IDS) {
+      if (id !== 'core') expect(moduleForApp(`weld${id}`), id).toBe(id);
     }
   });
 
   it('hides the features the backend lists as unavailable', () => {
     setRuntimeConfig(EU_CONFIG);
-    // The EU config lists every feature but the Rust-only ones, which it serves.
     for (const feature of EDITION_FEATURES) {
-      expect(isFeatureAvailable(feature), feature).toBe(GLOBAL_UNAVAILABLE_FEATURES.includes(feature));
+      expect(isFeatureAvailable(feature), feature).toBe(!EU_CONFIG.unavailableFeatures.includes(feature));
     }
     setRuntimeConfig({ backend: 'rust', modules: ['core'], unavailableFeatures: ['billing', 'a-future-feature'] });
     expect(isFeatureAvailable('billing')).toBe(false);
     expect(isFeatureAvailable('credit-top-up')).toBe(true);
-  });
-
-  it('hides on Global only the features built in Rust alone (GLOBAL_UNAVAILABLE_FEATURES)', () => {
-    for (const feature of GLOBAL_UNAVAILABLE_FEATURES) expect(EDITION_FEATURES, feature).toContain(feature);
-    const list = GLOBAL_UNAVAILABLE_FEATURES as string[];
-    list.push('billing');
-    try {
-      setRuntimeConfig(null);
-      expect(isFeatureAvailable('billing')).toBe(false);
-      expect(isFeatureAvailable('credit-top-up')).toBe(true);
-      // A Kubernetes install answers from its own /config.json, not from this list.
-      setRuntimeConfig({ backend: 'rust', unavailableFeatures: [] });
-      expect(isFeatureAvailable('billing')).toBe(true);
-    } finally {
-      list.pop();
-    }
   });
 
   it('hides WeldDocs and WeldSheets without live editing, and offers them with it', () => {
@@ -215,7 +189,7 @@ describe('edition flags', () => {
     expect(isAppOffered('weldflow')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules, unavailableFeatures: ['billing'] });
     for (const app of ['welddocs', 'weldsheets']) expect(isAppOffered(app)).toBe(true);
-    // Global lists no unavailable features: both stay.
+    // Without a runtime config nothing is hidden: both stay.
     setRuntimeConfig(null);
     expect(isModuleOffered('sheets')).toBe(true);
     expect(isAppOffered('welddocs')).toBe(true);
@@ -223,11 +197,6 @@ describe('edition flags', () => {
 });
 
 describe('stash-replenishment', () => {
-  it('is hidden on Global, which has no runtime config', () => {
-    setRuntimeConfig(null);
-    expect(isFeatureAvailable('stash-replenishment')).toBe(false);
-  });
-
   it('is offered by a Rust backend that does not list it as unavailable', () => {
     setRuntimeConfig(EU_CONFIG);
     expect(isFeatureAvailable('stash-replenishment')).toBe(true);
@@ -237,11 +206,6 @@ describe('stash-replenishment', () => {
 });
 
 describe('stash-shipping', () => {
-  it('is hidden on Global, which has no runtime config', () => {
-    setRuntimeConfig(null);
-    expect(isFeatureAvailable('stash-shipping')).toBe(false);
-  });
-
   it('is offered by a Rust backend that does not list it as unavailable', () => {
     setRuntimeConfig(EU_CONFIG);
     expect(isFeatureAvailable('stash-shipping')).toBe(true);

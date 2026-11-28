@@ -3,7 +3,7 @@
  * serve. A direct URL into a module the backend doesn't serve (a bookmark, a
  * notification link, a pasted URL) renders the "not available in this
  * edition" page (`components/edition-unavailable-page.tsx`) instead of a page
- * whose API answers 404. On Global everything is offered and nothing changes.
+ * whose API answers 404. Without a runtime config everything is offered.
  *
  * A page needs the module of its first path segment's app (`/weldcrm/…` →
  * crm, `/settings/apps/weldmail` → mail, see `moduleForApp`), unless a more
@@ -11,7 +11,7 @@
  * App Store, WeldApps, objects, documents) are core and always offered.
  */
 
-import type { ApiModuleId } from '@weldsuite/api-modules';
+import type { ApiModuleId } from '@weldsuite/app-api-client/schemas/runtime-config';
 import { hasAiSettings, isFeatureAvailable, isModuleOffered, moduleForApp, type EditionFeature } from '@/lib/edition';
 import { getRuntimeConfig, publicEnv } from '@/lib/runtime-config';
 import { stripWorkspacePrefix } from '@/lib/workspace-url';
@@ -21,11 +21,12 @@ export interface EditionRequirement {
   modules?: readonly ApiModuleId[];
   feature?: EditionFeature;
   anyFeature?: readonly EditionFeature[];
-  /** The install runs AI with workspace settings (`ai` in `/config.json`): false on Global. */
+  /** The install runs AI with workspace settings (`ai` in `/config.json`). */
   ai?: boolean;
   /**
-   * A public setting a Kubernetes edition must name in `/config.json` (`env`),
-   * such as the origin of a service it may not run. Global always has it.
+   * A public setting the install must name in `/config.json` (`env`), such
+   * as the origin of a service it may not run. Not checked without a runtime
+   * config.
    */
   publicEnv?: `VITE_${string}`;
 }
@@ -94,7 +95,7 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   // The other integrations (CRM sync, Discord, GitHub) need `integration-sync`,
   // which the Kubernetes editions lack.
   ['/settings/integrations/', { feature: 'integration-sync' }],
-  // The old WeldConnect return URLs, which Global still sends: core too.
+  // The old WeldConnect return URLs: core too.
   ['/weldconnect/connectors/callback', {}],
   ['/weldconnect/integrations/callback', {}],
   // The public API (external-api) has no Kubernetes port yet: keys need the
@@ -111,8 +112,8 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   // WeldPanel's settings (usage, exports, API) need the analytics backend,
   // which the Kubernetes editions lack: they serve only the Projects pages.
   ['/settings/apps/weldpanel', { modules: ['panel'], feature: 'panel-analytics' }],
-  // WeldStash's settings and Replenishment exist only on the Rust backend
-  // (ADR OPS-025); its purchase orders keep their create, edit and delete on Global.
+  // WeldStash's settings and Replenishment; without them its purchase orders
+  // keep just their create, edit and delete.
   ['/settings/apps/weldstash', { modules: ['stash'], feature: 'stash-replenishment' }],
   ['/weldstash/replenishment', { modules: ['stash'], feature: 'stash-replenishment' }],
   // Carrier shipping (PostNL, DHL Parcel labels, tracking, returns) exists only on the Rust backend.
@@ -165,7 +166,7 @@ export function isRequirementMet(requirement: EditionRequirement | null): boolea
   return !requirement.modules || requirement.modules.some((module) => isModuleOffered(module));
 }
 
-/** Whether this deployment serves the page at `pathname` (always true on Global). */
+/** Whether this deployment serves the page at `pathname` (always true without a runtime config). */
 export function isRouteOffered(pathname: string): boolean {
   return isRequirementMet(routeRequirement(pathname));
 }

@@ -132,15 +132,6 @@ describe('InvoicesPage in the sales phase', () => {
   });
   afterEach(() => setRuntimeConfig(null));
 
-  it('keeps Global’s columns and has no selection or credit note entry there', () => {
-    setRuntimeConfig(null);
-    renderWithProviders(<InvoicesPage />);
-    expect(screen.getByTestId('column-ids')).toHaveTextContent('number,contact,issueDate,dueDate,total,status');
-    expect(screen.queryByTestId('selected')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'New credit note' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('show-options')).toHaveTextContent('open,overdue,credit_notes');
-  });
-
   it('adds balance due, days overdue, last reminder and views', () => {
     setRuntimeConfig(RUST);
     renderWithProviders(<InvoicesPage />);

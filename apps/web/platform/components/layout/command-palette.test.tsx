@@ -323,12 +323,6 @@ describe('CommandPalette', () => {
       expect(search.calls.filter((call) => call.enabled && call.types?.length)).toEqual([]);
     });
 
-    it('does not ask for them on Global', async () => {
-      installedState.apps = [{ ...WELDCRM }, { ...WELDBOOKS }];
-      await type('paper');
-      expect(search.calls.filter((call) => call.enabled && call.types?.length)).toEqual([]);
-    });
-
     it('opens a bank line in its panel, in place', async () => {
       setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
       installedState.apps = [{ ...WELDCRM }, { ...WELDBOOKS }];

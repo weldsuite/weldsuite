@@ -176,7 +176,7 @@ Modified files: ${JSON.stringify(modified)}
 Steps (run from ${PLATFORM}):
 1. Run \`pnpm exec playwright test --list\` and capture the result. This confirms all specs parse and are discovered without needing a running server. Record the total test count and exit status.
 2. If --list reports parse/TypeScript errors in any of the new/modified files above, OPEN those files and fix the errors (wrong import depth, missing import, type mistakes, bad selectors that don't compile). Re-run --list until it's clean OR you hit an error you can't safely fix (record it).
-3. Do NOT try to actually execute the tests (no dev server / no Clerk creds here) — --list only.
+3. Do NOT try to actually execute the tests (no dev server / no test sign-in here) — --list only.
 4. Optionally run a quick \`pnpm exec tsc --noEmit -p tsconfig.json\` scoped sanity check only if --list passes but you suspect type issues; skip if noisy with pre-existing unrelated errors.
 
 Report listExitOk, totalTestsDiscovered, any remaining parseErrors/typeErrors, the fixes you applied, and a one-line finalStatus.`,

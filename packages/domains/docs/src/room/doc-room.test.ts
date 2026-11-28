@@ -1,17 +1,16 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
-import type { Database } from '@weldsuite/worker-kit';
+import { createPgliteDb } from '@weldsuite/db/testing/pglite';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
 import { docVersions, docs, files } from '@weldsuite/db/schema';
 import { encode, toFrames, type ClientMessage } from '@weldsuite/collab';
 import { DocModel, addComment, applyOp, caretAt, type DocPresence, type Op } from '@weldsuite/docs-engine';
-import type { Env } from '../types';
+import type { DocRoomEnv as Env } from './doc-room';
 import { FakeBucket, FakeSocket, fakeObjectState, type DocServerMessage } from '../test-support/fakes';
 import { createDoc, snapshotKeyFor } from '../services/docs';
 import { versionKeyFor } from '../services/versions';
 import { readSnapshot, writeSnapshot } from './snapshot';
 import { DocRoom, replyCode, type Admission } from './doc-room';
-import { connectToRoom, isConnectRequest } from './connect';
 
 let db: Database;
 /** The room as a host runs it, on this test's database. */
@@ -330,26 +329,6 @@ describe('DocRoom', () => {
     expect(outcome).toEqual({ ok: false, reason: 'missing_version' });
     expect(await db.select().from(docVersions)).toEqual([]);
     expect((await readSnapshot(bucket.asBinding(), meta().snapshotKey))?.revision).toBe(0);
-  });
-});
-
-describe('room socket', () => {
-  const upgrade = (ticket: string) =>
-    new Request(`https://docs-api.test/api/docs/connect?ticket=${ticket}`, { headers: { Upgrade: 'websocket' } });
-
-  it('forwards a well-formed ticket to the room it names', async () => {
-    const fetched: string[] = [];
-    const roomEnv = {
-      DOC_ROOM: {
-        idFromString: (id: string) => ({ id }),
-        get: ({ id }: { id: string }) => ({ fetch: async () => (fetched.push(id), new Response('ok')) }),
-      },
-    } as unknown as Env;
-    expect(isConnectRequest(upgrade('x'))).toBe(true);
-    expect((await connectToRoom(upgrade(`${'b'.repeat(64)}.secret-secret-secret`), roomEnv)).status).toBe(200);
-    expect(fetched).toEqual(['b'.repeat(64)]);
-    expect((await connectToRoom(upgrade('nope'), roomEnv)).status).toBe(401);
-    expect((await connectToRoom(new Request('https://docs-api.test/api/docs/connect'), roomEnv)).status).toBe(426);
   });
 });
 

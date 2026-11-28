@@ -5,8 +5,7 @@
  * (`GET /api/tasks/epics`) and sprint retros (`/api/project-lessons` with a
  * `sprintId`).
  *
- * Served by the Rust backend only (EU and self-hosted); Global hides it
- * (`flow-agile` in `GLOBAL_UNAVAILABLE_FEATURES`). Design: weldsuite-documentation
+ * Served by the Rust backend (the `flow-agile` edition feature). Design: weldsuite-documentation
  * `design/modules/weldflow-agile.md`, ADRs FLOW-022 to FLOW-024.
  *
  * Request bodies are `.strict()`: a field the API does not accept is a 400.

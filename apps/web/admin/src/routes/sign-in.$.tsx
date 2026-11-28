@@ -2,9 +2,8 @@ import { createFileRoute } from '@tanstack/react-router';
 import { SignInScreen } from '@/lib/auth-client';
 
 /**
- * The sign-in page (`lib/auth-client`). On Global it is Clerk's sign-in, on
- * the console itself; the instance has sign-ups off, so only invited staff get
- * in, and Clerk returns to `redirect_url` afterwards.
+ * Where staff land after signing out or a failed sign-in (`lib/auth-client`),
+ * with a button that goes back to the identity provider.
  */
 export const Route = createFileRoute('/sign-in/$')({
   component: SignInPage,

@@ -115,7 +115,7 @@ Guides can embed a screen recording of the **real** platform UI:
 How it works: `/preview/<module>/*` mirrors the module's real routes inside
 `PreviewModeProvider` (`contexts/preview-mode-context.tsx`). There the app sees
 `/<module>/...` paths, navigation stays under `/preview`, and the app-api client
-sends a placeholder token instead of a Clerk session, so every API call goes
+sends a placeholder token instead of a session token, so every API call goes
 out and Playwright answers it from the video's fixtures (`mockApi`). Unmatched
 calls get a 404, which shell widgets tolerate.
 

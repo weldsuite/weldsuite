@@ -1,14 +1,12 @@
 /**
- * A workspace's seat price on Mollie, as a server function (the Kubernetes
- * editions only). The body is in `./seat-price.server.ts`.
+ * A workspace's seat price on Mollie, as a server function. The body is in
+ * `./seat-price.server.ts`.
  */
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
-import { kubernetesOnly } from '@/lib/edition';
 import { setSeatPrice as setSeatPriceOnServer } from './seat-price.server';
 
 const setSeatPriceFn = createServerFn({ method: 'POST' })
-  .middleware([kubernetesOnly])
   .validator(
     z.object({
       workspaceId: z.string().min(1).max(255),

@@ -40,7 +40,7 @@ export function useEditionFeature(feature: MobileEditionFeature): boolean {
   return isFeatureAvailable(feature);
 }
 
-/** Whether the server serves an API module (`@weldsuite/api-modules` id). */
+/** Whether the server serves an API module (an `ApiModuleId` from `@weldsuite/app-api-client/schemas/runtime-config`). */
 export function isModuleAvailable(moduleId: string): boolean {
   const { modules } = getMobileRuntime();
   return modules === 'all' || moduleId === 'core' || modules.has(moduleId);

@@ -87,6 +87,10 @@ vi.mock('@/hooks/queries/use-weldbooks-banking-queries', () => ({
   useMatchBankLineToPayment: () => ({ mutate: matchPaymentMutate, isPending: false, error: null }),
   useMatchBankLineToDeposit: () => ({ mutate: matchDepositMutate, isPending: false, error: null }),
 }));
+// Matching documents either way round (books-bank-links) has its own tests.
+vi.mock('../components/match-documents-panel', () => ({
+  MatchDocumentsPanel: ({ lineId }: { lineId: string }) => <div data-testid="match-documents" data-line-id={lineId} />,
+}));
 
 import BankReconciliationPage from './page';
 import { panelOpen } from '@/components/objects/_shared/object-panel-test-mock';

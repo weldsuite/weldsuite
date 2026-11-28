@@ -13,10 +13,8 @@
     "lint": "echo 'no lint configured'"
   },
   "dependencies": {
-    "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/forms-engine": "workspace:*",
-    "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {

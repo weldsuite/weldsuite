@@ -1,7 +1,7 @@
 import { createMiddleware, createStart } from '@tanstack/react-start'
 
 /**
- * Security headers on every response the Worker renders. The signing page
+ * Security headers on every response the portal renders. The signing page
  * must never be framed (a hidden "Sign" button is the classic clickjacking
  * target), and no response may leak the link in a Referer.
  */

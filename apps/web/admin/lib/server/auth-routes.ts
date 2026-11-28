@@ -1,8 +1,8 @@
 import '@tanstack/react-start/server-only';
 
 /**
- * The three sign-in endpoints of the Kubernetes build (`src/routes/auth/*`),
- * as plain fetch handlers. Global signs in with Clerk and answers 404 here.
+ * The console's three sign-in endpoints (`src/routes/auth/*`), as plain
+ * fetch handlers.
  *
  *   GET  /auth/sign-in?redirect_url=/path   off to the identity provider
  *   GET  /auth/callback                     back from it, with a session
@@ -95,7 +95,7 @@ export async function handleSignOut(request: Request): Promise<Response> {
   return redirect(await signOutLocation(settings), [clear], 303);
 }
 
-/** The session cookie of a request, for `identity.node.ts`. */
+/** The session cookie of a request, for `identity.ts`. */
 export function sessionCookieOf(request: Request): string | undefined {
   return readCookie(request.headers.get('cookie'), SESSION_COOKIE);
 }

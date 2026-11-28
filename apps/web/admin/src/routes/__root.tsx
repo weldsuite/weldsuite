@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { HeadContent, Outlet, ScriptOnce, Scripts, createRootRoute, redirect } from '@tanstack/react-router';
-import { AuthProvider, signInRedirect } from '@/lib/auth-client';
+import { signInRedirect } from '@/lib/auth-client';
 import { Toaster } from 'sonner';
 import { ThemeProvider, themeBootstrapScript } from '@/components/shell/theme';
 import { getAdminSession } from '@/lib/session';
@@ -10,7 +10,7 @@ export const Route = createRootRoute({
   // Every page needs a session (what `middleware.ts` did); who may see
   // the console is decided by the `_admin` layout below it.
   beforeLoad: async ({ location }) => {
-    // The sign-in page itself, and the Kubernetes build's sign-in endpoints.
+    // The sign-in page itself, and the sign-in endpoints.
     if (location.pathname === '/sign-in' || location.pathname.startsWith('/sign-in/') || location.pathname.startsWith('/auth/')) {
       return { identity: null };
     }
@@ -43,12 +43,10 @@ function RootDocument({ children }: Readonly<{ children: React.ReactNode }>) {
         <HeadContent />
       </head>
       <body>
-        <AuthProvider>
-          <ThemeProvider>
-            {children}
-            <Toaster />
-          </ThemeProvider>
-        </AuthProvider>
+        <ThemeProvider>
+          {children}
+          <Toaster />
+        </ThemeProvider>
         <Scripts />
       </body>
     </html>

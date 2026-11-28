@@ -140,7 +140,7 @@ server.listen(port, HOST, () => {
 
 // Kubernetes sends SIGTERM, then waits terminationGracePeriodSeconds: finish
 // the requests in flight, take no new ones, then close the database clients
-// (lib/server/database.node.ts leaves that step under this symbol once the
+// (lib/server/database.ts leaves that step under this symbol once the
 // first request has loaded it).
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.on(signal, () => {

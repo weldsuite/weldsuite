@@ -2,22 +2,20 @@
  * Runtime configuration: what this deployment offers, read once before the
  * app boots (P4 work package 4.F2, ADR SEC-012).
  *
- * Global (Cloudflare Pages) bakes its settings in as `VITE_*` at build time
- * and never asks for `/config.json`. The Kubernetes editions (EU, self-hosted)
- * describe the deployment at `GET /config.json`, which the Rust backend
- * answers (`config_json` in `rust/bins/weldsuite/src/server.rs`). Every
- * reader goes through this module: runtime config first, the build-time
- * `VITE_*` value as the fallback.
+ * The deployments (EU, self-hosted) describe themselves at `GET /config.json`,
+ * which the Rust backend answers (`config_json` in
+ * `rust/bins/weldsuite/src/server.rs`). Every reader goes through this
+ * module: runtime config first, the build-time `VITE_*` value as the
+ * fallback (a local `pnpm dev` without the switch below).
  *
  * ## The build-time switch: `VITE_RUNTIME_CONFIG`
  *
- * Unset or `off` (Global; the Pages deploys `weldsuite-test` and `weldsuite`
- * must not set it): no request, the build-time values only, and no extra
- * round trip before the app loads. `on` (the Kubernetes builds):
- * `/config.json` is fetched before the app is imported, with the fallbacks
- * below. The switch also picks the boot file (`src/boot/mode.ts`). The
- * Kubernetes build is the `spa` stage of `rust/Dockerfile`: the Rust image
- * carries it and serves it on the API's origin (`rust/bins/weldsuite/src/spa.rs`).
+ * `on` (the Kubernetes builds): `/config.json` is fetched before the app is
+ * imported, with the fallbacks below. Unset or `off`: no request, the
+ * build-time values only. The switch also picks the boot file
+ * (`src/boot/mode.ts`). The Kubernetes build is the `spa` stage of
+ * `rust/Dockerfile`: the Rust image carries it and serves it on the API's
+ * origin (`rust/bins/weldsuite/src/spa.rs`).
  *
  * ## The `/config.json` contract
  *
@@ -26,17 +24,17 @@
  *
  * ```jsonc
  * {
- *   // Which backend serves this deployment. "rust" (Kubernetes) sends every
- *   // API path to `apiBaseUrl`: the one binary serves all ported modules.
- *   // "workers" is the Cloudflare stack (Global).
+ *   // Which backend serves this deployment: "rust". Informational: one
+ *   // origin serves every module.
  *   "backend": "rust",
  *   // Backend version, informational.
  *   "version": "0.1.0",
- *   // Which Kubernetes edition this is: "eu" or "self-hosted". Informational.
+ *   // Which edition this is: "eu" or "self-hosted". Informational.
  *   "edition": "eu",
- *   // `ApiModuleId`s the backend serves (`@weldsuite/api-modules`): "core"
- *   // plus every module ported to Rust. The apps and features of any other
- *   // module are hidden (4.F3, see `lib/edition.ts`). Absent = every module.
+ *   // `ApiModuleId`s the backend serves (`API_MODULE_IDS` in
+ *   // `@weldsuite/app-api-client/schemas/runtime-config`): "core" plus the
+ *   // `weld*` modules. The apps and features of any other module are hidden
+ *   // (4.F3, see `lib/edition.ts`). Absent = every module.
  *   "modules": ["core", "know", "sign"],
  *   // Features the backend lacks inside the modules it serves
  *   // (`EditionFeature` in `lib/edition.ts`); the platform hides them.
@@ -44,14 +42,14 @@
  *   "unavailableFeatures": ["billing", "sso-connections"],
  *   // Who bills plans (ADR BILL-014): "mollie" when the deployment has plan
  *   // billing on Mollie (`billing` is then not in `unavailableFeatures`).
- *   // Absent = Stripe, as on Global (`billingProvider()` in `lib/edition.ts`).
+ *   // Absent = Stripe (`billingProvider()` in `lib/edition.ts`).
  *   // `reach-billing` is listed in `unavailableFeatures` whenever WeldReach
  *   // inbox billing is not on Mollie.
  *   "billingProvider": "mollie",
- *   // Origin of the core API (what Global calls app-api). Default for
- *   // "backend": "rust" is the SPA's own origin.
+ *   // Origin of the API, which serves every path of every module. Default:
+ *   // the SPA's own origin (`lib/api/public-env.ts`).
  *   "apiBaseUrl": "https://weldsuite.example.eu",
- *   // Realtime WebSocket URL (`…/ws`).
+ *   // Realtime WebSocket URL (`…/ws`). Absent = realtime is off.
  *   "realtimeUrl": "wss://weldsuite.example.eu/ws",
  *   // Which client joins WeldMeet rooms: "livekit" or "realtimekit" (absent
  *   // = RealtimeKit, Global's), and the LiveKit server it connects to. The
@@ -153,7 +151,7 @@ const LOAD_TIMEOUT_MS = 3000;
 
 let current: RuntimeConfig | null = null;
 
-/** The loaded runtime config, or null when the deployment serves none (Global). */
+/** The loaded runtime config, or null when there is none (the switch is off, or it failed to load). */
 export function getRuntimeConfig(): RuntimeConfig | null {
   return current;
 }
@@ -243,15 +241,10 @@ export function isRuntimeEnv(key: `VITE_${string}`): boolean {
   return Boolean(runtimeValue(key));
 }
 
-/** The deployment runs the Rust backend (Kubernetes): one origin serves every module. */
-export function isRustBackend(): boolean {
-  return current?.backend === 'rust';
-}
-
 /**
  * WeldDesk's helpdesk widget origin when the deployment serves its own
  * (`/config.json`'s `helpdeskWidgetUrl`, e.g. `https://widget.weldsuite.eu`).
- * Undefined on Global, where the SDK's default host is the right one.
+ * Undefined otherwise, and the SDK's default host applies.
  */
 export function getHelpdeskWidgetUrl(): string | undefined {
   return current?.helpdeskWidgetUrl;

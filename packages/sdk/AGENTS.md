@@ -10,7 +10,7 @@ licences (MIT) so they can be embedded without AGPL obligations. Read the root
 | `cli` (`@weldsuite/cli`) | The `weld` command: `weld app init/create/deploy/publish`, `weld skill install`, `weld storefront deploy` (a merchant-built shop to WeldCommerce's hosting, `/storefront-deploy/v1`) | `cli/src/manifest.ts` is a copy of the `weldapp.json` schema in `@weldsuite/app-api-client/schemas/user-apps` |
 | `helpdesk-widget-sdk` | Embeds the WeldDesk chat widget | `apps/web/helpdesk-widget/test-local.html` mirrors `src/core/IframeManager.ts` |
 | `forms-embed` | Embeds WeldForms forms (inline, popup, slider, …) | The forms-portal embed view and `apps/web/platform/app/weldforms/share/embed-snippet.ts` (same attribute names) |
-| `panel-sdk` | WeldPanel analytics for websites and web apps | `apps/workers/panel-ingest` |
+| `panel-sdk` | WeldPanel analytics for websites and web apps | The collector in `rust/modules/panel` |
 | `cursor-plugin` | Connects Cursor to WeldFlow tasks | |
 | `commerce-sdk` (`@weldsuite/commerce-sdk`) | Client for the WeldCommerce storefront API (`/storefront/v1`): catalogue, carts, checkout, Mollie payments, shoppers, B2B | The Rust storefront routes (`rust/modules/commerce/src/storefront/`, `rust/crates/commerce-domain`) and the starter shop `apps/web/commerce-starter`; not on npm yet |
 
@@ -36,16 +36,15 @@ in `apps/hosted-apps/`.
   `@weldsuite/app-api-client/schemas/user-apps`, copied into the CLI. It
   declares scopes, storage collections and `agentTools`, which the MCP server
   exposes automatically.
-- **APIs**: management in `apps/workers/app-api/src/routes/user-apps/` (member
-  session); the CLI surface in
-  `apps/workers/external-api/src/routes/v1/user-apps.ts` (`wsk_` keys, scope
-  `user-apps:manage`); the data plane at external-api `/v1/app-storage`, with
-  OAuth `client_credentials` at `/v1/oauth/token`.
+- **APIs**: management in `rust/modules/core-apps` (member session); the CLI
+  surface in `rust/modules/external-api/src/user_apps.rs` (`wsk_` keys, scope
+  `user-apps:manage`); the data plane at `/v1/app-storage`
+  (`app_storage.rs`), with OAuth `client_credentials` at `/v1/oauth/token`.
 - **Bridge protocol 2: no token in the iframe.** The host makes the app's API
   calls (the `fetch` bridge method) with the member's session. Community apps
-  go through app-api `/api/user-apps/code/:code/gateway/v1/*`, which swaps the
-  session for a server-cached `wsat_` token and forwards to external-api over
-  the `EXTERNAL_API` binding, where scopes are enforced.
+  go through `/api/user-apps/code/:code/gateway/v1/*` (`rust/modules/core-apps`),
+  which swaps the session for a server-cached `wsat_` token and forwards to
+  the public API, where scopes are enforced.
 - **Platform UI**: host and bridge in `apps/web/platform/app/weldapps/host/`
   (frames stay alive in the shell's frame layer, positioned over the page slot
   by `frame-store.ts`), developer pages in `app/weldapps/manage/`, the store

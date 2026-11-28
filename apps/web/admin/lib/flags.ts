@@ -1,10 +1,9 @@
 /**
- * Feature flags on the Kubernetes editions: the catalog in
+ * Feature flags: the catalog in
  * `@weldsuite/feature-flags` and the values in master
  * `feature_flag_overrides`, which the Rust server reads every 30 seconds
  * (`FEATURE_FLAGS=master-db`). A workspace's row wins over the row for
  * everyone (`workspace_id` null), which wins over the catalog default.
- * Global evaluates flags in Cloudflare Flagship instead.
  *
  * Pure: the console's screen and actions and their tests share it.
  */

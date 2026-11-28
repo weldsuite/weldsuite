@@ -51,7 +51,7 @@ Root cause hypothesis: client mutations don't trigger immediate cache invalidati
 | `task_momy6w7owxs5hlph` | mini-sidebar notification counts updaten pas na refresh | Platform |
 | `task_mp4jz339w5bjfr9w` | WeldChat notifications komen niet in app-icon mini-sidebar | WeldChat |
 
-**Specialist chain:** `frontend-platform` + `realtime-worker` review.
+**Specialist chain:** `frontend-platform` + `backend-rust` review (realtime gateway, `rust/crates/realtime`).
 
 ---
 
@@ -79,7 +79,7 @@ Root cause hypothesis: video track state isn't restored when toggled / when rout
 | `task_mp749neib2vtrurr` | channel names niet getoond in activity page |
 | `task_mox1x0e7e6mnssnq` | "last activity" datum altijd "--" |
 
-**Specialist chain:** `backend-app-api` (joins) + `frontend-platform`.
+**Specialist chain:** `backend-rust` (joins) + `frontend-platform`.
 
 ---
 
@@ -105,7 +105,7 @@ Root cause hypothesis: video track state isn't restored when toggled / when rout
 | `task_mp2qp8y55e8445ej` | teammember invite verschijnt in notifications panel |
 | `task_mp08c3udi2cnmufn` 🟧 | notifications popups in weldsuite |
 
-**Specialist chain:** `weldagent-ai` (events?) + `backend-app-api` + `frontend-platform`.
+**Specialist chain:** `weldagent-ai` (events?) + `backend-rust` + `frontend-platform`.
 
 ---
 
@@ -118,7 +118,7 @@ Root cause hypothesis: video track state isn't restored when toggled / when rout
 
 > Already partially in progress, your `git status` shows `packages/core/db/src/schema/crm-templates.ts` and matching routes uncommitted. **This is technically the active task already**; finish/commit before starting anything else.
 
-**Specialist chain:** `database` (approval) + `backend-app-api` + `frontend-platform`.
+**Specialist chain:** `database` (approval) + `backend-rust` + `frontend-platform`.
 
 ---
 
@@ -164,7 +164,7 @@ Root cause hypothesis: video track state isn't restored when toggled / when rout
 | `task_moq8vyybretnwpww` | agents in public channels |
 | `task_mo7j5mrnl9qr47sc` | projects/customers/tasks koppelen aan channels |
 
-**Specialist chain:** `database` (approval) + `backend-app-api` + `weldagent-ai`.
+**Specialist chain:** `database` (approval) + `backend-rust` + `weldagent-ai`.
 
 ---
 

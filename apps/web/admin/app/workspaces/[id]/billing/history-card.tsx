@@ -1,11 +1,8 @@
 'use client';
 
-import { useState } from 'react';
 import { ExternalLink, FileText } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
-import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
-import { Input } from '@weldsuite/ui/components/input';
 import {
   Table,
   TableBody,
@@ -14,12 +11,9 @@ import {
   TableHeader,
   TableRow,
 } from '@weldsuite/ui/components/table';
-import { ActionDialog, Field } from '@/components/billing/action-dialog';
-import { refundPayment, voidInvoice } from '@/actions/billing';
-import { adminCopy, fill } from '@/lib/i18n';
+import { adminCopy } from '@/lib/i18n';
 import { formatCents, formatDay } from '@/lib/billing-format';
 import type { InvoiceRow, PaymentRow } from '@/lib/billing-types';
-import { GLOBAL } from '@/lib/edition';
 import { mollieBillingCopy } from '@/lib/mollie-billing-copy';
 import { isAbsoluteUrl, isStripeRow, paymentKindLabel } from '@/lib/mollie-billing';
 
@@ -39,15 +33,12 @@ const PAYMENT_TONE: Record<string, 'success' | 'warning' | 'secondary' | 'destru
   canceled: 'secondary',
 };
 
-export function HistoryCard({
-  workspaceId,
-  invoices,
-  payments,
-  canWrite,
-}: Readonly<{ workspaceId: string; invoices: InvoiceRow[]; payments: PaymentRow[]; canWrite: boolean }>) {
+/**
+ * A workspace's invoices and payments. Read-only: refunds run from the CLI.
+ * Stripe rows (from before Global moved into this install) keep their links.
+ */
+export function HistoryCard({ invoices, payments }: Readonly<{ invoices: InvoiceRow[]; payments: PaymentRow[] }>) {
   const t = adminCopy();
-  const [voiding, setVoiding] = useState<InvoiceRow | null>(null);
-  const [refunding, setRefunding] = useState<PaymentRow | null>(null);
 
   return (
     <Card className="py-4">
@@ -70,7 +61,6 @@ export function HistoryCard({
                     <TableHead className="w-28 text-right">{t.invoices.columns.due}</TableHead>
                     <TableHead className="w-28 text-right">{t.invoices.columns.paid}</TableHead>
                     <TableHead className="w-48">{t.invoices.columns.links}</TableHead>
-                    {canWrite && <TableHead className="w-20" />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -90,15 +80,6 @@ export function HistoryCard({
                         </TableCell>
                       ) : (
                         <ProviderInvoiceCell invoice={invoice} />
-                      )}
-                      {canWrite && (
-                        <TableCell className="text-right">
-                          {invoice.status === 'open' && isStripeRow(invoice) && (
-                            <Button size="sm" variant="ghost" onClick={() => setVoiding(invoice)}>
-                              {t.invoices.void}
-                            </Button>
-                          )}
-                        </TableCell>
                       )}
                     </TableRow>
                   ))}
@@ -122,7 +103,6 @@ export function HistoryCard({
                     <TableHead className="w-28">{t.payments.columns.status}</TableHead>
                     <TableHead>{t.payments.columns.method}</TableHead>
                     <TableHead className="w-28 text-right">{t.payments.columns.refunded}</TableHead>
-                    {canWrite && <TableHead className="w-24" />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -142,87 +122,18 @@ export function HistoryCard({
                       <TableCell className="text-right tabular-nums">
                         {payment.refundedAmount > 0 ? formatCents(payment.refundedAmount, payment.currency) : '—'}
                       </TableCell>
-                      {canWrite && (
-                        <TableCell className="text-right">
-                          {payment.status === 'succeeded' && payment.refundedAmount < payment.amount && isStripeRow(payment) && (
-                            <Button size="sm" variant="ghost" onClick={() => setRefunding(payment)}>
-                              {t.payments.refund}
-                            </Button>
-                          )}
-                        </TableCell>
-                      )}
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </div>
           )}
-          {/* Refunds and voids run through the billing worker, which only Global has. */}
-          {!GLOBAL && payments.some((payment) => !isStripeRow(payment)) && (
+          {payments.some((payment) => !isStripeRow(payment)) && (
             <p className="text-xs text-muted-foreground">{mollieBillingCopy().history.refundHint}</p>
           )}
         </section>
       </CardContent>
-
-      {voiding && (
-        <ActionDialog
-          destructive
-          title={fill(t.invoices.voidTitle, { number: voiding.number ?? voiding.id })}
-          description={t.invoices.voidDescription}
-          submitLabel={t.invoices.voidSubmit}
-          successMessage={t.invoices.voidSuccess}
-          onClose={() => setVoiding(null)}
-          onSubmit={(reason, requestId) => voidInvoice(workspaceId, voiding.id, { reason }, requestId)}
-        />
-      )}
-      {refunding && <RefundDialog workspaceId={workspaceId} payment={refunding} onClose={() => setRefunding(null)} />}
     </Card>
-  );
-}
-
-function RefundDialog({
-  workspaceId,
-  payment,
-  onClose,
-}: Readonly<{ workspaceId: string; payment: PaymentRow; onClose: () => void }>) {
-  const t = adminCopy();
-  const refundableCents = payment.amount - payment.refundedAmount;
-  const [value, setValue] = useState((refundableCents / 100).toFixed(2));
-  const cents = /^\d+([.,]\d{1,2})?$/.test(value.trim())
-    ? Math.round(Number.parseFloat(value.trim().replace(',', '.')) * 100)
-    : null;
-  const valid = cents !== null && cents >= 1 && cents <= refundableCents;
-
-  return (
-    <ActionDialog
-      destructive
-      title={t.payments.refundTitle}
-      description={fill(t.payments.refundDescription, {
-        amount: formatCents(payment.amount, payment.currency),
-        date: formatDay(payment.createdAt),
-      })}
-      submitLabel={t.payments.refundSubmit}
-      invalidMessage={valid ? null : t.payments.refundInvalid}
-      onClose={onClose}
-      onSubmit={(reason, requestId) =>
-        refundPayment(
-          workspaceId,
-          payment.id,
-          { ...(cents === refundableCents ? {} : { amountCents: cents ?? undefined }), reason },
-          requestId,
-        )
-      }
-      successMessage={(data) => fill(t.payments.refundSuccess, { amount: formatCents(data.amountCents, data.currency) })}
-    >
-      <Field
-        label={fill(t.payments.refundAmount, { currency: payment.currency.toUpperCase() })}
-        htmlFor="refund-amount"
-        hint={fill(t.payments.refundable, { amount: formatCents(refundableCents, payment.currency) })}
-      >
-        <Input id="refund-amount" inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} />
-      </Field>
-      <p className="text-xs text-muted-foreground">{t.payments.creditTopupNote}</p>
-    </ActionDialog>
   );
 }
 

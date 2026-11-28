@@ -7,7 +7,6 @@ import { nl } from '@weldsuite/i18n/locales/nl';
 import type { TodoItem, TodoKind, TodoSummary } from '@/lib/api/domains/weldbooks';
 
 const env = vi.hoisted(() => ({
-  available: true,
   locale: 'en' as 'en' | 'nl',
   summary: undefined as unknown,
   summaryError: false,
@@ -27,6 +26,12 @@ vi.mock('@weldsuite/permissions/react', () => ({
 }));
 vi.mock('@/hooks/queries/use-weldbooks-time-billing-queries', () => ({
   isTimeBillingAvailable: () => env.timeBilling,
+}));
+// "Send N reminders" on the overdue card is page.sales.test.tsx's.
+vi.mock('@/hooks/queries/use-weldbooks-sales-queries', () => ({
+  isRemindersAvailable: () => false,
+  useReminderDueItems: () => ({ data: [] }),
+  useRemindBulk: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock('@/lib/i18n/provider', async () => {
@@ -61,7 +66,7 @@ vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
 }));
 vi.mock('@/hooks/queries/use-weldbooks-todo-queries', () => ({
   TODO_TOP_LIMIT: 3,
-  isTodoAvailable: () => env.available,
+  isTodoAvailable: () => true,
   useTodoSummary: () => ({
     data: env.summary,
     isError: env.summaryError,
@@ -105,7 +110,6 @@ function summary(kinds: TodoSummary['kinds']): TodoSummary {
 const card = (kind: TodoKind) => screen.getByTestId(`todo-card-${kind}`);
 
 beforeEach(() => {
-  env.available = true;
   env.timeBilling = false;
   env.canReadTime = false;
   env.locale = 'en';
@@ -169,12 +173,7 @@ describe('ToProcessPage: the way to Unbilled time', () => {
     expect(screen.getByRole('link', { name: en.weldbooksContactPage.menu.unbilledTime })).toHaveAttribute('href', '/weldbooks/time/unbilled');
   });
 
-  it('has no such link on Global, or for a member who may not read time', () => {
-    env.timeBilling = false;
-    env.canReadTime = true;
-    const { unmount } = render(<ToProcessPage />);
-    expect(screen.queryByRole('link', { name: en.weldbooksContactPage.menu.unbilledTime })).not.toBeInTheDocument();
-    unmount();
+  it('has no such link for a member who may not read time', () => {
     env.timeBilling = true;
     env.canReadTime = false;
     render(<ToProcessPage />);
@@ -205,7 +204,7 @@ describe('ToProcessPage', () => {
 
   it('puts the primary action of each card under it', () => {
     render(<ToProcessPage />);
-    expect(within(card('bank_lines')).getByRole('link', { name: 'Process 12 lines' })).toHaveAttribute('href', '/weldbooks/banking/reconciliation');
+    expect(within(card('bank_lines')).getByRole('link', { name: 'Process 12 lines' })).toHaveAttribute('href', '/weldbooks/banking/process');
     expect(within(card('documents')).getByRole('link', { name: 'Check 5 documents' })).toHaveAttribute('href', '/weldbooks/documents');
     expect(within(card('invoices_overdue')).getByRole('link', { name: 'View overdue invoices' })).toHaveAttribute(
       'href',
@@ -287,13 +286,13 @@ describe('ToProcessPage', () => {
     expect(env.panel.sync).toHaveBeenCalledWith('/weldbooks/to-process');
   });
 
-  it('opens an inbox document on the documents page with ?document=', async () => {
+  it('opens an inbox document on its review screen', async () => {
     const user = userEvent.setup();
     render(<ToProcessPage />);
     const chip = within(card('documents')).getByRole('link', { name: /receipt\.pdf/ });
-    expect(chip.getAttribute('href')).toContain('/weldbooks/documents?document=doc_1');
+    expect(chip.getAttribute('href')).toContain('/weldbooks/documents/doc_1/review');
     await user.click(chip);
-    expect(env.push).toHaveBeenCalledWith('/weldbooks/documents?document=doc_1');
+    expect(env.push).toHaveBeenCalledWith('/weldbooks/documents/doc_1/review');
     expect(env.panel.open).not.toHaveBeenCalled();
   });
 
@@ -362,14 +361,6 @@ describe('ToProcessPage', () => {
     await user.click(screen.getByRole('button', { name: /retry|try again/i }));
     expect(env.refetch).toHaveBeenCalled();
   });
-
-  it('shows the not-available page instead of the list on an edition without books-todo, such as Global', () => {
-    env.available = false;
-    render(<ToProcessPage />);
-    expect(screen.getByText(en.common.edition.unavailableTitle)).toBeInTheDocument();
-    expect(screen.queryAllByTestId(/^todo-card-/)).toHaveLength(0);
-    expect(screen.queryByRole('heading', { name: en.weldbooksConnected.todo.title })).not.toBeInTheDocument();
-  });
 });
 
 describe('missing receipts', () => {
@@ -392,7 +383,7 @@ describe('missing receipts', () => {
     expect(within(missing).getByTestId('todo-count')).toHaveTextContent('12');
     expect(within(missing).getByTestId('todo-kind-summary')).toHaveTextContent('12 expenses without a receipt');
     expect(within(missing).getByText('No receipt yet')).toBeInTheDocument();
-    expect(within(missing).getByRole('link', { name: 'Add receipts' })).toHaveAttribute('href', '/weldbooks/banking/transactions');
+    expect(within(missing).getByRole('link', { name: 'Add receipts' })).toHaveAttribute('href', '/weldbooks/banking/process');
   });
 
   it('opens an item as its bank line', async () => {

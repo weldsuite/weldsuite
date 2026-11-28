@@ -7,7 +7,7 @@ export type { OutboundInspect };
 
 /**
  * Server-only client for mail-api's internal outbound-guard endpoints
- * (`/internal/outbound/*`), modelled on `billing-worker.ts`. The counters live
+ * (`/internal/outbound/*`). The counters live
  * in mail-api's `OutboundLedger` Durable Objects, so the live view (usage, risk,
  * shadow-mode denials, the platform breaker) and the "reload the policy now" and
  * "review this workspace" calls go through it. This console holds the shared

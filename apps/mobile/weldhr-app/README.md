@@ -49,7 +49,7 @@ Tests (Jest is hoisted to the repo root on some machines; run it from there if `
 cd apps/mobile/weldhr-app && node ../../../node_modules/jest/bin/jest.js
 ```
 
-Fill in `apps/mobile/weldhr-app/.env` (`EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`, `EXPO_PUBLIC_APP_API_URL`, `EXPO_PUBLIC_API_MODULES=all`).
+Fill in `apps/mobile/weldhr-app/.env` (`EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`, `EXPO_PUBLIC_APP_API_URL`).
 
 ## Before the first build
 

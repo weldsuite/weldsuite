@@ -1,10 +1,9 @@
 import { z } from 'zod';
 
 /**
- * What a plan save may contain: the billing worker's rules
- * (`apps/workers/billing-worker/src/routes/admin.ts`, `planFields`), for the
- * Kubernetes editions, where the console writes `plans` itself (no Stripe).
- * Keep the two in step.
+ * What a plan save may contain, for `lib/plans-direct.ts`: the console writes
+ * `plans` itself (no Stripe), with the rules Global's billing worker had
+ * (`planFields`).
  */
 
 const money = z

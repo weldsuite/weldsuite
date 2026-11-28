@@ -64,12 +64,6 @@ describe('SupplierPanel Products tab', () => {
     expect(screen.getByTestId('tab-overview')).toBeInTheDocument();
   });
 
-  it('is only the details tab on Global', () => {
-    render(<SupplierPanel {...props} />);
-    expect(screen.queryByTestId('tab-products')).not.toBeInTheDocument();
-    expect(screen.getByTestId('tab-overview')).toBeInTheDocument();
-  });
-
   it('is only the details tab without the permission to read suppliers', () => {
     offerReplenishment();
     env.permissions = { can: () => false };

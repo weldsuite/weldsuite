@@ -5,7 +5,7 @@
 
 import { FrameAssembler, decodeServer, type ServerMessage } from '@weldsuite/sheets-engine';
 import type { Admission, ExportRequest, ExportedFile, RoomMeta, SheetRoom } from '../room/sheet-room';
-import type { Env } from '../types';
+import type { SheetRoomEnv as Env } from '../room/sheet-room';
 
 /**
  * A concrete room class: the worker's (`src/room.ts`), which opens the

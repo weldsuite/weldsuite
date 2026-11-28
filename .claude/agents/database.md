@@ -19,11 +19,12 @@ You are the Database specialist for WeldSuite.
 - `rust/crates/migrations` and `weldsuite migrate`, which apply them.
 - Cross-cutting data concerns: encryption, tenant scoping, indexing, performance.
 
-`packages/core/db/src/schema/` (Drizzle) is frozen: the TypeScript workers and a
-few TypeScript apps still read it, but it no longer changes and nothing is
-generated from it. The personal database (`packages/core/db/drizzle/personal-migrations`,
-`pnpm --filter @weldsuite/db db:generate:personal`) is still Drizzle's until
-personal-api goes.
+`packages/core/db/src/schema/` (Drizzle) is frozen: a few TypeScript apps (the
+admin console, collab-rooms) still read it, but it no longer changes and nothing
+is generated from it. The personal database (`packages/core/db/src/schema/personal`,
+migrations in `packages/core/db/drizzle/personal-migrations`,
+`pnpm --filter @weldsuite/db db:generate:personal`) is still Drizzle's; the Rust
+`personal` module reads it and `weldsuite migrate --personal` applies it.
 
 ## Multi-tenant model, memorize this
 

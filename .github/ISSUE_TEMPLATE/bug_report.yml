@@ -34,12 +34,11 @@ body:
       description: Which part of the codebase?
       options:
         - Platform SPA (apps/web/platform)
-        - Backend (apps/workers/app-api)
-        - Other worker (apps/workers/*)
-        - Next.js app (sites / help center / portal / admin)
+        - Backend (rust/)
+        - Portal or admin console (apps/web/*)
         - Mobile app (apps/mobile/*)
         - Shared package (packages/*)
-        - Database / schema (packages/core/db)
+        - Database / schema (rust/crates/schema)
         - Not sure
     validations:
       required: true

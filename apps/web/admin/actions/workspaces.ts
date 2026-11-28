@@ -9,7 +9,7 @@ import {
   cancelWorkspaceDeletion as cancelWorkspaceDeletionOnServer,
 } from './workspaces.server';
 
-export type { ActionResult, JsonValue } from './workspaces.server';
+export type { ActionResult } from './workspaces.server';
 
 type Server = typeof import('./workspaces.server');
 

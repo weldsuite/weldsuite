@@ -1,6 +1,5 @@
-// Client-safe helpers for plan billing on Mollie (Kubernetes editions, ADR
-// BILL-014) and for the billing history rows it writes next to Global's
-// Stripe mirror.
+// Client-safe helpers for plan billing on Mollie (ADR BILL-014) and for the
+// billing history rows it writes next to the Stripe rows Global left.
 
 import type { MollieBillingAccount } from './billing-types';
 import { formatCents, formatDay } from './billing-format';
@@ -133,8 +132,9 @@ export function paymentKindLabel(copy: MollieBillingCopy, kind: string | null): 
 }
 
 /**
- * A history row Stripe holds (Global). Its refund and void run through the
- * billing worker; any other provider's row (Mollie, WeldBooks) can't.
+ * A history row Stripe holds, from before Global moved into this install. It
+ * keeps its Stripe links; any other provider's row (Mollie, WeldBooks) shows
+ * where it came from instead.
  */
 export function isStripeRow(row: { provider: string | null | undefined }): boolean {
   return (row.provider ?? 'stripe') === 'stripe';

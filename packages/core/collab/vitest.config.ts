@@ -6,7 +6,7 @@ export default defineConfig({
   resolve: {
     alias: {
       // CollabRoom (durable-room.ts) extends the Workers-only `DurableObject`, which doesn't resolve under node.
-      'cloudflare:workers': path.resolve(__dirname, '../worker-kit/src/testing/cloudflare-workers-stub.ts'),
+      'cloudflare:workers': path.resolve(__dirname, 'src/testing/cloudflare-workers-stub.ts'),
     },
   },
 });

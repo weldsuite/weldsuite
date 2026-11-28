@@ -55,7 +55,6 @@ const { resetServerSwitchRegistry, onLeaveServer } = await import('./runtime/swi
 const APP = { code: 'weldmail', name: 'WeldMail', requiredModules: ['mail' as const] };
 const BUILD = {
   appApiUrl: 'https://app-api-test.weldsuite.org',
-  apiModules: 'all',
   realtimeUrl: 'wss://realtime-test.weldsuite.org',
   clerkPublishableKey: 'pk_test_abc',
   euServerUrl: 'https://app.test.weldsuite.eu',
@@ -90,7 +89,6 @@ function jsonResponse(body: unknown): Response {
 
 beforeEach(() => {
   storage.clear();
-  api.resetApiOrigins();
   auth.setAuthImplementation(null);
   resetServerSwitchRegistry();
   setMobileRuntime(globalRuntime);
@@ -104,13 +102,11 @@ afterEach(() => {
 describe('api', () => {
   it('reads every host from the runtime', () => {
     expect(api.apiOrigin()).toBe('https://app-api-test.weldsuite.org');
-    expect(api.apiOriginForPath('/api/workspaces')).toBe('https://app-api-test.weldsuite.org');
     expect(api.personalApiOrigin()).toBe('https://personal-api-test.weldsuite.org');
     expect(api.realtimeUrl()).toBe('wss://realtime-test.weldsuite.org');
     expect(api.platformUrl()).toBe('https://app-test.weldsuite.org');
     setMobileRuntime(euRuntime);
-    api.resetApiOrigins();
-    expect(api.apiOriginForPath('/api/mail-threads')).toBe('https://app.test.weldsuite.eu');
+    expect(api.apiOrigin()).toBe('https://app.test.weldsuite.eu');
   });
 
   it('sends the app code, extra headers and the token', async () => {
@@ -168,7 +164,6 @@ describe('api', () => {
 
     // Clerk (Global): never sent.
     setMobileRuntime(globalRuntime);
-    api.resetApiOrigins();
     await api.createMobileApiClient({ appCode: 'weldmail', getToken: async () => 'token-1' }).client.get('/workspaces');
     expect(headerOf(0)).toBeNull();
 
@@ -176,7 +171,6 @@ describe('api', () => {
     // workspace (the token already names it) — only header mode names it here.
     fetchMock.mockClear();
     setMobileRuntime(euRuntime);
-    api.resetApiOrigins();
     auth.setAuthImplementation(fakeOidcAuth('ws_acme'));
     await api.createMobileApiClient({ appCode: 'weldmail', getToken: async () => 'token-1' }).client.get('/workspaces');
     expect(headerOf(0)).toBeNull();
@@ -184,7 +178,6 @@ describe('api', () => {
     // Header mode: tags with the active workspace.
     fetchMock.mockClear();
     setMobileRuntime(headerRuntime);
-    api.resetApiOrigins();
     auth.setAuthImplementation(fakeOidcAuth('ws_acme'));
     const { client, requestInit } = api.createMobileApiClient({ appCode: 'weldmail', getToken: async () => 'token-1' });
     await client.get('/workspaces');

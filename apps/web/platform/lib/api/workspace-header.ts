@@ -9,12 +9,12 @@
  * Installed only for that mode (`src/boot/runtime.tsx`'s `selectIdentityProvider`):
  * Clerk and `claim`-mode OIDC (Zitadel, the EU edition today) never install
  * it, and the backend keeps reading the org claim exactly as before. Like
- * `app-context-header.ts`, only requests to WeldSuite's own API origins carry
+ * `app-context-header.ts`, only requests to WeldSuite's own API origin carry
  * the header, never a third-party host, and a caller that already set it wins.
  */
 
 import { getActiveWorkspaceId } from '@/lib/auth';
-import { getApiOrigins } from '@/lib/api/public-env';
+import { getAppApiUrl } from '@/lib/api/public-env';
 import { requestUrl } from './app-context-header';
 
 export const WORKSPACE_HEADER = 'X-Weld-Workspace';
@@ -25,8 +25,8 @@ export function installWorkspaceHeader(): void {
   if (installed || typeof window === 'undefined') return;
   installed = true;
 
-  const apiOrigins = getApiOrigins();
-  const isApiRequest = (url: string) => apiOrigins.some((o) => url === o || url.startsWith(`${o}/`));
+  const apiOrigin = getAppApiUrl();
+  const isApiRequest = (url: string) => url === apiOrigin || url.startsWith(`${apiOrigin}/`);
   const originalFetch = window.fetch.bind(window);
 
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {

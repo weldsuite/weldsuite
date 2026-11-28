@@ -49,13 +49,6 @@ export {
 export { WorkspaceClient, type WorkspaceClientConfig, type CursorStore } from './client/workspace-client';
 export { RoomClient, type RoomClientConfig } from './client/room-client';
 
-// Server
-export {
-  RealtimePublisher,
-  REALTIME_INTERNAL_SECRET_HEADER,
-  type RealtimePublisherOptions,
-} from './server';
-
 // React
 export {
   RealtimeProvider,

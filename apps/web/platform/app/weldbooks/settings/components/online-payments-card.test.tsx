@@ -96,15 +96,6 @@ describe('OnlinePaymentsCard', () => {
   });
   afterEach(() => setRuntimeConfig(null));
 
-  describe('where the edition has no online payments (Global)', () => {
-    it('shows nothing and asks nothing', () => {
-      setRuntimeConfig(null);
-      renderCard();
-      expect(screen.queryByTestId('online-payments-card')).not.toBeInTheDocument();
-      expect(env.api.getConnection).not.toHaveBeenCalled();
-    });
-  });
-
   describe('not connected', () => {
     it('explains the card in owner words and offers Mollie first, the API key second', async () => {
       renderCard();

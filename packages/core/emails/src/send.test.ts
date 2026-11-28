@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { icsAttachment } from './ics';
 import { SYSTEM_FROM_ADDRESS, sendSystemEmail } from './send';
-import { bindingTransport, workerTransport } from './transports/binding';
 import { memoryTransport } from './transports/memory';
 import { resendTransport } from './transports/resend';
 import { restTransport } from './transports/rest';
@@ -64,47 +63,6 @@ describe('sendSystemEmail', () => {
 
   it('refuses to send without recipients', async () => {
     await expect(sendSystemEmail(memoryTransport(), { ...invite, to: ['  '] })).rejects.toThrow(/no recipients/);
-  });
-});
-
-describe('bindingTransport', () => {
-  it('sends one raw MIME message per recipient through the binding', async () => {
-    const send = vi.fn(async () => {});
-    const result = await bindingTransport({ send } as never).send({
-      ...sample,
-      cc: [{ email: 'cc@example.com' }],
-    });
-    expect(send).toHaveBeenCalledTimes(2);
-    const message = (send.mock.calls[0] as unknown as [{ from: string; to: string; raw: string }])[0];
-    expect(message.to).toBe('guest@example.com');
-    // mimetext writes the display name as an RFC 2047 encoded word.
-    expect(message.raw).toMatch(/^Reply-To: \S+ <host@acme\.com>/m);
-    expect(message.raw).toContain('text/calendar');
-    expect(result.transport).toBe('cloudflare-binding');
-    expect(result.messageId).toMatch(/@mail\.weldsuite\.org>$/);
-  });
-
-  it('reports recipients Cloudflare does not allow instead of failing the rest', async () => {
-    const send = vi.fn(async (message: { to: string }) => {
-      if (message.to === 'guest@example.com') throw Object.assign(new Error('nope'), { code: 'E_RECIPIENT_NOT_ALLOWED' });
-    });
-    const result = await bindingTransport({ send } as never).send({
-      ...sample,
-      cc: [{ email: 'cc@example.com' }],
-    });
-    expect(result.rejected).toEqual(['guest@example.com']);
-  });
-});
-
-describe('workerTransport', () => {
-  const binding = { send: async () => {} } as never;
-
-  it('uses the binding by default and Resend only when switched to it', () => {
-    expect(workerTransport({ SEND_EMAIL: binding })?.name).toBe('cloudflare-binding');
-    expect(workerTransport({ SEND_EMAIL: binding, EMAIL_TRANSPORT: 'resend', RESEND_API_KEY: 'k' })?.name).toBe('resend');
-    expect(workerTransport({ SEND_EMAIL: binding, EMAIL_TRANSPORT: 'resend' })?.name).toBe('cloudflare-binding');
-    expect(workerTransport({ RESEND_API_KEY: 'k' })?.name).toBe('resend');
-    expect(workerTransport({})).toBeUndefined();
   });
 });
 

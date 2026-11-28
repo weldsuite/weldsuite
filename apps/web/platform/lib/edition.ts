@@ -3,31 +3,29 @@
  * deployment offers.
  *
  * The runtime config's `modules` list (`lib/runtime-config.ts`) names the
- * `ApiModuleId`s the backend serves. On Kubernetes that is the core platform
- * plus every module ported to Rust (`RUST_PORTED_MODULES` in
- * `@weldsuite/api-modules`); the apps and features of any other module are
+ * `ApiModuleId`s the backend serves: the core platform plus the `weld*`
+ * modules this install runs. The apps and features of any other module are
  * hidden, since their API would answer 404. Its `unavailableFeatures` list
  * names what the backend lacks inside the modules it does serve (billing,
  * SSO connections, …). A module that cannot work without one of them counts
  * as not offered (`MODULE_FEATURES`: WeldDocs, WeldSheets and WeldBoard without live
- * editing). Global serves neither list and offers every module. Its one
- * exception is `GLOBAL_UNAVAILABLE_FEATURES` (`@weldsuite/api-modules`): features
- * built only in Rust since Global's retirement was decided (ADR OPS-025),
- * hidden there until the cutover.
+ * editing). Without a runtime config (a local `pnpm dev` without
+ * `VITE_RUNTIME_CONFIG`), or for a list the document leaves out, nothing is
+ * hidden.
  *
  * Both lists are read once, before the first render, and never change while
  * the app runs, so these are plain functions: components and hooks call them
  * directly.
  *
- * An app belongs to the module whose `apps` list starts with it (its own
- * app). Legacy and alternative codes (`task`, `accounting`, `wms`, …) resolve
+ * An app belongs to the module whose own app it is (`weldcrm` → crm). Legacy
+ * and alternative codes (`task`, `accounting`, `wms`, …) resolve
  * through `normalizeAppCode` first, as the permission checks do. Workspace-
  * created WeldApps and custom objects are core.
  */
 
-import { API_MODULES, GLOBAL_UNAVAILABLE_FEATURES, type ApiModuleId } from '@weldsuite/api-modules';
 import { normalizeAppCode } from '@weldsuite/permissions';
 import type { RuntimeAiConfig } from '@weldsuite/app-api-client/schemas/ai-settings';
+import { API_MODULE_IDS, type ApiModuleId } from '@weldsuite/app-api-client/schemas/runtime-config';
 import { getRuntimeConfig } from '@/lib/runtime-config';
 
 /**
@@ -187,18 +185,16 @@ export const EDITION_FEATURES = [
    * WeldStash purchasing and replenishment: purchase-order actions and
    * receipts, product suppliers, the reorder planner, its settings and the
    * sales-history import (`/api/product-suppliers`, `/api/replenishment`,
-   * `/api/purchase-orders/:id/<action>`). Built only in Rust, so it is in
-   * `GLOBAL_UNAVAILABLE_FEATURES`; on Global the purchase-order list keeps
-   * just its create, edit and delete.
+   * `/api/purchase-orders/:id/<action>`). Without it the purchase-order list
+   * keeps just its create, edit and delete.
    */
   'stash-replenishment',
   /**
    * WeldStash carrier shipping (ADR STASH-011): PostNL and DHL Parcel
    * accounts, labels for a packed pick list, service points, return labels,
    * customs and tracking (`/api/carriers`, `/api/parcels`,
-   * `/api/pick-lists/:id/labels`). Built only in Rust, so it is in
-   * `GLOBAL_UNAVAILABLE_FEATURES`; on Global a pick list ships without a
-   * carrier, as before.
+   * `/api/pick-lists/:id/labels`). Without it a pick list ships without a
+   * carrier.
    */
   'stash-shipping',
   /**
@@ -206,8 +202,7 @@ export const EDITION_FEATURES = [
    * EU edition each is off until a workspace admin switches it on under
    * Settings › Services outside the EU, and the integrations that use one
    * carry a "Leaves the EU" label. A self-hosted install lists it as
-   * unavailable (its operator decides), and Global has it in
-   * `GLOBAL_UNAVAILABLE_FEATURES` (nothing changes there).
+   * unavailable (its operator decides).
    */
   'outside-eu-services',
   /**
@@ -219,69 +214,62 @@ export const EDITION_FEATURES = [
    */
   'weldpass-sync',
   /**
-   * The rebuilt WeldCommerce (ADR COM-009): a Rust-only module, so it is in
-   * `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the whole module.
+   * The rebuilt WeldCommerce (ADR COM-009). Without it the whole module is
+   * hidden (`MODULE_FEATURES`).
    */
   'commerce',
   /**
    * Adding people and companies to WeldCRM automatically, from email,
    * WeldMeet and WeldDesk (`/api/crm-settings`, the Auto-add tab of
-   * Settings → Apps → WeldCRM). Built only in Rust, so it is in
-   * `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the tab.
+   * Settings → Apps → WeldCRM). Without it the tab is hidden.
    */
   'crm-auto-add',
   /**
    * WeldMail threat protection: virus scanning of inbound attachments (ClamAV)
    * and dangerous-link protection (a threat feed plus URL heuristics, checked
-   * at click time through `POST /api/mail-messages/:id/link-check`). Built only
-   * in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`. Every Kubernetes install
-   * offers the link check (it needs no scanner); attachment verdicts appear only
+   * at click time through `POST /api/mail-messages/:id/link-check`). Every
+   * install offers the link check (it needs no scanner); attachment verdicts appear only
    * where the chart runs clamd (`mailInbound.clamav`).
    */
   'mail-threat-protection',
   /**
    * Two-way Moneybird sync (ADR INT-013): live webhook updates and sending
    * contacts, products, invoices and bills made in WeldBooks to Moneybird, per
-   * object direction. Built only in Rust, so it is in
-   * `GLOBAL_UNAVAILABLE_FEATURES`; on Global the Moneybird connection screen
-   * keeps its one-way import.
+   * object direction. Without it the Moneybird connection screen keeps its
+   * one-way import.
    */
   'moneybirdTwoWay',
   /**
    * WeldBooks annual reports (jaarrekening) for Dutch entities
-   * (`/api/annual-reports`, the Annual reports screen). Built only in Rust, so
-   * it is in `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the screen.
+   * (`/api/annual-reports`, the Annual reports screen). Without it the screen
+   * is hidden.
    */
   'annual-reports',
   /**
    * Depositing an annual report with the KvK through Digipoort
    * (`POST /api/annual-reports/:id/file`): offered where the install has a
    * Digipoort connection (a PKIoverheid client certificate). Without it the
-   * report is downloaded as XBRL and marked as filed by hand. Built only in
-   * Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   * report is downloaded as XBRL and marked as filed by hand.
    */
   'kvk-digipoort',
   /**
    * WeldPass's encrypted offline copy on registered phones (ADR PASS-010):
    * `/api/weldpass/devices` and `/api/weldpass/settings`, and the Settings →
-   * Apps → WeldPass page that lists the devices. Built only in Rust, so it is
-   * in `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the page.
+   * Apps → WeldPass page that lists the devices. Without it the page is
+   * hidden.
    */
   'weldpass-offline',
   /**
    * WeldFlow agile delivery (ADRs FLOW-022 to FLOW-024): a project's delivery
    * approach and item types, sprints with start, complete and reports, the
    * Backlog view, epics, retros, WIP limits and sprints in Gantt › Phases.
-   * Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES` and Global
-   * shows WeldFlow as before.
    */
   'flow-agile',
   /**
    * WeldSign advanced and qualified electronic signatures (eIDAS): a signature
    * level per signer, the signer confirming their identity with a trust service
    * provider, sealed PDFs and the evidence report (`/api/sign/capabilities`,
-   * `/api/sign/envelopes/:id/signatures`). Built only in Rust, so it is in
-   * `GLOBAL_UNAVAILABLE_FEATURES` and Global never shows a level.
+   * `/api/sign/envelopes/:id/signatures`). Without it no level is shown.
    */
   'sign-eidas',
   /**
@@ -290,8 +278,8 @@ export const EDITION_FEATURES = [
    * document can be searched for, a gap is booked to an account (bank costs, a
    * payment discount), and an invoice or bill links a transaction or undoes
    * its match from its Payments tab (`/api/bank-transactions/:id/open-documents`,
-   * `/:id/match-documents`, `/for-document`). Built only in Rust, so it is in
-   * `GLOBAL_UNAVAILABLE_FEATURES` and Global keeps the suggestions only.
+   * `/:id/match-documents`, `/for-document`). Without it only the suggestions
+   * remain.
    */
   'books-bank-links',
   /**
@@ -299,9 +287,8 @@ export const EDITION_FEATURES = [
    * needs the bookkeeper's attention (bank lines to book, documents to
    * process, bills to approve or pay, overdue invoices, a VAT return to file,
    * bank connections to renew, duplicates, unapplied credit):
-   * `/api/accounting-todo` and `/api/accounting-todo/summary`. Built only in
-   * Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES` and Global keeps the
-   * dashboard's own counts.
+   * `/api/accounting-todo` and `/api/accounting-todo/summary`. Without it the
+   * dashboard keeps its own counts.
    */
   'books-todo',
   /**
@@ -310,8 +297,7 @@ export const EDITION_FEATURES = [
    * attach a receipt, one undo for every kind of processing, rule
    * suggestions, lines booked automatically with the reason, differences
    * (bank costs, discount, rounding) and applying a contact's unapplied
-   * credit. Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`
-   * and Global keeps today's reconcile screen.
+   * credit. Without it the older reconcile screen remains.
    */
   'books-bank-processing',
   /**
@@ -319,37 +305,33 @@ export const EDITION_FEATURES = [
    * when a document arrives, booking a document as a bill, receipt or credit
    * note (paid with a bank line, cash or privately) in one call, the bank
    * lines that could have paid it, duplicate checks, a supplier's usual
-   * category and VAT rate, and the missing-receipts list. Built only in Rust,
-   * so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   * category and VAT rate, and the missing-receipts list.
    */
   'books-receipts',
   /**
    * WeldBooks "pay bills": a SEPA credit-transfer file (pain.001) for
    * approved supplier bills, which show "payment pending" until their bank
-   * lines arrive. Built only in Rust, so it is in
-   * `GLOBAL_UNAVAILABLE_FEATURES`.
+   * lines arrive.
    */
   'books-sepa-batches',
   /**
    * WeldBooks "send by e-mail": e-mailing invoices, credit notes and quotes
    * from the entity (templates per entity, delivery history, a failed
    * delivery in To process) and the public document page the e-mail links to
-   * (`/public/weldbooks/documents/{token}`, served to the pay portal). Built
-   * only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   * (`/public/weldbooks/documents/{token}`, served to the pay portal).
    */
   'books-invoice-email',
   /**
    * WeldBooks quotes: the list of WeldCRM quotes, creating and editing them,
    * e-mailing them, the customer accepting on the public page and an invoice
-   * (or an advance invoice for a share) made from a quote. Built only in
-   * Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   * (or an advance invoice for a share) made from a quote.
    */
   'books-quotes',
   /**
    * WeldBooks payment reminders: a workflow per legal entity, reminders sent
    * by hand, in bulk or by the daily sweep, paused per invoice, and (NL,
    * optional) the statutory collection costs and interest on the final
-   * notice. Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   * notice.
    */
   'books-reminders',
   /**
@@ -357,7 +339,6 @@ export const EDITION_FEATURES = [
    * account (`/api/accounting-payment-connections`), customers pay an invoice on
    * its public page, Mollie's webhook records the payment on a "Mollie" money
    * account and the settlements book the fees and the payout as a transfer.
-   * Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
    */
   'books-online-payments',
   /**
@@ -366,15 +347,14 @@ export const EDITION_FEATURES = [
    * quotes, unbilled hours), a statement of open items as PDF, stored defaults
    * (expense account, VAT rate, payment terms, reminders paused), the contact's
    * bank lines, paged invoice and bill lists, and the contact behind a WeldCRM
-   * company or person. Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   * company or person.
    */
   'books-contact-page',
   /**
    * WeldBooks time billing: billable WeldFlow time per customer and project
    * (`/api/accounting-time/unbilled`), invoiced once on a new or an existing
    * draft invoice (`/api/invoices/from-time`), read-only in WeldFlow from then
-   * on, and a project's finance. Built only in Rust, so it is in
-   * `GLOBAL_UNAVAILABLE_FEATURES`.
+   * on, and a project's finance.
    */
   'books-time-billing',
   /**
@@ -382,14 +362,13 @@ export const EDITION_FEATURES = [
    * lines, documents, VAT returns and contacts (record chats of WeldChat, with
    * an open, answered or resolved status and a place in To process), the VAT
    * return's Check step, a suggested lock date and the accountant's review
-   * marks on bookings. Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   * marks on bookings.
    */
   'books-questions',
   /**
    * WeldForms on a workspace's own domains (`/api/forms/domains`): form links
    * on forms.acme.com, with a certificate from the install's cert-manager.
-   * Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES` and Global
-   * hides the Custom domains section of WeldForms' settings.
+   * Without it the Custom domains section of WeldForms' settings is hidden.
    */
   'forms-custom-domains',
 ] as const;
@@ -398,7 +377,7 @@ export type EditionFeature = (typeof EDITION_FEATURES)[number];
 
 /**
  * App codes served by a module other than their canonical app's own one, or
- * by none. WeldAgent is workspace-level (its module has no `apps` list);
+ * by none. WeldAgent is workspace-level (`agent` is its legacy code);
  * WeldDrive and the WeldSuite home are the core platform.
  */
 const APP_MODULE_OVERRIDES: Readonly<Record<string, ApiModuleId>> = {
@@ -417,21 +396,20 @@ const MODULE_FEATURES: Readonly<Partial<Record<ApiModuleId, EditionFeature>>> = 
   docs: 'collab-rooms',
   sheets: 'collab-rooms',
   board: 'collab-rooms',
-  // Rust only; on Global there is nothing to call (ADR COM-009).
   commerce: 'commerce',
 };
 
-/** Canonical app code → the module whose own app it is. */
-const APP_MODULE: ReadonlyMap<string, ApiModuleId> = (() => {
-  const map = new Map<string, ApiModuleId>();
-  for (const module of API_MODULES) {
-    const own = module.apps?.[0];
-    if (own && !map.has(own)) map.set(own, module.id);
-  }
-  return map;
-})();
+/**
+ * Canonical app code → the module whose own app it is: every `weld*` module's
+ * own app is `weld<id>` (WeldCRM `weldcrm` is `crm`, WeldBooks `weldbooks` is
+ * `books`). Other modules serve that app too (crm serves WeldDesk's contacts),
+ * but an app needs only its own module.
+ */
+const APP_MODULE: ReadonlyMap<string, ApiModuleId> = new Map(
+  API_MODULE_IDS.filter((id) => id !== 'core').map((id) => [`weld${id}`, id] as const),
+);
 
-/** The modules this deployment offers, or null when it offers every module (Global). */
+/** The modules this deployment offers, or null when it names none (every module is offered). */
 export function offeredModules(): ReadonlySet<string> | null {
   const modules = getRuntimeConfig()?.modules;
   return modules ? new Set(['core', ...modules]) : null;
@@ -462,29 +440,24 @@ export function isAppOffered(appCode: string): boolean {
 }
 
 /**
- * The AI this deployment runs (`ai` in `/config.json`): null on Global, which
- * has no `/api/ai-settings`, and on a Kubernetes install without a provider.
+ * The AI this deployment runs (`ai` in `/config.json`): null on an install
+ * without a provider, and without a runtime config.
  */
 export function getAiConfig(): RuntimeAiConfig | null {
   return getRuntimeConfig()?.ai ?? null;
 }
 
-/** Whether workspace AI settings exist here: a Kubernetes install with a configured provider. */
+/** Whether workspace AI settings exist here: an install with a configured provider. */
 export function hasAiSettings(): boolean {
   return getAiConfig() !== null;
 }
 
-/** Who bills plans: Mollie when `/config.json` says so, Stripe otherwise (Global). */
+/** Who bills plans: Mollie when `/config.json` says so, Stripe otherwise. */
 export function billingProvider(): 'stripe' | 'mollie' {
   return getRuntimeConfig()?.billingProvider === 'mollie' ? 'mollie' : 'stripe';
 }
 
-/**
- * Whether this deployment offers a feature: `unavailableFeatures` doesn't name
- * it, or on Global (no runtime config) `GLOBAL_UNAVAILABLE_FEATURES` doesn't.
- */
+/** Whether this deployment offers a feature: the runtime config's `unavailableFeatures` doesn't name it. */
 export function isFeatureAvailable(feature: EditionFeature): boolean {
-  const config = getRuntimeConfig();
-  const unavailable = config ? (config.unavailableFeatures ?? []) : GLOBAL_UNAVAILABLE_FEATURES;
-  return !unavailable.includes(feature);
+  return !(getRuntimeConfig()?.unavailableFeatures ?? []).includes(feature);
 }

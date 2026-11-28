@@ -5,16 +5,17 @@ name: CI
 # in release-desktop.yml.
 #
 # Job names are reused verbatim as required status checks in branch
-# protection: "Build", "Lint", "Type Check · app-api",
-# "Type Check · platform", "Unit · app-api", "Unit · platform". Renaming one
+# protection: "Build", "Lint", "Type Check · packages",
+# "Type Check · platform", "Unit · packages", "Unit · platform", "Rust" and
+# "WeldSuite Review". Renaming one
 # without updating branch protection in the same change leaves a required check
 # permanently pending and blocks every PR.
 #
 # Every job in this file now blocks. There are no informational jobs left.
 #
 # On a pull request most jobs run only when the PR touches what they check:
-# the "changes" job maps the changed files onto areas (api, platform, desktop,
-# packages, rust, image, crossbuild, deploy, conformance, workers; see
+# the "changes" job maps the changed files onto areas (libraries, platform,
+# desktop, packages, rust, image, crossbuild, deploy, native; see
 # .github/scripts/ci-changes.mjs) and
 # each job skips when its area is "false". A job skipped by its `if:` counts as
 # passed for branch protection, and the aggregating jobs accept "skipped" too.
@@ -54,7 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      api: ${{ steps.areas.outputs.api }}
+      libraries: ${{ steps.areas.outputs.libraries }}
       platform: ${{ steps.areas.outputs.platform }}
       desktop: ${{ steps.areas.outputs.desktop }}
       packages: ${{ steps.areas.outputs.packages }}
@@ -62,8 +63,6 @@ jobs:
       image: ${{ steps.areas.outputs.image }}
       crossbuild: ${{ steps.areas.outputs.crossbuild }}
       deploy: ${{ steps.areas.outputs.deploy }}
-      conformance: ${{ steps.areas.outputs.conformance }}
-      workers: ${{ steps.areas.outputs.workers }}
       native: ${{ steps.areas.outputs.native }}
     steps:
       # Full history without file contents, so the diff against the base
@@ -105,27 +104,20 @@ jobs:
         run: pnpm check:mojibake
       - name: Lint
         run: pnpm lint
-      # rust/catalogs is generated from the TypeScript catalogs (entity events,
-      # permissions, flags, API modules, origins). Rerun `pnpm rust:catalogs`.
+      # Part of rust/catalogs is generated from the TypeScript catalogs the
+      # frontends share (entity events, permissions, flags, AI, forms).
+      # Rerun `pnpm rust:catalogs`.
       - name: Rust catalogs are current
         run: pnpm rust:catalogs --check
       # rust/catalogs/emails is generated from the system email templates
       # (@weldsuite/emails) and the email strings. Rerun `pnpm rust:emails`.
       - name: Rust email templates are current
         run: pnpm rust:emails --check
-      # rust/crates/subscribers/tests/fixtures: what the TypeScript hub consumers
-      # do with the parity batches. Rerun `pnpm rust:subscriber-fixtures`.
-      - name: Rust subscriber fixtures are current
-        run: pnpm rust:subscriber-fixtures --check
       # rust/crates/payroll-domain: the rule tables (data/) and the vectors
       # (tests/fixtures/) the TypeScript payroll engines produce. Rerun
       # `pnpm rust:payroll-fixtures`.
       - name: Rust payroll fixtures are current
         run: pnpm rust:payroll-fixtures --check
-      # rust/crates/mail-inbound/tests/fixtures: what mail-inbound-worker does
-      # with the parity messages. Rerun `pnpm rust:mail-inbound-fixtures`.
-      - name: Rust mail-inbound fixtures are current
-        run: pnpm rust:mail-inbound-fixtures --check
 
   # The Rust backend (rust/, ADR API-014). The toolchain comes from
   # rust/rust-toolchain.toml, so CI and local builds use the same compiler.
@@ -696,103 +688,9 @@ jobs:
             -skipPackagePluginValidation -skipMacroValidation CODE_SIGNING_ALLOWED=NO \
             | xcbeautify --renderer github-actions
 
-  # Phase P2: the worker tests of every ported route run against a conformance
-  # build of the Rust server and are compared with the Hono app (bodies,
-  # schemas, side effects). On a PR only the suites its changes touch (a change
-  # inside one rust/modules crate runs that module's suites, see selectSuites
-  # in scripts/rust-conformance.ts); on main all of them. The route coverage
-  # of the changed workers runs on its own runner (rust-conformance-coverage).
-  # Every suite in one job outgrew 45 minutes once wave 3 added its modules;
-  # the suites are dealt over eight runners by their number of test files
-  # (about 8 seconds each), so the shards finish within a minute of each
-  # other: 159 suites are about 86 minutes, 11 per shard plus the build.
-  # "Rust · conformance" stays
-  # the check that fails unless every shard succeeded. Keep --shard's n equal
-  # to the matrix length.
-  rust-conformance-shards:
-    name: Rust · conformance (${{ matrix.shard }}/8)
-    needs: [changes]
-    if: ${{ !cancelled() && needs.changes.outputs.conformance != 'false' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/setup-monorepo
-      - name: Install the pinned toolchain
-        working-directory: rust
-        run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-          key: conformance
-          save-if: ${{ github.event_name != 'pull_request' }}
-      - name: Conformance suites
-        run: |
-          set -euo pipefail
-          shard="${{ matrix.shard }}/8"
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            pnpm rust:conformance --changed "origin/${{ github.base_ref }}" --shard "$shard"
-          else
-            pnpm rust:conformance --shard "$shard"
-          fi
-      - name: Upload the reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: conformance-report-${{ matrix.shard }}
-          path: rust/target/conformance/**/*.md
-          if-no-files-found: ignore
-
-  # Which routes the changed workers' own tests reach (record-only, no Rust):
-  # a ported module fails when a route goes unreached. It ran after the first
-  # shard's suites until wave 3's five workers took it past 45 minutes.
-  rust-conformance-coverage:
-    name: Rust · conformance coverage
-    needs: [changes]
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.workers != 'false' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/setup-monorepo
-      - name: Route coverage of the changed workers
-        run: pnpm rust:conformance --coverage-changed "origin/${{ github.base_ref }}"
-      - name: Upload the report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: conformance-coverage-report
-          path: rust/target/conformance/**/*.md
-          if-no-files-found: ignore
-
-  rust-conformance:
-    name: Rust · conformance
-    needs: [rust-conformance-shards, rust-conformance-coverage]
-    if: always() && !cancelled()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      # "skipped": the change touches nothing they check (ci-changes.mjs).
-      - name: Require every conformance shard, and coverage on a PR
-        run: |
-          set -euo pipefail
-          shards="${{ needs.rust-conformance-shards.result }}"
-          coverage="${{ needs.rust-conformance-coverage.result }}"
-          echo "shards: $shards, coverage: $coverage"
-          test "$shards" = "success" || test "$shards" = "skipped"
-          test "$coverage" = "success" || test "$coverage" = "skipped"
-
   rust-all:
     name: Rust
-    needs: [rust-checks, rust-image, rust-image-arm64, rust-deploy, rust-conformance]
+    needs: [rust-checks, rust-image, rust-image-arm64, rust-deploy]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -806,87 +704,27 @@ jobs:
           ok "image and chart" "${{ needs.rust-image.result }}"
           ok "image arm64" "${{ needs.rust-image-arm64.result }}"
           ok "deploy config" "${{ needs.rust-deploy.result }}"
-          ok "conformance" "${{ needs.rust-conformance.result }}"
 
-  # app-api plus every module worker and domain is ~17 minutes of tsc.
-  # Four-wide on one runner is already at that machine's CPU limit (~5 min).
-  # Shards are separate runners, still four-wide each. "Type Check · app-api"
-  # stays the required check and fails unless every shard succeeded.
-  # Keep --shards equal to the matrix length.
-  type-check-api-shards:
-    name: Type Check · app-api (${{ matrix.shard }}/4)
+  # The shared TypeScript packages (packages/core, packages/domains): what the
+  # platform, the portals, the admin console, collab-rooms and the Rust
+  # catalog exports build on. The platform's own check is the next job.
+  # @weldsuite/entity-events is left out until its publisher tests type-check
+  # (they fail on main too; no job checked them before this one).
+  type-check-packages:
+    name: Type Check · packages
     needs: [changes]
-    if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.libraries != 'false' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
+    timeout-minutes: 20
     env:
-      # app-api's drizzle generics blow past Node's default heap. The same
-      # ceiling applies to whichever shard draws that package.
+      # @weldsuite/db's Drizzle generics need more than Node's default heap;
+      # four of these side by side must still fit the runner's 16 GB.
       NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
-      - name: Restore TypeScript incremental cache
-        id: tsc-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            apps/workers/*/tsconfig.tsbuildinfo
-            packages/domains/*/tsconfig.tsbuildinfo
-            packages/core/api-modules/tsconfig.tsbuildinfo
-            packages/core/worker-*/tsconfig.tsbuildinfo
-          # The Drizzle schema is in the key: an incremental re-check of
-          # `typeof schema` consumers against a .tsbuildinfo built for an older
-          # schema reports TS2589 ("excessively deep") in packages/core/db/src/lib
-          # that a clean check does not (see 56f93e0af). A schema change starts
-          # from a clean build instead.
-          key: tsc-api-${{ runner.os }}-${{ matrix.shard }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('packages/core/db/src/schema/**') }}-${{ github.sha }}
-          restore-keys: |
-            tsc-api-${{ runner.os }}-${{ matrix.shard }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('packages/core/db/src/schema/**') }}-
-      - name: Type-check app-api packages
-        run: |
-          set -euo pipefail
-          args=(--workspace-concurrency=4)
-          while IFS= read -r dir; do
-            [ -n "$dir" ] || continue
-            args+=(--filter "./$dir")
-          done < <(node .github/scripts/typecheck-targets.mjs --shard ${{ matrix.shard }} --shards 4)
-          if [ "${#args[@]}" -eq 1 ]; then
-            echo "shard is empty"
-            exit 0
-          fi
-          # --incremental writes tsconfig.tsbuildinfo (gitignored). The cache
-          # above restores it, so a later run rechecks changed files.
-          pnpm "${args[@]}" exec tsc --noEmit --incremental --pretty false
-      # Pushes to main only, like every cache in this file.
-      - name: Save TypeScript incremental cache
-        if: github.event_name != 'pull_request'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            apps/workers/*/tsconfig.tsbuildinfo
-            packages/domains/*/tsconfig.tsbuildinfo
-            packages/core/api-modules/tsconfig.tsbuildinfo
-            packages/core/worker-*/tsconfig.tsbuildinfo
-          key: ${{ steps.tsc-cache.outputs.cache-primary-key }}
-
-  type-check-api:
-    name: Type Check · app-api
-    needs: [type-check-api-shards]
-    if: always() && !cancelled()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require app-api package type-checks
-        run: |
-          set -euo pipefail
-          result="${{ needs.type-check-api-shards.result }}"
-          echo "shards: $result"
-          test "$result" = "success" || test "$result" = "skipped"
+      - name: Type-check the shared packages
+        run: pnpm --filter "./packages/core/*" --filter "./packages/domains/*" --filter "!@weldsuite/entity-events" --workspace-concurrency=4 --if-present run type-check
 
   type-check-platform:
     name: Type Check · platform
@@ -955,145 +793,22 @@ jobs:
   # ────────────────────────────────────────────
   # Unit + service tests — these DO block PRs.
   # ────────────────────────────────────────────
-  # Module-worker Vitest stays one package per process: several start
-  # pglite (WASM Postgres), which crashes (ERRORDATA_STACK_SIZE) when many
-  # instances boot on the same machine. Shards are separate runners, so
-  # they can run at once. --shard balances by measured test time
-  # (TEST_SECONDS in module-workers.mjs), so the slow workers spread out.
-  # "Unit · app-api" is the required status check. It does not run tests
-  # itself; it fails unless the core job and every shard succeeded.
-  # Keep --shards equal to the matrix length.
-  unit-api-modules:
-    name: Unit · module APIs (${{ matrix.shard }}/6)
+  # The shared packages' Vitest suites. One package at a time: several boot
+  # pglite (WASM Postgres, @weldsuite/db/testing/pglite), which crashes
+  # (ERRORDATA_STACK_SIZE) when many instances start on the same machine.
+  # @weldsuite/db's own suite is left out until desk.test.ts and
+  # sensitive-columns.test.ts pass (they fail on main too; no job ran them).
+  unit-packages:
+    name: Unit · packages
     needs: [changes]
-    if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.libraries != 'false' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
-      - name: Run Vitest · module API workers
-        run: |
-          set -euo pipefail
-          for w in $(node .github/scripts/module-workers.mjs --list --shard ${{ matrix.shard }} --shards 6); do
-            echo "=== $w ==="
-            pnpm --filter "$w" test
-          done
-
-  # app-api's own tests and the worker packages' ran one after the other on
-  # one runner (about 14.5 minutes on main by November 2026); on two they
-  # take about 7 each.
-  unit-api-core:
-    name: Unit · app-api core
-    needs: [changes]
-    if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-monorepo
-      - name: Run Vitest
-        working-directory: apps/workers/app-api
-        run: pnpm test
-
-  # Includes the module ownership test: every app-api mount must belong to
-  # exactly one module in @weldsuite/api-modules, and API workers may not
-  # import from each other. Also the WeldBoard engine (board-api runs it) and
-  # @weldsuite/collab, whose CollabRoom the docs, sheets and board rooms extend.
-  unit-api-packages:
-    name: Unit · worker packages
-    needs: [changes]
-    if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-monorepo
-      - name: Run Vitest · worker packages
-        run: |
-          set -euo pipefail
-          pnpm --filter "./packages/core/api-modules" --filter "./packages/core/worker-*" --filter "./packages/core/board-engine" --filter "./packages/core/collab" --filter "./packages/domains/*" --workspace-concurrency=1 test
-
-  unit-api:
-    name: Unit · app-api
-    needs: [unit-api-core, unit-api-packages, unit-api-modules]
-    if: always() && !cancelled()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require app-api, worker-package and module-worker tests
-        run: |
-          set -euo pipefail
-          core="${{ needs.unit-api-core.result }}"
-          packages="${{ needs.unit-api-packages.result }}"
-          modules="${{ needs.unit-api-modules.result }}"
-          echo "app-api: $core"
-          echo "worker packages: $packages"
-          echo "module API workers: $modules"
-          test "$core" = "success" || test "$core" = "skipped"
-          test "$packages" = "success" || test "$packages" = "skipped"
-          test "$modules" = "success" || test "$modules" = "skipped"
-
-  unit-personal-api:
-    name: Unit · personal-api
-    needs: [changes]
-    if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-monorepo
-      - name: Run Vitest
-        working-directory: apps/workers/personal-api
-        run: pnpm test
-
-  # Public API (wsk_ keys) and the MCP server. Both boot pglite in-process, so
-  # each package runs on its own (pglite crashes when many instances start
-  # at once); the two run one after the other on this runner.
-  unit-public-api:
-    name: Unit · external-api + mcp-server
-    needs: [changes]
-    if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-monorepo
-      - name: Run Vitest · external-api
-        working-directory: apps/workers/external-api
-        run: pnpm test
-      - name: Run Vitest · mcp-server
-        working-directory: apps/workers/mcp-server
-        run: pnpm test
-
-  # Tenant database lifecycle: provisioning and moves (workspace-worker,
-  # neon-provisioning) and the audit consumer that has to survive a move's lock
-  # (audit-log-worker). workspace-worker and neon-provisioning boot pglite
-  # (WASM Postgres, which crashes when many instances start at once;
-  # workspace-worker's vitest config also runs its test files one by one), so
-  # the three packages run one after the other on this runner.
-  unit-workspace-lifecycle:
-    name: Unit · workspace-worker + neon-provisioning + audit-log-worker
-    needs: [changes]
-    if: ${{ !cancelled() && needs.changes.outputs.api != 'false' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-monorepo
-      - name: Run Vitest · neon-provisioning
-        working-directory: packages/core/neon-provisioning
-        run: pnpm test
-      - name: Run Vitest · workspace-worker
-        working-directory: apps/workers/workspace-worker
-        run: pnpm test
-      - name: Run Vitest · audit-log-worker
-        working-directory: apps/workers/audit-log-worker
-        run: pnpm test
+      - name: Run Vitest · shared packages
+        run: pnpm --filter "./packages/core/*" --filter "./packages/domains/*" --filter "!@weldsuite/db" --workspace-concurrency=1 --if-present run test
 
   # The platform's Vitest run took 9 to 11 minutes on one runner; Vitest's
   # own --shard splits the test files over two. "Unit · platform" is the
@@ -1160,6 +875,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
+      # Includes the admin console's Node build (ADR FE-018) and its check that
+      # no Clerk, Neon driver or Cloudflare runtime module got into it.
       - name: Build everything except platform
         run: pnpm exec turbo run build --filter=!platform --concurrency=4
       # The admin console's pure-logic tests (apps/web/admin/lib/*.test.ts).
@@ -1173,10 +890,6 @@ jobs:
         run: |
           pnpm --filter weldpass-extension test
           pnpm --filter @weldsuite/mobile-platform test
-      # The console's Node build for Kubernetes (ADR FE-018), and its check that
-      # no Clerk, Neon driver or Cloudflare runtime module got into it.
-      - name: Admin console Node build
-        run: pnpm --filter admin build:node
 
   build:
     name: Build

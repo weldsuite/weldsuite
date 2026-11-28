@@ -135,11 +135,4 @@ describe('ConnectionDetails for Moneybird', () => {
     renderSettings(moneybird({ objectSyncDirections: { bankTransactions: 'outbound' } }));
     expect(screen.queryByText(tc.moneybirdLive.twoWayTitle)).toBeNull();
   });
-
-  it('leaves the screen as it was on Global', () => {
-    renderSettings(moneybird({ objectSyncDirections: { contacts: 'bidirectional' } }));
-    expect(screen.queryByText(tc.moneybirdLive.title)).toBeNull();
-    expect(screen.queryByText(tc.settings.directionInboundOnly)).toBeNull();
-    expect(screen.queryByText(tc.moneybirdLive.twoWayTitle)).toBeNull();
-  });
 });

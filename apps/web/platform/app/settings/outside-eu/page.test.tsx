@@ -151,13 +151,10 @@ describe('OutsideEuSettingsPage', () => {
     expect(screen.getByRole('switch', { name: 'Allow Telnyx' })).toBeDisabled();
   });
 
-  it('asks nothing of the backend where the install does not offer it (Global, self-hosted)', async () => {
-    setRuntimeConfig(null);
-    renderWithProviders(<OutsideEuSettingsPage />);
-    expect(await screen.findByText('This installation does not restrict services outside the EU.')).toBeInTheDocument();
-    expect(api.outsideEuServices.list).not.toHaveBeenCalled();
+  it('asks nothing of the backend where the install does not offer it (self-hosted)', async () => {
     setRuntimeConfig({ ...EU, edition: 'self-hosted', unavailableFeatures: ['outside-eu-services'] });
     renderWithProviders(<OutsideEuSettingsPage />);
+    expect(await screen.findByText('This installation does not restrict services outside the EU.')).toBeInTheDocument();
     expect(api.outsideEuServices.list).not.toHaveBeenCalled();
   });
 });

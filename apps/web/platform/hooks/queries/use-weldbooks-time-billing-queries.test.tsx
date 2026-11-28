@@ -8,7 +8,6 @@ const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), put
 vi.mock('@/lib/api/weldbooks-client', () => ({ weldbooksApi: api, setWeldbooksEntityId: vi.fn() }));
 
 import {
-  isTimeBillingAvailable,
   timeBillingKeys,
   useInvoiceFromTime,
   useProjectInvoicing,
@@ -34,19 +33,6 @@ beforeEach(() => {
   setRuntimeConfig(RUST);
 });
 afterEach(() => setRuntimeConfig(null));
-
-describe('time billing on Global', () => {
-  it('is not offered, and asks nothing, where the edition lacks it', () => {
-    setRuntimeConfig(null);
-    expect(isTimeBillingAvailable()).toBe(false);
-    const { wrapper } = setup();
-    const unbilled = renderHook(() => useUnbilledTime(), { wrapper });
-    const finance = renderHook(() => useProjectInvoicing('prj_1'), { wrapper });
-    expect(unbilled.result.current.fetchStatus).toBe('idle');
-    expect(finance.result.current.fetchStatus).toBe('idle');
-    expect(api.get).not.toHaveBeenCalled();
-  });
-});
 
 describe('the unbilled time', () => {
   it('asks for the customers with hours, filtered by project or customer and date when given', async () => {

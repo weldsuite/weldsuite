@@ -7,8 +7,9 @@
  */
 
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { createPgliteDb } from '@weldsuite/db/testing/pglite';
+import * as schema from '@weldsuite/db/schema';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
 import { formDefinitionSchema } from '@weldsuite/forms-engine/definition';
 import { answerColumnKey, blockIdOfColumnKey, formColumns, FORM_RESPONSE_META_COLUMNS } from '@weldsuite/forms-domain/columns';
 import {

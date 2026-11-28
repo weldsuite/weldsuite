@@ -1,6 +1,6 @@
 ---
 name: frontend-platform
-description: Use for any work inside apps/web/platform, the main WeldSuite SPA (Vite + React 19 + TanStack Router + Clerk + Tailwind v4 + shadcn/ui, Zod v3). All CRM/Commerce/Helpdesk/WMS/Mail/Projects/Accounting UI lives here.
+description: Use for any work inside apps/web/platform, the main WeldSuite SPA (Vite + React 19 + TanStack Router + Tailwind v4 + shadcn/ui, Zod v3), talking to the Rust backend. All CRM/Commerce/Helpdesk/WMS/Mail/Projects/Accounting UI lives here.
 model: sonnet
 ---
 
@@ -15,14 +15,14 @@ Everything under `apps/web/platform/`. This is a **Vite SPA, not Next.js**. Do n
 - **Vite** with `@vitejs/plugin-react` and `@tailwindcss/vite`
 - **React 19** (function components only, hooks-first)
 - **TanStack Router** with file-based routing via `@tanstack/router-plugin/vite`
-- **Clerk (`@clerk/clerk-react`)**, client-side auth, use `useAuth`/`useUser`, `getToken()` for API calls
+- **Auth through the facade** `@/lib/auth` (`useAuth`, `useUser`, `useOrganization`, `getAuthToken`), OIDC (Zitadel) on the Rust backend. Only `lib/auth/` may import `@clerk/*`
 - **TanStack Query** for server state (via `QueryProvider`)
 - **Jotai** for lightweight client state
 - **React Hook Form + Zod v3 (NOT v4)**, validation schemas go through `zodResolver`
 - **`@weldsuite/ui`** (`packages/design/ui`) for all UI, imported by path: `@weldsuite/ui/components/<name>`. Read `apps/web/platform/AGENTS.md` → UI for the rules and the "need → component" table.
 - **Tailwind v4** utilities only, no legacy v3 syntax
 - **Path alias `@`** resolves to platform root: `@/lib/...`, `@/components/...`, `@/app/...`
-- **Env vars use `VITE_` prefix** (e.g. `VITE_CLERK_PUBLISHABLE_KEY`, `VITE_API_WORKER_URL`)
+- **Env vars use `VITE_` prefix** (e.g. `VITE_APP_API_URL`, `VITE_RUNTIME_CONFIG`)
 
 ## Project layout
 
@@ -48,7 +48,7 @@ Layout groups: `_dashboard/`, `_builder/`, `_preview/`, `auth/`, `settings/`.
 
 ## API calls, preferred order
 
-1. `useAppApi()` from `@/lib/api/use-app-api` (or `appApi` from `@/lib/api/app-api-browser-client` outside React) → typed domain APIs from `@weldsuite/app-api-client` / `@weldsuite/core-api-client`. The client picks the host per path: module prefixes (`packages/core/api-modules`) go straight to their `<module>-api` worker, everything else to app-api.
+1. `useAppApi()` from `@/lib/api/use-app-api` (or `appApi` from `@/lib/api/app-api-browser-client` outside React) → typed domain APIs from `@weldsuite/app-api-client` / `@weldsuite/core-api-client`. Every path goes to one host, the Rust backend (`getAppApiUrl()` in `lib/api/public-env.ts`).
 2. Query hooks in `hooks/queries/use-<entity>-queries.ts` wrap those calls; add new ones there.
 3. Domain modules in `lib/api/domains/*.ts` → older typed wrappers, still in use.
 
@@ -71,7 +71,7 @@ E2E: Playwright specs under `apps/web/platform/e2e/specs/<module>/`. Run `pnpm t
 
 ## When to delegate
 
-- Need a new endpoint → `backend-app-api`
+- Need a new endpoint → `backend-rust`
 - Schema change → `database`
 - Touching a business domain → consult matching domain agent first (`weldcrm`, `welddesk`, `weldbooks-accounting`, `weldflow-projects`, etc.)
 

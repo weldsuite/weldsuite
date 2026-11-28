@@ -11,7 +11,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mailApi } from './api-client';
 
-const BASE = 'http://localhost:8789/api';
+// The local `weldsuite serve` (lib/api/public-env.ts).
+const BASE = 'http://localhost:8080/api';
 
 function mockFetch(body: unknown = { data: { messageId: 'm1' } }, status = 200) {
   const fn = vi.fn().mockResolvedValue({

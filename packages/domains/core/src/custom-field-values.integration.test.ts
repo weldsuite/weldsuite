@@ -9,9 +9,10 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { and, eq, isNull } from 'drizzle-orm';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { generateId } from '@weldsuite/worker-kit/id';
+import { createPgliteDb } from '@weldsuite/db/testing/pglite';
+import * as schema from '@weldsuite/db/schema';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
+import { generateId } from '@weldsuite/db/lib/id';
 import {
   ensureCustomFieldDefinition,
   setValues,

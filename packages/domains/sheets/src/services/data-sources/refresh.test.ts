@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { createPgliteDb } from '@weldsuite/db/testing/pglite';
+import * as schema from '@weldsuite/db/schema';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
 import type { SheetDataDefinition } from '@weldsuite/app-api-client/schemas/sheet-data';
 import type { DriveFileRef } from '@weldsuite/core-domain/drive-access';
 import { SheetDataPermissionError } from './errors';

@@ -12,7 +12,7 @@ const EU_CONFIG = {
 afterEach(() => setRuntimeConfig(null));
 
 describe('route availability', () => {
-  it('offers every page on Global', () => {
+  it('offers every page without a runtime config', () => {
     for (const path of ['/weldcrm/companies', '/agents', '/settings/billing', '/settings/sso', '/social/posts']) {
       expect(isRouteOffered(path)).toBe(true);
     }
@@ -61,46 +61,41 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldpanel/projects')).toBe(true);
   });
 
-  it('hides WeldStash settings and Replenishment where stash-replenishment is missing, such as Global', () => {
+  it('hides WeldStash settings and Replenishment where stash-replenishment is missing', () => {
     expect(routeRequirement('/settings/apps/weldstash')).toEqual({ modules: ['stash'], feature: 'stash-replenishment' });
     expect(routeRequirement('/weldstash/replenishment')).toEqual({ modules: ['stash'], feature: 'stash-replenishment' });
-    // Global has no runtime config: GLOBAL_UNAVAILABLE_FEATURES lists the feature.
-    expect(isRouteOffered('/settings/apps/weldstash')).toBe(false);
-    expect(isRouteOffered('/weldstash/replenishment')).toBe(false);
-    expect(isRouteOffered('/weldstash/purchase-orders')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: [] });
     expect(isRouteOffered('/settings/apps/weldstash')).toBe(true);
     expect(isRouteOffered('/weldstash/replenishment?plan=x')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: ['stash-replenishment'] });
+    expect(isRouteOffered('/settings/apps/weldstash')).toBe(false);
+    expect(isRouteOffered('/weldstash/replenishment')).toBe(false);
+    expect(isRouteOffered('/weldstash/purchase-orders')).toBe(true);
   });
 
-  it('hides WeldStash Shipments where stash-shipping is missing, such as Global', () => {
+  it('hides WeldStash Shipments where stash-shipping is missing', () => {
     expect(routeRequirement('/weldstash/shipments')).toEqual({ modules: ['stash'], feature: 'stash-shipping' });
     expect(routeRequirement('/weldstash/shipments?status=delivered')).toEqual({ modules: ['stash'], feature: 'stash-shipping' });
-    // Global has no runtime config: GLOBAL_UNAVAILABLE_FEATURES lists the feature.
-    expect(isRouteOffered('/weldstash/shipments')).toBe(false);
-    expect(isRouteOffered('/weldstash/packing')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: [] });
     expect(isRouteOffered('/weldstash/shipments')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: ['stash-shipping'] });
     expect(isRouteOffered('/weldstash/shipments')).toBe(false);
+    expect(isRouteOffered('/weldstash/packing')).toBe(true);
   });
 
-  it('hides the WeldBooks To process page where books-todo is missing, such as Global, and offers it on Rust', () => {
+  it('hides the WeldBooks To process page where books-todo is missing, and offers it on Rust', () => {
     expect(routeRequirement('/weldbooks/to-process')).toEqual({ modules: ['books'], feature: 'books-todo' });
     expect(routeRequirement('/weldbooks/to-process?stack=bill:bil_1')).toEqual({ modules: ['books'], feature: 'books-todo' });
-    // Global has no runtime config: GLOBAL_UNAVAILABLE_FEATURES lists the feature.
-    expect(isRouteOffered('/weldbooks/to-process')).toBe(false);
-    expect(isRouteOffered('/weldbooks/invoices')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
     expect(isRouteOffered('/weldbooks/to-process')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: ['books-todo'] });
     expect(isRouteOffered('/weldbooks/to-process')).toBe(false);
+    expect(isRouteOffered('/weldbooks/invoices')).toBe(true);
   });
 
-  it('hides the Questions list where books-questions is missing, such as Global, and offers it on Rust', () => {
+  it('hides the Questions list where books-questions is missing, and offers it on Rust', () => {
     expect(routeRequirement('/weldbooks/questions')).toEqual({ modules: ['books'], feature: 'books-questions' });
     expect(routeRequirement('/weldbooks/questions?status=open&stack=bill:bil_1')).toEqual({ modules: ['books'], feature: 'books-questions' });
-    expect(isRouteOffered('/weldbooks/questions')).toBe(false);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
     expect(isRouteOffered('/weldbooks/questions')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: ['books-questions'] });
@@ -110,19 +105,18 @@ describe('route availability', () => {
   it('hides the quotes pages, the form included, where books-quotes is missing, and offers them on Rust', () => {
     for (const path of ['/weldbooks/quotes', '/weldbooks/quotes/add', '/weldbooks/quotes/q_1/edit', '/weldbooks/quotes?stack=quote:q_1']) {
       expect(routeRequirement(path)).toEqual({ modules: ['books'], feature: 'books-quotes' });
-      expect(isRouteOffered(path)).toBe(false);
     }
-    expect(isRouteOffered('/weldbooks/invoices')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
     expect(isRouteOffered('/weldbooks/quotes/add')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: ['books-quotes'] });
     expect(isRouteOffered('/weldbooks/quotes')).toBe(false);
+    expect(isRouteOffered('/weldbooks/quotes/q_1/edit')).toBe(false);
+    expect(isRouteOffered('/weldbooks/invoices')).toBe(true);
   });
 
   it('hides the Unbilled time page where books-time-billing is missing, and offers it on Rust', () => {
     for (const path of ['/weldbooks/time/unbilled', '/weldbooks/time/unbilled?customerId=prt_1', '/weldbooks/time/unbilled?stack=invoice:inv_1']) {
       expect(routeRequirement(path)).toEqual({ modules: ['books'], feature: 'books-time-billing' });
-      expect(isRouteOffered(path)).toBe(false);
     }
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
     expect(isRouteOffered('/weldbooks/time/unbilled')).toBe(true);
@@ -130,33 +124,27 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldbooks/time/unbilled')).toBe(false);
   });
 
-  it('hides the document review screen and Pay bills on Global, keeps the inbox itself, and offers them on Rust', () => {
+  it('hides the document review screen and Pay bills without their features, keeps the inbox itself, and offers them on Rust', () => {
     expect(routeRequirement('/weldbooks/documents/doc_1/review')).toEqual({ modules: ['books'], feature: 'books-receipts' });
     expect(routeRequirement('/weldbooks/purchases/pay')).toEqual({ modules: ['books'], feature: 'books-sepa-batches' });
-    expect(isRouteOffered('/weldbooks/documents/doc_1/review')).toBe(false);
-    expect(isRouteOffered('/weldbooks/purchases/pay')).toBe(false);
-    // The inbox page keeps today's dialog and create-bill flow on Global.
-    expect(isRouteOffered('/weldbooks/documents')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
     expect(isRouteOffered('/weldbooks/documents/doc_1/review')).toBe(true);
     expect(isRouteOffered('/weldbooks/purchases/pay')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: ['books-receipts', 'books-sepa-batches'] });
     expect(isRouteOffered('/weldbooks/documents/doc_1/review')).toBe(false);
     expect(isRouteOffered('/weldbooks/purchases/pay')).toBe(false);
+    // The inbox page keeps its dialog and create-bill flow.
+    expect(isRouteOffered('/weldbooks/documents')).toBe(true);
   });
 
-  it('hides WeldPass settings (the offline copy) on Global and offers them on Rust (ADR PASS-010)', () => {
+  it('offers WeldPass settings (the offline copy) on Rust (ADR PASS-010)', () => {
     expect(routeRequirement('/settings/apps/weldpass')).toEqual({ modules: ['pass'], feature: 'weldpass-offline' });
-    // Global has no runtime config: GLOBAL_UNAVAILABLE_FEATURES lists the feature.
-    expect(isRouteOffered('/settings/apps/weldpass')).toBe(false);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'pass'], unavailableFeatures: [] });
     expect(isRouteOffered('/settings/apps/weldpass')).toBe(true);
   });
 
   it('offers the services-outside-the-EU settings on the EU edition only (ADR OPS-026)', () => {
     expect(routeRequirement('/settings/outside-eu')).toEqual({ feature: 'outside-eu-services' });
-    // Global: in GLOBAL_UNAVAILABLE_FEATURES.
-    expect(isRouteOffered('/settings/outside-eu')).toBe(false);
     // Self-hosted lists it as unavailable; the EU edition doesn't.
     setRuntimeConfig({ backend: 'rust', edition: 'self-hosted', unavailableFeatures: ['outside-eu-services'] });
     expect(isRouteOffered('/settings/outside-eu')).toBe(false);
@@ -278,11 +266,11 @@ describe('route availability', () => {
     for (const path of [...core, '/settings/integrations', '/settings/webhooks']) {
       expect(isRouteOffered(path), path).toBe(true);
     }
-    // The old WeldConnect return URLs Global still sends are core too.
+    // The old WeldConnect return URLs are core too.
     expect(isRouteOffered('/weldconnect/connectors/callback')).toBe(true);
     expect(isRouteOffered('/weldconnect/integrations/callback')).toBe(true);
     expect(isRouteOffered('/weldconnect/workflows')).toBe(false);
-    // Global offers every integration, as before.
+    // Without a runtime config every integration is offered.
     setRuntimeConfig(null);
     for (const path of [...core, ...others]) expect(isRouteOffered(path), path).toBe(true);
   });

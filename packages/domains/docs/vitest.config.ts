@@ -6,8 +6,7 @@ export default defineConfig({
   resolve: {
     alias: {
       // Workers-only modules the room imports, which don't resolve under node.
-      'cloudflare:workers': path.resolve(__dirname, '../../core/worker-kit/src/testing/cloudflare-workers-stub.ts'),
-      'cloudflare:email': path.resolve(__dirname, '../../core/worker-email/src/testing/cloudflare-email-stub.ts'),
+      'cloudflare:workers': path.resolve(__dirname, '../../core/collab/src/testing/cloudflare-workers-stub.ts'),
     },
   },
 });

@@ -37,4 +37,4 @@ If Higgsfield is unauthenticated or out of credits, the agent falls back to Pill
 - `.cursor/automations/weldsocial-weekly-prompt.md` — paste-ready automation prompt
 - `.agents/skills/weldsocial-weekly/SKILL.md` — agent skill
 - `scripts/social/` — Higgsfield brand overlay + Pillow fallbacks + optional ElevenLabs
-- MCP + external-api `social-media` routes — `create_social_media` to attach hosted URLs
+- MCP tool `create_social_media` and the public API's `/v1/social-media` (`rust/modules/mcp`, `rust/modules/external-api/src/social.rs`) to attach hosted URLs

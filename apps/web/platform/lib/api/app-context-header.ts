@@ -7,14 +7,13 @@
  * `createClientApi`, the weldbooks / weldmail / weldflow clients, documents,
  * uploads, direct `fetch`). Wrapping `fetch` once covers all of them, and
  * every future one, instead of threading a header through each. Only requests
- * to the API origins (app-api and the module workers) are touched, and a
- * caller that sets the header itself (e.g. `workspace` for app-less shell
- * widgets) wins.
+ * to the API origin are touched, and a caller that sets the header itself
+ * (e.g. `workspace` for app-less shell widgets) wins.
  */
 
 import { APP_CONTEXT_HEADER } from '@weldsuite/permissions';
 import { appFromPathname } from '@/lib/apps/current-app';
-import { getApiOrigins } from '@/lib/api/public-env';
+import { getAppApiUrl } from '@/lib/api/public-env';
 import { stripWorkspacePrefix } from '@/lib/workspace-url';
 
 export function requestUrl(input: RequestInfo | URL): string {
@@ -29,9 +28,8 @@ export function installAppContextHeader(): void {
   if (installed || typeof window === 'undefined') return;
   installed = true;
 
-  // app-api plus every module worker the SPA calls directly (VITE_API_MODULES).
-  const apiOrigins = getApiOrigins();
-  const isApiRequest = (url: string) => apiOrigins.some((o) => url === o || url.startsWith(`${o}/`));
+  const apiOrigin = getAppApiUrl();
+  const isApiRequest = (url: string) => url === apiOrigin || url.startsWith(`${apiOrigin}/`);
   const originalFetch = window.fetch.bind(window);
 
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {

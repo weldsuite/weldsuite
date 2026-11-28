@@ -94,8 +94,7 @@ describe('WeldBooks pages follow the entity country', () => {
     expect(hrefs.some((href) => href.startsWith('/weldbooks/sales-tax/'))).toBe(false);
   });
 
-  it('offers annual reports to a Dutch entity only on an install that has them', () => {
-    expect(hrefsFor(true, nl)).not.toContain('/weldbooks/annual-reports');
+  it('offers annual reports to a Dutch entity only', () => {
     setRuntimeConfig({ backend: 'rust', unavailableFeatures: [] });
     try {
       expect(hrefsFor(true, nl)).toContain('/weldbooks/annual-reports');
@@ -252,8 +251,6 @@ describe('WeldBooks commands', () => {
   });
 
   it('offers To process and Process bank lines only where the edition serves the to-process counts', () => {
-    // Global has no runtime config: books-todo is in GLOBAL_UNAVAILABLE_FEATURES.
-    expect(weldbooksTodoCommands(en, books)).toEqual([]);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: ['books-todo'] });
     expect(weldbooksTodoCommands(en, books)).toEqual([]);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });

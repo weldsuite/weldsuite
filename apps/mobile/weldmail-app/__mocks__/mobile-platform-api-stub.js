@@ -44,7 +44,6 @@ module.exports = {
   createMobileApiClient,
   lazyClient,
   apiOrigin: () => origins.api,
-  apiOriginForPath: () => origins.api,
   personalApiOrigin: () => origins.personal,
   realtimeUrl: () => origins.realtime,
   platformUrl: () => origins.platform,

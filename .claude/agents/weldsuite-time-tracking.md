@@ -17,8 +17,8 @@ You are the Time Tracking / Timesheets specialist for WeldSuite.
 
 - Platform UI: `apps/web/platform/app/weldflow/project/[projectId]/timesheet/` (`page.tsx`, `team-timesheet-view.tsx`), time tracking is a sub-area of WeldFlow projects.
 - Task fields `estimatedHours` and `actualHours` exist on tasks, `actualHours` is derived from aggregated time entries.
-- API: the `flow-api` worker, `apps/workers/flow-api/src/routes/time-entries/` (`/api/time-entries`, permissions `time:read|create|update|delete`); per-member time in `apps/workers/flow-api/src/routes/project-members/`. Third-party API: `apps/workers/external-api/src/routes/v1/time-entries/`.
-- Schema: `packages/core/db/src/schema/time-entries.ts`, `active-timers.ts`.
+- API: `rust/modules/flow/src/time_entries.rs` (`/api/time-entries`, permissions `time:read|create|update|delete`); per-member time in `rust/modules/flow/src/members.rs`. Third-party API: the flow group of the public API, `rust/modules/external-api/src/flow.rs`. Billing time on invoices: `rust/modules/books-sales/src/time_billing.rs`.
+- Schema: the entities `rust/crates/schema/src/tenant/time_entries.rs`, `active_timers.rs`.
 
 ## Rules
 
@@ -37,7 +37,7 @@ You are the Time Tracking / Timesheets specialist for WeldSuite.
 ## Delegate
 
 - UI → `frontend-platform` (web timer) or `mobile-expo` (mobile timer)
-- Endpoints (new or bugfix) → `backend-app-api` (flow-api); external-api v1 routes → `backend-workers`
+- Endpoints (new or bugfix), including the public API's v1 routes → `backend-rust` (`rust/modules/flow`, `rust/modules/external-api`)
 - Task side (linking time to tasks) → `weldflow-projects`
 - Invoice conversion → `weldbooks-accounting` + `weldsuite-invoicing`
 - Schema change → `database`

@@ -1,17 +1,16 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
-import type { Database } from '@weldsuite/worker-kit';
+import { createPgliteDb } from '@weldsuite/db/testing/pglite';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
 import { boardVersions, files, whiteboards } from '@weldsuite/db/schema';
 import { encode, type ClientMessage } from '@weldsuite/collab';
 import { emptySnapshot, makeSticky, plain, type BoardElement, type BoardPresence, type Op } from '@weldsuite/board-engine';
-import type { Env } from '../types';
+import type { BoardRoomEnv as Env } from './board-room';
 import { FakeBucket, FakeSocket, fakeObjectState, type BoardServerMessage } from '../test-support/fakes';
 import { createBoard, snapshotKeyFor } from '../services/boards';
 import { versionKeyFor } from '../services/versions';
 import { readSnapshot, readThumbnail, writeSnapshot } from './snapshot';
 import { BoardRoom, type Admission } from './board-room';
-import { connectToRoom, isConnectRequest } from './connect';
 
 let db: Database;
 /** The room as a host runs it, on this test's database. */
@@ -252,16 +251,5 @@ describe('BoardRoom', () => {
       ok: false,
       reason: 'missing_version',
     });
-  });
-});
-
-describe('connect', () => {
-  it('only takes WebSocket upgrades with a well-formed ticket', async () => {
-    expect(isConnectRequest(new Request('https://board-api.test/api/boards/connect?ticket=x'))).toBe(true);
-    expect(isConnectRequest(new Request('https://board-api.test/api/boards/brd_1'))).toBe(false);
-    const plainGet = await connectToRoom(new Request('https://board-api.test/api/boards/connect'), env);
-    expect(plainGet.status).toBe(426);
-    const bad = await connectToRoom(new Request('https://board-api.test/api/boards/connect?ticket=nope', { headers: { Upgrade: 'websocket' } }), env);
-    expect(bad.status).toBe(401);
   });
 });

@@ -1,15 +1,14 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
-import type { Database } from '@weldsuite/worker-kit';
+import { createPgliteDb } from '@weldsuite/db/testing/pglite';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
 import { files, sheets } from '@weldsuite/db/schema';
 import { Engine, Sheet, Workbook, encode, readXlsx, toFrames, type ClientMessage, type Op, type ServerMessage } from '@weldsuite/sheets-engine';
-import type { Env } from '../types';
+import type { SheetRoomEnv as Env } from './sheet-room';
 import { FakeBucket, FakeSocket, fakeObjectState } from '../test-support/fakes';
 import { createSheet, snapshotKeyFor } from '../services/sheets';
 import { readSnapshot, writeSnapshot } from './snapshot';
 import { SheetRoom, replyCode, type Admission } from './sheet-room';
-import { connectToRoom, isConnectRequest } from './connect';
 
 let db: Database;
 /** The room as a host runs it, on this test's database. */
@@ -225,26 +224,6 @@ describe('SheetRoom', () => {
     const csv = await room.exportFile(meta(), { format: 'csv', tab: TAB });
     expect(text(csv!.bytes)).toBe('\uFEFF');
     expect(state.storage.data.get('meta')).toEqual(meta());
-  });
-});
-
-describe('room socket', () => {
-  const upgrade = (ticket: string) =>
-    new Request(`https://sheets-api.test/api/sheets/connect?ticket=${ticket}`, { headers: { Upgrade: 'websocket' } });
-
-  it('forwards a well-formed ticket to the room it names', async () => {
-    const fetched: string[] = [];
-    const roomEnv = {
-      SHEET_ROOM: {
-        idFromString: (id: string) => ({ id }),
-        get: ({ id }: { id: string }) => ({ fetch: async () => (fetched.push(id), new Response('ok')) }),
-      },
-    } as unknown as Env;
-    expect(isConnectRequest(upgrade('x'))).toBe(true);
-    expect((await connectToRoom(upgrade(`${'b'.repeat(64)}.secret-secret-secret`), roomEnv)).status).toBe(200);
-    expect(fetched).toEqual(['b'.repeat(64)]);
-    expect((await connectToRoom(upgrade('nope'), roomEnv)).status).toBe(401);
-    expect((await connectToRoom(new Request('https://sheets-api.test/api/sheets/connect'), roomEnv)).status).toBe(426);
   });
 });
 

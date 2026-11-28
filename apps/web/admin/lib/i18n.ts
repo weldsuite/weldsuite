@@ -1,25 +1,5 @@
 import { getTranslations } from '@weldsuite/i18n';
 
-export function adminPricingCopy() {
-  return getTranslations('host').adminPricing;
-}
-
-export function adminPhonePricingCopy() {
-  return getTranslations('host').adminPhonePricing;
-}
-
-export function adminPlanPricingCopy() {
-  return getTranslations('host').adminPlanPricing;
-}
-
-export function adminMeetAiPricingCopy() {
-  return getTranslations('host').adminMeetAiPricing;
-}
-
-export function adminPanelPricingCopy() {
-  return getTranslations('host').adminPanelPricing;
-}
-
 /** Billing, plan catalog and activity log copy. */
 export function adminCopy() {
   return getTranslations('admin');

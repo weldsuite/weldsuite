@@ -6,7 +6,7 @@ import { Input } from '@weldsuite/ui/components/input';
 import { ActionDialog, Field } from '@/components/billing/action-dialog';
 import { setSeatPrice } from '@/actions/seat-price';
 import type { ActionResult } from '@/actions/workspaces';
-import { formatCents, formatDay } from '@/lib/billing-format';
+import { centsToMajorUnits, formatCents, formatDay } from '@/lib/billing-format';
 import type { MollieBillingAccount, WorkspaceBilling } from '@/lib/billing-types';
 import { fill } from '@/lib/i18n';
 import { mollieBillingCopy } from '@/lib/mollie-billing-copy';
@@ -17,7 +17,6 @@ import {
   seatPriceFormState,
   seatPriceProblemMessage,
 } from '@/lib/seat-price-form';
-import { centsToMajorUnits } from '@/lib/sso-admin';
 
 /**
  * Sets what a workspace paying through Mollie is charged per seat, in place

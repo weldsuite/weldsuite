@@ -5,7 +5,7 @@
 
 import { FrameAssembler, decodeServer, type BoardServerMessage } from '@weldsuite/board-engine';
 import type { Admission, BoardRoom } from '../room/board-room';
-import type { Env } from '../types';
+import type { BoardRoomEnv as Env } from '../room/board-room';
 
 /**
  * A concrete room class: the worker's (`src/room.ts`), which opens the

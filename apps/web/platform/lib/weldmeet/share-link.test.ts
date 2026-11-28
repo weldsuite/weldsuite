@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setRuntimeConfig } from '@/lib/runtime-config';
-import { DEFAULT_MEETING_PORTAL_URL, buildMeetingShareUrl, parseMeetingJoinInput } from './share-link';
+import { buildMeetingShareUrl, parseMeetingJoinInput } from './share-link';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -17,10 +17,10 @@ describe('buildMeetingShareUrl', () => {
     expect(buildMeetingShareUrl(null, 'wm-abc-def-ghi')).toBeNull();
   });
 
-  it('defaults to the public meeting portal, not the platform origin', () => {
+  it("links to the platform's join page when no meeting portal is set", () => {
     vi.stubEnv('VITE_MEETING_PORTAL_URL', '');
     expect(buildMeetingShareUrl('org_123', 'wm-abc-def-ghi')).toBe(
-      `${DEFAULT_MEETING_PORTAL_URL}/org_123/wm-abc-def-ghi`,
+      `${window.location.origin}/w/org_123/weldmeet/join/wm-abc-def-ghi`,
     );
   });
 
@@ -31,10 +31,10 @@ describe('buildMeetingShareUrl', () => {
     );
   });
 
-  describe('on a Kubernetes edition', () => {
+  describe('with a runtime config', () => {
     afterEach(() => setRuntimeConfig(null));
 
-    it("links to the platform's join page when it has no meeting portal, never to Global's", () => {
+    it("links to the platform's join page when it has no meeting portal", () => {
       vi.stubEnv('VITE_MEETING_PORTAL_URL', '');
       setRuntimeConfig({ backend: 'rust', edition: 'eu' });
       expect(buildMeetingShareUrl('399484358940950842', 'wm-qfu-qqt-ban')).toBe(

@@ -434,8 +434,8 @@ describe('Worker-safe entries', () => {
     expect([...packages].filter(isNodeOnly)).toEqual([]);
   });
 
-  it.each(['index.ts', 'transports/binding.ts'])('%s does not reach the SMTP transport', (entry) => {
-    const { files, packages } = walk(resolve(src, entry));
+  it('index.ts does not reach the SMTP transport', () => {
+    const { files, packages } = walk(resolve(src, 'index.ts'));
     expect([...files].filter(isSmtpModule)).toEqual([]);
     expect([...packages].filter((p) => p === 'nodemailer' || p.startsWith('nodemailer/'))).toEqual([]);
   });

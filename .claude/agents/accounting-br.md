@@ -11,15 +11,16 @@ sourced reference data in `weldsuite-documentation/plans/weldbooks-br/tax-resear
 
 ## Where the code is
 
-- Adapter and pure logic: `packages/domains/books/src/jurisdictions/br/` — `regimes.ts`, `identifiers.ts` (CNPJ incl.
-  alphanumeric, CPF, IE, CEP), `states.ts` (UF, IBGE, ICMS rates, interstate rule), `tax-profiles.ts` (seeded rates are
-  profiles in `jurisdiction_metadata.br`), `tax-engine.ts` (document taxes and withholdings), `simples.ts` (Anexos I–V,
-  fator R, ISS cap), `apuracao.ts` (monthly worksheet, quarterly IRPJ/CSLL, LC 224), `ecd.ts` (SPED ECD leiaute 9),
-  `pix.ts` (BR Code + QR), `invoice-format.ts` (pt-BR labels, mandatory notices).
-- books-api: `services/br-apuracao.ts`, `services/br-ecd.ts`, `services/br-entity-setup.ts`, `services/br-fiscal/`
-  (Focus NFe), routes `br-tax`, `fiscal-documents`, `received-fiscal-documents`, `public-fiscal-webhooks`.
-- The engine is reached through the adapter hook `computeDocumentTaxes`; posting reads each breakdown row's
-  `treatment` (added / embedded / withheld / informational).
+- Backend engine (Rust): `rust/crates/books-domain/src/jurisdictions/br.rs` (CNPJ, CPF, IE, CEP, regimes, states,
+  the entity settings), `br_tax.rs` (document taxes and withholdings, plugged in through `tax::document_tax_hook`),
+  `br/pix.rs` (BR Code).
+- Routes: `rust/modules/books-tax/src/brazil.rs` (`/api/br-tax`: apuração, SPED ECD, withholdings), `apuracao.rs`,
+  `ecd.rs`, and `fiscal/` (Focus NFe: `/api/fiscal-documents`, `/api/received-fiscal-documents`, the webhook at
+  `/public/fiscal-webhooks/:token`). Entity setup: `rust/modules/books/src/entity_setup.rs`.
+- TypeScript twin the frontends still use: `packages/domains/books/src/jurisdictions/br/` (`regimes.ts`,
+  `identifiers.ts`, `states.ts`, `tax-profiles.ts`, `tax-engine.ts`, `simples.ts`, `apuracao.ts`, `ecd.ts`, `pix.ts`,
+  `invoice-format.ts`). Seeded rates are profiles in `jurisdiction_metadata.br`.
+- Posting reads each breakdown row's `treatment` (added / embedded / withheld / informational).
 
 ## Rules to keep
 
@@ -29,5 +30,5 @@ sourced reference data in `weldsuite-documentation/plans/weldbooks-br/tax-resear
 - 2026 is the CBS/IBS test year (0,9% / 0,1%, informational, not in the total; Simples exempt until 2027). From 2027
   PIS/COFINS end and CBS is added at the entity's configured rate until the Senate fixes the reference rate.
 - No IRRF/CSRF withholding from a Simples provider; withholdings of R$ 10,00 or less are not withheld.
-- Never hand-roll Focus NFe paths outside `services/br-fiscal`; re-check status with a GET before trusting a webhook.
+- Never hand-roll Focus NFe paths outside `rust/modules/books-tax/src/fiscal/`; re-check status with a GET before trusting a webhook.
 - Rates change often (ICMS per state, minimum wage for DAS-MEI, CBS reference rate): cite a source when changing one.

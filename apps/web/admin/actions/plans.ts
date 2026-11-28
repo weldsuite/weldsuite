@@ -1,16 +1,9 @@
 /**
- * Plan changes, as server functions: through the billing worker on Global,
- * written directly on Kubernetes (Stripe sync is Global's). The bodies are
- * in `./plans.server.ts`; each export here keeps that function's signature and
- * runs it on the server.
+ * Plan changes, as server functions. The bodies are in `./plans.server.ts`;
+ * each export here keeps that function's signature and runs it on the server.
  */
 import { createServerFn } from '@tanstack/react-start';
-import { globalOnly } from '@/lib/edition';
-import {
-  createPlan as createPlanOnServer,
-  updatePlan as updatePlanOnServer,
-  syncPlan as syncPlanOnServer,
-} from './plans.server';
+import { createPlan as createPlanOnServer, updatePlan as updatePlanOnServer } from './plans.server';
 
 export type { PlanFormValues } from './plans.server';
 
@@ -27,9 +20,3 @@ const updatePlanFn = createServerFn({ method: 'POST' })
   .handler(({ data }) => updatePlanOnServer(...data));
 export const updatePlan = (...args: Parameters<Server['updatePlan']>) =>
   updatePlanFn({ data: args });
-
-const syncPlanFn = createServerFn({ method: 'POST' }).middleware([globalOnly])
-  .validator((args: Parameters<Server['syncPlan']>) => args)
-  .handler(({ data }) => syncPlanOnServer(...data));
-export const syncPlan = (...args: Parameters<Server['syncPlan']>) =>
-  syncPlanFn({ data: args });

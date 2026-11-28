@@ -6,7 +6,6 @@
   "private": true,
   "exports": {
     "./engine-ops": "./src/engine-ops.ts",
-    "./room/connect": "./src/room/connect.ts",
     "./room/people": "./src/room/people.ts",
     "./room/sheet-room": "./src/room/sheet-room.ts",
     "./room/snapshot": "./src/room/snapshot.ts",
@@ -15,8 +14,7 @@
     "./services/legacy-project-sheet": "./src/services/legacy-project-sheet.ts",
     "./services/sheets": "./src/services/sheets.ts",
     "./services/versions": "./src/services/versions.ts",
-    "./test-support/fakes": "./src/test-support/fakes.ts",
-    "./types": "./src/types.ts"
+    "./test-support/fakes": "./src/test-support/fakes.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
@@ -34,7 +32,6 @@
     "@weldsuite/forms-engine": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/sheets-engine": "workspace:*",
-    "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {

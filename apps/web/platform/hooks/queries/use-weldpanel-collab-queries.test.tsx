@@ -19,7 +19,7 @@ const api = vi.hoisted(() => ({
   },
 }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => api }));
-vi.mock('@/lib/api/public-env', () => ({ getApiOriginForPath: () => 'https://panel-api.test' }));
+vi.mock('@/lib/api/public-env', () => ({ getAppApiUrl: () => 'https://api.test' }));
 
 import { weldpanelKeys } from './use-weldpanel-queries';
 import {
@@ -82,7 +82,7 @@ describe('queries', () => {
     const { result } = renderHook(() => useWeldPanelPublicShare('wpsh_abc'), { wrapper });
     await waitFor(() => expect(result.current.data).toEqual({ name: 'Traffic' }));
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe('https://panel-api.test/public/panel/share/wpsh_abc');
+    expect(url).toBe('https://api.test/public/panel/share/wpsh_abc');
     expect((init as RequestInit).credentials).toBe('omit');
   });
 });

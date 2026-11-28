@@ -16,13 +16,12 @@ export const APP: MobileAppIdentity = {
   code: '{{APP_CODE}}',
   name: '{{APP_NAME}}',
   // API modules the app can't work without on a server, besides core
-  // (`@weldsuite/api-modules` ids, e.g. 'crm').
+  // (`ApiModuleId`s from `@weldsuite/app-api-client/schemas/runtime-config`, e.g. 'crm').
   requiredModules: [],
 };
 
 export const BUILD: MobileBuildEnv = {
   appApiUrl: process.env.EXPO_PUBLIC_APP_API_URL,
-  apiModules: process.env.EXPO_PUBLIC_API_MODULES,
   personalApiUrl: process.env.EXPO_PUBLIC_PERSONAL_API_URL,
   realtimeUrl: process.env.EXPO_PUBLIC_REALTIME_URL,
   platformUrl: process.env.EXPO_PUBLIC_PLATFORM_URL,

@@ -19,14 +19,14 @@ Run the standard agent pipeline:
 2. Invoke `bug-triage`. Triage reproduces, traces to root cause, writes a fix plan. It leans on the enricher's "Existing patterns to mirror" and "Decisions locked in".
 3. Invoke the specialist(s) named by the dispatcher. They implement against the triage plan, nothing more, nothing less.
 4. Run Definition-of-Done checks (see AGENTS.md):
-   - `pnpm lint` in the changed workspace(s)
+   - `pnpm lint` in the changed workspace(s); `pnpm rust:lint` and `cargo test -p <crate>` for touched Rust crates
    - `pnpm build` of the touched app(s)
-   - Tenant scoping on every Drizzle query touched
+   - Tenant scoping on every query touched
    - Permission check on any route touched
-   - i18n keys added to both `en.json` and `nl.json` if UI strings changed
+   - i18n keys added to both `en` and `nl` (`packages/core/i18n/src/locales/<locale>/`) if UI strings changed
 5. Call `update_task` with a comment linking the commit/PR and flip status to done (or `review` if a PR was opened).
 
 Stop and ask before:
 - Creating any database migration file
-- Putting a module route in `apps/workers/app-api` instead of the module's `apps/workers/<module>-api` worker (owner by path prefix in `packages/core/api-modules/src/index.ts`)
+- Putting a module route outside the owning `rust/modules/<module>` crate (owner by path prefix in `rust/catalogs/api-modules.json`), or making one module crate depend on another
 - Changing anything in another specialist's domain beyond the scope of the triage plan

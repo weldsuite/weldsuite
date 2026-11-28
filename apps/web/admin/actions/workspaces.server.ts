@@ -16,16 +16,8 @@ import {
 
 const { workspaces } = masterSchema;
 
-/** Any value that survives JSON: what a server function may return untyped. */
-export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-
-/**
- * `code` is the billing worker's error code when it produced the failure (see
- * lib/billing-worker.ts); the billing forms read it to decide whether a retry
- * may reuse the request's idempotency key. `details` is the worker's structured
- * error payload (parsed JSON), e.g. the countries of a TERRITORY_CONFLICT.
- */
-export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string; details?: JsonValue };
+/** What every action hands back: its data, or the error staff see as a toast. */
+export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
 /** Reject deletion dates that are in the past or unreasonably soon. */
 const MIN_LEAD_MINUTES = 5;

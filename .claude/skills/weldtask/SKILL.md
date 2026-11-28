@@ -56,7 +56,7 @@ Then score clarity. The task is **clear** when all of these hold:
 - Bug: what happens, what should happen, and where (page, endpoint, app) are all
   stated or can be found in the code within a few reads.
 - Feature: the scope fits one module, the surface (which page / endpoint /
-  worker) is named or obvious, and there is no open product or UX decision.
+  job) is named or obvious, and there is no open product or UX decision.
 - Or: the description already has a `## Enriched analysis` block.
 
 | Situation | What to do |
@@ -101,7 +101,7 @@ For a small, clear bug fix, just continue.
 ## 5. Implement
 
 Pick specialists from the plan (or run `weldsuite-dispatcher` when unclear).
-Order: `database` → `backend-app-api` / `backend-workers` → `frontend-platform` /
+Order: `database` → `backend-rust` → `frontend-platform` /
 `frontend-nextjs` → `mobile-expo`, plus the domain agent (`weldcrm`,
 `welddesk-helpdesk`, `weldflow-projects`, …) when the logic is module-specific.
 Run them in the foreground, one after another, each with the task, the
@@ -113,10 +113,10 @@ question instead of guessing."
 
 - Creating a database migration file (`db:generate`). Options: "Generate the
   migration" / "Schema change only, no migration" / "Stop".
-- A new DB table, new package, new app or new worker.
-- Putting a module route in `apps/workers/app-api` instead of
-  `apps/workers/<module>-api`, or a new path prefix in
-  `packages/core/api-modules`.
+- A new DB table, new package, new app or new crate.
+- Putting a module route outside its `rust/modules/<module>` crate, a module
+  crate depending on another, or a new path prefix in
+  `rust/catalogs/api-modules.json`.
 - Work beyond the task's scope. An adjacent bug found along the way gets a new
   task via `create_task` (ask first), not a silent fix.
 - Anything touching secrets, production config, deletes of user data, or
@@ -134,15 +134,18 @@ then ask the user how to proceed):
 - `pnpm --filter <ws> test` where the workspace has tests. Add or extend a test
   that fails before the fix and passes after when the workspace has a test setup.
 - `pnpm --filter <app> build` for touched apps (platform: `pnpm --filter platform build`).
+- Rust: `pnpm rust:lint`, and `cargo test -p <crate>` inside `rust/` for each
+  touched crate.
 - Bug: confirm the reproduction from triage no longer reproduces. For visible
   platform UI, verify in the browser preview per the session's preview workflow.
 
 Review the diff yourself for:
 
-- `workspaceId` / tenant scoping on every touched query
-- a `weld*` permission check on every new or changed route
-- `publishEntityEvent` on every new mutation route (except WeldPass)
-- Zod v3 validation both ways
+- tenant and owner scoping on every touched query
+- a permission gate on every new or changed route
+- an entity event (`publish_entity_event`) on every new mutation route
+  (except WeldPass)
+- input validated on the server, Zod v3 schemas in the client
 - every new user-visible string in both `en/` and `nl/` under
   `packages/core/i18n/src/locales/`
 - no `console.log`, `any`, or `@ts-ignore`; no edits to `routeTree.gen.ts`

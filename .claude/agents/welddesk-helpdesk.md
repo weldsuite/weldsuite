@@ -16,7 +16,7 @@ You are the WeldDesk (Helpdesk / Support) domain specialist for WeldSuite.
 - **Department**, agent grouping for routing.
 - **Article**, knowledge base article (lives in `apps/web/helpcenter`, backed by WeldSuite content).
 - **SLA**, response + resolution time targets per priority/department.
-- **Workflow**, automation rules run by `helpdesk-workflow-worker`.
+- **Workflow**, automation rules run by the helpdesk workflow engine (`rust/crates/desk-domain/src/workflow/`).
 - **Satisfaction survey**, post-resolution CSAT.
 
 ## Status lifecycle
@@ -31,11 +31,11 @@ You are the WeldDesk (Helpdesk / Support) domain specialist for WeldSuite.
 
 - Platform UI: `apps/web/platform/app/welddesk/*`.
 - Mobile: `apps/mobile/welddesk-app`, standalone Expo app for agents.
-- API: the `desk-api` worker, `apps/workers/desk-api/src/routes/`, e.g. `tickets/`, `ticket-messages/`, `conversations/`, `helpdesk-agents/`, `helpdesk-departments/`, `articles/`, `slas/`, `helpdesk-workflows/`, `satisfaction-surveys/`, `public-helpcenter/`. Services in `src/services/helpdesk/`. Owned prefixes: the `desk` entry in `packages/core/api-modules/src/index.ts`.
-- WeldKnow knowledge spaces/pages (`/api/knowledge`): the `know-api` worker, `apps/workers/know-api/src/routes/knowledge/`. Helpcenter articles stay in desk-api.
-- Shared desk logic: `packages/domains/desk` (`@weldsuite/desk-domain`).
-- Widget backend: `apps/workers/helpdesk-widget-api`, embeddable chat widget API, @weldsuite/realtime real-time.
-- Workflow engine: `apps/workers/helpdesk-workflow-worker`, executes automations.
+- API: `rust/modules/desk/src/`, e.g. `tickets.rs`, `conversations.rs`, `departments.rs`, `kb.rs` (articles), `ticket_types.rs`, `channels/` (webchat, inbox, help center), `settings/`, `team/` (incl. workflows), and the SLA and report sweeps (`sla_sweep.rs`, `report_sweep.rs`). Owned prefixes: the `desk` entry in `rust/catalogs/api-modules.json`.
+- WeldKnow knowledge spaces/pages (`/api/knowledge`): `rust/modules/know`. Helpcenter articles stay in the desk module.
+- Shared desk logic: `rust/crates/desk-domain` (assignment, inbox, the SLA engine in `sla.rs`, webchat).
+- Widget backend: `rust/modules/desk-widget`, the embeddable chat widget API at `/public/helpdesk-widget`; its live updates go through the realtime gateway (`rust/crates/realtime`).
+- Workflow engine: `rust/crates/desk-domain/src/workflow/`, executes automations as a job.
 - Widget SDK: `packages/sdk/helpdesk-widget-sdk`, embeddable SDK (React/Vue/Angular/Svelte wrappers).
 - Widget test page: `apps/web/helpdesk-widget/test-local.html`, must mirror SDK changes.
 
@@ -52,6 +52,4 @@ You are the WeldDesk (Helpdesk / Support) domain specialist for WeldSuite.
 ## Delegate
 
 - UI → `frontend-platform` (welddesk) or `frontend-nextjs` (widget, helpcenter)
-- Endpoints (new or bugfix) → `backend-app-api` (desk-api, know-api)
-- Widget runtime or workflow engine → `backend-workers`
-- Real-time / @weldsuite/realtime → `backend-workers` (realtime-worker, helpdesk-widget-api)
+- Endpoints (new or bugfix), the widget API, the workflow engine and realtime → `backend-rust` (`rust/modules/desk`, `desk-widget`, `know`, `rust/crates/desk-domain`, `rust/crates/realtime`)

@@ -1,9 +1,0 @@
-{
-  "extends": "@weldsuite/typescript-config/base.json",
-  "compilerOptions": {
-    "noEmit": true,
-    "types": []
-  },
-  "include": ["src"],
-  "exclude": ["node_modules"]
-}

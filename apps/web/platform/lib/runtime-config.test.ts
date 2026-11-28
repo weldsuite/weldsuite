@@ -5,7 +5,6 @@ import {
   getRuntimeConfig,
   isRuntimeConfigEnabled,
   isRuntimeEnv,
-  isRustBackend,
   loadRuntimeConfig,
   parseRuntimeConfig,
   publicEnv,
@@ -102,18 +101,16 @@ describe('loadRuntimeConfig with VITE_RUNTIME_CONFIG=on (Kubernetes builds)', ()
     expect(isRuntimeConfigEnabled()).toBe(true);
     await loadRuntimeConfig(async () => response(JSON.stringify(rustConfig)));
     expect(getRuntimeConfig()?.modules).toEqual(['core', 'know']);
-    expect(isRustBackend()).toBe(true);
   });
 
   it('falls back to the build-time settings when there is none', async () => {
     vi.stubEnv('VITE_RUNTIME_CONFIG', 'on');
     await loadRuntimeConfig(async () => response('', { status: 404 }));
     expect(getRuntimeConfig()).toBeNull();
-    expect(isRustBackend()).toBe(false);
   });
 });
 
-describe('loadRuntimeConfig with the switch unset or off (Global)', () => {
+describe('loadRuntimeConfig with the switch unset or off', () => {
   it.each([undefined, '', 'off', 'true'])('requests nothing for %s', async (value) => {
     if (value !== undefined) vi.stubEnv('VITE_RUNTIME_CONFIG', value);
     const fetchImpl = vi.fn(async () => response(JSON.stringify(rustConfig)));
@@ -172,7 +169,7 @@ describe('getHelpdeskWidgetUrl', () => {
     expect(getHelpdeskWidgetUrl()).toBeUndefined();
   });
 
-  it('is undefined on Global, where the SDK default is right', () => {
+  it('is undefined without a runtime config, where the SDK default is right', () => {
     expect(getHelpdeskWidgetUrl()).toBeUndefined();
   });
 });

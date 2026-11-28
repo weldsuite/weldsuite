@@ -15,22 +15,16 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { cn } from '@/lib/utils';
 import { adminCopy } from '@/lib/i18n';
-import { keepsRequestId, newRequestId } from '@/lib/billing-format';
 import { useRouter } from '@/lib/navigation';
 import type { ActionResult } from '@/actions/workspaces';
 
 /**
- * Dialog shell for every billing change: the dialog's own fields, a required
+ * Dialog shell for every staff change: the dialog's own fields, a required
  * reason (saved in the activity log), and a submit button. Mount it only while
  * open so its state starts fresh each time.
  *
  * After a successful submit it re-runs the page's loaders before closing, so
  * the page shows the change (on Next.js the server action revalidated it).
- *
- * One request id per submission becomes the Stripe idempotency key. It is
- * renewed after a definite rejection, so a corrected retry is not mistaken for
- * a replay, and kept after an ambiguous failure (timeout, 5xx), so a retry
- * replays the first attempt instead of repeating it.
  */
 export function ActionDialog<T>({
   title,
@@ -51,7 +45,7 @@ export function ActionDialog<T>({
   wide?: boolean;
   /** Set while the dialog's own fields are invalid; shown and blocks submit. */
   invalidMessage?: string | null;
-  onSubmit: (reason: string, requestId: string) => Promise<ActionResult<T>>;
+  onSubmit: (reason: string) => Promise<ActionResult<T>>;
   successMessage: string | ((data: NoInfer<T>) => string);
   onClose: () => void;
   children?: React.ReactNode;
@@ -59,7 +53,6 @@ export function ActionDialog<T>({
   const t = adminCopy();
   const router = useRouter();
   const [reason, setReason] = useState('');
-  const [requestId, setRequestId] = useState(newRequestId);
   const [isPending, startTransition] = useTransition();
 
   const reasonValid = reason.trim().length >= 3;
@@ -67,10 +60,9 @@ export function ActionDialog<T>({
 
   const submit = () =>
     startTransition(async () => {
-      const result = await onSubmit(reason.trim(), requestId);
+      const result = await onSubmit(reason.trim());
       if (!result.ok) {
         toast.error(result.error);
-        if (!keepsRequestId(result.code)) setRequestId(newRequestId());
         return;
       }
       toast.success(typeof successMessage === 'function' ? successMessage(result.data) : successMessage);

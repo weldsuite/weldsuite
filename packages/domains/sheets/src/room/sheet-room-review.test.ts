@@ -6,11 +6,11 @@
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
-import type { Database } from '@weldsuite/worker-kit';
+import { createPgliteDb } from '@weldsuite/db/testing/pglite';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
 import { files, sheetDataSources, sheetVersions, sheets } from '@weldsuite/db/schema';
 import { Engine, Sheet, Workbook, encode, type ClientMessage, type Op, type ServerMessage, type SheetComment } from '@weldsuite/sheets-engine';
-import type { Env } from '../types';
+import type { SheetRoomEnv as Env } from './sheet-room';
 import { FakeBucket, FakeSocket, fakeObjectState } from '../test-support/fakes';
 import { createSheet, snapshotKeyFor } from '../services/sheets';
 import { versionKeyFor } from '../services/versions';

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 
 vi.mock('@/lib/api/public-env', () => ({
-  getApiOrigins: () => ['https://app-api.test', 'https://pass-api.test'],
+  getAppApiUrl: () => 'https://app-api.test',
 }));
 
 const originalFetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('{}'));
@@ -30,7 +30,6 @@ describe('installAppContextHeader', () => {
   it.each([
     ['app-api requests', '/weldcrm/companies', 'https://app-api.test/api/companies'],
     ['requests past a /w/{workspace} prefix', '/w/acme/weldcrm/companies', 'https://app-api.test/api/companies'],
-    ['module worker requests', '/weldcrm', 'https://pass-api.test/api/weldpass/projects'],
   ])('tags %s with the module in the URL', async (_label, pathname, url) => {
     goTo(pathname);
     await window.fetch(url);

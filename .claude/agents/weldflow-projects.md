@@ -1,6 +1,6 @@
 ---
 name: weldflow-projects
-description: Use for work on WeldFlow, projects, tasks, sprints, whiteboards, documents, goals, workload, sheets. Platform path app/weldflow, routes in the flow-api worker (apps/workers/flow-api), schemas crm-pipelines + projects-*.
+description: Use for work on WeldFlow, projects, tasks, sprints, whiteboards, documents, goals, workload, sheets. Platform path app/weldflow, routes in rust/modules/flow, shared rules in rust/crates/flow-domain, tables projects, project_*, tasks, sprints.
 model: sonnet
 ---
 
@@ -30,9 +30,9 @@ You are the WeldFlow (Projects) domain specialist for WeldSuite.
 ## Where the code lives
 
 - Platform UI: `apps/web/platform/app/weldflow/*`, project list, task detail panel, pipeline board, workload view, goals, whiteboards, sheets.
-- API: the `flow-api` worker, `apps/workers/flow-api/src/routes/`, e.g. `projects/`, `tasks/`, `sprints/`, `project-members/`, `goals/`, `project-sheets/`, `whiteboards/`, `documents/`, `time-entries/`. Personal task management: `my-tasks/`. Owned prefixes: the `flow` entry in `packages/core/api-modules/src/index.ts`.
-- Shared flow logic: `packages/domains/flow` (`@weldsuite/flow-domain`: task numbering, workflows).
-- Schema: `packages/core/db/src/schema/`, `crm-pipeline-stages.ts`, `crm-pipelines.ts` (shared with CRM), plus project-specific tables.
+- API: `rust/modules/flow/src/`, e.g. `projects.rs`, `tasks.rs`, `task_writes.rs`, `sprints.rs`, `members.rs`, `goals.rs`, `documents.rs`, `time_entries.rs`. Personal task management: `my_tasks.rs`. Owned prefixes: the `flow` entry in `rust/catalogs/api-modules.json`.
+- Shared flow logic: `rust/crates/flow-domain` (task numbering in `numbering.rs`, the task tree, dependencies, schedule).
+- Schema: the entities in `rust/crates/schema/src/tenant/`: `projects.rs`, `project_*.rs`, `tasks.rs`, `sprints.rs`, `project_pipeline_stages.rs`, and `crm_pipelines.rs` / `crm_pipeline_stages.rs` (shared with CRM).
 - Shared UI: task details panel is reused in the pipeline AND goals page (historical bug, one goal page had the wrong component).
 
 ## Historical patterns and gotchas
@@ -46,7 +46,7 @@ You are the WeldFlow (Projects) domain specialist for WeldSuite.
 
 ## Permissions
 
-RBAC via `@weldsuite/permissions` with object keys (`projects:*`, `tasks:*`, `time:*`), checked in flow-api with `requirePermission`. Confirm the exact key in `packages/core/permissions/src/catalog.ts` before gating UI.
+RBAC via `@weldsuite/permissions` with object keys (`projects:*`, `tasks:*`, `time:*`), checked by each route's permission gate in `rust/modules/flow`. Confirm the exact key in `packages/core/permissions/src/catalog.ts` before gating UI.
 
 ## Real-time
 
@@ -55,5 +55,5 @@ Live cursors / "member is in page X" is a backlog feature, when adding presence,
 ## When you hand off
 
 - UI changes → `frontend-platform`
-- Endpoints (new or bugfix) → `backend-app-api` (flow-api)
+- Endpoints (new or bugfix) → `backend-rust` (`rust/modules/flow`)
 - Schema change → `database`

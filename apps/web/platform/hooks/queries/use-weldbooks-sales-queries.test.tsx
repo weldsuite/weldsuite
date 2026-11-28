@@ -35,12 +35,9 @@ import {
   useCreateQuote,
   useEmailInvoice,
   useEmailQuote,
-  useEmailTemplates,
   useInfiniteQuotes,
   useInvoiceFromQuote,
   usePauseReminders,
-  useQuote,
-  useReminderSettings,
   useRemindBulk,
   useRemindInvoice,
   useRevokeInvoiceLink,
@@ -67,21 +64,11 @@ const TODO = JSON.stringify(['accounting', 'todo']);
 describe('edition gates', () => {
   afterEach(() => setRuntimeConfig(null));
 
-  it('are closed on Global and open on a Rust install that has the features', () => {
-    expect([isInvoiceEmailAvailable(), isQuotesAvailable(), isRemindersAvailable()]).toEqual([false, false, false]);
+  it('are open on a Rust install that has the features, and closed where one is missing', () => {
     setRuntimeConfig(RUST);
     expect([isInvoiceEmailAvailable(), isQuotesAvailable(), isRemindersAvailable()]).toEqual([true, true, true]);
     setRuntimeConfig({ ...RUST, unavailableFeatures: ['books-quotes'] });
     expect([isInvoiceEmailAvailable(), isQuotesAvailable(), isRemindersAvailable()]).toEqual([true, false, true]);
-  });
-
-  it('keep the queries from running on Global', () => {
-    const { wrapper } = setup();
-    renderHook(() => [useQuote('q_1'), useInfiniteQuotes(), useEmailTemplates(), useReminderSettings()], { wrapper });
-    expect(api.getQuote).not.toHaveBeenCalled();
-    expect(api.listQuotes).not.toHaveBeenCalled();
-    expect(api.getEmailTemplates).not.toHaveBeenCalled();
-    expect(api.getReminderSettings).not.toHaveBeenCalled();
   });
 });
 

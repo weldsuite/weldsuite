@@ -30,14 +30,14 @@ For each layer the bug likely touches:
 - Check Jotai atoms if the symptom is "state doesn't persist"
 - Check the Zod schema if the symptom is "form won't submit"
 
-**Backend (apps/workers/app-api core, apps/workers/<module>-api module workers):**
-- Find the owning worker by path prefix in `packages/core/api-modules/src/index.ts`, then the mount in that worker's `src/index.ts` and the handler in `src/routes/<object>/index.ts` (`grep -rn "/api/leads" apps/workers/*/src/index.ts`)
-- Trace through Drizzle queries, watch for missing `workspaceId` / tenant scoping (common source of bugs)
-- Check the route's `requirePermission('<object>:<action>')` (from `@weldsuite/permissions/server`), is the right key being enforced?
-- Check for missing `await` on async calls (has bitten us before)
+**Backend (Rust, `rust/modules/<module>`, core routes in `rust/modules/core-*`):**
+- Find the owning module by path prefix in `rust/catalogs/api-modules.json`, then its mount in `rust/bins/weldsuite/src/routes/mod.rs` and the handler in the crate's `router()` (`grep -rn '"/leads' rust/modules/crm/src`)
+- Trace through the SeaORM queries (or the SQL that stays SQL), watch for missing workspace / owner scoping (common source of bugs)
+- Check the route's permission gate (`gate.require([...])` with a key from `weldsuite_catalogs::permission_keys`), is the right key being enforced?
+- Background work: crons are in `rust/bins/weldsuite/src/cron.rs`, queue and event consumers in `rust/bins/weldsuite/src/consume/`
 
 **Database:**
-- If schema seems wrong, read the Drizzle schema file, NOT assumptions
+- If schema seems wrong, read the entity in `rust/crates/schema/src/{tenant,master}/<table>.rs`, NOT assumptions
 - Check for missing indexes on tenant-scoped queries
 - Verify migration was applied against both master and tenant DBs
 
@@ -61,7 +61,7 @@ Output this exact structure, the specialist will consume it verbatim:
 ### Root cause
 <2-3 sentences naming the file, function, and line range that's wrong, AND why it's wrong. Not "probably in X", actually read the file and cite it.>
 
-**File(s):** `apps/web/platform/app/weldcrm/people/page.tsx:123-145`, `apps/workers/crm-api/src/routes/people/index.ts:78`
+**File(s):** `apps/web/platform/app/weldcrm/people/page.tsx:123-145`, `rust/modules/crm/src/people.rs:78`
 
 ### Fix plan
 1. <Change 1: concrete edit, not "refactor the thing">
@@ -92,9 +92,8 @@ After the fix plan is written, explicitly name the specialist(s) to invoke next.
 
 ## Specific WeldSuite gotchas to check first
 
-- Multi-tenant scoping: is `workspaceId` being filtered in every Drizzle query on the failing path? Missing scoping is the #1 source of WeldSuite bugs.
-- Clerk session → internal user id mapping: sometimes breaks on new signups if the user isn't bootstrapped into the master DB yet.
-- Hyperdrive cache: if a "stale data" bug, check that mutations invalidate Hyperdrive, not just the React Query cache.
-- i18n fallback: strings showing as `t('some.key')` mean the key is missing from `en.json` / `nl.json`, not a code bug.
+- Multi-tenant scoping: is the query on the failing path running on the request's tenant DB, with its owner and scope filters? Missing scoping is the #1 source of WeldSuite bugs.
+- Session → internal user id mapping: can break on new sign-ins if the user isn't in the master DB yet (the identity sync in `rust/modules/core-onboarding`).
+- i18n fallback: strings showing as a raw key mean it is missing from `packages/core/i18n/src/locales/<locale>/`, not a code bug.
 - Permission name: keys are `object:action` (`leads:read`, `weldagent:use`, catalog in `packages/core/permissions/src/catalog.ts`), missing permission = 403 that looks like "button doesn't work".
 - Credits system: most weldagent features require credits, "nothing happens when I click generate" may be a 402-not-shown-to-user.

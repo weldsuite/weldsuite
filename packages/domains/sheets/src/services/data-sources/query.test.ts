@@ -1,7 +1,8 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { getTableColumns, getTableName } from 'drizzle-orm';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { createPgliteDb } from '@weldsuite/db/testing/pglite';
+import * as schema from '@weldsuite/db/schema';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
 import { SENSITIVE_COLUMNS } from '@weldsuite/db/lib/sensitive-columns';
 import {
   SHEET_DATA_OBJECTS,

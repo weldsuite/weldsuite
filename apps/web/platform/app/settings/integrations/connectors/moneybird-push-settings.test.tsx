@@ -98,12 +98,6 @@ describe('MoneybirdPushSettingsPanel', () => {
     expect(saveSent()).toMatchObject({ enabled: false, expenseLedgerAccountId: null });
   });
 
-  it('leaves the expense ledger out on Global', () => {
-    render(<MoneybirdPushSettingsPanel connection={connection()} canManage />);
-    expect(screen.queryByText(tp.expenseLedgerLabel)).toBeNull();
-    expect(saveSent()).not.toHaveProperty('expenseLedgerAccountId');
-  });
-
   it('lets Send now run for an object that sends, without the Stripe push', () => {
     onEu();
     render(

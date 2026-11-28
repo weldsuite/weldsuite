@@ -18,7 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import { Alert, AlertDescription } from '@weldsuite/ui/components/alert';
 import { isApiError } from '@weldsuite/api-client';
 import {
   MailAccessPicker,
@@ -48,9 +47,7 @@ import {
   useWeldMailDomain,
 } from '@/hooks/queries/use-mail-queries';
 import { isSharedWeldMailDomain } from '@weldsuite/app-api-client/schemas/outbound-mail';
-import { isRustBackend } from '@/lib/runtime-config';
 import { useDomains } from '@/hooks/queries/use-host-queries';
-import { useAppAccess } from '@/hooks/use-app-access';
 import { useCan } from '@weldsuite/permissions/react';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
@@ -77,88 +74,23 @@ function LoadingRow() {
   );
 }
 
-function NoActiveDomains({
-  loading,
-  installed,
-  selfServed,
-  t,
-}: Readonly<{ loading: boolean; installed: boolean; selfServed: boolean; t: MailTranslations }>) {
+function NoActiveDomains({ loading, t }: Readonly<{ loading: boolean; t: MailTranslations }>) {
   if (loading) return <LoadingRow />;
-  // Kubernetes editions: a domain is added and verified under WeldMail
-  // settings › Domains, WeldHost or not.
-  if (selfServed) {
-    return (
-      <div className="space-y-3">
-        <p className="text-sm text-muted-foreground">{t.mail.addAccount.noVerifiedDomainsYet}</p>
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
-          onClick={() => window.location.href = toPublicPath('/settings/apps/weldmail?tab=domains')}
-        >
-          <Bolt className="size-7 text-gray-500" />
-          <div className="flex flex-col items-start">
-            <span className="font-medium">{t.mail.addAccount.addDomainInSettings}</span>
-            <span className="text-xs text-muted-foreground">{t.mail.addAccount.addDomainInSettingsDescription}</span>
-          </div>
-        </Button>
-      </div>
-    );
-  }
-  if (!installed) {
-    return (
-      <div className="space-y-3">
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            <div className="space-y-1">
-              <p className="font-medium text-foreground">
-                {t.mail.addAccount.weldHostRequired}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {t.mail.addAccount.weldHostRequiredDescription}
-              </p>
-            </div>
-          </AlertDescription>
-        </Alert>
-        <Button
-          type="button"
-          className="w-full"
-          onClick={() => window.location.href = toPublicPath('/appstore/weldhost')}
-        >
-          {t.mail.addAccount.installWeldHost}
-        </Button>
-      </div>
-    );
-  }
+  // A domain is added and verified under WeldMail settings › Domains,
+  // WeldHost or not.
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">
-        {t.mail.addAccount.noActiveDomainsYet}
-      </p>
+      <p className="text-sm text-muted-foreground">{t.mail.addAccount.noVerifiedDomainsYet}</p>
       <Button
         type="button"
         variant="outline"
         className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
-        onClick={() => window.location.href = toPublicPath('/weldhost/domains/external')}
+        onClick={() => window.location.href = toPublicPath('/settings/apps/weldmail?tab=domains')}
       >
         <Bolt className="size-7 text-gray-500" />
         <div className="flex flex-col items-start">
-          <span className="font-medium">{t.mail.addAccount.addExistingDomain}</span>
-          <span className="text-xs text-muted-foreground">{t.mail.addAccount.addExistingDomainDescription}</span>
-        </div>
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
-        onClick={() => window.location.href = toPublicPath('/weldhost/domains/register')}
-      >
-        <img src="/assets/images/weldhost/logo-light.png" alt="WeldHost" className="size-7 dark:hidden" />
-        <img src="/assets/images/weldhost/logo-dark.png" alt="WeldHost" className="size-7 hidden dark:block" />
-        <div className="flex flex-col items-start">
-          <span className="font-medium">{t.mail.addAccount.buyNewDomain}</span>
-          <span className="text-xs text-muted-foreground">{t.mail.addAccount.buyNewDomainDescription}</span>
+          <span className="font-medium">{t.mail.addAccount.addDomainInSettings}</span>
+          <span className="text-xs text-muted-foreground">{t.mail.addAccount.addDomainInSettingsDescription}</span>
         </div>
       </Button>
     </div>
@@ -219,7 +151,6 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
   // Domains come straight from WeldHost — anything the workspace owns and
   // that's reached "active" status can host an email account.
   const hostDomainsQuery = useDomains({ status: 'active', pageSize: 100 });
-  const { isInstalled: weldhostInstalled, isLoading: weldhostLoading } = useAppAccess('weldhost');
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   // Who can open the account, chosen at create time rather than via a
@@ -245,28 +176,25 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
     message?: string;
   } | null>(null);
 
-  // Kubernetes editions: a domain verified under WeldMail settings › Domains
-  // can host an account too, WeldHost zone or not (ADR MAIL-010).
-  const selfServed = isRustBackend();
-  const mailDomainsQuery = useMailDomains(selfServed && open);
+  // A domain verified under WeldMail settings › Domains can host an account
+  // too, WeldHost zone or not (ADR MAIL-010).
+  const mailDomainsQuery = useMailDomains(open);
 
-  // Sync WeldHost domains (and, on Kubernetes, verified mail domains) into the
-  // picker when the dialog opens.
+  // Sync WeldHost domains and verified mail domains into the picker when the
+  // dialog opens.
   useEffect(() => {
     if (!open) return;
     const fromHost = (hostDomainsQuery.data?.domains ?? [])
       .filter((d) => d.status === 'active' && d.fullDomain)
       .map((d) => d.fullDomain);
-    const fromMail = selfServed
-      ? (mailDomainsQuery.data?.data ?? [])
-          .filter((d) => d.dnsStatus === 'verified' && d.isActive && !isSharedWeldMailDomain(d.domainName))
-          .map((d) => d.domainName)
-      : [];
+    const fromMail = (mailDomainsQuery.data?.data ?? [])
+      .filter((d) => d.dnsStatus === 'verified' && d.isActive && !isSharedWeldMailDomain(d.domainName))
+      .map((d) => d.domainName);
     if (!hostDomainsQuery.data?.domains && fromMail.length === 0) return;
     const ready = [...new Set([...fromMail, ...fromHost])];
     setAvailableDomains(ready);
     if (ready.length > 0 && !selectedDomain) setSelectedDomain(ready[0]!);
-  }, [open, hostDomainsQuery.data, mailDomainsQuery.data, selfServed, selectedDomain]);
+  }, [open, hostDomainsQuery.data, mailDomainsQuery.data, selectedDomain]);
 
   // Sync WeldMail domain when switching to weldmail form
   useEffect(() => {
@@ -576,12 +504,7 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
           <form onSubmit={handleCustomDomainSubmit} className="space-y-4">
             {loadingDomains && <LoadingRow />}
             {!loadingDomains && availableDomains.length === 0 && (
-              <NoActiveDomains
-                loading={selfServed ? mailDomainsQuery.isLoading : weldhostLoading}
-                installed={weldhostInstalled}
-                selfServed={selfServed}
-                t={t}
-              />
+              <NoActiveDomains loading={mailDomainsQuery.isLoading} t={t} />
             )}
             {!loadingDomains && availableDomains.length > 0 && (
               <>

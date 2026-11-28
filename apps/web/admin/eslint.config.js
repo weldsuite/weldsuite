@@ -4,7 +4,7 @@ import { config } from '@weldsuite/eslint-config/react-internal';
 const eslintConfig = [
   ...config,
   {
-    ignores: ['dist/**', '.wrangler/**', 'node_modules/**', 'src/routeTree.gen.ts'],
+    ignores: ['dist/**', 'node_modules/**', 'src/routeTree.gen.ts'],
   },
 ];
 

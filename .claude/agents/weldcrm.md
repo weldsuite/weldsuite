@@ -22,9 +22,10 @@ You are the WeldCRM domain specialist for WeldSuite.
 ## Where the code lives
 
 - Platform UI: `apps/web/platform/app/weldcrm/*`.
-- API: the `crm-api` worker, `apps/workers/crm-api/src/routes/`, e.g. `people/`, `companies/`, `leads/`, `opportunities/`, `pipelines/`, `pipeline-stages/`, `activities/`, `sequences/`. Owned prefixes: the `crm` entry in `packages/core/api-modules/src/index.ts`.
-- Shared CRM logic: `packages/domains/crm` (`@weldsuite/crm-domain`: `people.ts`, `companies.ts`, the execute-sequence workflow).
-- Call intelligence: `apps/workers/call-api/src/routes/call-intelligence/`. Transcriptions: `apps/workers/meet-api/src/routes/transcriptions/`.
+- API: `rust/modules/crm/src/`, e.g. `people.rs`, `companies.rs`, `leads.rs`, `opportunities.rs`, `pipelines.rs`, `pipeline_stages.rs`, `activities.rs`, `sequences.rs`. Owned prefixes: the `crm` entry in `rust/catalogs/api-modules.json`.
+- Shared CRM logic: `rust/crates/crm-domain` (`people.rs`, `companies.rs`, `leads.rs`, `sequence_run.rs`).
+- Call intelligence: `rust/modules/call/src/intelligence.rs`. Transcriptions: `rust/modules/meet/src/transcriptions.rs`.
+- Tables: the entities in `rust/crates/schema/src/tenant/` (`crm_leads.rs`, `crm_opportunities.rs`, …).
 - Schemas: `@weldsuite/core-api-client/schemas/*` (e.g. `schemas/leads`) and `@weldsuite/app-api-client/schemas/*`.
 
 ## Rules
@@ -39,6 +40,6 @@ You are the WeldCRM domain specialist for WeldSuite.
 ## Delegate
 
 - UI → `frontend-platform`
-- Endpoints (new or bugfix) → `backend-app-api` (crm-api)
+- Endpoints (new or bugfix) → `backend-rust` (`rust/modules/crm`)
 - Schema change → `database`
 - Accounting-relevant changes (tax, invoice counterparty) → consult the matching country `accounting-<cc>` agent

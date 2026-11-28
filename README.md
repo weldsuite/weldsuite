@@ -30,31 +30,33 @@ WeldSuite is one platform built from modules that share the same customer, conta
 
 ## Tech stack
 
-- **Frontend (platform):** Vite + React 19 SPA, TanStack Router (file-based), Clerk auth, Tailwind v4, shadcn/ui
-- **Other frontends:** Next.js (customer sites, help center, portals), Expo / React Native (mobile apps)
-- **Backend:** Hono on Cloudflare Workers
-- **Database:** Neon Postgres (multi-tenant), Drizzle ORM
-- **Infra:** Cloudflare (Workers, KV, R2, Queues, Durable Objects, Hyperdrive)
-- **Tooling:** pnpm 10.34.5 + Turborepo, Node 22+
+- **Frontend (platform):** Vite + React 19 SPA, TanStack Router (file-based), OIDC sign-in, Tailwind v4, shadcn/ui
+- **Other frontends:** TanStack Start and Next.js (portals, admin console, docs), Expo / React Native and native iOS/Android (mobile apps), Electron (desktop)
+- **Backend:** Rust (`rust/`): one `weldsuite` binary, one container image, a Helm chart
+- **Database:** PostgreSQL, a master database plus one database per workspace (SeaORM)
+- **Infra:** Kubernetes in the EU; NATS JetStream, Valkey, S3-compatible storage
+- **Tooling:** pnpm 10.34.5 + Turborepo, Node 22+, Cargo
 
 ## Repository layout
 
 ```
 apps/
-  web/        Browser frontends: platform (main SPA), sites, help center, admin, portals
-  workers/    Cloudflare Workers: app-api (core), one API worker per module, background workers
+  web/        Browser frontends: platform (main SPA), admin, portals, docs
   mobile/     Expo / React Native apps
-  tools/      Dev & ops tooling (migrations, storybook, dashboards)
+  ios/        Native iOS apps
+  android/    Native Android apps
+  tools/      Dev tooling (storybook, collab-rooms, dashboards)
   desktop/    Desktop shell
+rust/         The backend: modules, shared crates, schema, migrations, Helm chart
 packages/
-  core/       db, permissions, i18n, ai, realtime, credits, and other primitives
+  core/       db, permissions, i18n, emails, realtime, and other primitives
   clients/    Typed API clients + shared Zod schemas
   design/     Shared UI component libraries
   sdk/        Published, permissively-licensed SDKs (app-sdk, cli, widget-sdk)
   config/     Shared eslint / typescript configs
 ```
 
-The first-party API is one Cloudflare Worker per module (`apps/workers/<module>-api`) plus `apps/workers/app-api` for the core platform. [AGENTS.md](./AGENTS.md) maps the rest.
+The API is the Rust backend in `rust/`, one crate per module in `rust/modules`. [AGENTS.md](./AGENTS.md) maps the rest.
 
 ## Configuration & deployment
 
