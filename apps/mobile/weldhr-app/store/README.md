@@ -21,8 +21,7 @@ cd apps/mobile/weldhr-app
 eas login
 eas init            # writes extra.eas.projectId into app.json
 ```
-Commit the project id. Until then `app.config.js` refuses CI/EAS builds, and the
-deploy's WeldHR OTA step (`.github/actions/deploy-mobile`) skips with a warning.
+Commit the project id. Until then `app.config.js` refuses CI/EAS builds.
 
 Then create the EAS environments' variables the same way as the other apps
 (the build profiles in `eas.json` already pin the Clerk keys and API URLs).
@@ -79,10 +78,9 @@ eas submit --profile production --platform android
 ```
 
 Promoting from TestFlight / internal testing to the public store stays manual.
-After the first binary, JS-only changes ship as OTA updates
-(`.github/actions/deploy-mobile`, run by `weldsuite-deploy`): channel `preview`
-on every merge to `main` that passes CI, `production` on Promote. Native changes need a version bump
-in `app.json` and a new binary.
+Nothing ships OTA updates since Global's deploy was removed (2026-11-28), so
+every change needs a new binary; a native change also needs a version bump in
+`app.json`.
 
 ## 3. Pre-submission checklist
 

@@ -127,7 +127,7 @@ jobs:
     if: github.event_name == 'push' && vars.CHROME_WEB_STORE_ITEM_ID != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # No deployment record (see handoff.yml).
+    # No deployment record (see eu-production-watch.yml).
     environment:
       name: weldpass-extension-stores
       deployment: false

@@ -30,28 +30,12 @@ pnpm --filter admin build:node && pnpm --filter admin start:node
 
 `.env.example` lists every variable, the Node-only ones at the end.
 
-## Global: moving the console from Vercel to the Worker
+## Global
 
-The deploy's `start-workers` job (run by `weldsuite-deploy`) deploys the Worker
-only to the environments named in `weldsuite-deploy`'s repository variable
-`ADMIN_WORKER_ENVS`. Until then
-that environment's console stays on Vercel. Per environment, test first:
-
-1. Put `ADMIN_CLERK_SECRET_KEY` and `ADMIN_CLERK_PUBLISHABLE_KEY` (the admin
-   Clerk instance's keys, not the product's) and `CF_EMAIL_SEND_TOKEN` in
-   Doppler, then `pnpm secrets:sync test admin`.
-2. In the admin Clerk instance, add the host to the allowed origins and
-   redirect URLs.
-3. Delete the hostname's DNS record in the `weldsuite.org` zone (it points at
-   Vercel). The Worker's custom domain can't be created while it exists.
-4. Add the environment to `ADMIN_WORKER_ENVS` (`test`, later
-   `test,production`). Test gets it with the next merge to `main` that
-   touches the console, production with the next Promote.
-5. Check: sign in, a viewer is refused a write, one write per area, and a
-   cross-site POST is refused.
-
-For production, keep the Vercel project `weldsuite-admin` for a week as the
-way back (restore the DNS record), then delete it.
+Global's console (the Vercel project `weldsuite-admin` and the Worker build)
+is no longer deployed: Global's deploy was removed on 2026-11-28, after its
+workspaces moved into EU production (ADR OPS-025). The console runs on
+Kubernetes.
 
 ## Kubernetes
 

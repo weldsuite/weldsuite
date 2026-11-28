@@ -131,7 +131,7 @@ jobs:
   build:
     name: Build ${{ matrix.name }}
     needs: prepare
-    # No deployment record (see handoff.yml); releases show under Releases.
+    # No deployment record (see eu-production-watch.yml); releases show under Releases.
     environment:
       name: desktop-release
       deployment: false

@@ -51,5 +51,6 @@ pnpm lint
 pnpm test:e2e       # Maestro flows in .maestro/, where the app has them
 ```
 
-Native builds are the manual `mobile-build.yml` workflow (EAS); JS-only
-changes ship as OTA updates from the deploy (`.github/actions/deploy-mobile`).
+Native builds are the manual `mobile-build.yml` workflow (EAS). Nothing ships
+OTA updates any more: Global's deploy did, until it was removed on
+2026-11-28 (ADR OPS-025), so a JS-only change also needs a build.
