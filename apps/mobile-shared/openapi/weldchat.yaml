@@ -1130,7 +1130,7 @@ paths:
             type: string
       responses:
         '200':
-          description: >-
+          description: |
             The caller's WeldChat activity (mentions, replies in their
             threads, missed calls), newest first: the Activity tab. Other
             apps' notifications are not in it.
@@ -1145,7 +1145,7 @@ paths:
       operationId: getChatActivityUnreadCount
       responses:
         '200':
-          description: >-
+          description: |
             How many of the caller's WeldChat activity items (mentions,
             replies in their threads, missed calls) are unread: the Activity
             tab's badge. Other apps' notifications are not counted.
@@ -1166,7 +1166,7 @@ paths:
               $ref: '#/components/schemas/MarkChatActivityReadInput'
       responses:
         '204':
-          description: >-
+          description: |
             Marked read: the one item, or without `notificationId` every
             activity item (other apps' notifications stay unread).
         default:

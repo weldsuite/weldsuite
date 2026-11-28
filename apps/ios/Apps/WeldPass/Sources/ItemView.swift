@@ -5,7 +5,7 @@ import WeldCore
 import WeldUI
 
 /// What a hidden secret shows, as on the platform.
-private let mask = "••••••••••••"
+private let maskedValue = "••••••••••••"
 
 /// The clipboard for WeldPass. A copied secret stays on this phone (no
 /// Universal Clipboard) and is cleared after 30 seconds; a username or a
@@ -140,7 +140,7 @@ struct ItemView: View {
         }
         .accessibilityIdentifier("field-username")
 
-        ReadOnlyField(label: PassStrings.itemPassword, value: revealed?.password ?? mask, monospaced: true) {
+        ReadOnlyField(label: PassStrings.itemPassword, value: revealed?.password ?? maskedValue, monospaced: true) {
             revealButton(item, id: "field-password-toggle")
             CopyIconButton(label: PassStrings.itemCopyPassword) {
                 await copySecret(item, label: PassStrings.itemPassword) { $0.password }
@@ -176,7 +176,7 @@ struct ItemView: View {
     private func noteField(_ item: PassItem) -> some View {
         ReadOnlyField(
             label: PassStrings.itemContent,
-            value: revealed?.content ?? mask,
+            value: revealed?.content ?? maskedValue,
             monospaced: revealed == nil,
             multiline: revealed != nil
         ) {
@@ -191,7 +191,7 @@ struct ItemView: View {
 
     @ViewBuilder private func cardFields(_ item: PassItem) -> some View {
         let listed = item.subtitle.flatMap { $0.isEmpty ? nil : $0 }
-        ReadOnlyField(label: PassStrings.itemNumber, value: revealed?.number ?? listed ?? mask, monospaced: true) {
+        ReadOnlyField(label: PassStrings.itemNumber, value: revealed?.number ?? listed ?? maskedValue, monospaced: true) {
             revealButton(item, id: "field-number-toggle")
             CopyIconButton(label: PassStrings.itemCopyNumber) {
                 await copySecret(item, label: PassStrings.itemNumber) { $0.number }
@@ -200,13 +200,13 @@ struct ItemView: View {
         }
         .accessibilityIdentifier("field-number")
 
-        ReadOnlyField(label: PassStrings.itemCardholder, value: revealed?.cardholder ?? mask, monospaced: revealed == nil)
+        ReadOnlyField(label: PassStrings.itemCardholder, value: revealed?.cardholder ?? maskedValue, monospaced: revealed == nil)
             .accessibilityIdentifier("field-cardholder")
 
         HStack(alignment: .top, spacing: Tokens.Spacing.l) {
-            ReadOnlyField(label: PassStrings.itemExpiry, value: revealed?.expiry ?? mask, monospaced: true)
+            ReadOnlyField(label: PassStrings.itemExpiry, value: revealed?.expiry ?? maskedValue, monospaced: true)
                 .accessibilityIdentifier("field-expiry")
-            ReadOnlyField(label: PassStrings.itemCvc, value: revealed?.cvc ?? mask, monospaced: true) {
+            ReadOnlyField(label: PassStrings.itemCvc, value: revealed?.cvc ?? maskedValue, monospaced: true) {
                 CopyIconButton(label: PassStrings.itemCopyCvc) {
                     await copySecret(item, label: PassStrings.itemCvc) { $0.cvc }
                 }

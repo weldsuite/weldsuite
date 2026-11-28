@@ -313,7 +313,7 @@ describe('EventDialog labels (TASK-895)', () => {
     fireEvent.change(screen.getByLabelText('Meeting URL'), { target: { value: 'not a url' } });
     fireEvent.click(screen.getByRole('button', { name: 'Update' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a valid URL, starting with https://');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a valid URL, starting with http:// or https://');
     expect(updateEvent).not.toHaveBeenCalled();
   });
 });
