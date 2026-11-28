@@ -166,7 +166,7 @@ struct LabelPickerSheet: View {
                         if checked { selected.remove(label.name) } else { selected.insert(label.name) }
                     } label: {
                         HStack {
-                            Circle().fill(Color(mailRGB: MailLogic.labelColor(label.name, own: label.color))).frame(width: 10, height: 10)
+                            Circle().fill(labelTint(label.name, own: label.color)).frame(width: 10, height: 10)
                             Text(label.name).foregroundStyle(.primary)
                             Spacer()
                             if checked { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }

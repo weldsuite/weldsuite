@@ -247,7 +247,7 @@ private fun SubscriptionRow(item: MailSubscription, onUnsubscribe: () -> Unit) {
         Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.m).tagged("subscription-row"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SenderAvatar(item.senderLabel)
+        MailAvatar(item.senderLabel, size = 36.dp)
         Column(Modifier.weight(1f).padding(horizontal = Tokens.Spacing.m)) {
             Text(item.senderLabel, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             item.lastSubject?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }

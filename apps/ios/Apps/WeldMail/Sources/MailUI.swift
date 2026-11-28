@@ -14,16 +14,6 @@ extension Color {
     }
 }
 
-/// Colours of the mail actions (swipes, header icons), as the Expo app uses them.
-enum MailColors {
-    static let read = Color(mailRGB: 0x3B82F6)
-    static let star = Color(mailRGB: 0xF59E0B)
-    static let archive = Color(mailRGB: 0x3B82F6)
-    static let snooze = Color(mailRGB: 0xF59E0B)
-    static let delete = Color(mailRGB: 0xEF4444)
-    static let pin = Color(mailRGB: 0x8B5CF6)
-}
-
 /// A short message at the bottom of the screen, with an optional action
 /// (Undo, Discard): the core's `Toaster` has no action.
 @MainActor
@@ -91,49 +81,16 @@ extension View {
     }
 }
 
-/// The sender's initial on a coloured circle.
-struct SenderAvatar: View {
-    let name: String
-    var size: CGFloat = 40
-
-    var body: some View {
-        let shown = name.trimmingCharacters(in: .whitespaces)
-        Text(shown.first.map { String($0).uppercased() } ?? "?")
-            .font(.system(size: size * 0.42, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            .background(Color(mailRGB: MailLogic.avatarColor(shown.isEmpty ? "?" : shown)), in: Circle())
-            .accessibilityHidden(true)
-    }
-}
-
-/// A custom label on a row: its name on its colour, tinted.
-struct LabelChip: View {
-    let name: String
-    let color: Int
-
-    var body: some View {
-        let tint = Color(mailRGB: color)
-        Text(name)
-            .font(.inter(.caption2))
-            .lineLimit(1)
-            .foregroundStyle(tint)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
-    }
-}
-
 /// The slim bar while the phone is offline.
 struct OfflineBanner: View {
     var body: some View {
         HStack(spacing: Tokens.Spacing.s) {
             Image(systemName: "wifi.slash").foregroundStyle(Tokens.Status.warning)
-            Text(MailStrings.inboxOffline).font(.inter(.footnote)).foregroundStyle(.secondary)
+            Text(MailStrings.inboxOffline).font(.inter(.footnote)).foregroundStyle(Tokens.Palette.mutedForeground)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
-        .background(Color(.secondarySystemBackground))
+        .background(Tokens.Palette.muted)
         .accessibilityIdentifier("offline-banner")
     }
 }
@@ -166,10 +123,10 @@ extension SystemLabel {
         case .drafts: return "doc"
         case .scheduled: return "calendar"
         case .snoozed: return "clock"
-        case .important: return "exclamationmark.square"
+        case .important: return "exclamationmark.circle"
         case .all: return "envelope"
         case .archive: return "archivebox"
-        case .spam: return "exclamationmark.octagon"
+        case .spam: return "exclamationmark.circle"
         case .trash: return "trash"
         }
     }
@@ -193,14 +150,9 @@ func emptyText(_ label: SystemLabel?) -> (title: String, description: String) {
     }
 }
 
-/// "9:41", or the day: a list row's time.
+/// A list row's date, as the platform's list: the time today, else the day.
 func rowTime(_ date: String) -> String {
-    WeldDate.parse(date).map { WeldDate.short($0) } ?? ""
-}
-
-/// "27 Nov, 14:30": the date above a message.
-func messageTime(_ date: String) -> String {
-    WeldDate.parse(date).map { $0.formatted(.dateTime.day().month(.abbreviated).hour().minute()) } ?? ""
+    dateText(date)
 }
 
 /// The full date and time, for the details panel.
@@ -218,19 +170,4 @@ func momentText(_ date: Date) -> String {
 func openExternal(_ link: String) {
     guard let url = URL(string: link) else { return }
     UIApplication.shared.open(url)
-}
-
-/// An empty or "nothing found" message with an icon.
-struct MailEmptyView: View {
-    let title: String
-    var description: String?
-    var systemImage = "tray"
-
-    var body: some View {
-        ContentUnavailableView {
-            Label(title, systemImage: systemImage)
-        } description: {
-            if let description { Text(description) }
-        }
-    }
 }

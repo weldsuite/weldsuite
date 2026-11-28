@@ -171,7 +171,7 @@ fun ContactScreen(store: MailStore, key: String, onBack: () -> Unit) {
                 contact == null -> EmptyState(title = stringResource(R.string.weldmail_contact_not_found))
                 else -> {
                     Row(Modifier.padding(Tokens.Spacing.l), verticalAlignment = Alignment.CenterVertically) {
-                        SenderAvatar(ContactLogic.displayName(contact), size = 48.dp)
+                        MailAvatar(ContactLogic.displayName(contact), size = 48.dp)
                         Column(Modifier.padding(start = Tokens.Spacing.m)) {
                             Text(ContactLogic.displayName(contact), style = MaterialTheme.typography.titleLarge)
                             contact.email?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }

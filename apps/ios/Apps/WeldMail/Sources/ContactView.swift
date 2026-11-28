@@ -98,7 +98,7 @@ struct ContactView: View {
         List {
             Section {
                 HStack(spacing: Tokens.Spacing.m) {
-                    SenderAvatar(name: ContactLogic.displayName(contact), size: 48)
+                    MailAvatar(name: ContactLogic.displayName(contact), size: 48)
                     VStack(alignment: .leading) {
                         Text(ContactLogic.displayName(contact)).font(.inter(.title3, weight: .semibold))
                         if let email = contact.email { Text(email).font(.inter(.footnote)).foregroundStyle(.secondary) }

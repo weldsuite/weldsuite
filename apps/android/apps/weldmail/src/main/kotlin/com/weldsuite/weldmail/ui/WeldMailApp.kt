@@ -1,6 +1,10 @@
 package com.weldsuite.weldmail.ui
 
 import android.net.Uri
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Mail
@@ -135,11 +139,26 @@ fun WeldMailApp(
     }
 
     CompositionLocalProvider(LocalNotify provides notify) {
+        // The screens' own top bars take the status bar; this one only makes room
+        // for the tab bar, so the inset isn't applied twice (a band above the top bar).
         Scaffold(
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             snackbarHost = { SnackbarHost(snackbar, modifier = Modifier.tagged("toast")) },
             bottomBar = { TabBar(nav) },
         ) { padding ->
-            NavHost(nav, startDestination = Tab.Mail.route, modifier = Modifier.padding(padding)) {
+            // No cross-fades between screens: a fade draws the leaving screen into an
+            // offscreen layer, and a WebView in it (the composer's editor, an email's
+            // body) can't draw there — the render thread crashed in
+            // GLFunctorDrawable::onDraw when a sent email's composer faded out.
+            NavHost(
+                nav,
+                startDestination = Tab.Mail.route,
+                modifier = Modifier.padding(padding).consumeWindowInsets(padding),
+                enterTransition = { EnterTransition.None },
+                exitTransition = { ExitTransition.None },
+                popEnterTransition = { EnterTransition.None },
+                popExitTransition = { ExitTransition.None },
+            ) {
                 composable(Tab.Mail.route) {
                     InboxScreen(
                         store = store,

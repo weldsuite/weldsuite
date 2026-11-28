@@ -16,15 +16,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Archive
-import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Inbox
-import androidx.compose.material.icons.automirrored.outlined.LabelImportant
 import androidx.compose.material.icons.outlined.LocalOffer
 import androidx.compose.material.icons.outlined.Mail
-import androidx.compose.material.icons.outlined.Report
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.WifiOff
 import androidx.compose.material3.Icon
@@ -65,53 +63,6 @@ fun interface Notify {
 fun Notify.show(message: String) = show(message, null, null)
 
 val LocalNotify = staticCompositionLocalOf { Notify { _, _, _ -> } }
-
-/** Colours of the mail actions (swipes, header icons), as the Expo app uses them. */
-object MailColors {
-    val read = Color(0xFF3B82F6)
-    val star = Color(0xFFF59E0B)
-    val archive = Color(0xFF3B82F6)
-    val snooze = Color(0xFFF59E0B)
-    val delete = Color(0xFFEF4444)
-    val pin = Color(0xFF8B5CF6)
-}
-
-fun rgb(value: Int): Color = Color(0xFF000000 or value.toLong())
-
-/** The sender's initial on a coloured circle. */
-@Composable
-fun SenderAvatar(name: String, modifier: Modifier = Modifier, size: Dp = 40.dp) {
-    Box(
-        modifier
-            .size(size)
-            .background(rgb(MailLogic.avatarColor(name.ifBlank { "?" })), CircleShape)
-            .clearAndSetSemantics { },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            name.trim().firstOrNull()?.uppercase() ?: "?",
-            color = Color.White,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = (size.value * 0.42f).sp,
-        )
-    }
-}
-
-/** A custom label on a row: its name on its colour, tinted. */
-@Composable
-fun LabelChip(name: String, color: Int, modifier: Modifier = Modifier) {
-    val tint = rgb(color)
-    Text(
-        name,
-        color = tint,
-        style = MaterialTheme.typography.labelSmall,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = modifier
-            .background(tint.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp),
-    )
-}
 
 /** The slim bar while the phone is offline. */
 @Composable
@@ -155,13 +106,13 @@ fun systemLabelIcon(label: SystemLabel): ImageVector = when (label) {
     SystemLabel.PROMOTIONS -> Icons.Outlined.LocalOffer
     SystemLabel.STARRED -> Icons.Outlined.StarOutline
     SystemLabel.SENT -> Icons.AutoMirrored.Outlined.Send
-    SystemLabel.DRAFTS -> Icons.Outlined.Description
-    SystemLabel.SCHEDULED -> Icons.Outlined.CalendarMonth
+    SystemLabel.DRAFTS -> Icons.AutoMirrored.Outlined.InsertDriveFile
+    SystemLabel.SCHEDULED -> Icons.Outlined.CalendarToday
     SystemLabel.SNOOZED -> Icons.Outlined.AccessTime
-    SystemLabel.IMPORTANT -> Icons.AutoMirrored.Outlined.LabelImportant
+    SystemLabel.IMPORTANT -> Icons.Outlined.ErrorOutline
     SystemLabel.ALL -> Icons.Outlined.Mail
     SystemLabel.ARCHIVE -> Icons.Outlined.Archive
-    SystemLabel.SPAM -> Icons.Outlined.Report
+    SystemLabel.SPAM -> Icons.Outlined.ErrorOutline
     SystemLabel.TRASH -> Icons.Outlined.Delete
 }
 
@@ -181,16 +132,10 @@ fun emptyText(label: SystemLabel?): Pair<Int, Int> = when (label) {
     SystemLabel.PROMOTIONS, null -> R.string.weldmail_empty_other_title to R.string.weldmail_empty_other_description
 }
 
-fun emptyIcon(label: SystemLabel?): ImageVector = label?.let(::systemLabelIcon) ?: Icons.Outlined.ErrorOutline
+fun emptyIcon(label: SystemLabel?): ImageVector = label?.let(::systemLabelIcon) ?: Icons.Outlined.Inbox
 
-/** "9:41", or the day: a list row's time. */
-fun rowTime(date: String): String = WeldDate.parse(date)?.let { WeldDate.short(it) }.orEmpty()
-
-/** "27 Nov, 14:30": the date above a message. */
-fun messageTime(date: String, locale: Locale = Locale.getDefault()): String {
-    val instant = WeldDate.parse(date) ?: return ""
-    return instant.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d MMM, HH:mm", locale))
-}
+/** A list row's date, as the platform's list: the time today, else the day. */
+fun rowTime(date: String): String = dateText(date)
 
 /** The full date and time, for the details panel. */
 fun fullTime(date: String): String = WeldDate.parse(date)?.let { WeldDate.dateTime(it) }.orEmpty()

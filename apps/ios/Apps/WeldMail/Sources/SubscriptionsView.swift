@@ -188,7 +188,7 @@ private struct SubscriptionRow: View {
 
     var body: some View {
         HStack(spacing: Tokens.Spacing.m) {
-            SenderAvatar(name: item.senderLabel)
+            MailAvatar(name: item.senderLabel, size: 36)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.senderLabel).fontWeight(.semibold).lineLimit(1)
                 if let subject = item.lastSubject { Text(subject).font(.inter(.footnote)).lineLimit(1) }

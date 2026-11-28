@@ -56,7 +56,7 @@
     <string name="weldmail_compose_attachments_scheduled_later">Ingeplande e-mails kunnen nog geen bijlagen bevatten. Haal ze weg, of verstuur de e-mail nu.</string>
     <string name="weldmail_compose_attachments_scheduled_send">Ingeplande e-mails kunnen nog geen bijlagen bevatten. Verstuur nu, of haal de bijlagen weg om in te plannen.</string>
     <string name="weldmail_compose_bcc">Bcc</string>
-    <string name="weldmail_compose_body_placeholder">E-mail opstellen</string>
+    <string name="weldmail_compose_body_placeholder">Schrijf je bericht…</string>
     <string name="weldmail_compose_bold">Vet</string>
     <string name="weldmail_compose_bullet_list">Opsomming</string>
     <string name="weldmail_compose_camera_permission">Er is toestemming voor de camera nodig om foto’s te maken.</string>
@@ -64,10 +64,10 @@
     <string name="weldmail_compose_cc">Cc</string>
     <string name="weldmail_compose_choose_file">Bestand kiezen</string>
     <string name="weldmail_compose_close">Sluiten</string>
+    <string name="weldmail_compose_formatting">Opmaak</string>
     <string name="weldmail_compose_forward_title">Doorsturen</string>
     <string name="weldmail_compose_forwarded_message">Doorgestuurd bericht</string>
     <string name="weldmail_compose_from">Van</string>
-    <string name="weldmail_compose_hide_cc_bcc">Cc en Bcc verbergen</string>
     <string name="weldmail_compose_italic">Cursief</string>
     <string name="weldmail_compose_new_title">Nieuw bericht</string>
     <string name="weldmail_compose_no_account">Geen e-mailaccount beschikbaar</string>
@@ -85,17 +85,16 @@
     <string name="weldmail_compose_reply_title">Beantwoorden</string>
     <string name="weldmail_compose_schedule">Verzending inplannen</string>
     <string name="weldmail_compose_schedule_failed">De e-mail kon niet worden ingepland. Probeer het opnieuw.</string>
+    <string name="weldmail_compose_schedule_for">Plannen · %1$s</string>
     <string name="weldmail_compose_scheduled">E-mail ingepland voor %1$s</string>
     <string name="weldmail_compose_send">Versturen</string>
     <string name="weldmail_compose_send_anyway">Versturen</string>
     <string name="weldmail_compose_send_failed">De e-mail kon niet worden verstuurd. Probeer het opnieuw.</string>
     <string name="weldmail_compose_send_failed_title">Versturen mislukt</string>
-    <string name="weldmail_compose_send_later">Later versturen</string>
     <string name="weldmail_compose_send_without_body_message">Deze e-mail bevat geen berichttekst. Toch versturen?</string>
     <string name="weldmail_compose_send_without_body_title">Versturen zonder tekst?</string>
     <string name="weldmail_compose_sending">Versturen…</string>
     <string name="weldmail_compose_sent">E-mail verstuurd</string>
-    <string name="weldmail_compose_show_cc_bcc">Cc en Bcc tonen</string>
     <string name="weldmail_compose_show_quoted">Geciteerde tekst tonen</string>
     <string name="weldmail_compose_subject">Onderwerp</string>
     <string name="weldmail_compose_take_photo">Foto maken</string>
@@ -138,7 +137,8 @@
         <item quantity="other">%1$d accounts</item>
     </plurals>
     <string name="weldmail_drawer_add_account">Account toevoegen</string>
-    <string name="weldmail_drawer_all_inboxes">Alle inboxen</string>
+    <string name="weldmail_drawer_add_label">Label toevoegen</string>
+    <string name="weldmail_drawer_all_inboxes">Alle accounts</string>
     <string name="weldmail_drawer_create_label">Label maken</string>
     <string name="weldmail_drawer_in_workspace">In %1$s</string>
     <string name="weldmail_drawer_labels">Labels</string>
@@ -182,12 +182,14 @@
     <string name="weldmail_inbox_filter_starred">Met ster</string>
     <string name="weldmail_inbox_filter_unread">Ongelezen</string>
     <string name="weldmail_inbox_has_attachments">Heeft bijlagen</string>
+    <string name="weldmail_inbox_is_important">Belangrijk</string>
     <string name="weldmail_inbox_is_pinned">Vastgezet</string>
     <string name="weldmail_inbox_is_starred">Met ster</string>
+    <string name="weldmail_inbox_last_week">Vorige week</string>
     <string name="weldmail_inbox_loading_more">Meer laden…</string>
+    <string name="weldmail_inbox_no_recipient">Geen ontvanger</string>
     <string name="weldmail_inbox_offline">Geen internetverbinding</string>
     <string name="weldmail_inbox_offline_cached">Je bent offline. Dit is de e-mail die je het laatst hebt geladen.</string>
-    <string name="weldmail_inbox_older">Ouder</string>
     <string name="weldmail_inbox_open_mailboxes">Mailboxen en labels</string>
     <plurals name="weldmail_inbox_outbox_waiting">
         <item quantity="one">%1$d wijziging wacht op een verbinding</item>
@@ -196,11 +198,15 @@
     <string name="weldmail_inbox_pinned">Vastgezet</string>
     <string name="weldmail_inbox_search_mail">Zoeken in e-mail</string>
     <string name="weldmail_inbox_snoozed">Gesnoozed tot %1$s</string>
-    <string name="weldmail_inbox_this_week">Deze week</string>
+    <string name="weldmail_inbox_to_prefix">Aan:</string>
     <string name="weldmail_inbox_unread_dot">Ongelezen</string>
     <plurals name="weldmail_inbox_unread_in_thread">
         <item quantity="one">%1$d ongelezen</item>
         <item quantity="other">%1$d ongelezen</item>
+    </plurals>
+    <plurals name="weldmail_inbox_weeks_ago">
+        <item quantity="one">%1$d week geleden</item>
+        <item quantity="other">%1$d weken geleden</item>
     </plurals>
     <string name="weldmail_label_picker_empty">Nog geen labels. Maak er een via het mailboxmenu.</string>
     <string name="weldmail_label_picker_title">Labels</string>
@@ -226,21 +232,19 @@
     </plurals>
     <string name="weldmail_message_blocked_link">Deze link kan niet worden geopend.</string>
     <string name="weldmail_message_cannot_open_title">Bijlage kan niet worden geopend</string>
-    <string name="weldmail_message_cc">Cc</string>
     <plurals name="weldmail_message_conversation">
         <item quantity="one">%1$d bericht in dit gesprek</item>
         <item quantity="other">%1$d berichten in dit gesprek</item>
     </plurals>
-    <string name="weldmail_message_date">Datum</string>
     <string name="weldmail_message_delete">Verwijderen</string>
     <string name="weldmail_message_download_failed">“%1$s” kon niet worden gedownload. Controleer je verbinding en probeer het opnieuw.</string>
     <string name="weldmail_message_downloading">“%1$s” downloaden…</string>
-    <string name="weldmail_message_encryption">Standaardversleuteling (TLS)</string>
     <string name="weldmail_message_forward">Doorsturen</string>
-    <string name="weldmail_message_from">Van</string>
     <string name="weldmail_message_hide_details">Details verbergen</string>
+    <string name="weldmail_message_label_as">Label als</string>
     <string name="weldmail_message_labels">Labels</string>
     <string name="weldmail_message_load_failed">Deze e-mail kon niet worden geladen</string>
+    <string name="weldmail_message_mark_done">Markeren als klaar</string>
     <string name="weldmail_message_mark_spam">Markeren als spam</string>
     <string name="weldmail_message_mark_unread">Markeren als ongelezen</string>
     <string name="weldmail_message_more">Meer</string>
@@ -249,16 +253,16 @@
     <string name="weldmail_message_open_contact">Contact openen</string>
     <string name="weldmail_message_open_failed">Er ging iets mis bij het openen van “%1$s”.</string>
     <string name="weldmail_message_pin">Vastzetten</string>
+    <plurals name="weldmail_message_recipients">
+        <item quantity="one">Ontvangers (%1$d)</item>
+        <item quantity="other">Ontvangers (%1$d)</item>
+    </plurals>
     <string name="weldmail_message_reply">Beantwoorden</string>
     <string name="weldmail_message_reply_all">Allen beantwoorden</string>
-    <string name="weldmail_message_report_phishing">Phishing melden</string>
-    <string name="weldmail_message_reported_message">Dit bericht is gemeld als phishing.</string>
-    <string name="weldmail_message_reported_title">Gemeld</string>
     <string name="weldmail_message_show_details">Details tonen</string>
     <string name="weldmail_message_snooze">Snoozen</string>
     <string name="weldmail_message_star">Ster geven</string>
     <string name="weldmail_message_to">aan %1$s</string>
-    <string name="weldmail_message_to_label">Aan</string>
     <string name="weldmail_message_to_me">aan mij</string>
     <string name="weldmail_message_unpin">Losmaken</string>
     <string name="weldmail_message_unstar">Ster weghalen</string>
@@ -358,7 +362,6 @@
     <string name="weldmail_send_later_pick_title">Datum en tijd</string>
     <string name="weldmail_send_later_schedule_title">Verzending inplannen</string>
     <string name="weldmail_send_later_scheduled_for">Ingepland voor %1$s</string>
-    <string name="weldmail_send_later_send_later_title">Later versturen</string>
     <string name="weldmail_send_later_tomorrow_afternoon">Morgenmiddag</string>
     <string name="weldmail_send_later_tomorrow_morning">Morgenochtend</string>
     <string name="weldmail_send_later_too_far">E-mails kunnen tot 365 dagen vooruit worden ingepland</string>

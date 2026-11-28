@@ -7,7 +7,7 @@ import WeldUI
 
 /// A new message, a reply or a forward: recipients with suggestions from the
 /// contacts, a rich-text body, attachments from photos, the camera or files,
-/// sending now, later or at a set time. Offline, it waits in the outbox;
+/// sending now or at a set time. Offline, it waits in the outbox;
 /// closed with content, it is kept as a draft.
 struct ComposeView: View {
     let env: AppEnvironment
@@ -16,12 +16,6 @@ struct ComposeView: View {
 
     private enum Field: Hashable {
         case to, cc, bcc, subject
-    }
-
-    /// Which "when" sheet is open: "Send later" sends on choosing, "Schedule send" only sets the time.
-    private enum WhenSheet: String, Identifiable {
-        case sendLater, schedule
-        var id: String { rawValue }
     }
 
     private struct AlertContent: Identifiable {
@@ -48,7 +42,9 @@ struct ComposeView: View {
     @State private var typedTo = ""
     @State private var typedCc = ""
     @State private var typedBcc = ""
-    @State private var showCcBcc: Bool
+    @State private var showCc: Bool
+    @State private var showBcc = false
+    @State private var formatting = false
     @State private var subject: String
     @State private var editor = RichEditorModel()
     @State private var files: [PickedFile] = []
@@ -56,10 +52,11 @@ struct ComposeView: View {
     @State private var sending = false
     @State private var recipientMissing = false
     @State private var suggestions: [MailContact] = []
-    @State private var whenSheet: WhenSheet?
-    @State private var pickingDate: WhenSheet?
-    /// What a "when" sheet chose, acted on once the sheet is gone.
-    @State private var chosen: (sheet: WhenSheet, at: Date?)?
+    @State private var choosingTime = false
+    @State private var pickingDate = false
+    /// What the time sheet chose, acted on once the sheet is gone.
+    @State private var chosenTime: Date?
+    @State private var wantsPicker = false
     @State private var showQuote = false
     @State private var alert: AlertContent?
     @State private var confirmEmpty: PendingSend?
@@ -74,7 +71,7 @@ struct ComposeView: View {
         self.prefill = prefill
         _to = State(initialValue: prefill.to)
         _cc = State(initialValue: prefill.cc)
-        _showCcBcc = State(initialValue: !prefill.cc.isEmpty)
+        _showCc = State(initialValue: !prefill.cc.isEmpty)
         _subject = State(initialValue: prefill.subject)
     }
 
@@ -121,25 +118,46 @@ struct ComposeView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    fromRow
                     recipientRow(.to, label: MailStrings.composeTo, chips: $to, typed: $typedTo, invalid: recipientMissing) {
-                        Button {
-                            showCcBcc.toggle()
-                        } label: {
-                            Image(systemName: showCcBcc ? "chevron.up" : "chevron.down")
+                        HStack(spacing: 0) {
+                            if !showCc {
+                                Button {
+                                    showCc = true
+                                } label: {
+                                    Text(MailStrings.composeCc).font(.inter(.subheadline)).foregroundStyle(Tokens.Palette.mutedForeground)
+                                        .padding(.horizontal, Tokens.Spacing.s)
+                                        .frame(height: 32)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("compose-cc-toggle")
+                            }
+                            if !showBcc {
+                                Button {
+                                    showBcc = true
+                                } label: {
+                                    Text(MailStrings.composeBcc).font(.inter(.subheadline)).foregroundStyle(Tokens.Palette.mutedForeground)
+                                        .padding(.horizontal, Tokens.Spacing.s)
+                                        .frame(height: 32)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("compose-bcc-toggle")
+                            }
                         }
-                        .accessibilityLabel(showCcBcc ? MailStrings.composeHideCcBcc : MailStrings.composeShowCcBcc)
-                        .accessibilityIdentifier("compose-cc-toggle")
                     }
                     if recipientMissing {
                         Text(MailStrings.composeRecipientRequired)
                             .font(.inter(.footnote))
-                            .foregroundStyle(.red)
-                            .padding(.horizontal, Tokens.Spacing.l)
+                            .foregroundStyle(Tokens.Status.danger)
+                            .padding(.leading, Tokens.Spacing.l + fieldLabelWidth)
+                            .padding(.bottom, Tokens.Spacing.xs)
                     }
                     if focus == .to { suggestionList(.to) }
-                    if showCcBcc {
+                    if showCc {
                         recipientRow(.cc, label: MailStrings.composeCc, chips: $cc, typed: $typedCc, invalid: false) { EmptyView() }
                         if focus == .cc { suggestionList(.cc) }
+                    }
+                    if showBcc {
                         recipientRow(.bcc, label: MailStrings.composeBcc, chips: $bcc, typed: $typedBcc, invalid: false) { EmptyView() }
                         if focus == .bcc { suggestionList(.bcc) }
                     }
@@ -172,25 +190,25 @@ struct ComposeView: View {
             if let found = try? await store.repository.people(search: text) { suggestions = found }
         }
         .onChange(of: hasRecipient) { _, value in if value { recipientMissing = false } }
-        .sheet(item: $whenSheet, onDismiss: afterWhenSheet) { sheet in
+        .sheet(isPresented: $choosingTime, onDismiss: afterTimeSheet) {
             TimeChoiceSheet(
-                title: sheet == .sendLater ? MailStrings.sendLaterSendLaterTitle : MailStrings.sendLaterScheduleTitle,
+                title: MailStrings.sendLaterScheduleTitle,
                 choices: TimeChoice.sendLater(),
-                tint: .accentColor,
+                tint: Tokens.Palette.primary,
                 onChoose: { at in
-                    chosen = (sheet, at)
-                    whenSheet = nil
+                    chosenTime = at
+                    choosingTime = false
                 },
                 onPick: {
-                    chosen = (sheet, nil)
-                    whenSheet = nil
+                    wantsPicker = true
+                    choosingTime = false
                 }
             )
         }
-        .sheet(item: $pickingDate, onDismiss: afterWhenSheet) { sheet in
+        .sheet(isPresented: $pickingDate) {
             DateTimeSheet { at in
-                chosen = (sheet, at)
-                pickingDate = nil
+                scheduledAt = at
+                pickingDate = false
             }
         }
         .alert(alert?.title ?? "", isPresented: Binding(get: { alert != nil }, set: { if !$0 { alert = nil } }), presenting: alert) { _ in
@@ -251,40 +269,83 @@ struct ComposeView: View {
             .accessibilityIdentifier("compose-close")
         }
         ToolbarItem(placement: .principal) {
+            Text(title).font(.inter(.headline))
+        }
+    }
+
+    /// The platform's field-label column (`w-[72px]`), so From, To and Subject line up.
+    private let fieldLabelWidth: CGFloat = 72
+
+    /// A compose field: its muted label in the label column, then the value.
+    private func fieldRow<Content: View>(_ label: String, invalid: Bool = false, @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .center, spacing: 0) {
+            Text(label)
+                .font(.inter(.subheadline))
+                .foregroundStyle(invalid ? Tokens.Status.danger : Tokens.Palette.mutedForeground)
+                .frame(width: fieldLabelWidth, alignment: .leading)
+            content()
+        }
+        .frame(minHeight: 40)
+        .padding(.leading, Tokens.Spacing.l)
+        .padding(.trailing, Tokens.Spacing.s)
+    }
+
+    /// "From": the sending account's initial and name; a picker when there is more than one.
+    private var fromRow: some View {
+        fieldRow(MailStrings.composeFrom) {
             Menu {
                 ForEach(store.sendableAccounts) { account in
-                    Button(account.email) { from = account }
-                }
-            } label: {
-                VStack(spacing: 0) {
-                    Text(title).font(.inter(.headline)).foregroundStyle(.primary)
-                    if let from {
-                        HStack(spacing: 2) {
-                            Text(from.email).font(.inter(.caption)).lineLimit(1)
-                            if store.sendableAccounts.count > 1 { Image(systemName: "chevron.down").font(.inter(.caption2)) }
+                    Button {
+                        from = account
+                    } label: {
+                        if account.displayName.isEmpty || account.displayName == account.email {
+                            Text(account.email)
+                        } else {
+                            Text("\(account.displayName)\n\(account.email)")
                         }
-                        .foregroundStyle(.secondary)
                     }
                 }
+            } label: {
+                HStack(spacing: 6) {
+                    if let from {
+                        let name = from.displayName.isEmpty ? from.email : from.displayName
+                        // The same single-initial avatar as the inbox rows, in the platform colour for the name.
+                        MailAvatar(name: name, size: 20)
+                        Text(name).font(.inter(.subheadline, weight: .medium)).foregroundStyle(Tokens.Palette.foreground).lineLimit(1)
+                    }
+                    if store.sendableAccounts.count > 1 {
+                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold)).foregroundStyle(Tokens.Palette.mutedForeground)
+                    }
+                }
+                .padding(.vertical, Tokens.Spacing.xs)
             }
             .disabled(store.sendableAccounts.count < 2)
             .accessibilityLabel(MailStrings.composeFrom)
             .accessibilityIdentifier("compose-from")
+            Spacer(minLength: 0)
         }
-        ToolbarItem(placement: .confirmationAction) {
-            if sending {
-                ProgressView()
-            } else {
-                Button {
-                    submit(at: scheduledAt)
-                } label: {
-                    Image(systemName: "paperplane.fill")
-                }
-                .tint(hasRecipient ? Color.accentColor : Color.secondary)
-                .accessibilityLabel(MailStrings.composeSend)
-                .accessibilityIdentifier("compose-send")
+    }
+
+    /// A recipient, as the platform's: a small person icon and the address, in a `rounded-md` outline; tapped, it goes.
+    private func recipientToken(_ email: String, remove: @escaping () -> Void) -> some View {
+        Button(action: remove) {
+            HStack(spacing: 6) {
+                Image(systemName: "person.fill")
+                    .font(.system(size: 8))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
+                    .frame(width: 16, height: 16)
+                    .background(Tokens.Palette.muted, in: Circle())
+                Text(email).font(.inter(.subheadline)).foregroundStyle(Tokens.Palette.foreground).lineLimit(1)
+                Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)).foregroundStyle(Tokens.Palette.mutedForeground)
             }
+            .padding(.leading, Tokens.Spacing.xs)
+            .padding(.trailing, 6)
+            .frame(height: 28)
+            .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.medium).stroke(Tokens.Palette.border))
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(MailStrings.composeRemoveRecipient(email: email))
     }
 
     private func recipientRow<Trailing: View>(
@@ -295,49 +356,34 @@ struct ComposeView: View {
         invalid: Bool,
         @ViewBuilder trailing: () -> Trailing
     ) -> some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: Tokens.Spacing.s) {
-                Text(label).foregroundStyle(invalid ? Color.red : Color.secondary)
-                FlowLayout(spacing: Tokens.Spacing.xs) {
-                    ForEach(Array(chips.wrappedValue.enumerated()), id: \.offset) { index, email in
-                        Button {
-                            if index < chips.wrappedValue.count { chips.wrappedValue.remove(at: index) }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(email).lineLimit(1)
-                                Image(systemName: "xmark").font(.inter(.caption2))
-                            }
-                            .font(.inter(.subheadline))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color(.secondarySystemBackground), in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(MailStrings.composeRemoveRecipient(email: email))
+        fieldRow(label, invalid: invalid) {
+            FlowLayout(spacing: Tokens.Spacing.xs) {
+                ForEach(Array(chips.wrappedValue.enumerated()), id: \.offset) { index, email in
+                    recipientToken(email) {
+                        if index < chips.wrappedValue.count { chips.wrappedValue.remove(at: index) }
                     }
-                    TextField("", text: typed)
-                        .keyboardType(.emailAddress)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .textContentType(.emailAddress)
-                        .submitLabel(.next)
-                        .focused($focus, equals: field)
-                        .frame(minWidth: 120)
-                        .onSubmit { commit(typed: typed, chips: chips) }
-                        .onChange(of: typed.wrappedValue) { _, value in
-                            if let committed = MailLogic.committedAddress(value) {
-                                chips.wrappedValue.append(committed)
-                                typed.wrappedValue = ""
-                            }
-                        }
-                        .accessibilityIdentifier("compose-\(fieldName(field))")
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                trailing()
+                TextField("", text: typed)
+                    .font(.inter(.subheadline))
+                    .keyboardType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textContentType(.emailAddress)
+                    .submitLabel(.next)
+                    .focused($focus, equals: field)
+                    .frame(minWidth: 120, minHeight: 28)
+                    .onSubmit { commit(typed: typed, chips: chips) }
+                    .onChange(of: typed.wrappedValue) { _, value in
+                        if let committed = MailLogic.committedAddress(value) {
+                            chips.wrappedValue.append(committed)
+                            typed.wrappedValue = ""
+                        }
+                    }
+                    .accessibilityIdentifier("compose-\(fieldName(field))")
             }
-            .padding(.horizontal, Tokens.Spacing.l)
-            .padding(.vertical, Tokens.Spacing.m)
-            Divider()
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            trailing()
         }
     }
 
@@ -379,16 +425,19 @@ struct ComposeView: View {
         let text = query.trimmingCharacters(in: .whitespaces)
         if !text.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
+                Hairline()
                 ForEach(suggestions.filter { !($0.email ?? "").isEmpty }) { person in
                     let email = person.email ?? ""
                     Button {
                         choose(email, for: field)
                     } label: {
                         HStack(spacing: Tokens.Spacing.m) {
-                            SenderAvatar(name: person.name ?? email, size: 32)
-                            VStack(alignment: .leading) {
-                                Text(person.name ?? email).lineLimit(1).foregroundStyle(.primary)
-                                if person.name != nil { Text(email).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1) }
+                            MailAvatar(name: person.name ?? email)
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(person.name ?? email).font(.inter(.subheadline, weight: .medium)).lineLimit(1).foregroundStyle(Tokens.Palette.foreground)
+                                if person.name != nil {
+                                    Text(email).font(.inter(.caption)).foregroundStyle(Tokens.Palette.mutedForeground).lineLimit(1)
+                                }
                             }
                             Spacer()
                         }
@@ -401,12 +450,18 @@ struct ComposeView: View {
                 Button {
                     choose(text, for: field)
                 } label: {
-                    Label(MailStrings.composeAddContact(email: text), systemImage: "plus")
-                        .padding(.horizontal, Tokens.Spacing.l)
-                        .padding(.vertical, Tokens.Spacing.s)
+                    HStack(spacing: Tokens.Spacing.m) {
+                        Image(systemName: "plus").foregroundStyle(Tokens.Palette.mutedForeground)
+                        Text(MailStrings.composeAddContact(email: text)).font(.inter(.subheadline)).foregroundStyle(Tokens.Palette.foreground)
+                        Spacer()
+                    }
+                    .padding(.horizontal, Tokens.Spacing.l)
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .accessibilityIdentifier("compose-add-typed")
-                Divider()
+                Hairline()
             }
             .accessibilityIdentifier("compose-suggestions")
         }
@@ -414,92 +469,122 @@ struct ComposeView: View {
 
     private var details: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(MailStrings.composeSubject).foregroundStyle(.secondary)
+            fieldRow(MailStrings.composeSubject) {
                 TextField("", text: $subject)
+                    .font(.inter(.subheadline))
                     .focused($focus, equals: .subject)
                     .accessibilityIdentifier("compose-subject")
             }
-            .padding(.horizontal, Tokens.Spacing.l)
-            .padding(.vertical, Tokens.Spacing.m)
-            Divider()
             if let scheduledAt {
-                Button {
-                    self.scheduledAt = nil
-                } label: {
-                    Label(MailStrings.sendLaterScheduledFor(time: momentText(scheduledAt)), systemImage: "xmark.circle.fill")
-                        .font(.inter(.subheadline))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                HStack(spacing: 6) {
+                    Image(systemName: "clock").font(.system(size: 12))
+                    Text(MailStrings.sendLaterScheduledFor(time: momentText(scheduledAt))).font(.inter(.caption))
+                    Button {
+                        self.scheduledAt = nil
+                    } label: {
+                        Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(MailStrings.sendLaterClear)
                 }
-                .accessibilityLabel(MailStrings.sendLaterClear)
-                .accessibilityIdentifier("compose-scheduled")
+                .foregroundStyle(Tokens.Palette.mutedForeground)
                 .padding(.horizontal, Tokens.Spacing.l)
-                .padding(.top, Tokens.Spacing.s)
+                .accessibilityIdentifier("compose-scheduled")
             }
             if !files.isEmpty {
-                FlowLayout(spacing: Tokens.Spacing.s) {
-                    ForEach(files) { file in
-                        Button {
-                            files.removeAll { $0.id == file.id }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "paperclip")
-                                Text(file.name).lineLimit(1).frame(maxWidth: 200)
-                                Image(systemName: "xmark").font(.inter(.caption2))
+                // The platform's attachments box: a muted panel with the count and each file.
+                VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
+                    Label(MailStrings.messageAttachments(files.count), systemImage: "paperclip")
+                        .font(.inter(.subheadline, weight: .medium))
+                    FlowLayout(spacing: Tokens.Spacing.s) {
+                        ForEach(files) { file in
+                            Button {
+                                files.removeAll { $0.id == file.id }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Text(file.name).font(.inter(.caption)).lineLimit(1).frame(maxWidth: 180)
+                                    Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)).foregroundStyle(Tokens.Palette.mutedForeground)
+                                }
+                                .foregroundStyle(Tokens.Palette.foreground)
+                                .padding(.horizontal, Tokens.Spacing.s)
+                                .frame(height: 30)
+                                .background(Tokens.Palette.background, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+                                .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.medium).stroke(Tokens.Palette.border))
                             }
-                            .font(.inter(.subheadline))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color(.secondarySystemBackground), in: Capsule())
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(MailStrings.composeRemoveAttachment(name: file.name))
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(MailStrings.composeRemoveAttachment(name: file.name))
                     }
                 }
+                .padding(Tokens.Spacing.m)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Tokens.Palette.muted.opacity(0.5), in: RoundedRectangle(cornerRadius: Tokens.Radius.large))
+                .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.large).stroke(Tokens.Palette.border))
                 .padding(.horizontal, Tokens.Spacing.l)
                 .padding(.vertical, Tokens.Spacing.s)
             }
             RichEditor(model: editor, placeholder: MailStrings.composeBodyPlaceholder, dark: colorScheme == .dark)
                 .frame(minHeight: 260)
                 .padding(.horizontal, Tokens.Spacing.l)
+                .padding(.top, Tokens.Spacing.s)
                 .accessibilityIdentifier("compose-body")
             if prefill.mode != .new && !prefill.quotedBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                VStack(alignment: .leading, spacing: Tokens.Spacing.xs) {
+                VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
+                    // The platform's "···" toggle for the quoted text.
                     Button {
                         showQuote.toggle()
                     } label: {
-                        Image(systemName: "ellipsis").padding(8).background(Color(.secondarySystemBackground), in: Capsule())
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Tokens.Palette.mutedForeground)
+                            .frame(width: 32, height: 20)
+                            .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+                            .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.medium).stroke(Tokens.Palette.border))
                     }
+                    .buttonStyle(.plain)
                     .accessibilityLabel(MailStrings.composeShowQuoted)
                     .accessibilityIdentifier("compose-show-quote")
                     if showQuote {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("---------- \(quoteLabel) ---------").font(.inter(.caption))
-                            Text(quoteFrom).font(.inter(.footnote))
-                            Text(MailStrings.composeQuotedDate(date: fullTime(prefill.quotedDate))).font(.inter(.footnote))
-                            Text(quoteSubject).font(.inter(.footnote))
-                            Text(prefill.quotedBody).font(.inter(.footnote)).padding(.top, Tokens.Spacing.s)
+                            Text("---------- \(quoteLabel) ---------").font(.inter(.caption)).foregroundStyle(Tokens.Palette.mutedForeground)
+                            Text(quoteFrom).font(.inter(.caption)).foregroundStyle(Tokens.Palette.mutedForeground)
+                            Text(MailStrings.composeQuotedDate(date: fullTime(prefill.quotedDate))).font(.inter(.caption)).foregroundStyle(Tokens.Palette.mutedForeground)
+                            Text(quoteSubject).font(.inter(.caption)).foregroundStyle(Tokens.Palette.mutedForeground)
+                            Text(prefill.quotedBody).font(.inter(.subheadline)).padding(.top, Tokens.Spacing.s)
                         }
                         .padding(Tokens.Spacing.m)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: Tokens.Radius.small))
+                        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.medium).stroke(Tokens.Palette.border))
                     }
                 }
-                .padding(Tokens.Spacing.l)
+                .padding(.horizontal, Tokens.Spacing.l)
+                .padding(.vertical, Tokens.Spacing.s)
             }
         }
     }
 
+    /// The platform's compose footer: the tools on the left, Send (or Schedule at the chosen time) on the right.
     private var formatBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Tokens.Spacing.xs) {
-                formatButton("bold", on: editor.bold, label: MailStrings.composeBold, command: "bold")
-                formatButton("italic", on: editor.italic, label: MailStrings.composeItalic, command: "italic")
-                formatButton("underline", on: editor.underline, label: MailStrings.composeUnderline, command: "underline")
-                formatButton("list.bullet", on: editor.bullets, label: MailStrings.composeBulletList, command: "insertUnorderedList")
-                formatButton("list.number", on: editor.numbers, label: MailStrings.composeNumberedList, command: "insertOrderedList")
+        VStack(spacing: 0) {
+            Hairline()
+            if formatting {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 2) {
+                        formatButton("bold", on: editor.bold, label: MailStrings.composeBold, command: "bold")
+                        formatButton("italic", on: editor.italic, label: MailStrings.composeItalic, command: "italic")
+                        formatButton("underline", on: editor.underline, label: MailStrings.composeUnderline, command: "underline")
+                        formatButton("list.bullet", on: editor.bullets, label: MailStrings.composeBulletList, command: "insertUnorderedList")
+                        formatButton("list.number", on: editor.numbers, label: MailStrings.composeNumberedList, command: "insertOrderedList")
+                    }
+                    .padding(Tokens.Spacing.xs)
+                    .background(Tokens.Palette.muted.opacity(0.6), in: RoundedRectangle(cornerRadius: Tokens.Radius.large))
+                }
+                .padding(.horizontal, Tokens.Spacing.m)
+                .padding(.top, Tokens.Spacing.s)
+            }
+            HStack(spacing: 2) {
+                toolButton("textformat", label: MailStrings.composeFormatting, on: formatting) { formatting.toggle() }
+                    .accessibilityIdentifier("compose-formatting")
                 Menu {
                     Button { pickingPhotos = true } label: { Label(MailStrings.composePhotoLibrary, systemImage: "photo.on.rectangle") }
                     if UIImagePickerController.isSourceTypeAvailable(.camera) {
@@ -507,42 +592,59 @@ struct ComposeView: View {
                     }
                     Button { importingFiles = true } label: { Label(MailStrings.composeChooseFile, systemImage: "folder") }
                 } label: {
-                    Image(systemName: "paperclip").frame(width: 40, height: 40)
+                    toolIcon("paperclip", on: false)
                 }
                 .disabled(sending)
                 .accessibilityLabel(MailStrings.composeAddAttachment)
                 .accessibilityIdentifier("compose-attach")
-                Button {
-                    openWhen(.schedule)
-                } label: {
-                    Image(systemName: "clock")
-                        .foregroundStyle(scheduledAt != nil ? Color.accentColor : Color.secondary)
-                        .frame(width: 40, height: 40)
-                }
-                .disabled(sending)
-                .accessibilityLabel(MailStrings.composeSchedule)
-                .accessibilityIdentifier("compose-schedule")
-                Button {
-                    openWhen(.sendLater)
-                } label: {
-                    Image(systemName: "calendar.badge.clock").frame(width: 40, height: 40)
-                }
-                .disabled(sending)
-                .accessibilityLabel(MailStrings.composeSendLater)
-                .accessibilityIdentifier("compose-send-later")
+                toolButton("clock", label: MailStrings.composeSchedule, on: scheduledAt != nil) { openSchedule() }
+                    .disabled(sending)
+                    .accessibilityIdentifier("compose-schedule")
                 if env.isAvailable("mail-ai") {
-                    Button {
-                        notifier.show(MailStrings.composeAiUnavailable)
-                    } label: {
-                        Image(systemName: "sparkles").foregroundStyle(MailColors.pin).frame(width: 40, height: 40)
-                    }
-                    .accessibilityLabel(MailStrings.composeAi)
+                    toolButton("sparkles", label: MailStrings.composeAi, on: false) { notifier.show(MailStrings.composeAiUnavailable) }
                 }
+                Spacer(minLength: Tokens.Spacing.s)
+                Button {
+                    submit(at: scheduledAt)
+                } label: {
+                    HStack(spacing: Tokens.Spacing.s) {
+                        if sending { ProgressView().controlSize(.small).tint(Tokens.Palette.primaryForeground) }
+                        Text(scheduledAt.map { MailStrings.composeScheduleFor(time: momentText($0)) } ?? MailStrings.composeSend)
+                            .font(.inter(.subheadline, weight: .medium))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(Tokens.Palette.primaryForeground)
+                    .padding(.horizontal, Tokens.Spacing.m)
+                    .frame(height: 36)
+                    .background(Tokens.Palette.primary, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+                }
+                .buttonStyle(.plain)
+                .disabled(sending)
+                .accessibilityIdentifier("compose-send")
             }
-            .padding(.horizontal, Tokens.Spacing.s)
+            .padding(.horizontal, Tokens.Spacing.m)
+            .padding(.vertical, Tokens.Spacing.s)
         }
-        .padding(.vertical, Tokens.Spacing.xs)
-        .background(.bar)
+        .background(Tokens.Palette.background)
+    }
+
+    /// A footer tool, as the platform's: a muted icon, on a muted square while its panel or setting is on.
+    private func toolIcon(_ symbol: String, on: Bool) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 16))
+            .foregroundStyle(on ? Tokens.Palette.foreground : Tokens.Palette.mutedForeground)
+            .frame(width: 36, height: 36)
+            .background(on ? Tokens.Palette.muted : Color.clear, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+            .contentShape(Rectangle())
+    }
+
+    private func toolButton(_ symbol: String, label: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            toolIcon(symbol, on: on)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 
     private func formatButton(_ symbol: String, on: Bool, label: String, command: String) -> some View {
@@ -550,38 +652,37 @@ struct ComposeView: View {
             editor.format(command)
         } label: {
             Image(systemName: symbol)
-                .foregroundStyle(on ? Color.accentColor : Color.secondary)
-                .frame(width: 40, height: 40)
-                .background(on ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                .font(.system(size: 15))
+                .foregroundStyle(on ? Tokens.Palette.foreground : Tokens.Palette.mutedForeground)
+                .frame(width: 36, height: 32)
+                .background(on ? Tokens.Palette.background : Color.clear, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 
     // MARK: Actions
 
-    private func openWhen(_ sheet: WhenSheet) {
+    private func openSchedule() {
         if from == nil {
             alert = AlertContent(title: MailStrings.composeSendFailedTitle, message: MailStrings.composeNoAccount)
         } else if !hasRecipient {
             recipientMissing = true
         } else {
-            whenSheet = sheet
+            choosingTime = true
         }
     }
 
-    /// A "when" sheet closed: send, set the time, or open the date picker.
-    private func afterWhenSheet() {
-        guard let choice = chosen else { return }
-        chosen = nil
-        guard let at = choice.at else {
-            pickingDate = choice.sheet
-            return
-        }
-        if choice.sheet == .sendLater {
-            submit(at: at)
-        } else {
+    /// The time sheet closed: set the time, or open the date picker.
+    private func afterTimeSheet() {
+        if let at = chosenTime {
+            chosenTime = nil
             scheduledAt = at
+        }
+        if wantsPicker {
+            wantsPicker = false
+            pickingDate = true
         }
     }
 
