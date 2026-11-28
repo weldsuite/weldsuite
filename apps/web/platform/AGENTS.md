@@ -25,8 +25,10 @@ data is fetched in the browser.
   `src/boot/global.tsx` (Global, renders straight away) or
   `src/boot/runtime.tsx` (Kubernetes editions, reads `/config.json` first).
 - **Editions**: `lib/edition.ts` says which modules and features this
-  deployment offers. On EU and self-hosted, modules the Rust backend doesn't
-  serve are hidden; check there before assuming a module or feature exists.
+  deployment offers, from `/config.json`'s `modules` (`ApiModuleId`s,
+  `@weldsuite/app-api-client/schemas/runtime-config`) and
+  `unavailableFeatures`. Modules the backend doesn't serve are hidden; check
+  there before assuming a module or feature exists.
 
 ## Auth goes through the facade
 
@@ -43,9 +45,10 @@ Tests may still `vi.mock('@clerk/clerk-react')`.
 ## Data
 
 - **API calls use the app-api client**: `useAppApi()`
-  (`lib/api/use-app-api.ts`). It picks the host per path: modules listed in
-  `VITE_API_MODULES` go straight to their `<module>-api` worker, everything else
-  to app-api, which forwards. Leave it empty locally with `pnpm dev:api`.
+  (`lib/api/use-app-api.ts`). Every path goes to one host, the Rust backend
+  (`getAppApiUrl()` in `lib/api/public-env.ts`): the runtime config's
+  `apiBaseUrl`, else the SPA's own origin; locally `VITE_APP_API_URL`, else
+  `weldsuite serve` on `http://localhost:8080`.
 - Query hooks live in `hooks/queries/use-<entity>-queries.ts` (TanStack Query).
   Client state is Jotai; forms are React Hook Form with the Zod resolver.
 - Polls mounted on every page (badges, counters) use
@@ -138,9 +141,11 @@ pnpm --filter platform test:e2e        # all specs; also :ui, :headed, :debug, :
 pnpm --filter platform exec playwright test e2e/specs/<area>/<file>.spec.ts
 ```
 
-Needs the platform on 3000, the API running locally (`pnpm dev:api`) and
-`.env.test` (copy `.env.test.example`; `TEST_USER_EMAIL`,
-`TEST_USER_PASSWORD`, …). Chromium only.
+Needs the platform on 3000, the backend (`weldsuite serve`, `rust/README.md`
+"Running it") and `.env.test` (copy `.env.test.example`; `TEST_USER_EMAIL`,
+`TEST_USER_PASSWORD`, …). Chromium only. The seed helpers in
+`e2e/helpers/test-fixtures-client.ts` still call the deleted app-api's
+`/test-fixtures` router, which the Rust server doesn't have.
 
 The sign-in page is a custom React Hook Form (`#email`, `#password`), not
 Clerk's `<SignIn>`. `page.fill()` does not update the form state, so the submit

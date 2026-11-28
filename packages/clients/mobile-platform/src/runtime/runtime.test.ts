@@ -18,7 +18,6 @@ const APP: MobileAppIdentity = { code: 'weldmail', name: 'WeldMail', requiredMod
 
 const BUILD: MobileBuildEnv = {
   appApiUrl: 'https://app-api-test.weldsuite.org',
-  apiModules: 'all',
   personalApiUrl: 'https://personal-api-test.weldsuite.org',
   realtimeUrl: 'wss://realtime-test.weldsuite.org',
   clerkPublishableKey: 'pk_test_abc',
@@ -94,11 +93,11 @@ describe('buildGlobalRuntime', () => {
     const runtime = buildGlobalRuntime(APP, BUILD);
     expect(runtime.edition).toBe('global');
     expect(runtime.apiOrigin).toBe('https://app-api-test.weldsuite.org');
-    expect(runtime.apiModules.has('mail')).toBe(true);
     expect(runtime.personalApiOrigin).toBe('https://personal-api-test.weldsuite.org');
     expect(runtime.platformUrl).toBe('https://app-test.weldsuite.org');
     expect(runtime.auth).toEqual({ provider: 'clerk', publishableKey: 'pk_test_abc' });
     expect(runtime.modules).toBe('all');
+    expect(runtime.unavailableFeatures.size).toBe(0);
     expect(runtime.pushEnabled).toBe(true);
     expect(runtime.serverPickerEnabled).toBe(true);
     expect(runtime.euOrigin).toBe('https://app.test.weldsuite.eu');
@@ -121,7 +120,6 @@ describe('buildServerRuntime', () => {
     const runtime = buildServerRuntime(APP, BUILD, { kind: 'eu', origin: 'https://app.test.weldsuite.eu' }, EU_CONFIG);
     expect(runtime.edition).toBe('eu');
     expect(runtime.apiOrigin).toBe('https://app.test.weldsuite.eu');
-    expect(runtime.apiModules.size).toBe(0);
     expect(runtime.personalApiOrigin).toBe('https://app.test.weldsuite.eu/personal-api');
     expect(runtime.realtimeUrl).toBe('wss://app.test.weldsuite.eu');
     expect(runtime.auth).toMatchObject({ provider: 'oidc', clientId: 'mobile-client', audience: 'project' });

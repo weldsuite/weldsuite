@@ -6,7 +6,7 @@ import { currentAdminIdentity } from '@/lib/server/identity';
 import type { AdminRole } from './roles';
 
 export interface AdminIdentity {
-  /** The admin's user id at the identity provider (Clerk on Global). */
+  /** The admin's user id at the identity provider. */
   userId: string;
   /** Lowercased primary email. */
   email: string;
@@ -49,16 +49,6 @@ export async function requireAdmin(): Promise<AdminIdentity> {
   return identity;
 }
 
-/**
- * Guard for pages that must be superadmin-only. Redirects viewers/admins to
- * `/unauthorized`.
- */
-export async function requireSuperAdmin(): Promise<AdminIdentity> {
-  const identity = await requireAdmin();
-  if (!identity.isSuperAdmin) throw redirect({ href: '/unauthorized' });
-  return identity;
-}
-
 export type Guarded =
   | { ok: true; identity: AdminIdentity }
   | { ok: false; error: string };
@@ -73,18 +63,6 @@ export async function guardWrite(): Promise<Guarded> {
   if (!identity) return { ok: false, error: 'Not authorized' };
   if (identity.role === 'viewer') {
     return { ok: false, error: 'Your account has read-only access' };
-  }
-  return { ok: true, identity };
-}
-
-/**
- * Action guard for superadmin-only operations. Only superadmins qualify.
- */
-export async function guardSuperAdmin(): Promise<Guarded> {
-  const identity = await getAdminIdentity();
-  if (!identity) return { ok: false, error: 'Not authorized' };
-  if (!identity.isSuperAdmin) {
-    return { ok: false, error: 'Only superadmins can perform this action' };
   }
   return { ok: true, identity };
 }

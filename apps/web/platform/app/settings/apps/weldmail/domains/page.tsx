@@ -36,7 +36,6 @@ import {
 } from '@/hooks/queries/use-mail-queries';
 import { getTranslations, type TranslationNamespaces } from '@/lib/i18n';
 import { isFeatureAvailable } from '@/lib/edition';
-import { isRustBackend } from '@/lib/runtime-config';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { DmarcPanel } from './dmarc-panel';
 import type { MailDnsRecord, MailDomainRow } from '@weldsuite/app-api-client/domains/mail-domains';
@@ -64,11 +63,6 @@ export default function MailDomainsSettingsPage() {
   const td = ts.weldmail.domains;
   const updateDomain = useUpdateMailDomain();
   const [pendingId, setPendingId] = useState<string | null>(null);
-  // On the Kubernetes editions a mail domain is added and checked here: it
-  // need not be a WeldHost zone, and the customer publishes its records at
-  // their own DNS provider (ADR MAIL-010, MAIL-011). Global manages mail
-  // domains through WeldHost, so this page only holds catch-all there.
-  const selfServed = isRustBackend();
 
   const accounts = data?.accounts ?? [];
   const customDomains = useMemo(
@@ -100,33 +94,14 @@ export default function MailDomainsSettingsPage() {
       </EmptyStateIllustration>
       <h3 className="text-lg font-medium mb-1">{td.noDomains}</h3>
       <p className="text-sm text-muted-foreground max-w-md text-center">
-        {selfServed ? td.selfServedNoDomainsDescription : td.noDomainsDescription}
+        {td.selfServedNoDomainsDescription}
       </p>
     </div>
   );
 
-  if (!selfServed) {
-    if (customDomains.length === 0) return empty;
-    return (
-      <div className="space-y-4">
-        <p className="text-sm text-muted-foreground">{td.description}</p>
-        <ul className="divide-y rounded-lg border">
-          {customDomains.map((domain) => (
-            <li key={domain.id} className="p-4">
-              <CatchAllSettings
-                domain={domain}
-                accounts={accounts}
-                busy={pendingId === domain.id}
-                labels={td}
-                onSave={saveCatchAll}
-              />
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
-  }
-
+  // A mail domain is added and checked here: it need not be a WeldHost zone,
+  // and the customer publishes its records at their own DNS provider (ADR
+  // MAIL-010, MAIL-011).
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">{td.selfServedDescription}</p>

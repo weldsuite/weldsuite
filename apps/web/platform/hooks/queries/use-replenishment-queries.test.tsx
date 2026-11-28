@@ -1,7 +1,7 @@
 /**
- * WeldStash replenishment queries: every hook stays idle on Global, calls the
- * right client method on Kubernetes editions, refreshes the right keys after a
- * mutation, and the planning run is polled only while it is running.
+ * WeldStash replenishment queries: every hook calls the right client method,
+ * refreshes the right keys after a mutation, and the planning run is polled
+ * only while it is running.
  */
 
 import type { ReactNode } from 'react';
@@ -111,23 +111,6 @@ describe('replenishmentKeys', () => {
       { warehouseId: 'w' },
     ]);
     expect(replenishmentKeys.imports()).toEqual(IMPORTS_KEY);
-  });
-});
-
-describe('on Global every query stays idle', () => {
-  it('makes no request for any replenishment query', () => {
-    const { wrapper } = setup();
-    const hooks = [
-      renderHook(() => useReplenishmentSettings(), { wrapper }),
-      renderHook(() => useInfinitePlans(), { wrapper }),
-      renderHook(() => usePlan('p1'), { wrapper }),
-      renderHook(() => usePlanDemand('p1'), { wrapper }),
-      renderHook(() => usePlanningRuns(), { wrapper }),
-      renderHook(() => useIncomingStock({}), { wrapper }),
-      renderHook(() => useSalesHistoryImports(), { wrapper }),
-    ];
-    for (const hook of hooks) expect(hook.result.current.fetchStatus).toBe('idle');
-    for (const method of Object.values(replenishment)) expect(method).not.toHaveBeenCalled();
   });
 });
 
@@ -320,7 +303,7 @@ describe('planning runs', () => {
 });
 
 describe('usePlanningRunStatus', () => {
-  it('is loading with no run before the first answer, and idle without data on Global', () => {
+  it('has no run before the first answer', () => {
     const { wrapper } = setup();
     const { result } = renderHook(() => usePlanningRunStatus(), { wrapper });
     expect(result.current.latest).toBeNull();

@@ -14,10 +14,6 @@ const us: JurisdictionFeatures = { ...NO_JURISDICTION_FEATURES, salesTax: true }
 afterEach(() => setRuntimeConfig(null));
 
 describe('annual reports menu entry', () => {
-  it('is hidden on Global, where the feature is Rust-only', () => {
-    expect(isWeldbooksHrefVisible(WELDBOOKS_ANNUAL_REPORTS_HREF, { known: true, features: nl })).toBe(false);
-  });
-
   it('is shown for a Dutch entity on an install that has it', () => {
     setRuntimeConfig({ backend: 'rust', unavailableFeatures: [] });
     expect(isWeldbooksHrefVisible(WELDBOOKS_ANNUAL_REPORTS_HREF, { known: true, features: nl })).toBe(true);
@@ -36,10 +32,6 @@ describe('annual reports menu entry', () => {
 });
 
 describe('quotes menu entry', () => {
-  it('is hidden on Global, where quotes are Rust-only', () => {
-    expect(isWeldbooksHrefVisible(WELDBOOKS_QUOTES_HREF, { known: true, features: nl })).toBe(false);
-  });
-
   it('is shown on an install that has quotes, whatever the country, and while the jurisdiction loads', () => {
     setRuntimeConfig({ backend: 'rust', unavailableFeatures: [] });
     expect(isWeldbooksHrefVisible(WELDBOOKS_QUOTES_HREF, { known: true, features: us })).toBe(true);
@@ -53,10 +45,6 @@ describe('quotes menu entry', () => {
 });
 
 describe('unbilled time menu entry', () => {
-  it('is hidden on Global, where time billing is Rust-only', () => {
-    expect(isWeldbooksHrefVisible(WELDBOOKS_UNBILLED_TIME_HREF, { known: true, features: nl })).toBe(false);
-  });
-
   it('is shown on an install that bills time, whatever the country, and while the jurisdiction loads', () => {
     setRuntimeConfig({ backend: 'rust', unavailableFeatures: [] });
     expect(isWeldbooksHrefVisible(WELDBOOKS_UNBILLED_TIME_HREF, { known: true, features: us })).toBe(true);

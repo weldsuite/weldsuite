@@ -55,12 +55,11 @@ Read the enrichment's **Stack layers touched** + **Suggested specialist chain**.
 |---|---|---|
 | `apps/web/platform` (web SPA) | `frontend-platform` | vitest + Playwright e2e |
 | `apps/mobile/<app>` | `mobile-expo` | Jest |
-| API endpoint, new or bugfix (`app-api` core or a `<module>-api` worker) | `backend-app-api` | the worker's vitest (incl. `_sweeps.test.ts`) + `pnpm --filter <worker> type-check` |
-| Non-API workers (billing, workspace, realtime, integration, external-api, helpdesk-widget-api, personal-api…) | `backend-workers` | worker's own tests |
+| Backend: API endpoints, crons, queue consumers, webhooks, realtime (`rust/`) | `backend-rust` | `cargo test -p <crate>` + `pnpm rust:lint` |
 | Schema / migration | `database` | **ask before any migration file** |
 | Domain logic | `weldcrm`, `weldmail`, `weldbooks-accounting`, `weldflow-projects`, … | per-domain |
 
-> **API routes go in the owning worker.** Module routes live in `apps/workers/<module>-api` (crm, desk, mail, flow, books, commerce, stash, host, calendar, meet, call, chat, connect, agent, data, know, hr, social, ads, pass); core platform routes in `apps/workers/app-api`. The owner of a path is its prefix in `packages/core/api-modules/src/index.ts`; a new prefix must be registered there. `core-api`, `api-worker` and `mobile-api-worker` are deleted.
+> **API routes go in the owning Rust module.** Module routes live in `rust/modules/<module>` (crm, desk, mail, flow, books, commerce, stash, host, calendar, meet, call, chat, connect, agent, data, know, hr, social, ads, pass, …); core platform routes in the `rust/modules/core-*` crates. The owner of a path is its prefix in `rust/catalogs/api-modules.json`; a new prefix must be registered there. The TypeScript workers (`apps/workers/*`) are deleted.
 
 ---
 
@@ -74,10 +73,10 @@ For bugs, run `bug-triage` BEFORE writing code: reproduce (or document why you c
 
 The specialist codes the triage plan, nothing more, nothing less. Match the surrounding code's idioms. While coding, keep the DoD in mind so you don't backfill it later:
 
-- **Tenant scoping:** every Drizzle query you touch keeps its `workspaceId` filter.
-- **Permissions:** any new/changed route has a `requirePermission('<object>:<action>')` check (`@weldsuite/permissions/server`).
-- **Validation:** Zod **v3** on both request and response (never upgrade imports to v4).
-- **Entity events:** every mutation route publishes an entity event (`publishEntityEvent`).
+- **Tenant scoping:** every query you touch runs on the request's tenant DB and keeps its owner and scope filters.
+- **Permissions:** any new/changed route has a permission gate (`gate.require([...])`, `object:action` keys from `@weldsuite/permissions`).
+- **Validation:** the server validates every request body (`weldsuite_kit::validation`); client schemas are Zod **v3** (never upgrade imports to v4).
+- **Entity events:** every mutation route publishes an entity event (`publish_entity_event`).
 - **Strings:** any new user-visible string goes through i18n, no hardcoded copy (see DoD §Translations).
 
 ---
@@ -105,9 +104,9 @@ Locales live in **`packages/core/i18n/src/locales/`**, `en` (source of truth), `
 | Workspace | Command | Notes |
 |---|---|---|
 | `apps/web/platform` (unit) | `pnpm test` | vitest |
-| `apps/web/platform` (e2e) | `pnpm test:e2e` | Playwright, Chromium only; needs platform on :3000, the API running (`pnpm dev:api`: app-api + module workers), `.env.test` with `TEST_USER_EMAIL`/`TEST_USER_PASSWORD`. Single spec: `pnpm exec playwright test e2e/specs/<area>/<file>.spec.ts` |
+| `apps/web/platform` (e2e) | `pnpm test:e2e` | Playwright, Chromium only; needs platform on :3000, the backend running (`weldsuite serve` on :8080, or `VITE_APP_API_URL` pointing at a test server), `.env.test` with `TEST_USER_EMAIL`/`TEST_USER_PASSWORD`. Single spec: `pnpm exec playwright test e2e/specs/<area>/<file>.spec.ts` |
 | `apps/mobile/<app>` | `pnpm test` | Jest |
-| Workers | `pnpm test` (where present) | per-worker vitest; API workers use the pglite harness from `@weldsuite/worker-kit/testing` and a `src/routes/_sweeps.test.ts` |
+| `rust/` (backend) | `cargo test -p <crate>` inside `rust/` | per touched crate (`weldsuite-<folder>`); tests that need Postgres, Valkey, NATS or S3 skip without the `WELDSUITE_TEST_*` variables and run on CI |
 
 Add or update a test for the behavior you changed. A bug fix should ship with a test that **fails before, passes after**. If e2e infra isn't runnable locally, say so explicitly in the PR, don't claim a green run you didn't do.
 
@@ -115,13 +114,14 @@ Add or update a test for the behavior you changed. A bug fix should ship with a 
 
 ```bash
 pnpm lint            # in each changed workspace (turbo scopes it)
+pnpm rust:lint       # rustfmt --check + clippy, when rust/ changed
 ```
 
 No new `console.log`, `any`, or `@ts-ignore` introduced.
 
 ### Type-check
 
-- **API workers** are the blocking gate and are clean. The CI job `Type Check · app-api` checks `app-api`, the worker packages (`api-modules`, `worker-*`, `packages/domains/*`) and every `<module>-api` worker; run `pnpm --filter <worker> type-check` for each one you touched.
+- **Shared packages** are a blocking gate and are clean: the CI job `Type Check · packages`. Run `pnpm --filter <package> type-check` for each one you touched. Rust type-checks with `cargo clippy` (above).
 - **`apps/web/platform`** `tsc --noEmit` OOMs at the default 4 GB (needs `NODE_OPTIONS=--max-old-space-size=8192`) and carries ~1100 pre-existing errors, it is **not** a green gate. Only verify the files you touched are error-free; don't try to drive the whole project to zero.
 
 ### Build
@@ -133,7 +133,7 @@ pnpm build           # of the touched app(s)
 ### Final sweep
 
 - `git status` clean (no stray files, no committed `node_modules`, no debug artifacts).
-- Schema change? It's edited in `packages/core/db/src/schema/` only, **no migration file without explicit user approval.**
+- Schema change? It's edited in the SeaORM entities in `rust/crates/schema/src/{master,tenant}/` only, **no migration file without explicit user approval.**
 - Architectural decision made, reversed or replaced? Add or supersede the ADR and update the design doc in `weldsuite-documentation` (skill `weldsuite-docs`); link the docs PR from the code PR.
 - Re-read the enrichment's **Success criteria**: does the change satisfy each one?
 
@@ -153,8 +153,8 @@ gh pr create --base main \
 ## DoD
 - [x] Translations: en/nl/es/fr parity (validate-translations --strict --stable-only)
 - [x] Tests added/updated and run (<which suites>)
-- [x] pnpm lint clean in <workspace>
-- [x] pnpm build of <app> passes
+- [x] pnpm lint clean in <workspace> (pnpm rust:lint for Rust)
+- [x] pnpm build of <app> passes (cargo test -p <crate> for Rust)
 - [x] Tenant scoping + permission check preserved on touched routes
 - [ ] e2e not run locally (no .env.test)   ← only if true; be honest
 "
@@ -162,7 +162,7 @@ gh pr create --base main \
 
 - **`Closes #<n>`** in the body auto-closes the issue when the PR merges, that's stage 7 for free.
 - The **PR review gate** runs on every PR; the required `WeldSuite Review` check HARD-blocks merge on `main`. Address its findings, don't try to route around it.
-- `main` also requires `Lint`, `Build`, `Type Check · app-api`, `Type Check · platform`, `Unit · app-api`, `Unit · platform` and `Rust`, so keep those green. A merge reaches the EU test cluster, and EU production follows it (ADR OPS-020).
+- `main` also requires `Lint`, `Build`, `Type Check · packages`, `Type Check · platform`, `Unit · packages`, `Unit · platform` and `Rust`, so keep those green. A merge reaches the EU test cluster, and EU production follows it (ADR OPS-020).
 
 ---
 
@@ -180,8 +180,8 @@ gh pr create --base main \
 ## Hard stops, pause and ask the user
 
 1. **Any database migration file.** Edit schema freely; never generate/commit a migration without approval.
-2. **Module routes landing in `app-api` instead of the module's `<module>-api` worker, or one API worker importing another's folder.** Share code through `packages/domains/<module>` or `@weldsuite/worker-kit`.
-3. **Direct Anthropic SDK calls.** AI goes through `@weldsuite/ai` (metered via `@weldsuite/core-domain/ai-billing`); there is no `AGENT_WORKER` binding.
+2. **Module routes landing outside the owning `rust/modules/<module>` crate, or one module crate depending on another.** Share code through a crate in `rust/crates`.
+3. **Direct model provider calls.** AI goes through `rust/crates/ai`, which also charges the workspace credit wallet.
 4. **A bug you can't reproduce.** Request info on the issue; don't ship a speculative fix.
 5. **Scope creep.** Found a nearby bug? File a separate issue (`gh issue create`) and link it, don't bundle.
 

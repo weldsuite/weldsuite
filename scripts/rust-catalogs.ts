@@ -1,8 +1,14 @@
 /**
- * Export the TypeScript catalogs the Rust backend needs to JSON under
- * rust/catalogs/ (P1 work package 1.6 of the editions plan, ADR API-014).
- * `rust/crates/catalogs` turns the JSON into Rust types at build time, so the
- * TypeScript files stay the one source of truth while both backends run.
+ * Export the TypeScript catalogs the Rust backend shares with the frontends
+ * to JSON under rust/catalogs/ (ADR API-014). `rust/crates/catalogs` and the
+ * modules read the JSON at build time, so the TypeScript files the platform
+ * and the mobile apps also use stay the one source of truth.
+ *
+ * The catalogs only the backend used are Rust's own since the TypeScript
+ * backend was deleted (ADR OPS-025): api-modules.json, record-chat.json,
+ * core-platform-prefixes.json, first-party-origins.json, connectors.json,
+ * odata.json, and weldconnect.json's actionTypes, triggerTypes, entityEvents
+ * and integrations. Edit those in the JSON; this script leaves them alone.
  *
  * Also writes the parity cases the Rust permissions engine is tested against
  * (./rust-permission-cases.ts), so a behaviour change in
@@ -18,20 +24,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import {
-  API_MODULES,
-  CORE_PLATFORM_PREFIXES,
-  RECORD_CHAT_OWNER,
-  RECORD_CHAT_PREFIX,
-} from '../packages/core/api-modules/src/index';
 import { ENTITY_EVENTS } from '../packages/core/entity-events/src/events/index';
 import { listWebhookEvents } from '../packages/core/entity-events/src/webhook-events';
-import {
-  CONNECTOR_EXTERNAL_FIELDS,
-  CONNECTOR_INTERNAL_FIELDS,
-  getDefaultConnectorFieldMappings,
-  listConnectors,
-} from '../packages/core/connectors/src/index';
 import { FLAGS } from '../packages/core/feature-flags/src/flags';
 import {
   EMPLOYEE_MEMBER_PERMISSIONS,
@@ -39,7 +33,6 @@ import {
   SYSTEM_ROLES,
 } from '../packages/core/permissions/src/catalog';
 import { APP_CODE_ALIASES, PERMISSION_APPS } from '../packages/core/permissions/src/apps';
-import { FIRST_PARTY_ORIGINS } from '../packages/core/worker-kit/src/cors';
 import {
   BUILT_IN_WORKFLOW_TEMPLATES,
   resolveBuiltInTemplate,
@@ -47,12 +40,6 @@ import {
 } from '../packages/clients/app-api-client/src/schemas/weldconnect-templates';
 import { weldconnectTemplates as enTemplateStrings } from '../packages/core/i18n/src/locales/en/weldconnect-templates';
 import { weldconnectTemplates as nlTemplateStrings } from '../packages/core/i18n/src/locales/nl/weldconnect-templates';
-import {
-  ACTION_TYPES as WELDCONNECT_ACTION_TYPES,
-  ENTITY_EVENTS as WELDCONNECT_ENTITY_EVENTS,
-  TRIGGER_TYPES as WELDCONNECT_TRIGGER_TYPES,
-} from '../packages/domains/connect/src/workflow-dashboard/static-catalogs';
-import { listIntegrations as listWorkflowIntegrations } from '../packages/core/workflow-integrations/src/registry';
 import { STARTER_TEMPLATES } from '../packages/core/forms-engine/src/templates';
 import { formDefinitionSchema } from '../packages/core/forms-engine/src/definition';
 import {
@@ -81,7 +68,6 @@ import {
   PROVIDER_MARKUP,
   WORKERS_AI_FALLBACK_PRICE,
 } from '../packages/core/ai/src/billing-rates';
-import { odataCatalogJson } from '../packages/domains/desk/src/odata-catalog';
 import { buildPermissionCases } from './rust-permission-cases';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -103,12 +89,17 @@ function stableJson(value: unknown): string {
   return `${JSON.stringify(sort(value), null, 2)}\n`;
 }
 
+/** WeldConnect's pickers and providers, kept in the JSON by hand (see the top). */
+const WELDCONNECT_RUST_OWNED = ['actionTypes', 'triggerTypes', 'entityEvents', 'integrations'] as const;
+
 /**
  * WeldConnect's code catalogs: the built-in workflow templates resolved in
- * each locale (connect-api `services/workflow-templates.ts`) and the editor's
- * pickers (`/api/workflow-dashboard/{action-types,trigger-types,entity-events}`).
+ * each locale and the webhook event picker, from TypeScript; the editor's
+ * pickers (`/api/workflow-dashboard/{action-types,trigger-types,entity-events}`)
+ * and the providers as the JSON already has them.
  */
 function weldconnectCatalog(): unknown {
+  const current = JSON.parse(readFileSync(path.join(rustDir, 'catalogs/weldconnect.json'), 'utf8')) as Record<string, unknown>;
   const strings: Record<string, BuiltInTemplateCatalog> = { en: enTemplateStrings, nl: nlTemplateStrings };
   const templates = Object.fromEntries(
     Object.entries(strings).map(([locale, catalog]) => [
@@ -117,36 +108,10 @@ function weldconnectCatalog(): unknown {
     ]),
   );
   return {
+    ...Object.fromEntries(WELDCONNECT_RUST_OWNED.map((key) => [key, current[key]])),
     templates,
-    actionTypes: WELDCONNECT_ACTION_TYPES,
-    triggerTypes: WELDCONNECT_TRIGGER_TYPES,
-    entityEvents: WELDCONNECT_ENTITY_EVENTS,
-    // `@weldsuite/workflow-integrations`: the third-party providers WeldConnect connects to.
-    integrations: listWorkflowIntegrations(),
     // The outbound webhook event picker (`GET /api/external-webhooks/events`), in catalog order.
     webhookEvents: listWebhookEvents(),
-  };
-}
-
-/**
- * The store and accounting connectors (`@weldsuite/connectors`): their catalog
- * entries, in order, and the default field mappings per entity type (Picqer's
- * product and Stripe's none are the exceptions `getDefaultConnectorFieldMappings`
- * makes).
- */
-function connectorsCatalog(): unknown {
-  const entities = new Set<string>([
-    ...Object.keys(CONNECTOR_INTERNAL_FIELDS),
-    ...Object.keys(CONNECTOR_EXTERNAL_FIELDS),
-    ...listConnectors('kubernetes').flatMap((c) => c.syncs.map((s) => s.internalEntity)),
-  ]);
-  const defaultFieldMappings = Object.fromEntries(
-    [...entities].map((entity) => [entity, getDefaultConnectorFieldMappings(entity)]).filter(([, m]) => m.length),
-  );
-  return {
-    connectors: listConnectors('kubernetes'),
-    defaultFieldMappings,
-    picqerProductFieldMappings: getDefaultConnectorFieldMappings('product', 'picqer'),
   };
 }
 
@@ -214,24 +179,15 @@ function aiCatalog(): unknown {
 async function main(): Promise<void> {
   /** Output path under rust/ → value. */
   const outputs: Record<string, unknown> = {
-    'catalogs/api-modules.json': API_MODULES,
-    'catalogs/record-chat.json': { prefix: RECORD_CHAT_PREFIX, owners: RECORD_CHAT_OWNER },
-    // Integrations: never licence-gated, though connect's entry routes them (ADR INT-014).
-    'catalogs/core-platform-prefixes.json': CORE_PLATFORM_PREFIXES,
     'catalogs/entity-events.json': ENTITY_EVENTS,
     // The entity types in ENTITY_EVENTS' own order (the JSON above is sorted):
     // `listAllEvents()` and the public API's /v1/webhooks/events list in it.
     'catalogs/entity-event-order.json': Object.keys(ENTITY_EVENTS),
     'catalogs/feature-flags.json': FLAGS,
-    'catalogs/first-party-origins.json': FIRST_PARTY_ORIGINS,
     'catalogs/weldconnect.json': weldconnectCatalog(),
-    'catalogs/connectors.json': connectorsCatalog(),
     'catalogs/sheet-data.json': sheetDataCatalog(),
     'catalogs/forms-templates.json': formsTemplatesCatalog(),
     'catalogs/ai.json': aiCatalog(),
-    // The public API's OData feed (`/v1/odata`): its entity sets and properties,
-    // in order, as @weldsuite/desk-domain/odata-catalog exports them (rust/modules/external-api/src/odata).
-    'catalogs/odata.json': JSON.parse(odataCatalogJson()),
     'catalogs/permissions.json': {
       objects: PERMISSION_CATALOG_OBJECTS,
       systemRoles: SYSTEM_ROLES,

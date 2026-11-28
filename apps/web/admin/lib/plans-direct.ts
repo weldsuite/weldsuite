@@ -10,15 +10,15 @@ import { generateId } from './id';
 import { firstIssue, planCreateSchema, planUpdateSchema } from './plan-input';
 
 /**
- * Plan saves on the Kubernetes editions: there is no Stripe and no billing
- * worker, so the console writes `plans` itself, with the billing worker's
- * rules (`plan-input.ts`) and its audit actions (`plan.create`,
- * `plan.update`). The platform and the pricing pages read the row.
+ * Plan saves: there is no Stripe and no billing worker, so the console writes
+ * `plans` itself, with the billing worker's old rules (`plan-input.ts`) and
+ * its audit actions (`plan.create`, `plan.update`). The platform and the
+ * pricing pages read the row.
  */
 
 const { plans, adminAuditEvents } = masterSchema;
 
-type Saved = { ok: true; data: { plan: { id: string }; stripeError: null } } | { ok: false; error: string };
+type Saved = { ok: true; data: { plan: { id: string } } } | { ok: false; error: string };
 
 /** One default plan at most: making one the default clears the others. */
 async function clearOtherDefaults(tx: MasterDatabase, planId: string): Promise<void> {
@@ -56,7 +56,7 @@ export async function createPlanDirect(identity: AdminIdentity, body: unknown, r
         details: { input },
       }),
     );
-    return { ok: true as const, data: { plan: { id }, stripeError: null } };
+    return { ok: true as const, data: { plan: { id } } };
   });
 }
 
@@ -96,6 +96,6 @@ export async function updatePlanDirect(
         details: { patch },
       }),
     );
-    return { ok: true as const, data: { plan: { id: planId }, stripeError: null } };
+    return { ok: true as const, data: { plan: { id: planId } } };
   });
 }

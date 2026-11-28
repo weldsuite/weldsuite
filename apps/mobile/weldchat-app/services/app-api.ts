@@ -15,7 +15,7 @@
  * `{ success }` branching like the legacy client.
  */
 
-import { apiOriginForPath, createMobileApiClient } from '@weldsuite/mobile-platform/api';
+import { apiOrigin, createMobileApiClient } from '@weldsuite/mobile-platform/api';
 import { createChannelsApi } from '@weldsuite/app-api-client/domains/channels';
 import { createChatMessagesApi } from '@weldsuite/app-api-client/domains/chat-messages';
 import { createChatSectionsApi } from '@weldsuite/app-api-client/domains/chat-sections';
@@ -30,10 +30,10 @@ import { createNotificationsApi } from '@weldsuite/app-api-client/domains/notifi
 import { createDashboardApi } from '@weldsuite/app-api-client/domains/dashboard';
 import { APP } from '@/lib/server';
 
-/** Absolute URL of an API path on the worker that serves it, for native code
- *  that calls the API without this client (the call ring's Decline). */
+/** Absolute URL of an API path, for native code that calls the API without
+ *  this client (the call ring's Decline). */
 export function apiUrl(path: string): string {
-  return `${apiOriginForPath(path)}${path}`;
+  return `${apiOrigin()}${path}`;
 }
 
 let tokenGetter: () => Promise<string | null> = () => Promise.resolve(null);

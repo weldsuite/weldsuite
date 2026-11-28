@@ -22,15 +22,10 @@ import type {
   MollieBillingAccount,
   PaymentRow,
   PlanOption,
-  SnapshotState,
-  SsoViewState,
   WorkspaceBilling,
 } from '@/lib/billing-types';
 import { adminCopy } from '@/lib/i18n';
 import { ActivityTable } from '@/components/billing/activity-table';
-import { WorkspaceDatabaseTab } from '@/components/databases/workspace-database-tab';
-import type { WorkspaceDatabase } from '@/lib/databases-data';
-import type { WorkspaceDatabaseTabData } from '@/lib/database-moves-data';
 import { AppAccessCard } from '@/components/app-access/app-access-card';
 import type { ReachUsage } from '@/lib/app-access';
 import type { WorkspaceAppAccessEntry } from '@/lib/app-access-data';
@@ -39,10 +34,8 @@ import { cn } from '@/lib/utils';
 import { StatusBadge, formatDate } from '../workspace-presentation';
 import { SubscriptionCard } from './billing/subscription-card';
 import { CreditsCard } from './billing/credits-card';
-import { SsoCard } from './billing/sso-card';
 import { HistoryCard } from './billing/history-card';
 import { MollieBillingCard } from './billing/mollie-billing-card';
-import { GLOBAL } from '@/lib/edition';
 
 /** `org:admin` → `Admin`. Unknown Clerk roles fall through unchanged. */
 function roleLabel(role: string): string {
@@ -73,16 +66,11 @@ export function WorkspaceDetail({
   invoices,
   payments,
   activity,
-  snapshotState,
-  ssoState,
   mollieBilling,
   appAccess,
   appUsage,
   outbound,
-  database,
-  databaseTab,
   canWrite,
-  canMoveDatabase,
 }: Readonly<{
   workspace: WorkspaceRow;
   members: WorkspaceMemberRow[];
@@ -92,10 +80,7 @@ export function WorkspaceDetail({
   invoices: InvoiceRow[];
   payments: PaymentRow[];
   activity: AuditEventRow[];
-  snapshotState: SnapshotState;
-  /** Single sign-on: entitlement, price, add-on and connection, from the billing worker. */
-  ssoState: SsoViewState;
-  /** Plan billing on Mollie (Kubernetes only, ADR BILL-014); null on Global or when the workspace never checked out. */
+  /** Plan billing on Mollie (ADR BILL-014); null when the workspace never checked out. */
   mollieBilling: MollieBillingAccount | null;
   /** The apps that are on request only, with this workspace's access to each. */
   appAccess: WorkspaceAppAccessEntry[];
@@ -103,19 +88,9 @@ export function WorkspaceDetail({
   appUsage: Partial<Record<string, ReachUsage>>;
   /** The outbound mail guard's state for the workspace, for the link to its screen. */
   outbound: { state: OutboundState; riskScore: number; openCases: number };
-  /** Where the workspace's database lives, for the Database tab. */
-  database: WorkspaceDatabase;
-  /** Its moves, live compute and move targets, from the workspace worker. */
-  /** Null on Kubernetes, which has no Neon to show (lib/edition.ts). */
-  databaseTab: WorkspaceDatabaseTabData | null;
   canWrite: boolean;
-  /** A superadmin on a workspace that is not deleted: may move, cancel and recover. */
-  canMoveDatabase: boolean;
 }>) {
   const t = adminCopy();
-  // Credit and invoice changes run in the billing worker too, so they need it
-  // wired up; Kubernetes has none (its billing changes run from the CLI).
-  const canWriteBilling = GLOBAL && canWrite && snapshotState.kind !== 'not_configured';
   const active = members.filter((m) => m.status === 'ACTIVE');
   const pending = members.filter((m) => m.status === 'PENDING');
   const admins = active.filter((m) => m.role === 'org:admin');
@@ -150,11 +125,10 @@ export function WorkspaceDetail({
         </div>
 
         {/*
-          On Kubernetes, billing (Mollie) is changed from the CLI, except the
-          seat price on the Mollie card, and opens first only for a workspace
-          that pays there. The database tab (Neon) and SSO are Global's.
+          Billing (Mollie) is changed from the CLI, except the seat price on
+          the Mollie card, and opens first only for a workspace that pays there.
         */}
-        <Tabs defaultValue={GLOBAL || mollieBilling ? 'billing' : 'members'} className="gap-4">
+        <Tabs defaultValue={mollieBilling ? 'billing' : 'members'} className="gap-4">
           <TabsList>
             <TabsTrigger value="billing">{t.tabs.billing}</TabsTrigger>
             <TabsTrigger value="members">
@@ -162,7 +136,6 @@ export function WorkspaceDetail({
               <span className="ml-1 text-muted-foreground tabular-nums">{members.length}</span>
             </TabsTrigger>
             <TabsTrigger value="activity">{t.tabs.activity}</TabsTrigger>
-            {databaseTab && <TabsTrigger value="database">{t.tabs.database}</TabsTrigger>}
             {appAccess.length > 0 && (
               <TabsTrigger value="app-access">
                 App access
@@ -176,8 +149,8 @@ export function WorkspaceDetail({
           </TabsList>
 
           <TabsContent value="billing" className="space-y-4">
-            <SubscriptionCard billing={billing} snapshotState={snapshotState} plans={plans} canWrite={canWrite} />
-            {!GLOBAL && mollieBilling && (
+            <SubscriptionCard billing={billing} plans={plans} canWrite={canWrite} />
+            {mollieBilling && (
               <MollieBillingCard
                 workspaceId={workspace.id}
                 account={mollieBilling}
@@ -186,9 +159,8 @@ export function WorkspaceDetail({
                 canWrite={canWrite}
               />
             )}
-            {GLOBAL && <SsoCard workspaceId={workspace.id} state={ssoState} canWrite={canWrite} />}
-            <CreditsCard workspaceId={workspace.id} credits={credits} canWrite={canWriteBilling} />
-            <HistoryCard workspaceId={workspace.id} invoices={invoices} payments={payments} canWrite={canWriteBilling} />
+            <CreditsCard credits={credits} />
+            <HistoryCard invoices={invoices} payments={payments} />
           </TabsContent>
 
           {appAccess.length > 0 && (
@@ -214,18 +186,6 @@ export function WorkspaceDetail({
             <p className="text-sm text-muted-foreground">{t.activity.workspaceDescription}</p>
             <ActivityTable events={activity} />
           </TabsContent>
-
-          {databaseTab && (
-            <TabsContent value="database" className="space-y-4">
-              <WorkspaceDatabaseTab
-                workspaceId={workspace.id}
-                workspaceName={workspace.name}
-                database={database}
-                data={databaseTab}
-                canManage={canMoveDatabase}
-              />
-            </TabsContent>
-          )}
 
           <TabsContent value="members" className="space-y-6">
             <div className="grid grid-cols-3 gap-3">

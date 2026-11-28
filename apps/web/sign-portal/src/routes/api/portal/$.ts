@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { pendingCookie, redirectOf } from '@weldsuite/sign-domain/portal-callback'
+import { pendingCookie, redirectOf } from '@/lib/server/portal-callback'
 import { noStore, SIGN_LINK_HEADER, sessionFor } from '@/lib/server/portal'
 import { signerPortal } from '@/lib/server/signer-portal'
 

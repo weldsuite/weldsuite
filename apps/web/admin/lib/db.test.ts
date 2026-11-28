@@ -6,7 +6,7 @@ const KEY = 'ab'.repeat(32);
 const TENANT = 'postgres://tenant:secret@pooler.weldsuite.svc:5432/ws_1';
 
 function row(databaseUrl: string | null, id = 'ws_1'): WorkspaceDatabaseRow {
-  return { id, databaseUrl, neonProjectId: null, neonBranchId: null, neonRoleName: null, neonDatabaseName: null };
+  return { id, databaseUrl };
 }
 
 afterEach(() => {
@@ -14,7 +14,7 @@ afterEach(() => {
   delete process.env.DATABASE_ENCRYPTION_KEY_V2;
 });
 
-describe('openStoredUrl (Kubernetes: the URL the Rust server stored)', () => {
+describe('openStoredUrl (the URL the Rust server stored)', () => {
   it('opens a v3 value sealed for this workspace', async () => {
     process.env.DATABASE_ENCRYPTION_KEY_V2 = KEY;
     const sealed = await encryptWorkspaceDatabaseUrl(TENANT, 'ws_1', { v2: KEY, aadWrites: true });

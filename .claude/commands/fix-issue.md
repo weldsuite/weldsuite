@@ -13,17 +13,17 @@ Run the pipeline:
 
 1. **Branch.** `git checkout main && git pull`, then `git checkout -b fix/issue-<n>-<slug>` (or `feat/issue-<n>-<slug>`). Never work on `main` directly.
 
-2. **Classify.** Read the enrichment's **Stack layers touched** + **Suggested specialist chain**. API routes → `backend-app-api`: module routes in the owning `apps/workers/<module>-api` worker (owner by path prefix in `packages/core/api-modules/src/index.ts`), core platform routes in `apps/workers/app-api`.
+2. **Classify.** Read the enrichment's **Stack layers touched** + **Suggested specialist chain**. API routes, crons and queue consumers → `backend-rust`: module routes in the owning `rust/modules/<module>` crate (owner by path prefix in `rust/catalogs/api-modules.json`), core platform routes in the `rust/modules/core-*` crates.
 
 3. **Triage (bugs).** Invoke `bug-triage`: reproduce, root-cause, write a fix plan with `path:line` BEFORE coding. If it can't reproduce, comment on the issue requesting info and STOP, don't guess-fix. For features, the specialist produces a short design sketch from the enrichment.
 
-4. **Implement.** Invoke the specialist(s) named by the dispatch chain. Code the plan, nothing more. Keep tenant scoping (`workspaceId`), `requirePermission` checks, Zod v3 both directions, and `publishEntityEvent` on mutation routes intact.
+4. **Implement.** Invoke the specialist(s) named by the dispatch chain. Code the plan, nothing more. Keep tenant scoping, permission gates, input validation, and entity events on mutation routes intact.
 
 5. **Definition of Done** (see workflow doc §5, a failure is a STOP, not "fix later"):
    - **Translations:** new strings added to `en`, `nl`, `es`, `fr` under `packages/core/i18n/src/locales/`; validate with `pnpm tsx scripts/validate-translations.ts --strict --stable-only` (from `apps/web/platform`).
-   - **Tests:** add/update a test for the changed behavior (fails before, passes after). Run the right suite, platform `pnpm test` + `pnpm test:e2e`; mobile `pnpm test` (Jest); workers `pnpm test`. If e2e isn't runnable locally, say so honestly.
-   - **Lint:** `pnpm lint` clean in each changed workspace; no new `console.log` / `any` / `@ts-ignore`.
-   - **Type-check:** `pnpm --filter <worker> type-check` passes for every touched API worker (`app-api` and/or `<module>-api`, blocking gate). Platform `tsc` OOMs + has ~1100 pre-existing errors, only verify the files you touched, don't chase project-wide zero.
+   - **Tests:** add/update a test for the changed behavior (fails before, passes after). Run the right suite, platform `pnpm test` + `pnpm test:e2e`; mobile `pnpm test` (Jest); Rust `cargo test -p <crate>` in `rust/` for each touched crate. If e2e isn't runnable locally, say so honestly.
+   - **Lint:** `pnpm lint` clean in each changed workspace, `pnpm rust:lint` for Rust; no new `console.log` / `any` / `@ts-ignore`.
+   - **Type-check:** `pnpm --filter <ws> type-check` for every touched TypeScript workspace (blocking gate). Platform `tsc` OOMs + has ~1100 pre-existing errors, only verify the files you touched, don't chase project-wide zero.
    - **Build:** `pnpm build` of the touched app(s).
    - **Sweep:** `git status` clean; no migration file without user approval; success criteria from the enrichment all met.
 
@@ -33,7 +33,7 @@ Run the pipeline:
 
 **Hard stops, pause and ask:**
 - Any database migration file.
-- Module routes landing in `app-api` instead of the module's `<module>-api` worker, or one API worker importing another's folder.
-- Direct Anthropic SDK calls (AI goes through `@weldsuite/ai`).
+- Module routes landing outside the owning `rust/modules/<module>` crate, or one module crate depending on another.
+- Direct model provider calls (AI goes through `rust/crates/ai`).
 - A bug you can't reproduce (request info instead).
 - Scope creep, file a separate issue and link it; don't bundle.

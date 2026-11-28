@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 
 vi.mock('@/lib/api/public-env', () => ({
-  getApiOrigins: () => ['https://app-api.test', 'https://pass-api.test'],
+  getAppApiUrl: () => 'https://app-api.test',
 }));
 
 let activeWorkspaceId: string | null = null;
@@ -28,15 +28,9 @@ describe('installWorkspaceHeader', () => {
     activeWorkspaceId = null;
   });
 
-  it('tags app-api requests with the active workspace', async () => {
+  it('tags API requests with the active workspace', async () => {
     activeWorkspaceId = 'ws_acme';
     await window.fetch('https://app-api.test/api/companies');
-    expect(headerOf(0)).toBe('ws_acme');
-  });
-
-  it('tags module worker requests too', async () => {
-    activeWorkspaceId = 'ws_acme';
-    await window.fetch('https://pass-api.test/api/weldpass/projects');
     expect(headerOf(0)).toBe('ws_acme');
   });
 

@@ -176,13 +176,6 @@ describe('Unbilled time: the customers and their hours', () => {
     expect(await screen.findByText(copy.noPermission)).toBeInTheDocument();
     expect(api.get).not.toHaveBeenCalled();
   });
-
-  it('is not offered on Global, where time billing is built only in Rust', () => {
-    setRuntimeConfig(null);
-    renderWithProviders(<UnbilledTimePage />);
-    expect(api.get).not.toHaveBeenCalled();
-    expect(screen.queryByText(copy.title)).not.toBeInTheDocument();
-  });
 });
 
 describe('Unbilled time: the preview of the invoice lines', () => {

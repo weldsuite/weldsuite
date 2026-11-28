@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import { useRouter } from '@/lib/navigation';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
@@ -10,8 +10,7 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Field } from '@/components/billing/action-dialog';
 import { createPlan, updatePlan, type PlanFormValues } from '@/actions/plans';
-import { adminCopy, fill } from '@/lib/i18n';
-import { keepsRequestId, newRequestId } from '@/lib/billing-format';
+import { adminCopy } from '@/lib/i18n';
 import type { PlanDetail } from '@/lib/billing-types';
 
 const MONEY = /^\d{1,9}(\.\d{1,2})?$/;
@@ -161,22 +160,11 @@ export function PlanForm({ plan, canWrite }: Readonly<{ plan: PlanDetail | null;
   const router = useRouter();
   const [form, setForm] = useState<FormState>(() => initialState(plan));
   const [reason, setReason] = useState('');
-  const [requestId, setRequestId] = useState(newRequestId);
   const [isPending, startTransition] = useTransition();
 
   const set = <K extends keyof FormState>(key: K) => (value: FormState[K]) => setForm((prev) => ({ ...prev, [key]: value }));
   const text = (key: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     set(key)(e.target.value as never);
-
-  const priceTouched = useMemo(() => {
-    if (!plan) return false;
-    const changed = (a: string, b: string) => !MONEY.test(a.trim()) || Number.parseFloat(a) !== Number.parseFloat(b);
-    return (
-      changed(form.priceMonthly, plan.priceMonthly) ||
-      changed(form.priceYearly, plan.priceYearly) ||
-      form.currency.trim().toUpperCase() !== plan.currency
-    );
-  }, [form.priceMonthly, form.priceYearly, form.currency, plan]);
 
   const submit = () => {
     const parsed = parse(form, t);
@@ -196,16 +184,13 @@ export function PlanForm({ plan, canWrite }: Readonly<{ plan: PlanDetail | null;
 
     startTransition(async () => {
       const result = plan
-        ? await updatePlan(plan.id, { ...patch, reason: reason.trim() }, requestId)
-        : await createPlan({ ...parsed.values, slug: form.slug.trim(), reason: reason.trim() }, requestId);
-      // Keep the id after an ambiguous failure so the retry is recognised as one.
-      if (result.ok || !keepsRequestId(result.code)) setRequestId(newRequestId());
+        ? await updatePlan(plan.id, { ...patch, reason: reason.trim() })
+        : await createPlan({ ...parsed.values, slug: form.slug.trim(), reason: reason.trim() });
       if (!result.ok) {
         toast.error(result.error);
         return;
       }
       toast.success(plan ? f.saved : f.created);
-      if (result.data.stripeError) toast.warning(fill(f.stripeFailed, { message: result.data.stripeError }));
       setReason('');
       if (plan) await router.refresh().catch(() => undefined);
       else router.push(`/plans/${result.data.plan.id}`);
@@ -269,7 +254,6 @@ export function PlanForm({ plan, canWrite }: Readonly<{ plan: PlanDetail | null;
             <Input id="plan-rollover" inputMode="numeric" value={form.creditsRolloverCap} onChange={text('creditsRolloverCap')} disabled={disabled} />
           </Field>
         </div>
-        {priceTouched && <p className="text-xs text-amber-600 dark:text-amber-400">{f.priceChangeNote}</p>}
       </Section>
 
       <Section title={f.limits}>

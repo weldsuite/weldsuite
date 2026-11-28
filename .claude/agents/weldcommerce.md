@@ -1,6 +1,6 @@
 ---
 name: weldcommerce
-description: Use for WeldCommerce, products, categories, orders, discounts, the online store (sites, pages, sections, menus, shop domains, static deployments) and the storefront renderer. Integrates with Shopify/WooCommerce via integration workers.
+description: Use for WeldCommerce, products, categories, orders, discounts, sales channels, payments, the online store (sites, pages, sections, menus, shop domains, static deployments) and the storefront renderer. Rust only, in rust/modules/commerce and rust/crates/commerce-domain; Shopify/WooCommerce connectors in rust/modules/core-integrations.
 model: sonnet
 ---
 
@@ -18,37 +18,33 @@ You are the WeldCommerce specialist for WeldSuite.
 
 ## Where the code lives
 
-WeldCommerce is being rebuilt from scratch: its code was removed on 2026-11-20
-(the `commerce-api` worker, `app/weldcommerce`, the B2B order portal, shipping,
-the parcel portals, the public API / MCP commerce surface and the Rust module).
-Read the WeldCommerce design doc and COM-* ADRs in weldsuite-documentation
-before building anything, and confirm the design with the user.
+WeldCommerce was rebuilt from scratch as a Rust-only module (the old code was
+removed on 2026-11-20). Read the WeldCommerce design doc and COM-* ADRs in
+weldsuite-documentation before building anything, and confirm the design with
+the user. The crate's `lib.rs` lists which phase serves what.
 
-What is still there:
-
-- Tenant tables in `packages/core/db/src/schema/`: `products`, `product-variants`,
-  `categories`, `orders` (+ items), `discounts`, `product-sales-channels`,
-  `product-connections`, `commerce-portal`, and the shipping tables (`parcels`,
-  `shipments`, `carriers`, `returns`, …). Other modules read some of them
-  (WeldStash pick lists, WeldBooks invoice-from-order, the connectors).
-- `/api/products` (plain CRUD) in `apps/workers/stash-api/src/routes/products/`,
-  owned by the `stash` module in `packages/core/api-modules` until the rebuild.
-- The product form and panel: `apps/web/platform/app/weldstash/products/`,
-  `components/objects/product/`.
-- Shopify / WooCommerce / Picqer sync: `apps/workers/connect-api`
-  (`@weldsuite/connect-domain`), `integration-sync-worker`, `integration-webhook-worker`.
+- API: `rust/modules/commerce/src/`: `products.rs` (`/api/products`, its prefix
+  still listed under the `stash` module), `variants.rs`, `categories.rs` +
+  `rules.rs`, `orders.rs`, `discounts.rs`, `settings.rs`, `channels/`,
+  `prices.rs`, `payments/` (Mollie), `overview.rs`. Owned prefixes: the
+  `commerce` entry in `rust/catalogs/api-modules.json`. Tests in its `tests/`.
+- Order and checkout rules: `rust/crates/commerce-domain` (every order write
+  goes through it). Carrier rates: `rust/crates/shipping-domain`.
+- Tables: the entities in `rust/crates/schema/src/tenant/` (`products`,
+  `product_variants`, `categories`, `orders`, `discounts`, the shipping tables, …).
+  Other modules read some of them (WeldStash pick lists, WeldBooks
+  invoice-from-order, the connectors).
+- Platform UI: `apps/web/platform/app/weldcommerce/`; the product form and panel
+  also in `apps/web/platform/app/weldstash/products/`, `components/objects/product/`.
+- Shopify / WooCommerce / Picqer connectors: `rust/modules/core-integrations`
+  (`connectors.rs`, `connector_sync.rs`, `picqer_push.rs`) and
+  `rust/crates/connect-domain`.
 - The online store (storefronts plan, ADRs COM-015 to COM-018):
   `rust/modules/commerce/src/online_store/` (staff routes, the storefront edge,
   the renderer API, deployments), `rust/crates/custom-domains`,
   `packages/design/storefront-theme` (document types, section catalog,
   sections), `apps/web/storefront` (the renderer),
   `apps/web/platform/app/weldcommerce/online-store/` (the editor).
-
-The rebuild targets the EU edition only; the Global edition (TypeScript
-Cloudflare workers) is retired. Build the API in the Rust backend
-(`rust/modules/commerce`, ADR API-014), not as a new `apps/workers/commerce-api`;
-register its prefixes in `packages/core/api-modules` and add `commerce` to
-`RUST_PORTED_MODULES` so the EU frontend shows the module.
 
 ## Rules
 
@@ -62,8 +58,7 @@ register its prefixes in `packages/core/api-modules` and add `commerce` to
 ## Delegate
 
 - Admin UI → `frontend-platform`
-- Endpoints → `backend-app-api`
+- Endpoints and integrations → `backend-rust`
 - Public site rendering → `frontend-nextjs`
-- Integrations → `backend-workers`
 - Inventory → `weldsuite-wms`
 - Accounting side → `weldbooks-accounting`

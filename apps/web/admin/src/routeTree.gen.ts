@@ -13,17 +13,10 @@ import { Route as AdminRouteImport } from './routes/_admin'
 import { Route as UnauthorizedRouteImport } from './routes/unauthorized'
 import { Route as AdminIndexRouteImport } from './routes/_admin/index'
 import { Route as AdminActivityRouteImport } from './routes/_admin/activity'
-import { Route as AdminAiCostsRouteImport } from './routes/_admin/ai-costs'
-import { Route as AdminDomainPricingRouteImport } from './routes/_admin/domain-pricing'
 import { Route as AdminFlagsRouteImport } from './routes/_admin/flags'
-import { Route as AdminPhonePricingRouteImport } from './routes/_admin/phone-pricing'
-import { Route as AdminPlanPricingRouteImport } from './routes/_admin/plan-pricing'
 import { Route as AdminStaffRouteImport } from './routes/_admin/staff'
-import { Route as AdminSupportRouteImport } from './routes/_admin/support'
 import { Route as AdminWarmupRouteImport } from './routes/_admin/warmup'
 import { Route as AdminWeldformsRouteImport } from './routes/_admin/weldforms'
-import { Route as AdminWeldmeetAiPricingRouteImport } from './routes/_admin/weldmeet-ai-pricing'
-import { Route as AdminWeldpanelPricingRouteImport } from './routes/_admin/weldpanel-pricing'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as AuthSignInRouteImport } from './routes/auth/sign-in'
 import { Route as AuthSignOutRouteImport } from './routes/auth/sign-out'
@@ -33,19 +26,13 @@ import { Route as AdminAccessRequestsIdRouteImport } from './routes/_admin/acces
 import { Route as AdminAppsIndexRouteImport } from './routes/_admin/apps/index'
 import { Route as AdminAppsIdRouteImport } from './routes/_admin/apps/$id'
 import { Route as AdminAppsNewRouteImport } from './routes/_admin/apps/new'
-import { Route as AdminDatabasesIndexRouteImport } from './routes/_admin/databases/index'
 import { Route as AdminOutboundMailIndexRouteImport } from './routes/_admin/outbound-mail/index'
 import { Route as AdminOutboundMailWorkspaceIdRouteImport } from './routes/_admin/outbound-mail/$workspaceId'
-import { Route as AdminPartnersIndexRouteImport } from './routes/_admin/partners/index'
-import { Route as AdminPartnersIdRouteImport } from './routes/_admin/partners/$id'
-import { Route as AdminPartnersDefaultsRouteImport } from './routes/_admin/partners/defaults'
-import { Route as AdminPartnersNewRouteImport } from './routes/_admin/partners/new'
 import { Route as AdminPlansIndexRouteImport } from './routes/_admin/plans/index'
 import { Route as AdminPlansIdRouteImport } from './routes/_admin/plans/$id'
 import { Route as AdminPlansNewRouteImport } from './routes/_admin/plans/new'
 import { Route as AdminWorkspacesIndexRouteImport } from './routes/_admin/workspaces/index'
 import { Route as AdminWorkspacesIdRouteImport } from './routes/_admin/workspaces/$id'
-import { Route as AdminDatabasesShardsIdRouteImport } from './routes/_admin/databases/shards/$id'
 
 const AdminRoute = AdminRouteImport.update({
   id: '/_admin',
@@ -66,39 +53,14 @@ const AdminActivityRoute = AdminActivityRouteImport.update({
   path: '/activity',
   getParentRoute: () => AdminRoute,
 } as any)
-const AdminAiCostsRoute = AdminAiCostsRouteImport.update({
-  id: '/ai-costs',
-  path: '/ai-costs',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminDomainPricingRoute = AdminDomainPricingRouteImport.update({
-  id: '/domain-pricing',
-  path: '/domain-pricing',
-  getParentRoute: () => AdminRoute,
-} as any)
 const AdminFlagsRoute = AdminFlagsRouteImport.update({
   id: '/flags',
   path: '/flags',
   getParentRoute: () => AdminRoute,
 } as any)
-const AdminPhonePricingRoute = AdminPhonePricingRouteImport.update({
-  id: '/phone-pricing',
-  path: '/phone-pricing',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminPlanPricingRoute = AdminPlanPricingRouteImport.update({
-  id: '/plan-pricing',
-  path: '/plan-pricing',
-  getParentRoute: () => AdminRoute,
-} as any)
 const AdminStaffRoute = AdminStaffRouteImport.update({
   id: '/staff',
   path: '/staff',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminSupportRoute = AdminSupportRouteImport.update({
-  id: '/support',
-  path: '/support',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminWarmupRoute = AdminWarmupRouteImport.update({
@@ -109,16 +71,6 @@ const AdminWarmupRoute = AdminWarmupRouteImport.update({
 const AdminWeldformsRoute = AdminWeldformsRouteImport.update({
   id: '/weldforms',
   path: '/weldforms',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminWeldmeetAiPricingRoute = AdminWeldmeetAiPricingRouteImport.update({
-  id: '/weldmeet-ai-pricing',
-  path: '/weldmeet-ai-pricing',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminWeldpanelPricingRoute = AdminWeldpanelPricingRouteImport.update({
-  id: '/weldpanel-pricing',
-  path: '/weldpanel-pricing',
   getParentRoute: () => AdminRoute,
 } as any)
 const AuthCallbackRoute = AuthCallbackRouteImport.update({
@@ -167,11 +119,6 @@ const AdminAppsNewRoute = AdminAppsNewRouteImport.update({
   path: '/apps/new',
   getParentRoute: () => AdminRoute,
 } as any)
-const AdminDatabasesIndexRoute = AdminDatabasesIndexRouteImport.update({
-  id: '/databases/',
-  path: '/databases/',
-  getParentRoute: () => AdminRoute,
-} as any)
 const AdminOutboundMailIndexRoute = AdminOutboundMailIndexRouteImport.update({
   id: '/outbound-mail/',
   path: '/outbound-mail/',
@@ -183,26 +130,6 @@ const AdminOutboundMailWorkspaceIdRoute =
     path: '/outbound-mail/$workspaceId',
     getParentRoute: () => AdminRoute,
   } as any)
-const AdminPartnersIndexRoute = AdminPartnersIndexRouteImport.update({
-  id: '/partners/',
-  path: '/partners/',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminPartnersIdRoute = AdminPartnersIdRouteImport.update({
-  id: '/partners/$id',
-  path: '/partners/$id',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminPartnersDefaultsRoute = AdminPartnersDefaultsRouteImport.update({
-  id: '/partners/defaults',
-  path: '/partners/defaults',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminPartnersNewRoute = AdminPartnersNewRouteImport.update({
-  id: '/partners/new',
-  path: '/partners/new',
-  getParentRoute: () => AdminRoute,
-} as any)
 const AdminPlansIndexRoute = AdminPlansIndexRouteImport.update({
   id: '/plans/',
   path: '/plans/',
@@ -228,27 +155,15 @@ const AdminWorkspacesIdRoute = AdminWorkspacesIdRouteImport.update({
   path: '/workspaces/$id',
   getParentRoute: () => AdminRoute,
 } as any)
-const AdminDatabasesShardsIdRoute = AdminDatabasesShardsIdRouteImport.update({
-  id: '/databases/shards/$id',
-  path: '/databases/shards/$id',
-  getParentRoute: () => AdminRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AdminIndexRoute
   '/unauthorized': typeof UnauthorizedRoute
   '/activity': typeof AdminActivityRoute
-  '/ai-costs': typeof AdminAiCostsRoute
-  '/domain-pricing': typeof AdminDomainPricingRoute
   '/flags': typeof AdminFlagsRoute
-  '/phone-pricing': typeof AdminPhonePricingRoute
-  '/plan-pricing': typeof AdminPlanPricingRoute
   '/staff': typeof AdminStaffRoute
-  '/support': typeof AdminSupportRoute
   '/warmup': typeof AdminWarmupRoute
   '/weldforms': typeof AdminWeldformsRoute
-  '/weldmeet-ai-pricing': typeof AdminWeldmeetAiPricingRoute
-  '/weldpanel-pricing': typeof AdminWeldpanelPricingRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-out': typeof AuthSignOutRoute
@@ -257,35 +172,22 @@ export interface FileRoutesByFullPath {
   '/apps/$id': typeof AdminAppsIdRoute
   '/apps/new': typeof AdminAppsNewRoute
   '/outbound-mail/$workspaceId': typeof AdminOutboundMailWorkspaceIdRoute
-  '/partners/$id': typeof AdminPartnersIdRoute
-  '/partners/defaults': typeof AdminPartnersDefaultsRoute
-  '/partners/new': typeof AdminPartnersNewRoute
   '/plans/$id': typeof AdminPlansIdRoute
   '/plans/new': typeof AdminPlansNewRoute
   '/workspaces/$id': typeof AdminWorkspacesIdRoute
   '/access-requests/': typeof AdminAccessRequestsIndexRoute
   '/apps/': typeof AdminAppsIndexRoute
-  '/databases/': typeof AdminDatabasesIndexRoute
   '/outbound-mail/': typeof AdminOutboundMailIndexRoute
-  '/partners/': typeof AdminPartnersIndexRoute
   '/plans/': typeof AdminPlansIndexRoute
   '/workspaces/': typeof AdminWorkspacesIndexRoute
-  '/databases/shards/$id': typeof AdminDatabasesShardsIdRoute
 }
 export interface FileRoutesByTo {
   '/unauthorized': typeof UnauthorizedRoute
   '/activity': typeof AdminActivityRoute
-  '/ai-costs': typeof AdminAiCostsRoute
-  '/domain-pricing': typeof AdminDomainPricingRoute
   '/flags': typeof AdminFlagsRoute
-  '/phone-pricing': typeof AdminPhonePricingRoute
-  '/plan-pricing': typeof AdminPlanPricingRoute
   '/staff': typeof AdminStaffRoute
-  '/support': typeof AdminSupportRoute
   '/warmup': typeof AdminWarmupRoute
   '/weldforms': typeof AdminWeldformsRoute
-  '/weldmeet-ai-pricing': typeof AdminWeldmeetAiPricingRoute
-  '/weldpanel-pricing': typeof AdminWeldpanelPricingRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-out': typeof AuthSignOutRoute
@@ -295,37 +197,24 @@ export interface FileRoutesByTo {
   '/apps/$id': typeof AdminAppsIdRoute
   '/apps/new': typeof AdminAppsNewRoute
   '/outbound-mail/$workspaceId': typeof AdminOutboundMailWorkspaceIdRoute
-  '/partners/$id': typeof AdminPartnersIdRoute
-  '/partners/defaults': typeof AdminPartnersDefaultsRoute
-  '/partners/new': typeof AdminPartnersNewRoute
   '/plans/$id': typeof AdminPlansIdRoute
   '/plans/new': typeof AdminPlansNewRoute
   '/workspaces/$id': typeof AdminWorkspacesIdRoute
   '/access-requests': typeof AdminAccessRequestsIndexRoute
   '/apps': typeof AdminAppsIndexRoute
-  '/databases': typeof AdminDatabasesIndexRoute
   '/outbound-mail': typeof AdminOutboundMailIndexRoute
-  '/partners': typeof AdminPartnersIndexRoute
   '/plans': typeof AdminPlansIndexRoute
   '/workspaces': typeof AdminWorkspacesIndexRoute
-  '/databases/shards/$id': typeof AdminDatabasesShardsIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_admin': typeof AdminRouteWithChildren
   '/unauthorized': typeof UnauthorizedRoute
   '/_admin/activity': typeof AdminActivityRoute
-  '/_admin/ai-costs': typeof AdminAiCostsRoute
-  '/_admin/domain-pricing': typeof AdminDomainPricingRoute
   '/_admin/flags': typeof AdminFlagsRoute
-  '/_admin/phone-pricing': typeof AdminPhonePricingRoute
-  '/_admin/plan-pricing': typeof AdminPlanPricingRoute
   '/_admin/staff': typeof AdminStaffRoute
-  '/_admin/support': typeof AdminSupportRoute
   '/_admin/warmup': typeof AdminWarmupRoute
   '/_admin/weldforms': typeof AdminWeldformsRoute
-  '/_admin/weldmeet-ai-pricing': typeof AdminWeldmeetAiPricingRoute
-  '/_admin/weldpanel-pricing': typeof AdminWeldpanelPricingRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-out': typeof AuthSignOutRoute
@@ -335,20 +224,14 @@ export interface FileRoutesById {
   '/_admin/apps/$id': typeof AdminAppsIdRoute
   '/_admin/apps/new': typeof AdminAppsNewRoute
   '/_admin/outbound-mail/$workspaceId': typeof AdminOutboundMailWorkspaceIdRoute
-  '/_admin/partners/$id': typeof AdminPartnersIdRoute
-  '/_admin/partners/defaults': typeof AdminPartnersDefaultsRoute
-  '/_admin/partners/new': typeof AdminPartnersNewRoute
   '/_admin/plans/$id': typeof AdminPlansIdRoute
   '/_admin/plans/new': typeof AdminPlansNewRoute
   '/_admin/workspaces/$id': typeof AdminWorkspacesIdRoute
   '/_admin/access-requests/': typeof AdminAccessRequestsIndexRoute
   '/_admin/apps/': typeof AdminAppsIndexRoute
-  '/_admin/databases/': typeof AdminDatabasesIndexRoute
   '/_admin/outbound-mail/': typeof AdminOutboundMailIndexRoute
-  '/_admin/partners/': typeof AdminPartnersIndexRoute
   '/_admin/plans/': typeof AdminPlansIndexRoute
   '/_admin/workspaces/': typeof AdminWorkspacesIndexRoute
-  '/_admin/databases/shards/$id': typeof AdminDatabasesShardsIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -356,17 +239,10 @@ export interface FileRouteTypes {
     | '/'
     | '/unauthorized'
     | '/activity'
-    | '/ai-costs'
-    | '/domain-pricing'
     | '/flags'
-    | '/phone-pricing'
-    | '/plan-pricing'
     | '/staff'
-    | '/support'
     | '/warmup'
     | '/weldforms'
-    | '/weldmeet-ai-pricing'
-    | '/weldpanel-pricing'
     | '/auth/callback'
     | '/auth/sign-in'
     | '/auth/sign-out'
@@ -375,35 +251,22 @@ export interface FileRouteTypes {
     | '/apps/$id'
     | '/apps/new'
     | '/outbound-mail/$workspaceId'
-    | '/partners/$id'
-    | '/partners/defaults'
-    | '/partners/new'
     | '/plans/$id'
     | '/plans/new'
     | '/workspaces/$id'
     | '/access-requests/'
     | '/apps/'
-    | '/databases/'
     | '/outbound-mail/'
-    | '/partners/'
     | '/plans/'
     | '/workspaces/'
-    | '/databases/shards/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/unauthorized'
     | '/activity'
-    | '/ai-costs'
-    | '/domain-pricing'
     | '/flags'
-    | '/phone-pricing'
-    | '/plan-pricing'
     | '/staff'
-    | '/support'
     | '/warmup'
     | '/weldforms'
-    | '/weldmeet-ai-pricing'
-    | '/weldpanel-pricing'
     | '/auth/callback'
     | '/auth/sign-in'
     | '/auth/sign-out'
@@ -413,36 +276,23 @@ export interface FileRouteTypes {
     | '/apps/$id'
     | '/apps/new'
     | '/outbound-mail/$workspaceId'
-    | '/partners/$id'
-    | '/partners/defaults'
-    | '/partners/new'
     | '/plans/$id'
     | '/plans/new'
     | '/workspaces/$id'
     | '/access-requests'
     | '/apps'
-    | '/databases'
     | '/outbound-mail'
-    | '/partners'
     | '/plans'
     | '/workspaces'
-    | '/databases/shards/$id'
   id:
     | '__root__'
     | '/_admin'
     | '/unauthorized'
     | '/_admin/activity'
-    | '/_admin/ai-costs'
-    | '/_admin/domain-pricing'
     | '/_admin/flags'
-    | '/_admin/phone-pricing'
-    | '/_admin/plan-pricing'
     | '/_admin/staff'
-    | '/_admin/support'
     | '/_admin/warmup'
     | '/_admin/weldforms'
-    | '/_admin/weldmeet-ai-pricing'
-    | '/_admin/weldpanel-pricing'
     | '/auth/callback'
     | '/auth/sign-in'
     | '/auth/sign-out'
@@ -452,20 +302,14 @@ export interface FileRouteTypes {
     | '/_admin/apps/$id'
     | '/_admin/apps/new'
     | '/_admin/outbound-mail/$workspaceId'
-    | '/_admin/partners/$id'
-    | '/_admin/partners/defaults'
-    | '/_admin/partners/new'
     | '/_admin/plans/$id'
     | '/_admin/plans/new'
     | '/_admin/workspaces/$id'
     | '/_admin/access-requests/'
     | '/_admin/apps/'
-    | '/_admin/databases/'
     | '/_admin/outbound-mail/'
-    | '/_admin/partners/'
     | '/_admin/plans/'
     | '/_admin/workspaces/'
-    | '/_admin/databases/shards/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -507,20 +351,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminActivityRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/_admin/ai-costs': {
-      id: '/_admin/ai-costs'
-      path: '/ai-costs'
-      fullPath: '/ai-costs'
-      preLoaderRoute: typeof AdminAiCostsRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/_admin/domain-pricing': {
-      id: '/_admin/domain-pricing'
-      path: '/domain-pricing'
-      fullPath: '/domain-pricing'
-      preLoaderRoute: typeof AdminDomainPricingRouteImport
-      parentRoute: typeof AdminRoute
-    }
     '/_admin/flags': {
       id: '/_admin/flags'
       path: '/flags'
@@ -528,32 +358,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminFlagsRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/_admin/phone-pricing': {
-      id: '/_admin/phone-pricing'
-      path: '/phone-pricing'
-      fullPath: '/phone-pricing'
-      preLoaderRoute: typeof AdminPhonePricingRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/_admin/plan-pricing': {
-      id: '/_admin/plan-pricing'
-      path: '/plan-pricing'
-      fullPath: '/plan-pricing'
-      preLoaderRoute: typeof AdminPlanPricingRouteImport
-      parentRoute: typeof AdminRoute
-    }
     '/_admin/staff': {
       id: '/_admin/staff'
       path: '/staff'
       fullPath: '/staff'
       preLoaderRoute: typeof AdminStaffRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/_admin/support': {
-      id: '/_admin/support'
-      path: '/support'
-      fullPath: '/support'
-      preLoaderRoute: typeof AdminSupportRouteImport
       parentRoute: typeof AdminRoute
     }
     '/_admin/warmup': {
@@ -568,20 +377,6 @@ declare module '@tanstack/react-router' {
       path: '/weldforms'
       fullPath: '/weldforms'
       preLoaderRoute: typeof AdminWeldformsRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/_admin/weldmeet-ai-pricing': {
-      id: '/_admin/weldmeet-ai-pricing'
-      path: '/weldmeet-ai-pricing'
-      fullPath: '/weldmeet-ai-pricing'
-      preLoaderRoute: typeof AdminWeldmeetAiPricingRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/_admin/weldpanel-pricing': {
-      id: '/_admin/weldpanel-pricing'
-      path: '/weldpanel-pricing'
-      fullPath: '/weldpanel-pricing'
-      preLoaderRoute: typeof AdminWeldpanelPricingRouteImport
       parentRoute: typeof AdminRoute
     }
     '/auth/callback': {
@@ -647,13 +442,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminAppsNewRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/_admin/databases/': {
-      id: '/_admin/databases/'
-      path: '/databases'
-      fullPath: '/databases/'
-      preLoaderRoute: typeof AdminDatabasesIndexRouteImport
-      parentRoute: typeof AdminRoute
-    }
     '/_admin/outbound-mail/': {
       id: '/_admin/outbound-mail/'
       path: '/outbound-mail'
@@ -666,34 +454,6 @@ declare module '@tanstack/react-router' {
       path: '/outbound-mail/$workspaceId'
       fullPath: '/outbound-mail/$workspaceId'
       preLoaderRoute: typeof AdminOutboundMailWorkspaceIdRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/_admin/partners/': {
-      id: '/_admin/partners/'
-      path: '/partners'
-      fullPath: '/partners/'
-      preLoaderRoute: typeof AdminPartnersIndexRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/_admin/partners/$id': {
-      id: '/_admin/partners/$id'
-      path: '/partners/$id'
-      fullPath: '/partners/$id'
-      preLoaderRoute: typeof AdminPartnersIdRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/_admin/partners/defaults': {
-      id: '/_admin/partners/defaults'
-      path: '/partners/defaults'
-      fullPath: '/partners/defaults'
-      preLoaderRoute: typeof AdminPartnersDefaultsRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/_admin/partners/new': {
-      id: '/_admin/partners/new'
-      path: '/partners/new'
-      fullPath: '/partners/new'
-      preLoaderRoute: typeof AdminPartnersNewRouteImport
       parentRoute: typeof AdminRoute
     }
     '/_admin/plans/': {
@@ -731,82 +491,49 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminWorkspacesIdRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/_admin/databases/shards/$id': {
-      id: '/_admin/databases/shards/$id'
-      path: '/databases/shards/$id'
-      fullPath: '/databases/shards/$id'
-      preLoaderRoute: typeof AdminDatabasesShardsIdRouteImport
-      parentRoute: typeof AdminRoute
-    }
   }
 }
 
 interface AdminRouteChildren {
   AdminActivityRoute: typeof AdminActivityRoute
-  AdminAiCostsRoute: typeof AdminAiCostsRoute
-  AdminDomainPricingRoute: typeof AdminDomainPricingRoute
   AdminFlagsRoute: typeof AdminFlagsRoute
-  AdminPhonePricingRoute: typeof AdminPhonePricingRoute
-  AdminPlanPricingRoute: typeof AdminPlanPricingRoute
   AdminStaffRoute: typeof AdminStaffRoute
-  AdminSupportRoute: typeof AdminSupportRoute
   AdminWarmupRoute: typeof AdminWarmupRoute
   AdminWeldformsRoute: typeof AdminWeldformsRoute
-  AdminWeldmeetAiPricingRoute: typeof AdminWeldmeetAiPricingRoute
-  AdminWeldpanelPricingRoute: typeof AdminWeldpanelPricingRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminAccessRequestsIdRoute: typeof AdminAccessRequestsIdRoute
   AdminAppsIdRoute: typeof AdminAppsIdRoute
   AdminAppsNewRoute: typeof AdminAppsNewRoute
   AdminOutboundMailWorkspaceIdRoute: typeof AdminOutboundMailWorkspaceIdRoute
-  AdminPartnersIdRoute: typeof AdminPartnersIdRoute
-  AdminPartnersDefaultsRoute: typeof AdminPartnersDefaultsRoute
-  AdminPartnersNewRoute: typeof AdminPartnersNewRoute
   AdminPlansIdRoute: typeof AdminPlansIdRoute
   AdminPlansNewRoute: typeof AdminPlansNewRoute
   AdminWorkspacesIdRoute: typeof AdminWorkspacesIdRoute
   AdminAccessRequestsIndexRoute: typeof AdminAccessRequestsIndexRoute
   AdminAppsIndexRoute: typeof AdminAppsIndexRoute
-  AdminDatabasesIndexRoute: typeof AdminDatabasesIndexRoute
   AdminOutboundMailIndexRoute: typeof AdminOutboundMailIndexRoute
-  AdminPartnersIndexRoute: typeof AdminPartnersIndexRoute
   AdminPlansIndexRoute: typeof AdminPlansIndexRoute
   AdminWorkspacesIndexRoute: typeof AdminWorkspacesIndexRoute
-  AdminDatabasesShardsIdRoute: typeof AdminDatabasesShardsIdRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminActivityRoute: AdminActivityRoute,
-  AdminAiCostsRoute: AdminAiCostsRoute,
-  AdminDomainPricingRoute: AdminDomainPricingRoute,
   AdminFlagsRoute: AdminFlagsRoute,
-  AdminPhonePricingRoute: AdminPhonePricingRoute,
-  AdminPlanPricingRoute: AdminPlanPricingRoute,
   AdminStaffRoute: AdminStaffRoute,
-  AdminSupportRoute: AdminSupportRoute,
   AdminWarmupRoute: AdminWarmupRoute,
   AdminWeldformsRoute: AdminWeldformsRoute,
-  AdminWeldmeetAiPricingRoute: AdminWeldmeetAiPricingRoute,
-  AdminWeldpanelPricingRoute: AdminWeldpanelPricingRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminAccessRequestsIdRoute: AdminAccessRequestsIdRoute,
   AdminAppsIdRoute: AdminAppsIdRoute,
   AdminAppsNewRoute: AdminAppsNewRoute,
   AdminOutboundMailWorkspaceIdRoute: AdminOutboundMailWorkspaceIdRoute,
-  AdminPartnersIdRoute: AdminPartnersIdRoute,
-  AdminPartnersDefaultsRoute: AdminPartnersDefaultsRoute,
-  AdminPartnersNewRoute: AdminPartnersNewRoute,
   AdminPlansIdRoute: AdminPlansIdRoute,
   AdminPlansNewRoute: AdminPlansNewRoute,
   AdminWorkspacesIdRoute: AdminWorkspacesIdRoute,
   AdminAccessRequestsIndexRoute: AdminAccessRequestsIndexRoute,
   AdminAppsIndexRoute: AdminAppsIndexRoute,
-  AdminDatabasesIndexRoute: AdminDatabasesIndexRoute,
   AdminOutboundMailIndexRoute: AdminOutboundMailIndexRoute,
-  AdminPartnersIndexRoute: AdminPartnersIndexRoute,
   AdminPlansIndexRoute: AdminPlansIndexRoute,
   AdminWorkspacesIndexRoute: AdminWorkspacesIndexRoute,
-  AdminDatabasesShardsIdRoute: AdminDatabasesShardsIdRoute,
 }
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)

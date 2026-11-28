@@ -1209,7 +1209,12 @@ async fn invite_people(
     let inviter = people.iter().find(|p| p.0 == caller.user_id);
     let organizer = people.iter().find(|p| p.0 == organizer_id).or(inviter);
     let portal = invitations::portal_url(caller.parts.env("MEETING_PORTAL_URL").as_deref());
-    let join_url = invitations::join_url(&portal, org, &join_code);
+    let join_url = invitations::join_url(
+        portal.as_deref(),
+        caller.parts.env("PLATFORM_URL").as_deref(),
+        org,
+        &join_code,
+    );
     let recipients: Vec<(String, Option<String>)> = added
         .iter()
         .map(|a| {

@@ -45,9 +45,4 @@ describe('the send button of the invoice panel', () => {
     expect(onSend).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('button', { name: 'Mark as sent' })).not.toBeInTheDocument();
   });
-
-  it('keeps "Mark as sent" where it does not (Global)', () => {
-    renderBar();
-    expect(screen.getByRole('button', { name: 'Mark as sent' })).toBeInTheDocument();
-  });
 });

@@ -1,11 +1,7 @@
 'use client';
 
-import { useState } from 'react';
 import { Coins } from 'lucide-react';
-import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
-import { Input } from '@weldsuite/ui/components/input';
-import { RadioGroup, RadioGroupItem } from '@weldsuite/ui/components/radio-group';
 import {
   Table,
   TableBody,
@@ -14,34 +10,20 @@ import {
   TableHeader,
   TableRow,
 } from '@weldsuite/ui/components/table';
-import { ActionDialog, Field } from '@/components/billing/action-dialog';
-import { adjustCredits } from '@/actions/billing';
-import { adminCopy, fill } from '@/lib/i18n';
+import { adminCopy } from '@/lib/i18n';
 import { formatCredits, formatDateTime, formatDay } from '@/lib/billing-format';
 import { cn } from '@/lib/utils';
 import type { CreditsSummary } from '@/lib/billing-types';
 
-export function CreditsCard({
-  workspaceId,
-  credits,
-  canWrite,
-}: Readonly<{ workspaceId: string; credits: CreditsSummary; canWrite: boolean }>) {
+export function CreditsCard({ credits }: Readonly<{ credits: CreditsSummary }>) {
   const t = adminCopy();
-  const [adjusting, setAdjusting] = useState(false);
 
   return (
     <Card className="py-4">
       <CardContent className="space-y-4 px-4">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Coins className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-medium">{t.credits.title}</h2>
-          </div>
-          {canWrite && (
-            <Button size="sm" variant="outline" onClick={() => setAdjusting(true)}>
-              {t.credits.adjust}
-            </Button>
-          )}
+        <div className="flex items-center gap-2">
+          <Coins className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-medium">{t.credits.title}</h2>
         </div>
 
         <div className="grid grid-cols-3 gap-3">
@@ -89,46 +71,7 @@ export function CreditsCard({
           )}
         </div>
       </CardContent>
-
-      {adjusting && <AdjustCreditsDialog workspaceId={workspaceId} onClose={() => setAdjusting(false)} />}
     </Card>
-  );
-}
-
-function AdjustCreditsDialog({ workspaceId, onClose }: Readonly<{ workspaceId: string; onClose: () => void }>) {
-  const t = adminCopy();
-  const [direction, setDirection] = useState<'grant' | 'deduct'>('grant');
-  const [amount, setAmount] = useState('');
-  const value = /^\d+$/.test(amount.trim()) ? Number(amount.trim()) : null;
-  const valid = value !== null && value > 0 && value <= 10_000_000;
-
-  return (
-    <ActionDialog
-      title={t.credits.adjustTitle}
-      description={t.credits.adjustDescription}
-      submitLabel={t.credits.submit}
-      invalidMessage={amount === '' || valid ? null : t.credits.invalid}
-      onClose={onClose}
-      onSubmit={(reason, requestId) => {
-        if (!valid) return Promise.resolve({ ok: false as const, error: t.credits.invalid });
-        return adjustCredits(workspaceId, { amount: direction === 'grant' ? value : -value, reason }, requestId);
-      }}
-      successMessage={(data) => fill(t.credits.success, { balance: formatCredits(data.newBalance) })}
-    >
-      <RadioGroup value={direction} onValueChange={(v) => setDirection(v as typeof direction)} className="flex gap-4">
-        <label className="flex items-center gap-2 text-sm">
-          <RadioGroupItem value="grant" id="credits-grant" />
-          {t.credits.grant}
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <RadioGroupItem value="deduct" id="credits-deduct" />
-          {t.credits.deduct}
-        </label>
-      </RadioGroup>
-      <Field label={t.credits.amount} htmlFor="credits-amount">
-        <Input id="credits-amount" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} />
-      </Field>
-    </ActionDialog>
   );
 }
 

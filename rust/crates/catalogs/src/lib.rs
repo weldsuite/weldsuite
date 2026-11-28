@@ -1,15 +1,18 @@
-//! The TypeScript catalogs the backend shares with the rest of WeldSuite, as
-//! Rust types. Source of truth stays in TypeScript; `pnpm rust:catalogs`
-//! exports it to `rust/catalogs/*.json`, CI fails when the export is stale,
-//! and `build.rs` turns the JSON into the constants below.
+//! The catalogs the backend shares with the rest of WeldSuite, as Rust types.
+//! `build.rs` turns `rust/catalogs/*.json` into the constants below.
 //!
-//! | Module | TypeScript source |
+//! The ones the frontends also use keep their source of truth in TypeScript:
+//! `pnpm rust:catalogs` exports them, and CI fails when the export is stale.
+//! The ones only the backend used are edited in the JSON since the TypeScript
+//! backend was deleted (ADR OPS-025).
+//!
+//! | Module | Source |
 //! |---|---|
 //! | [`entity_events`] | `packages/core/entity-events/src/events/` |
 //! | [`permission_keys`], [`permissions()`] | `packages/core/permissions/src/{catalog,apps}.ts` |
 //! | [`flags`] | `packages/core/feature-flags/src/flags.ts` |
-//! | [`api_modules()`] | `packages/core/api-modules/src/index.ts` |
-//! | [`FIRST_PARTY_ORIGINS`] | `packages/core/worker-kit/src/cors.ts` |
+//! | [`api_modules()`] | `rust/catalogs/api-modules.json` |
+//! | [`FIRST_PARTY_ORIGINS`] | `rust/catalogs/first-party-origins.json` |
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -412,29 +415,6 @@ mod tests {
         for prefix in CORE_PLATFORM_PREFIXES.iter() {
             assert!(connect.prefixes.contains(prefix), "{prefix}");
             assert_eq!(find_module_for_path(prefix).id, "connect", "{prefix}");
-        }
-    }
-
-    /// A module served by Rust must have a conformance suite that proves it.
-    #[test]
-    fn every_ported_module_has_a_conformance_suite() {
-        let suites: serde_json::Value =
-            serde_json::from_str(include_str!("../../../conformance/suites.json"))
-                .expect("suites.json");
-        let covered: Vec<&str> = suites["suites"]
-            .as_array()
-            .expect("suites")
-            .iter()
-            .filter_map(|suite| suite["module"].as_str())
-            .collect();
-        // A Rust-only module has no TypeScript tests to run against it; its
-        // own Rust tests stand in (ADR COM-009).
-        for module in api_modules().iter().filter(|m| m.rust && !m.rust_only) {
-            assert!(
-                covered.contains(&module.id.as_str()),
-                "{} has no conformance suite",
-                module.id
-            );
         }
     }
 

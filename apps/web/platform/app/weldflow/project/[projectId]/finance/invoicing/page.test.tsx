@@ -96,11 +96,4 @@ describe('a project’s invoicing figures', () => {
     expect(screen.getByText(copy.noAccess)).toBeInTheDocument();
     expect(api.get).not.toHaveBeenCalled();
   });
-
-  it('is not offered on Global', () => {
-    setRuntimeConfig(null);
-    renderWithProviders(<ProjectInvoicingPage />);
-    expect(api.get).not.toHaveBeenCalled();
-    expect(screen.queryByText(copy.title)).not.toBeInTheDocument();
-  });
 });

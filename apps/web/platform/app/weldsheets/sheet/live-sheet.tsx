@@ -13,7 +13,7 @@ import type { Peer, Presence } from '@weldsuite/sheets-engine';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useAppApi } from '@/lib/api/use-app-api';
-import { getApiOriginForPath } from '@/lib/api/public-env';
+import { getAppApiUrl } from '@/lib/api/public-env';
 import { useI18n } from '@/lib/i18n/provider';
 import { SheetEditor } from '../editor/sheet-editor';
 import { SheetController } from '../editor/model/sheet-controller';
@@ -56,9 +56,9 @@ function shareTargetOf(sheet: SheetSummary, name: string): DriveShareTarget {
   return { kind: 'item', fileId: sheet.fileId, name, link: `${origin}/weldsheets/${encodeURIComponent(sheet.id)}` };
 }
 
-/** The room socket for a session ticket, on whichever host serves sheets-api. */
+/** The room socket for a session ticket, on the API's host. */
 function roomUrl(ticket: string): string {
-  const origin = getApiOriginForPath(SHEET_CONNECT_PATH).replace(/^http/, 'ws');
+  const origin = getAppApiUrl().replace(/^http/, 'ws');
   return `${origin}${SHEET_CONNECT_PATH}?ticket=${encodeURIComponent(ticket)}`;
 }
 

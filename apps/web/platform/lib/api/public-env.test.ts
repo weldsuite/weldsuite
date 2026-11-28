@@ -1,105 +1,64 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { apiUrl, getApiOriginForPath, getApiOrigins, getAppApiUrl, getRealtimeUrl, getRealtimeWsOrigin } from './public-env';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { apiUrl, getAppApiUrl, getRealtimeUrl, getRealtimeWsOrigin } from './public-env';
 import { setRuntimeConfig } from '@/lib/runtime-config';
 
-describe('getAppApiUrl', () => {
-  const originalHostname = window.location.hostname;
+function stubLocation(origin: string) {
+  const url = new URL(origin);
+  Object.defineProperty(window, 'location', {
+    configurable: true,
+    value: { ...window.location, hostname: url.hostname, origin: url.origin },
+  });
+}
+
+describe('getAppApiUrl without a runtime config', () => {
+  const originalLocation = window.location;
 
   afterEach(() => {
     vi.unstubAllEnvs();
-    vi.unstubAllGlobals();
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: { ...window.location, hostname: originalHostname },
-    });
+    Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
   });
 
-  function stubHost(host: string) {
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: { ...window.location, hostname: host },
-    });
-  }
-
-  it('uses localhost when the SPA is on localhost', () => {
-    stubHost('localhost');
-    vi.stubEnv('VITE_APP_API_URL', 'http://localhost:8789');
-    expect(getAppApiUrl()).toBe('http://localhost:8789');
+  it('uses the build-time URL when the SPA is on localhost', () => {
+    stubLocation('http://localhost:3000');
+    vi.stubEnv('VITE_APP_API_URL', 'http://localhost:9000');
+    expect(getAppApiUrl()).toBe('http://localhost:9000');
   });
 
-  it('ignores a leaked localhost env URL on the test host', () => {
-    stubHost('app-test.weldsuite.org');
-    vi.stubEnv('VITE_APP_API_URL', 'http://localhost:8789');
-    expect(getAppApiUrl()).toBe('https://app-api-test.weldsuite.org');
+  it('defaults to the local weldsuite serve', () => {
+    stubLocation('http://localhost:3000');
+    vi.stubEnv('VITE_APP_API_URL', '');
+    expect(getAppApiUrl()).toBe('http://localhost:8080');
   });
 
-  it('keeps an explicit non-local env URL on the test host', () => {
-    stubHost('app-test.weldsuite.org');
-    vi.stubEnv('VITE_APP_API_URL', 'https://app-api-test.weldsuite.org');
-    expect(getAppApiUrl()).toBe('https://app-api-test.weldsuite.org');
+  it('ignores a leaked localhost env URL on a hosted SPA and uses its own origin', () => {
+    stubLocation('https://weldsuite.example.eu');
+    vi.stubEnv('VITE_APP_API_URL', 'http://localhost:8080');
+    expect(getAppApiUrl()).toBe('https://weldsuite.example.eu');
+  });
+
+  it('keeps an explicit non-local env URL on a hosted SPA', () => {
+    stubLocation('https://weldsuite.example.eu');
+    vi.stubEnv('VITE_APP_API_URL', 'https://api.example.eu/');
+    expect(getAppApiUrl()).toBe('https://api.example.eu');
+    expect(apiUrl('/api/weldpass/projects')).toBe('https://api.example.eu/api/weldpass/projects');
   });
 });
 
-describe('per-module API origins', () => {
+describe('getRealtimeUrl without a runtime config', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  function stubHost(host: string) {
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: { ...window.location, hostname: host },
-    });
-  }
-
-  it('sends everything to app-api when no module is enabled', () => {
-    stubHost('app.weldsuite.org');
-    vi.stubEnv('VITE_APP_API_URL', '');
-    vi.stubEnv('VITE_API_MODULES', '');
-    expect(apiUrl('/api/weldpass/projects')).toBe('https://app-api.weldsuite.org/api/weldpass/projects');
-    expect(getApiOrigins()).toEqual(['https://app-api.weldsuite.org']);
+  it('defaults to the local weldsuite serve', () => {
+    stubLocation('http://localhost:3000');
+    vi.stubEnv('VITE_REALTIME_URL', '');
+    expect(getRealtimeUrl()).toBe('ws://localhost:8080/ws');
   });
 
-  it('sends enabled modules to their own host on the test SPA', () => {
-    stubHost('app-test.weldsuite.org');
-    vi.stubEnv('VITE_APP_API_URL', '');
-    vi.stubEnv('VITE_API_MODULES', 'pass');
-    expect(getApiOriginForPath('/api/weldpass')).toBe('https://pass-api-test.weldsuite.org');
-    expect(getApiOriginForPath('/api/tickets')).toBe('https://app-api-test.weldsuite.org');
-    expect(getApiOrigins()).toEqual(['https://app-api-test.weldsuite.org', 'https://pass-api-test.weldsuite.org']);
-  });
-
-  it('uses the module dev port locally and honours explicit overrides', () => {
-    stubHost('localhost');
-    vi.stubEnv('VITE_APP_API_URL', 'http://localhost:8789');
-    vi.stubEnv('VITE_API_MODULES', 'pass,host');
-    vi.stubEnv('VITE_HOST_API_URL', 'http://localhost:9999');
-    expect(getApiOriginForPath('/api/weldpass')).toBe('http://localhost:8820');
-    expect(getApiOriginForPath('/api/domains')).toBe('http://localhost:9999');
-  });
-
-  it('ignores a leaked localhost module override on a hosted SPA', () => {
-    stubHost('app.weldsuite.org');
-    vi.stubEnv('VITE_APP_API_URL', '');
-    vi.stubEnv('VITE_API_MODULES', 'pass');
-    vi.stubEnv('VITE_PASS_API_URL', 'http://localhost:8820');
-    expect(getApiOriginForPath('/api/weldpass')).toBe('https://pass-api.weldsuite.org');
-  });
-});
-
-describe('getRealtimeUrl', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.unstubAllGlobals();
-  });
-
-  it('ignores a leaked localhost realtime URL on the test host', () => {
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: { ...window.location, hostname: 'app-test.weldsuite.org' },
-    });
-    vi.stubEnv('VITE_REALTIME_URL', 'ws://localhost:8790/ws');
-    expect(getRealtimeUrl()).toBe('wss://realtime-test.weldsuite.org/ws');
+  it('turns realtime off for a leaked localhost URL on a hosted SPA', () => {
+    stubLocation('https://weldsuite.example.eu');
+    vi.stubEnv('VITE_REALTIME_URL', 'ws://localhost:8080/ws');
+    expect(getRealtimeUrl()).toBe('');
   });
 });
 
@@ -108,14 +67,6 @@ describe('runtime config (/config.json)', () => {
     setRuntimeConfig(null);
     vi.unstubAllEnvs();
   });
-
-  function stubLocation(origin: string) {
-    const url = new URL(origin);
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: { ...window.location, hostname: url.hostname, origin: url.origin },
-    });
-  }
 
   it('wins over the build-time values', () => {
     stubLocation('https://app.weldsuite.org');
@@ -131,19 +82,18 @@ describe('runtime config (/config.json)', () => {
     expect(getAppApiUrl()).toBe('http://localhost:8080');
   });
 
-  it('sends every module to the SPA origin on the Rust backend', () => {
+  it('sends every path to the SPA origin when it names no API origin', () => {
     stubLocation('https://weldsuite.example.eu');
-    vi.stubEnv('VITE_API_MODULES', 'all');
+    vi.stubEnv('VITE_APP_API_URL', 'https://elsewhere.example.eu');
     setRuntimeConfig({ backend: 'rust', modules: ['core'] });
     expect(getAppApiUrl()).toBe('https://weldsuite.example.eu');
-    expect(getApiOriginForPath('/api/tickets')).toBe('https://weldsuite.example.eu');
-    expect(getApiOrigins()).toEqual(['https://weldsuite.example.eu']);
+    expect(apiUrl('/api/tickets')).toBe('https://weldsuite.example.eu/api/tickets');
     // No realtimeUrl in /config.json: realtime is off, not a guessed ${origin}/ws.
     expect(getRealtimeUrl()).toBe('');
     expect(getRealtimeWsOrigin()).toBe('');
   });
 
-  it('uses the realtime URL of /config.json on the Rust backend, and its origin for rooms', () => {
+  it('uses the realtime URL of /config.json, and its origin for rooms', () => {
     stubLocation('https://weldsuite.example.eu');
     setRuntimeConfig({ backend: 'rust', modules: ['core'], realtimeUrl: 'wss://rt.example.eu/ws' });
     expect(getRealtimeUrl()).toBe('wss://rt.example.eu/ws');

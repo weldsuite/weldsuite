@@ -50,8 +50,6 @@ export async function getWorkspaceBilling(workspaceId: string): Promise<Workspac
     subscriptionCycle: w.subscriptionCycle,
     currentPeriodEnd: iso(w.subscriptionCurrentPeriodEnd),
     cancelAtPeriodEnd: w.subscriptionCancelAtPeriodEnd,
-    stripeCustomerId: w.stripeCustomerId,
-    stripeSubscriptionId: w.stripeSubscriptionId,
     paidPlanRequired: w.paidPlanRequired,
     trialExpiredAt: iso(w.trialExpiredAt),
     paywallDeletionAt: w.deletionRequestedBy ? null : iso(w.scheduledDeletionAt),
@@ -67,11 +65,10 @@ export async function getWorkspaceBilling(workspaceId: string): Promise<Workspac
 }
 
 /**
- * The Mollie side of a paying workspace on a Kubernetes edition (ADR
- * BILL-014): its `billing_accounts` row, the plan scheduled for the period
- * end, and the open charge of a past-due account. Null when the workspace
- * never checked out on Mollie. Global never writes the table, so callers only
- * ask on Kubernetes (`GLOBAL ? null : …`).
+ * The Mollie side of a paying workspace (ADR BILL-014): its
+ * `billing_accounts` row, the plan scheduled for the period end, and the open
+ * charge of a past-due account. Null when the workspace never checked out on
+ * Mollie.
  */
 export async function getMollieBillingAccount(workspaceId: string): Promise<MollieBillingAccount | null> {
   const [row] = await getMasterDb()
@@ -108,8 +105,6 @@ function toPlanOption(p: typeof plans.$inferSelect): PlanOption {
     priceYearly: p.priceYearly,
     currency: p.currency,
     maxUsers: p.maxUsers,
-    hasMonthlyPrice: Boolean(p.stripePriceIdMonthly),
-    hasYearlyPrice: Boolean(p.stripePriceIdYearly),
     isActive: p.isActive,
   };
 }
@@ -146,9 +141,6 @@ function toPlanDetail(p: typeof plans.$inferSelect, count: number): PlanDetail {
     badge: p.badge,
     color: p.color,
     features: (p.features ?? {}) as Record<string, unknown>,
-    stripeProductId: p.stripeProductId,
-    stripePriceIdMonthly: p.stripePriceIdMonthly,
-    stripePriceIdYearly: p.stripePriceIdYearly,
     workspaceCount: count,
     updatedAt: p.updatedAt.toISOString(),
   };

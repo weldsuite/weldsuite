@@ -6,19 +6,7 @@
   "private": true,
   "exports": {
     "./device-class": "./src/device-class.ts",
-    "./erasure": "./src/erasure.ts",
-    "./event-row": "./src/event-row.ts",
     "./expression": "./src/expression.ts",
-    "./plans": "./src/plans.ts",
-    "./pricing": "./src/pricing.ts",
-    "./project-object": "./src/project-object.ts",
-    "./query": "./src/query/index.ts",
-    "./query/export": "./src/query/export.ts",
-    "./registry": "./src/registry.ts",
-    "./replays": "./src/replays.ts",
-    "./settings": "./src/settings.ts",
-    "./tables": "./src/tables.ts",
-    "./tokens": "./src/tokens.ts",
     "./wire": "./src/wire.ts"
   },
   "scripts": {

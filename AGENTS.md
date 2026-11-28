@@ -10,9 +10,9 @@ read it before changing code there:
 | [`apps/mobile/AGENTS.md`](apps/mobile/AGENTS.md) | The Expo apps and the Global/EU/self-hosted server choice |
 | [`apps/ios/AGENTS.md`](apps/ios/AGENTS.md) | The native iOS apps (Swift, SwiftUI) replacing the Expo apps |
 | [`apps/android/AGENTS.md`](apps/android/AGENTS.md) | The native Android apps (Kotlin, Compose) replacing the Expo apps |
-| [`apps/workers/pass-api/AGENTS.md`](apps/workers/pass-api/AGENTS.md) | WeldPass: secret vaults and the password manager |
 | [`packages/sdk/AGENTS.md`](packages/sdk/AGENTS.md) | WeldApps and the published SDKs, whose protocols change in lockstep |
-| [`rust/AGENTS.md`](rust/AGENTS.md) | The Rust backend for the EU and self-hosted editions |
+| [`rust/AGENTS.md`](rust/AGENTS.md) | The Rust backend, the only backend |
+| [`rust/modules/pass/AGENTS.md`](rust/modules/pass/AGENTS.md) | WeldPass: secret vaults and the password manager |
 
 ## What this is
 
@@ -21,17 +21,16 @@ accounting, commerce, chat, meetings, AI agents and more) built as `weld*`
 modules a workspace installs. It is a pnpm 10.34.5 + Turborepo monorepo on
 Node 22+.
 
-Today it ships as three editions from one codebase (ADR OPS-012). Global is
-being retired: once its workspaces have moved into the EU install, two remain,
-hosted EU and self-hosted (ADR OPS-025, which supersedes OPS-012).
+It ships as two deployments of one backend (ADR OPS-025): **hosted**, the
+EU install on `weldsuite.eu`, and **self-hosted**. Both run the Rust backend
+(`rust/`) on Kubernetes behind the same frontends: the platform SPA (Vite +
+React 19, TanStack Router), the portals, and the mobile and desktop apps.
+Sign-in is OIDC (WeldID or Zitadel).
 
-- **Global** (being retired): the platform SPA (Vite + React 19, TanStack
-  Router, Clerk) talks to Hono APIs on Cloudflare Workers, backed by Neon
-  Postgres through Drizzle.
-- **EU** and **self-hosted**: the same frontends against a Rust backend
-  (`rust/`) on Kubernetes, with Zitadel (OIDC) sign-in. Only the modules in
-  `RUST_PORTED_MODULES` (`packages/core/api-modules`) are offered there; the
-  platform hides the rest (`apps/web/platform/lib/edition.ts`).
+The Global edition (TypeScript Hono workers on Cloudflare, Clerk, Neon) is
+retired. Its workspaces moved into the EU install on 2026-11-27, and its
+TypeScript backend was deleted from this repo afterwards. Its `*.weldsuite.org`
+hosts still answer, as aliases of the EU install.
 
 ### Design docs and ADRs
 
@@ -55,95 +54,80 @@ code, READMEs that explain how to use or run the code, and the agent setup
 ## Modules
 
 The module list's source of truth is `PERMISSION_APPS` in
-`packages/core/permissions/src/apps.ts` (app codes) and `API_MODULES` in
-`packages/core/api-modules/src/index.ts` (which worker serves which paths).
-Screens live in `apps/web/platform/app/<app code>/`.
+`packages/core/permissions/src/apps.ts` (app codes) and
+`rust/catalogs/api-modules.json` (which module owns which API paths).
+Screens live in `apps/web/platform/app/<app code>/`, routes in
+`rust/modules/<module>/`.
 
-| Module | What it is | API worker |
+| Module | What it is | Rust module |
 |---|---|---|
-| Core platform | Workspaces, members, roles, settings, WeldDrive files, search, billing, credits, notifications, App Store, custom objects (WeldObjects) | `app-api` |
-| WeldCRM | Companies, people, leads, opportunities, pipelines, activities, quotes | `crm-api` |
-| WeldDesk | Helpdesk tickets, conversations, SLAs, widget, help center | `desk-api` |
-| WeldKnow | Knowledge spaces and pages | `know-api` |
-| WeldMail | Email client, accounts, rules, campaigns | `mail-api` |
-| WeldReach | Cold outreach campaigns and mailbox warm-up (staff-approved) | `reach-api` |
-| WeldChat | Team chat | `chat-api` |
-| WeldMeet | Video meetings | `meet-api` |
-| WeldCalendar | Calendars, events, booking pages | `calendar-api` |
-| WeldCall | Telephony | `call-api` |
-| WeldFlow | Projects and personal tasks | `flow-api` |
-| WeldBoard | Whiteboards (WeldFlow's whiteboards moved here) | `board-api` |
-| WeldDocs | Word processing with live co-editing | `docs-api` |
-| WeldSheets | Spreadsheets with live co-editing | `sheets-api` |
-| WeldForms | Forms and surveys | `forms-api` |
-| WeldSign | Electronic signatures | `sign-api` |
-| WeldCommerce | Being rebuilt from scratch (see below), EU edition only; phase 0 serves the overview | `rust/modules/commerce` (Rust only, no TypeScript worker) |
-| WeldStash | Warehouse management, and the product catalogue (`/api/products`) until WeldCommerce is back | `stash-api` |
-| WeldBooks | Double-entry accounting, per-country tax | `books-api` |
-| WeldHR | HR and payroll (NL, US) | `hr-api` |
-| WeldHost | Domains and DNS | `host-api` |
-| WeldSocial | Social publishing | `social-api` |
-| WeldAds | Ad campaigns | `ads-api` |
-| WeldData | Lead database and enrichment | `data-api` |
-| WeldPanel | Product and web analytics, session recordings | `panel-api` (+ public collector `panel-ingest`) |
-| WeldMerge | Pull requests and issues across Git providers | `merge-api` |
-| WeldPass | Secret vaults and team password manager | `pass-api` |
-| WeldConnect | Workflow automation | `connect-api` (+ engine `workflow-worker`) |
-| WeldAgent | Workspace AI agents | `agent-api` |
-| WeldApps | Apps users build, hosted in a sandboxed iframe | `app-api`, `external-api` |
+| Core platform | Workspaces, members, roles, settings, WeldDrive files, search, billing, credits, notifications, App Store, custom objects (WeldObjects) | `core-platform`, `core-team`, `core-files`, `core-billing`, `core-apps`, `core-objects`, `core-integrations`, `core-onboarding`, `core-signin` |
+| WeldCRM | Companies, people, leads, opportunities, pipelines, activities, quotes | `crm` |
+| WeldDesk | Helpdesk tickets, conversations, SLAs, widget, help center | `desk`, `desk-widget` |
+| WeldKnow | Knowledge spaces and pages | `know` |
+| WeldMail | Email client, accounts, rules, campaigns | `mail` |
+| WeldReach | Cold outreach campaigns and mailbox warm-up (staff-approved) | `reach` |
+| WeldChat | Team chat | `chat` |
+| WeldMeet | Video meetings | `meet` |
+| WeldCalendar | Calendars, events, booking pages | `calendar` |
+| WeldCall | Telephony | `call` |
+| WeldFlow | Projects and personal tasks | `flow` |
+| WeldBoard | Whiteboards (WeldFlow's whiteboards moved here) | `board` |
+| WeldDocs | Word processing with live co-editing | `docs` |
+| WeldSheets | Spreadsheets with live co-editing | `sheets` |
+| WeldForms | Forms and surveys | `forms` |
+| WeldSign | Electronic signatures | `sign` |
+| WeldCommerce | Being rebuilt from scratch (see below); phase 0 serves the overview | `commerce` |
+| WeldStash | Warehouse management, and the product catalogue (`/api/products`) until WeldCommerce is back | `stash` |
+| WeldBooks | Double-entry accounting, per-country tax | `books`, `books-*` |
+| WeldHR | HR and payroll (NL, US) | `hr` |
+| WeldHost | Domains and DNS | `host` |
+| WeldSocial | Social publishing | `social` |
+| WeldAds | Ad campaigns | `ads` |
+| WeldData | Lead database and enrichment | `data` |
+| WeldPanel | Product and web analytics, session recordings | `panel` |
+| WeldMerge | Pull requests and issues across Git providers | `merge` |
+| WeldPass | Secret vaults and team password manager | `pass` |
+| WeldConnect | Workflow automation | `connect`, `integrations` |
+| WeldAgent | Workspace AI agents | `agent` |
+| WeldApps | Apps users build, hosted in a sandboxed iframe | `core-apps`, `external-api` |
+
+The public API (`/v1`, `wsk_` keys) is `rust/modules/external-api`, the MCP
+server `rust/modules/mcp`.
 
 Old module names (`task`, `accounting`, `wms`, …) still appear in places;
 `normalizeAppCode` in `@weldsuite/permissions` maps them.
 
 **WeldCommerce is being rebuilt from scratch.** Its code was removed on
-2026-11-20: the `commerce-api` worker and the Rust `commerce` module, the
-platform pages, the B2B order portal, all shipping (Sendcloud, PrintNode,
-parcels, returns, the parcel portals), and the public API and MCP commerce
-surface. The tenant tables (`products`, `orders`, `categories`, `parcels`, …)
-stay. `/api/products` is served by `stash-api` (and the Rust stash module) in
-the meantime, and WeldStash ships pick lists without a carrier. The rebuild is
-for the EU edition only: build it in `rust/modules/commerce`, not as a new
-TypeScript worker.
+2026-11-20: the old `commerce` module, the platform pages, the B2B order
+portal, all shipping (Sendcloud, PrintNode, parcels, returns, the parcel
+portals), and the public API and MCP commerce surface. The tenant tables
+(`products`, `orders`, `categories`, `parcels`, …) stay. `/api/products` is
+served by the stash module in the meantime, and WeldStash ships pick lists
+without a carrier. The rebuild goes into `rust/modules/commerce`.
 
 ## Repository map
 
 **`apps/web/`**, browser frontends (dev port in brackets):
 - `platform` (3000): the main SPA. Every module's UI lives here.
-- TanStack Start on Cloudflare Workers: `admin` (3001, staff console, also a
-  Node build for Kubernetes), `helpcenter` (3008), `sign-portal` (3023),
-  `project-portal` (3024), `forms-portal` (3025).
-- TanStack Start on Node, Kubernetes only: `storefront` (3031, WeldCommerce's
-  online store renderer: shops built in the platform's editor, served on the
-  shop's own host through the Rust server's storefront edge) and `pay-portal`
-  (3033, WeldBooks' public page for invoices and quotes at `pay.<domain>`: a
+- TanStack Start on Node, run by the Helm chart: `admin` (3001, staff
+  console), `sign-portal` (3023, the WeldSign signer portal, a thin client of
+  the backend), `forms-portal` (3025; it still has a Cloudflare Worker build
+  next to `build:node`), `storefront` (3031, WeldCommerce's online store
+  renderer: shops built in the platform's editor, served on the shop's own
+  host through the Rust server's storefront edge) and `pay-portal` (3033,
+  WeldBooks' public page for invoices and quotes at `pay.<domain>`: a
   customer views, downloads, pays (Mollie) and accepts, by the token in the
   link from the e-mail; ADR BOOKS-014).
-- Next.js: `api-docs` (3009), `docs` (3010,
-  help.weldsuite.org), `booking-portal` (3019), `meeting-portal` (3020),
+- Next.js: `api-docs` (3009), `docs` (3010, help.weldsuite.org),
   `commerce-starter` (3030, the MIT-licensed WeldCommerce starter shop on
   `@weldsuite/commerce-sdk`: a template to fork, never deployed, no internal
   imports; its static Vite variant with a publishable key, for
   `weld storefront deploy`, is `commerce-starter-static`, 3032).
-- Vite SPAs: `developer` (WeldApps developer portal), `partner` (3203,
-  reseller portal), `weldmail` and `weldcalendar` (consumer apps on a personal
-  Weld account, served by `personal-api`), `helpdesk-widget` (3100).
+- Vite SPAs: `helpdesk-widget` (3100), and `developer` (WeldApps developer
+  portal) and `partner` (3203, reseller portal), which wait for the backend's
+  partner and developer APIs (phase 9 of the Global retirement plan).
 - `weldpass-extension`: WeldPass browser extension, built and loaded by hand.
-
-**`apps/workers/`**, Cloudflare Workers (Hono):
-- `app-api` (8789): the core API. It also forwards every module path to that
-  module's worker, so clients that still call it keep working.
-- `<module>-api`: one per module, as in the table above; dev ports are in
-  `API_MODULES`.
-- Other public entry points: `external-api` (api.weldsuite.org, `wsk_` keys),
-  `mcp-server`, `personal-api` (consumer WeldMail/WeldCalendar accounts),
-  `helpdesk-widget-api`, `panel-ingest`.
-- Background workers: `entity-events-worker` (event hub), `realtime-worker`
-  (Durable Objects + WebSocket), `workflow-worker`, `helpdesk-workflow-worker`,
-  `mail-inbound-worker`, `analytics-worker`, `audit-log-worker`,
-  `integration-webhook-worker`, `integration-sync-worker`, `billing-worker`
-  (Stripe), `workspace-worker` (provisioning), `reach-warmup-worker`,
-  `agent-runtime` (internal, called by `agent-api` and `chat-api`),
-  `discord-bot-worker`, `test-email-worker`.
 
 **`apps/mobile/`**: one Expo app per module, plus `_template` and `_shared`.
 They are being replaced by native apps, one at a time, WeldPass first
@@ -152,28 +136,29 @@ They are being replaced by native apps, one at a time, WeldPass first
 both built from **`apps/mobile-shared/`** (the OpenAPI contract, strings and
 design tokens; `pnpm mobile:generate`).
 **`apps/desktop/`**: Electron shell around the platform.
-**`apps/tools/`**: `migrate-databases` (Global's tenant migration runner,
-no longer run by its deploy since ADR DATA-019),
-`storybook`, `test-dashboard`, `collab-rooms` (the Docs/Sheets/Board rooms on
-Node for Kubernetes), `outbound-audit`, `discord-bot`.
+**`apps/tools/`**: `storybook`, `test-dashboard`, `collab-rooms` (the
+Docs/Sheets/Board rooms on Node for Kubernetes).
 **`apps/hosted-apps/`**: first-party WeldApps, deployed with `weld app deploy`,
 never compiled into the platform (see its README).
-**`rust/`**: the Rust backend (EU and self-hosted), the schema
-(`rust/crates/schema`) and the master and tenant migrations (`rust/migrations`).
+**`rust/`**: the backend: one binary (`rust/bins/weldsuite`: the server, its
+crons and queue consumers, the migrations), the modules (`rust/modules`), the
+shared and domain crates (`rust/crates`), the schema (`rust/crates/schema`),
+the master and tenant migrations (`rust/migrations`) and the Helm chart.
 
 **`packages/`**, all scoped `@weldsuite/*` and always imported by package name,
 never by path:
 - `config/`: eslint and TypeScript configs.
-- `core/`: platform primitives: `db` (the Drizzle schema, frozen since the
-  schema moved to Rust, and the personal database's migrations),
-  `worker-kit` (what every API worker is built on), `api-modules`,
-  `permissions`, `entity-events`, `feature-flags`, `i18n`, `ai`, `credits`,
-  `notifications`, `emails` (system email templates), `realtime`, `collab` and
-  the docs, sheets, board and forms engines, the `cloudflare-*` wrappers, and
-  clients for outside services.
-- `domains/`: module code more than one worker needs (`@weldsuite/crm-domain`,
-  `@weldsuite/agent-domain`, …). `core-domain` holds cross-module pieces such
-  as AI billing.
+- `core/`: shared primitives: `db` (the Drizzle schema, frozen since the
+  schema moved to Rust and read by the admin console and collab-rooms; the
+  personal database's migrations; the pglite test harness), `permissions`,
+  `entity-events`, `feature-flags` (the flag catalog), `i18n`, `ai` (the AI
+  catalog and rates, exported to Rust), `emails` (system email templates),
+  `realtime` (the realtime client and React hooks), `collab` and the docs,
+  sheets, board and forms engines.
+- `domains/`: module code the frontends or collab-rooms share: the docs,
+  sheets and board rooms (`docs-domain`, `sheets-domain`, `board-domain`),
+  WeldBooks' invoice templates and jurisdiction data, the payroll engines,
+  WeldPanel's wire format.
 - `clients/`: `app-api-client` (typed client and the shared Zod schemas),
   `api-client` (the HTTP transport), `core-api-client` (still load-bearing
   Zod schemas despite its name), `personal-api-client`, `mobile-platform`.
@@ -190,21 +175,20 @@ never by path:
 ```bash
 pnpm install                 # after every pull
 pnpm dev                     # everything, through turbo
-pnpm dev:api                 # app-api + every module worker in one wrangler dev (port 8789)
 pnpm build                   # also: pnpm lint, pnpm format
 pnpm storybook               # component playground
-pnpm create:module-api <m>   # scaffold a module worker
 pnpm create:mobile-app       # scaffold a mobile app from _template
-pnpm api:ownership           # what still sits in app-api
 ```
 
+The backend runs locally as `weldsuite serve` on port 8080 (`rust/README.md`,
+"Running it").
+
 Per workspace, use `pnpm --filter <name> <script>`; app names are the folder
-names (`platform`, `app-api`, `crm-api`, …):
+names (`platform`, `admin`, `sign-portal`, …), packages their package name:
 
 ```bash
 pnpm --filter platform test            # also dev, build, lint, type-check
-pnpm --filter app-api test             # integration tests on in-memory Postgres (pglite), no services needed
-pnpm --filter <module>-api dev         # one module on its own port; set VITE_API_MODULES=<module> in the platform's .env.local
+pnpm --filter @weldsuite/sheets-domain test   # room and service tests on in-memory Postgres (pglite)
 NODE_OPTIONS=--max-old-space-size=12288 pnpm --filter platform type-check   # runs out of memory on the default heap
 ```
 
@@ -218,62 +202,51 @@ pnpm db:generate --name <slug> --custom            # empty migration for hand-wr
 pnpm --filter @weldsuite/db db:generate:personal   # personal-account migration (still Drizzle)
 ```
 
-Workers: `wrangler.toml` has an `[env.test]` and an `[env.production]`; the
-top-level config is for `wrangler dev` only and is named `<worker>-dev`. Always
-pass `--env test` or `--env production` to `wrangler deploy`, `secret put` or
-`tail` (`packages/core/api-modules/src/wrangler-config.test.ts` enforces this).
-Worker secrets are listed per worker in `scripts/secrets/manifest.ts`.
-
-Rust: `pnpm rust:lint`, `pnpm rust:test`, `pnpm rust:catalogs`,
-`pnpm rust:conformance`; see `rust/AGENTS.md`.
+Rust: `pnpm rust:lint`, `pnpm rust:test`, `pnpm rust:catalogs`; see
+`rust/AGENTS.md`.
 
 ## Rules for every change
 
 ### Where code goes
 
-- **A module's endpoints go in its worker** (`apps/workers/<module>-api`), core
-  platform endpoints in `app-api`. Routes are organised by object (customers,
-  tickets, …), and one endpoint backs every surface: platform, mobile, MCP.
-- End to end: shared Zod schema in `@weldsuite/app-api-client` → service in
-  `src/services/<entity>.ts` (pure functions, no Hono context) → route in
-  `src/routes/<entity>/index.ts`, mounted in the worker's `src/index.ts` →
-  client in `@weldsuite/app-api-client` → hook in
+- **A module's endpoints go in its Rust module** (`rust/modules/<module>`).
+  Routes are organised by object (customers, tickets, …), and one endpoint
+  backs every surface: platform, mobile, MCP.
+- End to end: shared Zod schema in `@weldsuite/app-api-client` → route in
+  `rust/modules/<module>` (logic other modules or the binary need goes into a
+  crate in `rust/crates`) → client in `@weldsuite/app-api-client` → hook in
   `apps/web/platform/hooks/queries/use-<entity>-queries.ts`.
 - **A new path prefix is registered** for its module in
-  `packages/core/api-modules/src/index.ts`, or the ownership test fails.
-- **Workers never import from another worker's folder.** Share code through
-  `packages/domains/<module>` or `@weldsuite/worker-kit`.
-- Workers are built on `@weldsuite/worker-kit`: `createModuleApi`, `apiAuth()`
-  (session → workspace → tenant DB → feature flags), `success()`, `list()`,
-  `error.*`, `generateId()`, the pglite test harness. Responses are
-  `{ data }`, `{ data, pagination: { totalCount, hasMore, cursor } }`,
-  `{ error: { code, message, details? } }`, or 204 for a delete.
-- **Every route checks a permission** with `requirePermission()` from
-  `@weldsuite/permissions`.
-- **Every mutation publishes an entity event** with `publishEntityEvent()`
-  from `@weldsuite/entity-events`, after the write succeeds and before
-  returning. It feeds audit, analytics, search, webhooks, workflows, agents and
-  realtime. Entity types and actions are typed from
-  `packages/core/entity-events/src/events/`. WeldPass is the one exception.
+  `rust/catalogs/api-modules.json`.
+- **Module crates never depend on each other**, only on shared crates.
+- Responses are `{ data }`, `{ data, pagination: { totalCount, hasMore, cursor } }`,
+  `{ error: { code, message, details? } }`, or 204 for a delete
+  (`rust/crates/kit`).
+- **Every route checks a permission** (`PermissionGate::require` in
+  `rust/crates/permissions`, the port of `@weldsuite/permissions`).
+- **Every mutation publishes an entity event** (`publish_entity_event` in
+  `rust/crates/events`), after the write succeeds and before returning. It
+  feeds audit, analytics, search, webhooks, workflows, agents and realtime.
+  Entity types and actions come from `packages/core/entity-events/src/events/`
+  (exported by `pnpm rust:catalogs`). WeldPass is the one exception.
 
 ### Data
 
-- **Three kinds of database**: a master DB (workspaces, users, billing,
-  registries), one tenant DB per workspace (its business data) and a shared
-  personal DB for consumer accounts. The master and tenant schemas are the
-  SeaORM entities in `rust/crates/schema/src/{master,tenant}/`, one per table
-  with its DDL (ADR DATA-019). The Drizzle schema in
-  `packages/core/db/src/schema/` is frozen: the TypeScript workers still read
-  it, but schema changes go into the entities. The personal schema is still
-  Drizzle's.
-- **Scope every tenant query by `workspaceId`.**
-- `workspaces.id` (`ws_…`) identifies a workspace everywhere; the Clerk org id
-  (`org_…`) is only for Clerk calls and stores still keyed by it. Store
+- **Two kinds of database**: a master DB (workspaces, users, billing,
+  registries) and one tenant DB per workspace (its business data). Their
+  schemas are the SeaORM entities in `rust/crates/schema/src/{master,tenant}/`,
+  one per table with its DDL (ADR DATA-019). The Drizzle schema in
+  `packages/core/db/src/schema/` is frozen: the admin console and collab-rooms
+  still read it, but schema changes go into the entities. The personal DB of
+  the retired consumer product (ADR DATA-011) keeps its Drizzle migrations in
+  `@weldsuite/db`.
+- **Scope every tenant query by workspace.**
+- `workspaces.id` (`ws_…`) identifies a workspace everywhere; the old Clerk
+  org id (`org_…`, `clerk_org_id`) is only for stores still keyed by it. Store
   `workspaces.id` in anything new, and match a value that may be either with
   `matchWorkspaceRef` (`@weldsuite/db/lib/workspace-ref`), never by prefix
   (ADR SEC-011).
-- Ids are `varchar(30)` from `generateId('<prefix>')`; JSONB columns are typed
-  with `.$type<T>()`.
+- Ids are `varchar(30)` with a type prefix (`rust/crates/kit/src/id.rs`).
 - **Changing the entities is fine. Creating a migration is not, until the user
   approves it.** Then generate it with `pnpm db:generate --name <slug>` (or
   `db:generate:master`; `db:generate:personal` for the personal schema) and
@@ -288,80 +261,60 @@ Rust: `pnpm rust:lint`, `pnpm rust:test`, `pnpm rust:catalogs`,
 
 ### Never wake tenant databases on a timer
 
-Each tenant DB is a Neon compute that suspends when idle. No cron, scheduled
-Workflow, polling loop or queue job may iterate workspaces and connect to each
-tenant to check whether anything is due: with hundreds of workspaces that wakes
-every compute on every tick. Keep the timing in an always-on store and open a
-tenant only when it has work:
+No cron, scheduled job, polling loop or queue job may iterate workspaces and
+open each tenant database to check whether anything is due: with hundreds of
+workspaces that opens every database on every tick. Keep the timing in an
+always-on store and open a tenant only when it has work:
 
-- **D1 indexes** in the schedule-index database (`SCHEDULE_INDEX` binding,
-  migrations in `apps/workers/workflow-worker/migrations/d1/`): WeldConnect
-  schedules in `schedule_index` (`connect-api/src/lib/schedule-index.ts`, swept
-  by `workflow-worker`), WeldAgent routines in `weldagent_routine_index`
-  (`packages/domains/agent/src/routine-index.ts`, swept by
-  `agent-api/src/cron/weldagent-routines.ts`). Write the row on every create,
-  update, pause and delete.
-- **Per-workspace "next due" sweeps** use `workspace_due_index` through
-  `@weldsuite/worker-kit/due-index` (`runDueIndexSweep`, `markWorkspaceDue`,
-  `syncWorkspaceDue`). A new sweep of that shape adds a kind there
-  (today: `mail_snooze`, `calendar_replan`, `domain_renew`), not a new table.
+- **The workspace due index** on the master DB, `workspace_due_index`
+  (`rust/crates/db/src/due_index.rs`: `mark_due`, `sync_due`, `run_sweep`).
+  Write paths pull a workspace's due time earlier; a sweep lists only the due
+  rows. A new sweep of that shape adds a kind there, not a new table.
 - **The master DB**, when the data already lives there.
 - **Event-driven work** only touches the tenant that produced the event,
   which is fine.
 
-If a D1 read fails, skip the tick and log it; never fall back to a tenant
-fan-out. A one-time backfill guarded by a KV flag is fine when introducing a
-new index. In the browser, polls that are mounted everywhere (badges, unread
-counts) use `useIdleAwareRefetchInterval`
+If the index can't be read, skip the tick and log it; never fall back to a
+tenant fan-out. In the browser, polls that are mounted everywhere (badges,
+unread counts) use `useIdleAwareRefetchInterval`
 (`apps/web/platform/hooks/use-user-idle.ts`) so they stop when nobody is there.
 
-### Both backends
+### One backend
 
-**Global is being retired, so build in Rust first (ADR OPS-025).** Global's
-workspaces move into the EU install, and the TypeScript workers are deleted
-after the cutover (plan: `weldsuite-documentation/plans/retire-global-edition.md`).
-Until then:
+Global's TypeScript backend was deleted (ADR OPS-025, phase 8 of
+`weldsuite-documentation/plans/retire-global-edition.md`): every feature is
+built once, in Rust.
 
-- New features are built in Rust.
-- The TypeScript workers get only fixes, plus whatever a shared frontend change
-  needs to keep working on Global.
-- A feature that exists only in Rust gets an `EditionFeature`
-  (`apps/web/platform/lib/edition.ts`) and goes into
-  `GLOBAL_UNAVAILABLE_FEATURES` (`packages/core/api-modules`). That hides it on
-  Global in the platform and in the mobile apps.
-
-A route listed in `rust/conformance/suites.json` is served by the TypeScript
-worker and by Rust: change its behaviour in both, and `pnpm rust:conformance`
-checks they still answer alike. After changing entity events, permissions,
-feature flags, `api-modules` or `FIRST_PARTY_ORIGINS`, run
+Part of `rust/catalogs` is exported from the TypeScript packages the frontends
+share. After changing entity events, permissions, feature flags, the AI
+catalog, the forms templates or the WeldConnect templates, run
 `pnpm rust:catalogs` and commit the `rust/` changes; Lint fails when the export
-is stale.
+is stale. The catalogs only the backend reads (`api-modules.json`,
+`record-chat.json`, `core-platform-prefixes.json`, `first-party-origins.json`,
+`connectors.json`, `odata.json`, and WeldConnect's pickers and providers in
+`weldconnect.json`) are edited in the JSON.
 
 ### AI
 
-- All LLM calls go through `@weldsuite/ai` (Vercel AI SDK via the Cloudflare
-  AI Gateway). No direct provider SDK calls. A worker that uses it needs
-  `CF_ACCOUNT_ID` and `AI_GATEWAY_API_TOKEN` (or `CLOUDFLARE_API_TOKEN`).
-- Usage is charged to the workspace credit wallet with `chargeAiUsage` from
-  `@weldsuite/core-domain/ai-billing`. A failing third-party model falls back
-  to `AI_FALLBACK_MODEL`, so **charge the model that served**:
-  `chargeAiUsage({ modelId: billedModelId(requestedId, result) })`.
-- The exception is WeldAgent's workspace agents, which run on Claude Managed
-  Agents through `@anthropic-ai/sdk` in `packages/domains/agent` (design doc
+- All LLM calls go through `rust/crates/ai` (ADR AI-012, design doc
+  `design/platform/ai-platform.md`). Mistral is the install's provider; a
+  workspace admin may opt in to non-EU providers. Call sites ask for a
+  feature, a task and a tier, never a provider. No direct provider calls
+  elsewhere.
+- The crate charges every call to the workspace credit wallet, for the model
+  that served; a fallback never leaves the EU.
+- WeldAgent's workspace agents run on the Rust agent loop
+  (`rust/modules/agent`, ADR AGENT-016; design doc
   `design/modules/weldagent.md`).
-- The EU edition has no AI yet; it is moving to Mistral, with a workspace
-  opt-in to non-EU providers (ADR AI-012, design doc
-  `design/platform/ai-platform.md`).
+- `@weldsuite/ai` only holds the catalog and rates the frontends show; they
+  are exported to `rust/catalogs/ai.json`.
 
 ### Outside services
 
-- **Cloudflare REST goes through the official `cloudflare` SDK**, imported
-  from `cloudflare/tree-shakable` with `createClient({ resources: [...] })`,
-  never `new Cloudflare()` (it bundles the whole API). Add a resource to the
-  matching `@weldsuite/cloudflare-*` package rather than hand-rolling
-  `api.cloudflare.com` calls.
-- System emails are React Email templates in `@weldsuite/emails`, sent through
-  Cloudflare Email Service (skill `weldsuite-email`).
+- System emails are React Email templates in `@weldsuite/emails`.
+  `pnpm rust:emails` exports them to `rust/catalogs/emails`, and the Rust
+  server renders and sends them (`rust/crates/emails`, skill
+  `weldsuite-email`). Lint fails when the export is stale.
 
 ### UI and text
 
@@ -398,7 +351,7 @@ code: the user doesn't have to ask for it, and you don't ask whether to.
   web frontend: the platform, `@weldsuite/ui`, the portals and the storefront
   renderer and theme, admin,
   partner, developer, docs, the helpdesk widget, the WeldPass extension and
-  the hosted WeldApps. Not for backend, workers, Rust, SQL, CI, scripts,
+  the hosted WeldApps. Not for the backend (Rust), SQL, CI, scripts,
   test-only, config, copy or translation changes, or the Expo apps (React
   Native has no DOM).
 - **Search** once per UI pattern or platform capability, with a 2–5 word
@@ -441,7 +394,7 @@ Change both sides in the same PR:
 ## CI and deploys
 
 - **One branch: `main`.** Every PR targets `main`. Required checks: `Lint`,
-  `Build`, `Type Check · app-api`, `Type Check · platform`, `Unit · app-api`,
+  `Build`, `Type Check · packages`, `Type Check · platform`, `Unit · packages`,
   `Unit · platform`, `Rust` and `WeldSuite Review`. CI job names are required
   status checks; don't rename them. On a PR, jobs run only for the areas the
   change touches (`.github/scripts/ci-changes.mjs`).
@@ -454,8 +407,8 @@ Change both sides in the same PR:
   (`rust-release.yml`).
 - **Nothing deploys to Global.** Its deploy (Workers, Pages, Vercel apps,
   Expo OTA updates, hosted WeldApps) was removed on 2026-11-28, after its
-  workspaces moved into EU production (ADR OPS-025). A merge reaches only the
-  EU install.
+  workspaces moved into EU production (ADR OPS-025), and its workers were
+  deleted from this repo. A merge reaches only the EU install.
 
 ## Working on a task
 
@@ -471,7 +424,7 @@ WeldSuite itself is the task tracker, through the WeldSuite MCP server
   (GitHub issues), `/enrich`, `/enrich-issue`, `/claim`, `/done`,
   `/list-bugs`, `/queue`, `/autopilot`.
 - Specialist agents in `.claude/agents/`: stack (`frontend-platform`,
-  `backend-app-api`, `backend-workers`, `database`, `mobile-expo`, …), domain
+  `backend-rust`, `database`, `mobile-expo`, …), domain
   (`weldcrm`, `welddesk-helpdesk`, `weldbooks-accounting`, …) and country
   accounting (`accounting-nl`, `-be`, `-de`, …).
 - Commit as `fix(<module>): …` or `feat(<module>): …`, ending with
@@ -485,9 +438,9 @@ WeldSuite itself is the task tracker, through the WeldSuite MCP server
   touched. Add a test that fails before a fix and passes after where the
   workspace has tests. Errors that already exist on `main` in files you didn't
   touch: mention them, don't fix them.
-- Every touched query is scoped by `workspaceId`; every new or changed route
-  checks a permission and validates input and output with Zod; every new
-  mutation publishes an entity event.
+- Every touched query is scoped by workspace; every new or changed route
+  checks a permission and validates its input; every new mutation publishes an
+  entity event.
 - New strings in `en` and `nl`.
 - Web frontend changes were checked against Modern Web Guidance (see "Modern
   web guidance").
@@ -505,6 +458,8 @@ WeldSuite itself is the task tracker, through the WeldSuite MCP server
 - Bypass `/autopilot`'s four hard stops (interview, can't reproduce,
   migration, PR open).
 - Overwrite a task's original description: enrichment is appended below `---`.
-- Look for `apps/core-api`, `apps/api-worker`, `apps/mobile-api-worker` or
-  the old AI workers (`agent-worker`, `agent-service`, `ai-worker`): they were
-  deleted.
+- Look for `apps/workers` (Global's Hono workers: `app-api`, the
+  `<module>-api` workers, `personal-api`, …), `@weldsuite/worker-kit`,
+  `@weldsuite/api-modules`, `rust/conformance`, `apps/core-api`,
+  `apps/api-worker`, `apps/mobile-api-worker` or the old AI workers
+  (`agent-worker`, `agent-service`, `ai-worker`): they were deleted.

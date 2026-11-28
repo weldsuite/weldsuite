@@ -295,7 +295,7 @@ const DATA = {
     {
       n: 2, title: "Realtime cache-invalidation bundle", prio: "high", flags: ["bundle"],
       hyp: "Root cause: client mutations don't trigger immediate React Query invalidations + sidebar counters poll instead of subscribing to @weldsuite/realtime.",
-      specialist: "frontend-platform + backend-workers (realtime-worker review)",
+      specialist: "frontend-platform + backend-rust (realtime gateway review)",
       tasks: [
         { id: "task_mp2q1hz8md25hce2", title: "Teammember edits not instant — others must refresh", project: "proj_mltcvympgjpf3edo", prio: "high", type: "task" },
         { id: "task_momy6w7owxs5hlph", title: "Mini-sidebar notification counts only update after refresh", project: "proj_mltcvympgjpf3edo", prio: "high", type: "task" },
@@ -316,7 +316,7 @@ const DATA = {
     {
       n: 4, title: "Activity page bundle", prio: "high", flags: ["bundle"],
       hyp: "Backend join missing channel name + last-activity timestamp not propagated.",
-      specialist: "backend-app-api + frontend-platform",
+      specialist: "backend-rust + frontend-platform",
       tasks: [
         { id: "task_mp749neib2vtrurr", title: "Channel names not shown in activity page", project: "proj_mn7ga6996igircmk", prio: "high", type: "task" },
         { id: "task_mox1x0e7e6mnssnq", title: "'Last activity' date always '--'", project: "proj_mn7ga6996igircmk", prio: "high", type: "task" },
@@ -335,7 +335,7 @@ const DATA = {
     {
       n: 6, title: "Notifications system rebuild", prio: "high", flags: ["bundle", "gate"],
       hyp: "Needs new entity-event types + a unified notifications service. ⛔ Expect schema + entity-events gate.",
-      specialist: "backend-app-api + weldagent-ai + frontend-platform",
+      specialist: "backend-rust + weldagent-ai + frontend-platform",
       tasks: [
         { id: "task_moojfeetsi1gbcfu", title: "Outlook-style notifications (meeting in 15m, task assigned, etc.)", project: "proj_mltcvympgjpf3edo", prio: "high", type: "task" },
         { id: "task_mp2qp8y55e8445ej", title: "Teammember invite shows up in notifications panel", project: "proj_mnrmd6a2232fc43i", prio: "high", type: "task" },
@@ -345,7 +345,7 @@ const DATA = {
     {
       n: 7, title: "Pipeline templates in CRM settings (already in progress!)", prio: "high", flags: ["gate"],
       hyp: "Your `git status` shows `packages/core/db/src/schema/crm-templates.ts` + routes + UI uncommitted. Finish/commit this BEFORE picking anything else.",
-      specialist: "database (approval) + backend-app-api + frontend-platform",
+      specialist: "database (approval) + backend-rust + frontend-platform",
       tasks: [
         { id: "task_movy7a7869chvvvz", title: "Pipeline templates in CRM settings", project: "proj_mltcu9vf29l8pz6m", prio: "high", type: "task" },
       ],
@@ -378,7 +378,7 @@ const DATA = {
     {
       n: 10, title: "WeldChat structure", prio: "high", flags: ["bundle", "gate"],
       hyp: "Role-based channel ACLs + agent membership rules. ⛔ Schema + entity-events likely needed.",
-      specialist: "database (approval) + backend-app-api + weldagent-ai",
+      specialist: "database (approval) + backend-rust + weldagent-ai",
       tasks: [
         { id: "task_mp2q40sxtkcc918q", title: "Role-based channels in WeldChat", project: "proj_mn7ga6996igircmk", prio: "high", type: "task" },
         { id: "task_moq8vyybretnwpww", title: "Agents in public channels", project: "proj_mn7ga6996igircmk", prio: "high", type: "task" },
@@ -388,13 +388,13 @@ const DATA = {
     // Singletons after the bundles
     { n: 11, title: "Scroll bug in 'my tasks' page", prio: "high", flags: [], hyp: "Small frontend fix.", specialist: "frontend-platform",
       tasks: [{ id: "task_mpejyr0hi925l6ax", title: "Can't scroll in my-tasks page", project: "proj_mltcu9vf29l8pz6m", prio: "high", type: "task" }] },
-    { n: 12, title: "CRM categories customizable", prio: "high", flags: ["gate"], hyp: "Likely needs schema. ⛔ migration gate.", specialist: "database + backend-app-api + frontend-platform",
+    { n: 12, title: "CRM categories customizable", prio: "high", flags: ["gate"], hyp: "Likely needs schema. ⛔ migration gate.", specialist: "database + backend-rust + frontend-platform",
       tasks: [{ id: "task_mp4dh2hi7hw7fhpd", title: "CRM categories customizable", project: "proj_mltcu9vf29l8pz6m", prio: "high", type: "task" }] },
-    { n: 13, title: "Invited teammembers visible (Clerk-style)", prio: "high", flags: [], hyp: "Clerk pending-invite list integration.", specialist: "backend-app-api + frontend-platform",
+    { n: 13, title: "Invited teammembers visible (Clerk-style)", prio: "high", flags: [], hyp: "Clerk pending-invite list integration.", specialist: "backend-rust + frontend-platform",
       tasks: [{ id: "task_mosozqytdmavq0m0", title: "Invited teammembers visible", project: "proj_mltcvympgjpf3edo", prio: "high", type: "task" }] },
-    { n: 14, title: "Phone numbers page 'failed to load'", prio: "high", flags: [], hyp: "Twilio fetch broken.", specialist: "backend-workers + frontend-platform",
+    { n: 14, title: "Phone numbers page 'failed to load'", prio: "high", flags: [], hyp: "Twilio fetch broken.", specialist: "backend-rust + frontend-platform",
       tasks: [{ id: "task_momwydxnowk0h2vo", title: "Phone numbers search failed to load", project: "proj_mltcvympgjpf3edo", prio: "high", type: "task" }] },
-    { n: 15, title: "Inbound calls in CRM", prio: "high", flags: ["gate"], hyp: "Larger feature; expect schema work.", specialist: "weldcrm + backend-app-api",
+    { n: 15, title: "Inbound calls in CRM", prio: "high", flags: ["gate"], hyp: "Larger feature; expect schema work.", specialist: "weldcrm + backend-rust",
       tasks: [{ id: "task_molnwnko5cwrusq7", title: "Inbound calls in CRM", project: "proj_mltcu9vf29l8pz6m", prio: "high", type: "task" }] },
     { n: 16, title: "Global 'unsaved changes' warning", prio: "high", flags: [], hyp: "Platform-wide router guard. Risk: every form.", specialist: "frontend-platform",
       tasks: [{ id: "task_mn9g1bomtnv65jnm", title: "Unsaved changes warning popup across all of WeldSuite", project: "proj_mltcvympgjpf3edo", prio: "high", type: "task" }] },
@@ -408,7 +408,7 @@ const DATA = {
       tasks: [{ id: "task_mnnkj0qqd17yxlav", title: "Link meeting/call intelligence to contacts", project: "proj_mltcu9vf29l8pz6m", prio: "high", type: "task" }] },
     { n: 21, title: "Teammember overview page + admin view", prio: "high", flags: [], hyp: "Permissions-gated dashboard for admins.", specialist: "frontend-platform",
       tasks: [{ id: "task_mnalejbqkpieuozf", title: "Teammember overview page (notes, shared projects, admin activity)", project: "proj_mn7ga6996igircmk", prio: "high", type: "task" }] },
-    { n: 22, title: "Group calls + group chats", prio: "high", flags: ["gate"], hyp: "Schema + realtime feature.", specialist: "weldchat + backend-app-api",
+    { n: 22, title: "Group calls + group chats", prio: "high", flags: ["gate"], hyp: "Schema + realtime feature.", specialist: "weldchat + backend-rust",
       tasks: [{ id: "task_mnalhaco3llsfwjk", title: "Group calls + group chats", project: "proj_mn7ga6996igircmk", prio: "high", type: "task" }] },
     { n: 23, title: "Contact panel buttons per installed app", prio: "high", flags: [], hyp: "Feature-flag UI based on installed apps.", specialist: "frontend-platform",
       tasks: [{ id: "task_mn9ge5feju82c4fc", title: "Contact buttons based on which apps are installed", project: "proj_mltcvympgjpf3edo", prio: "high", type: "task" }] },
@@ -418,7 +418,7 @@ const DATA = {
       tasks: [{ id: "task_mn9g91lvvnjh6ucl", title: "Mobile add email account working", project: "proj_mltcv056h1jjm1fk", prio: "high", type: "task" }] },
     { n: 26, title: "Mobile website widget shadow (Safari)", prio: "high", flags: [], hyp: "CSS / iframe.", specialist: "frontend-nextjs",
       tasks: [{ id: "task_mo315gz2dx74wggs", title: "Mobile widget shadow broken on Safari", project: "proj_mltcuor4tidstwyl", prio: "high", type: "task" }] },
-    { n: 27, title: "Helpdesk widget premature 'new conversation'", prio: "high", flags: [], hyp: "Notification triggers on convo creation instead of first message.", specialist: "welddesk-helpdesk + backend-workers",
+    { n: 27, title: "Helpdesk widget premature 'new conversation'", prio: "high", flags: [], hyp: "Notification triggers on convo creation instead of first message.", specialist: "welddesk-helpdesk + backend-rust",
       tasks: [{ id: "task_mn6gmldqg7vgjbno", title: "Widget triggers helpdesk notif on create, should be on first message", project: "proj_mltcuor4tidstwyl", prio: "high", type: "task" }] },
     { n: 28, title: "Messages overview names/preview", prio: "high", flags: [], hyp: "DM list shows wrong name/last message.", specialist: "weldchat + frontend-platform",
       tasks: [{ id: "task_mn1ugm8oedxglaoa", title: "Messages overview should show person/AI name + last message text", project: "proj_mltcuor4tidstwyl", prio: "high", type: "task" }] },
@@ -453,11 +453,11 @@ function buildPrompt(pr, deep) {
 5. Implement on a new branch \`fix/${ids[0]}-<slug>\` off \`main\`.
 6. Run the Definition of Done from \`.claude/workflows/bug-fix-and-feature-workflow.md\`:
    - Reproduces before, doesn't after
-   - Tenant scoping (workspaceId) on every Drizzle query
-   - Permission check on new routes
-   - Zod v3 both directions
+   - Tenant scoping on every touched query
+   - Permission gate on new routes
+   - Request bodies validated on the server, Zod v3 in the client
    - i18n entries in BOTH \`en\` and \`nl\`
-   - \`pnpm lint\` + \`pnpm build\` pass
+   - \`pnpm lint\` + \`pnpm build\` pass; \`pnpm rust:lint\` + \`cargo test -p <crate>\` for Rust
    - No console.log / any / @ts-ignore
    - 🛑 stop and ask before any DB migration
 7. Open the PR, link it back to the WeldSuite task(s), wait for merge.
@@ -465,8 +465,8 @@ function buildPrompt(pr, deep) {
 
 **Hard rules:**
 - ONE task in flight (this one). Do not pull anything else.
-- New routes go in \`apps/workers/app-api\`. \`api-worker\` and \`core-api\` are obsolete.
-- Anthropic SDK calls only in \`apps/agent-worker\`.
+- New routes go in the owning Rust module, \`rust/modules/<module>\`. The TypeScript workers are deleted.
+- Model calls only through \`rust/crates/ai\`.
 ` : `
 Please run \`/fix-bug ${ids[0]}\` end-to-end (enrich → dispatch → triage → implement → DoD → close).
 ${ids.length > 1 ? `\nThe other task IDs in this bundle (${ids.slice(1).join(", ")}) should be fixed in the same PR — apply the same enriched analysis to each.` : ""}

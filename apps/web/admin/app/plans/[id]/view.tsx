@@ -2,23 +2,14 @@ import Link from '@/components/link';
 import { ArrowLeft } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-shell';
 import { ActivityTable } from '@/components/billing/activity-table';
 import { adminCopy } from '@/lib/i18n';
 import { PlanForm } from '../plan-form';
 import type { PlanDetailPageData } from './data';
-import { GLOBAL } from '@/lib/edition';
-import { SyncPlanButton } from './sync-plan-button';
 
 export function PlanDetailPage({ plan, history, canWrite }: Readonly<PlanDetailPageData>) {
   const t = adminCopy();
-
-  const stripeRows: Array<[string, string | null]> = [
-    [t.plans.stripe.product, plan.stripeProductId],
-    [t.plans.stripe.monthlyPrice, plan.stripePriceIdMonthly],
-    [t.plans.stripe.yearlyPrice, plan.stripePriceIdYearly],
-  ];
 
   return (
     <PageContent>
@@ -44,26 +35,8 @@ export function PlanDetailPage({ plan, history, canWrite }: Readonly<PlanDetailP
           />
         </div>
 
-        {/* Stripe is Global's; on Kubernetes a plan is its row alone. */}
-        {!GLOBAL && <p className="text-sm text-muted-foreground">{t.plans.noStripe}</p>}
-        {GLOBAL && (
-        <Card className="py-4">
-          <CardContent className="space-y-3 px-4">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-medium">{t.plans.stripe.title}</h2>
-              {canWrite && <SyncPlanButton planId={plan.id} />}
-            </div>
-            <dl className="space-y-1.5 text-sm">
-              {stripeRows.map(([label, value]) => (
-                <div key={label} className="flex justify-between gap-4 border-b border-border/50 pb-1.5">
-                  <dt className="text-muted-foreground">{label}</dt>
-                  <dd className="font-mono text-xs">{value ?? t.plans.stripe.none}</dd>
-                </div>
-              ))}
-            </dl>
-          </CardContent>
-        </Card>
-        )}
+        {/* There is no Stripe: a plan is its row alone. */}
+        <p className="text-sm text-muted-foreground">{t.plans.noStripe}</p>
 
         <PlanForm key={plan.updatedAt} plan={plan} canWrite={canWrite} />
 

@@ -5,17 +5,16 @@
   "type": "module",
   "private": true,
   "exports": {
-    ".": "./src/index.ts",
-    "./flags": "./src/flags.ts",
-    "./attributes": "./src/attributes.ts",
-    "./server": "./src/server.ts"
+    "./flags": "./src/flags.ts"
   },
   "dependencies": {},
   "peerDependencies": {
     "hono": "^4.12.34"
   },
   "peerDependenciesMeta": {
-    "hono": { "optional": true }
+    "hono": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",

@@ -17,7 +17,7 @@ You are the WMS (Warehouse Management) specialist for WeldSuite.
 ## Where the code lives
 
 - Platform UI: `apps/web/platform/app/weldstash/` (WeldStash: `warehouses/`, `stock/`, `pick-lists/`, `packing/`, `products/`, `suppliers/`).
-- API: the `stash-api` worker, `apps/workers/stash-api/src/routes/`, e.g. `warehouses/`, `inventory/`, `pick-lists/`, `stock-adjustments/`, `cycle-counts/`, `purchase-orders/`, `putaway/`. Services: `src/services/inventory-ledger.ts`, `src/services/pick-lists.ts`. Owned prefixes: the `stash` entry in `packages/core/api-modules/src/index.ts`.
+- API: `rust/modules/stash/src/`, routes assembled in `lib.rs`: warehouses, zones, locations and cycle counts through `crud.rs`, `inventory.rs`, `pick_lists.rs` + `picking.rs`, `stock_adjustments.rs`, `putaway.rs`, purchase orders (`po_*.rs`), `replenishment/`, `shipping/`. The inventory ledger: `ledger.rs`. Owned prefixes: the `stash` entry in `rust/catalogs/api-modules.json`. Jobs: `weldsuite cron stash-replenishment`, `stash-parcel-tracking`.
 - Client domains: `packages/clients/app-api-client/src/domains/warehouses.ts`, `inventory.ts`, `pick-lists.ts`, `wms-suppliers.ts`.
 
 ## Rules
@@ -32,6 +32,6 @@ You are the WMS (Warehouse Management) specialist for WeldSuite.
 ## Delegate
 
 - UI → `frontend-platform`
-- Endpoints (new or bugfix) → `backend-app-api` (stash-api)
+- Endpoints (new or bugfix) → `backend-rust` (`rust/modules/stash`)
 - Order/product side → `weldcommerce`
 - Accounting (inventory valuation) → `weldbooks-accounting`

@@ -1,20 +1,17 @@
 /**
  * @weldsuite/emails — every system email WeldSuite sends: React Email
- * templates on one shared layout, en/nl copy, and transports for Cloudflare
- * Email Service.
+ * templates on one shared layout and en/nl copy. The Rust backend renders the
+ * same templates from the export `pnpm rust:emails` writes; the Node apps
+ * send through a transport (`@weldsuite/emails/transports/env`, SMTP or REST).
  *
- *   const transport = workerTransport(env);          // '@weldsuite/emails/transports/binding'
- *   if (transport) {
- *     await sendSystemEmail(transport, {
- *       template: 'calendar.event',
- *       props: { kind: 'invite', ... },
- *       to: attendee.email,
- *       locale: resolveEmailLocale(userLanguage, workspaceLanguage),
- *       attachments: [icsAttachment({ ... })],
- *     });
- *   }
+ *   await sendSystemEmail(transport, {
+ *     template: 'calendar.event',
+ *     props: { kind: 'invite', ... },
+ *     to: attendee.email,
+ *     locale: resolveEmailLocale(userLanguage, workspaceLanguage),
+ *     attachments: [icsAttachment({ ... })],
+ *   });
  *
- * Next.js apps use `restTransport` from '@weldsuite/emails/transports/rest'.
  * Design guide: .claude/skills/weldsuite-email/SKILL.md.
  */
 

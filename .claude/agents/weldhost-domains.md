@@ -16,8 +16,8 @@ You are the WeldHost (Domains) specialist for WeldSuite.
 ## Where the code lives
 
 - Platform UI: `apps/web/platform/app/weldhost/*`.
-- API: the `host-api` worker, `apps/workers/host-api/src/routes/`, e.g. `domains/`, `dns-records/`, `dns-zones/`, `email-forwards/`, `domain-transfers/`, plus the Realtime Register webhook. Services in `src/services/`; domain auto-renew cron in `src/cron/` (04:00, `wrangler.toml`). Owned prefixes: the `host` entry in `packages/core/api-modules/src/index.ts`.
-- Shared host logic: `packages/domains/host` (`@weldsuite/host-domain`, registrar + checkout, also imported by app-api).
+- API: `rust/modules/host/src/`, e.g. `domains.rs`, `dns_records.rs`, `dns_zones.rs`, `email_forwards.rs`, `transfers.rs`, plus the Realtime Register webhook (`webhook.rs`). Registrar: `registrar.rs` (Realtime Register); DNS hosting behind `dns_host.rs` (Cloudflare or Hetzner). Domain auto-renew: `weldsuite cron domain-auto-renew` (`cron.rs`, `renew_due.rs`). Owned prefixes: the `host` entry in `rust/catalogs/api-modules.json`.
+- Domain purchase is not offered on the Rust backend yet (feature `domain-purchase`); see the crate's `lib.rs`.
 - Platform client helper: `apps/web/platform/lib/host/domain-purchase-client.ts`.
 - Availability checks: there's an MCP tool `check_domain_availability_and_price`, verify feature expectations against it before building UI flows.
 
@@ -33,5 +33,5 @@ You are the WeldHost (Domains) specialist for WeldSuite.
 ## Delegate
 
 - UI → `frontend-platform`
-- Endpoints (new or bugfix) → `backend-app-api` (host-api); domain purchase fulfilment in billing-worker → `backend-workers`
+- Endpoints, webhook and auto-renew (new or bugfix) → `backend-rust` (`rust/modules/host`)
 - Email sending domain verification → `weldmail`

@@ -9,7 +9,6 @@ vi.mock('@/lib/api/weldbooks-client', () => ({ weldbooksApi: api, setWeldbooksEn
 
 import {
   contactPageKeys,
-  isContactPageAvailable,
   useContactBankLines,
   useContactBillsPaged,
   useContactByCrm,
@@ -48,21 +47,6 @@ beforeEach(() => {
   setRuntimeConfig(RUST);
 });
 afterEach(() => setRuntimeConfig(null));
-
-describe('the contact page queries on Global', () => {
-  it('are not offered, and send nothing, where the edition lacks the contact page', async () => {
-    setRuntimeConfig(null);
-    expect(isContactPageAvailable()).toBe(false);
-    const { wrapper } = setup();
-    const summary = renderHook(() => useContactSummary('prt_1'), { wrapper });
-    const timeline = renderHook(() => useContactTimeline('prt_1'), { wrapper });
-    const link = renderHook(() => usePublicLink('invoice', 'inv_1'), { wrapper });
-    expect(summary.result.current.fetchStatus).toBe('idle');
-    expect(timeline.result.current.fetchStatus).toBe('idle');
-    expect(link.result.current.fetchStatus).toBe('idle');
-    expect(api.get).not.toHaveBeenCalled();
-  });
-});
 
 describe('the timeline', () => {
   it('pages by cursor: the next page asks for what the last one ended at', async () => {

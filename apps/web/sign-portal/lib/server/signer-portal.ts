@@ -1,20 +1,13 @@
 /**
- * Server-only: the signer operations the portal's routes run, from one of
- * two places, picked at run time by `SIGN_PORTAL_BACKEND`:
- *
- * - unset (Global, ADR FE-016): the domain code, `createSignPortal()`, run by
- *   this Worker against its own bindings (`runtime.ts`);
- * - `rust` (Kubernetes, ADR FE-017): the backend's `/public/sign-portal/*`
- *   endpoints over HTTP at `SIGN_PORTAL_BACKEND_URL`, with the shared
- *   `SIGN_PORTAL_SECRET` and the signer's IP from the ingress
- *   (`@weldsuite/sign-domain/portal-client`).
- *
- * Both answer with the same `Response`s, so the routes don't know which one
- * they have. Never import this from a client component.
+ * Server-only: the signer operations the portal's routes run: the Rust
+ * backend's `/public/sign-portal/*` endpoints over HTTP at
+ * `SIGN_PORTAL_BACKEND_URL`, with the shared `SIGN_PORTAL_SECRET` and the
+ * signer's IP from the ingress (`./portal-client.ts`, ADR FE-017). Never
+ * import this from a client component.
  */
 
-import { signPortalClientFromEnv } from '@weldsuite/sign-domain/portal-client'
-import { domainPortal, runtimeEnv, signerMeta } from '@/lib/server/runtime'
+import { signPortalClientFromEnv } from '@/lib/server/portal-client'
+import { runtimeEnv, signerMeta } from '@/lib/server/runtime'
 
 /** Each operation takes the browser's request, for the signer's IP and browser. */
 export interface SignerPortal {
@@ -29,10 +22,7 @@ export interface SignerPortal {
   download(request: Request, session: string | undefined): Promise<Response>
 }
 
-/**
- * The advanced and qualified signature operations (eIDAS): the Rust backend
- * only. On the Worker / Global build they answer like an unknown route.
- */
+/** The advanced and qualified signature operations (eIDAS). */
 export interface EidasSignerPortal {
   signatureStart(request: Request, session: string | undefined, input: unknown): Promise<Response>
   signatureFinish(request: Request, session: string | undefined, input: unknown): Promise<Response>
@@ -50,19 +40,8 @@ export function signerPortal(): FullSignerPortal {
   return selected
 }
 
-const notFound = () => Promise.resolve(Response.json({ error: { code: 'NOT_FOUND', message: 'Not found' } }, { status: 404 }))
-
 function select(): FullSignerPortal {
   const client = signPortalClientFromEnv(runtimeEnv())
-  if (!client) {
-    return {
-      ...domainPortal(),
-      signatureStart: notFound,
-      signatureFinish: notFound,
-      signatureCancel: notFound,
-      evidence: notFound,
-    }
-  }
   return {
     openSession: (request, input) => client.openSession(signerMeta(request), input),
     verify: (request, input) => client.verify(signerMeta(request), input),

@@ -17,8 +17,8 @@ import {
   hasFileNameConflict,
   deduplicateFileName,
 } from './files';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
-import type { Database } from '@weldsuite/worker-kit/db';
+import { createPgliteDb } from '@weldsuite/db/testing/pglite';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
 
 let db: Database;
 

@@ -82,6 +82,6 @@ Because there's no "recoverable" input tax, a US accounting model is fundamental
 ## Delegate
 
 - Implementation → `weldbooks-accounting`
-- Rate lookup integration → `backend-workers`
+- Rate lookup integration → `backend-rust`
 - UI (nexus dashboard, exemption cert upload) → `frontend-platform`
 - Schema → `database`

@@ -11,7 +11,7 @@ import { ShareDialog, type DriveShareTarget } from '@/app/welddrive/components/s
 import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useAppApi } from '@/lib/api/use-app-api';
-import { getApiOriginForPath } from '@/lib/api/public-env';
+import { getAppApiUrl } from '@/lib/api/public-env';
 import { useI18n } from '@/lib/i18n/provider';
 import { DocConnection } from '../collab/doc-connection';
 import { DocEditor } from '../editor/doc-editor';
@@ -27,9 +27,9 @@ import { commentTexts } from '../comment-texts';
 /** How often, at most, this person's caret goes out to the others. */
 const PRESENCE_MS = 120;
 
-/** The room socket for a session ticket, on whichever host serves docs-api. */
+/** The room socket for a session ticket, on the API's host. */
 function roomUrl(ticket: string): string {
-  const origin = getApiOriginForPath(DOC_CONNECT_PATH).replace(/^http/, 'ws');
+  const origin = getAppApiUrl().replace(/^http/, 'ws');
   return `${origin}${DOC_CONNECT_PATH}?ticket=${encodeURIComponent(ticket)}`;
 }
 

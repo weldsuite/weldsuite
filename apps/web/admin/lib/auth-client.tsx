@@ -1,41 +1,53 @@
-import { useCallback, type ReactNode } from 'react';
-import { ClerkProvider, SignIn, useAuth, useClerk, useUser } from '@clerk/tanstack-react-start';
+import { useCallback } from 'react';
+import { useLocation } from '@tanstack/react-router';
+import { LogIn, ShieldAlert } from 'lucide-react';
+import { Button } from '@weldsuite/ui/components/button';
+import { Card, CardContent } from '@weldsuite/ui/components/card';
+import { adminCopy } from './i18n';
 
 /**
- * The browser side of signing in: the console's own invite-only Clerk
- * instance on Global (ADR SEC-009). The Node build for Kubernetes resolves
- * this module to `auth-client.node.tsx` (vite.config.ts), so no Clerk code
- * reaches it. Components use these, never `@clerk/*` directly.
+ * The browser side of signing in (ADR FE-018). Staff sign in at the install's
+ * identity provider through the console's own `/auth/*` endpoints
+ * (`lib/server/auth-routes.ts`).
  */
 
-export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
-  return <ClerkProvider>{children}</ClerkProvider>;
+/** Straight to the provider: `/auth/sign-in` is a server endpoint, not a page, so the document reloads. */
+export function signInRedirect(returnTo: string): { href: string; reloadDocument: boolean } {
+  return { href: `/auth/sign-in?redirect_url=${encodeURIComponent(returnTo)}`, reloadDocument: true };
 }
 
-/** Where the root route sends someone who isn't signed in: Clerk's sign-in, on this console. */
-export function signInRedirect(returnTo: string): { href: string; reloadDocument?: boolean } {
-  return { href: `/sign-in?redirect_url=${encodeURIComponent(returnTo)}` };
-}
-
-/** The sign-in page's body. Clerk returns to `redirect_url` afterwards. */
+/** The landing page after signing out or a failed sign-in, with a button to sign in again. */
 export function SignInScreen() {
-  return <SignIn routing="path" path="/sign-in" fallbackRedirectUrl="/" />;
+  const t = adminCopy().signIn;
+  const search = useLocation({ select: (location) => location.search as Record<string, unknown> });
+  const failed = search.error !== undefined;
+  const returnTo = typeof search.redirect_url === 'string' ? search.redirect_url : '/';
+  let notice: string | null = null;
+  if (failed) notice = t.failed;
+  else if (search.signed_out !== undefined) notice = t.signedOut;
+  return (
+    <Card className="w-full max-w-md py-8">
+      <CardContent className="space-y-4 px-8 text-center">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+          {failed ? <ShieldAlert className="h-6 w-6 text-amber-600 dark:text-amber-400" /> : <LogIn className="h-6 w-6 text-primary" />}
+        </div>
+        <h1 className="text-lg font-semibold">{t.title}</h1>
+        <p className="text-sm text-muted-foreground">{notice ?? t.description}</p>
+        <Button asChild>
+          <a href={`/auth/sign-in?redirect_url=${encodeURIComponent(returnTo)}`}>{t.button}</a>
+        </Button>
+      </CardContent>
+    </Card>
+  );
 }
 
-/** Ends the session and leaves the console. */
+/** Signing out is a POST (the endpoint refuses anything cross-site), sent as a form so the browser follows the redirects. */
 export function useSignOut(): () => void {
-  const { signOut } = useClerk();
-  return useCallback(() => void signOut(), [signOut]);
-}
-
-/** The signed-in person as the support inbox shows them, and a token for the realtime worker. */
-export function useStaffProfile(): { name: string | null; imageUrl: string | null; getToken: () => Promise<string> } {
-  const { getToken } = useAuth();
-  const { user } = useUser();
-  const token = useCallback(async () => (await getToken()) || '', [getToken]);
-  return {
-    name: user?.fullName || user?.firstName || null,
-    imageUrl: user?.imageUrl ?? null,
-    getToken: token,
-  };
+  return useCallback(() => {
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/auth/sign-out';
+    document.body.appendChild(form);
+    form.submit();
+  }, []);
 }

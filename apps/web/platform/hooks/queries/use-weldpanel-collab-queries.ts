@@ -14,7 +14,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { useAppApi } from '@/lib/api/use-app-api';
-import { getApiOriginForPath } from '@/lib/api/public-env';
+import { getAppApiUrl } from '@/lib/api/public-env';
 import { createWeldPanelPublicShareApi } from '@weldsuite/app-api-client/domains/weldpanel-collab';
 import type {
   CreatePanelAnnotationInput,
@@ -557,9 +557,9 @@ export function useDeleteWeldPanelDomain(projectId: string) {
 // Public share page (no session)
 // ---------------------------------------------------------------------------
 
-/** The public share client: panel-api's origin, no credentials. */
+/** The public share client: the API's origin, no credentials. */
 export function usePublicShareApi() {
-  return useMemo(() => createWeldPanelPublicShareApi({ baseUrl: getApiOriginForPath('/public/panel/share') }), []);
+  return useMemo(() => createWeldPanelPublicShareApi({ baseUrl: getAppApiUrl() }), []);
 }
 
 /** What a share link shows. A 404 (unknown, revoked or expired) is not retried. */

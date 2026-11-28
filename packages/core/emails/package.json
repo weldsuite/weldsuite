@@ -7,7 +7,6 @@
   "exports": {
     ".": "./src/index.ts",
     "./ics": "./src/ics.ts",
-    "./transports/binding": "./src/transports/binding.ts",
     "./transports/rest": "./src/transports/rest.ts",
     "./transports/resend": "./src/transports/resend.ts",
     "./transports/memory": "./src/transports/memory.ts",
@@ -38,7 +37,6 @@
     "@react-email/row": "0.0.13",
     "@react-email/section": "0.0.17",
     "@react-email/text": "0.1.6",
-    "@weldsuite/email": "workspace:*",
     "@weldsuite/i18n": "workspace:*",
     "cloudflare": "^7.0.0",
     "html-to-text": "^9.0.5",

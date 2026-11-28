@@ -68,15 +68,6 @@ afterEach(() => {
 });
 
 describe('IntegrationsSection', () => {
-  it('lists every integration on Global', () => {
-    render(<IntegrationsSection />);
-    // Odoo only where the backend's connector catalog offers it.
-    expect(shown()).toEqual(ALL.filter((name) => name !== 'Odoo'));
-    // Global has no outside-EU switches: nothing is asked, nothing is labelled.
-    expect(outsideEu.asked).toBe(0);
-    expect(screen.queryByText('Leaves the EU')).toBeNull();
-  });
-
   it('lists the connectors and workflow providers on a Kubernetes edition without integration-sync', () => {
     setRuntimeConfig({ backend: 'rust', edition: 'eu', modules: ['core', 'connect'], unavailableFeatures: ['integration-sync'] });
     render(<IntegrationsSection />);

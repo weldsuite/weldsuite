@@ -1,13 +1,6 @@
 // Client-safe billing types for the admin console. The server-only readers in
-// billing-data.ts and the billing-worker client produce these; the billing UI
-// (client components) consumes them. Shapes from the worker mirror
-// apps/workers/billing-worker/src/services/admin-billing.ts.
-
-import type { SsoAdminView } from '@weldsuite/app-api-client/schemas/sso';
-
-export type SubscriptionCycle = 'monthly' | 'yearly';
-export type ProrationBehavior = 'always_invoice' | 'create_prorations' | 'none';
-export type CollectionMethod = 'charge_automatically' | 'send_invoice';
+// billing-data.ts produce these; the billing UI (client components) consumes
+// them.
 
 export interface WorkspaceComp {
   grantedAt: string;
@@ -26,8 +19,6 @@ export interface WorkspaceBilling {
   subscriptionCycle: string | null;
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
-  stripeCustomerId: string | null;
-  stripeSubscriptionId: string | null;
   paidPlanRequired: boolean;
   trialExpiredAt: string | null;
   /** Only the trial-expiry policy's schedule; an admin deletion is shown elsewhere. */
@@ -44,8 +35,6 @@ export interface PlanOption {
   priceYearly: string;
   currency: string;
   maxUsers: number | null;
-  hasMonthlyPrice: boolean;
-  hasYearlyPrice: boolean;
   isActive: boolean;
 }
 
@@ -65,9 +54,6 @@ export interface PlanDetail extends PlanOption {
   badge: string | null;
   color: string | null;
   features: Record<string, unknown>;
-  stripeProductId: string | null;
-  stripePriceIdMonthly: string | null;
-  stripePriceIdYearly: string | null;
   workspaceCount: number;
   updatedAt: string;
 }
@@ -91,8 +77,8 @@ export interface CreditsSummary {
 export interface InvoiceRow {
   id: string;
   /**
-   * Who issued the invoice: 'stripe' on Global, 'weldbooks' on the EU edition
-   * (ADR BILL-014). A plain string, so a new provider reads as "not Stripe"
+   * Who issued the invoice: 'weldbooks' (ADR BILL-014), or 'stripe' on rows
+   * from before Global moved into this install. A plain string, so a new provider reads as "not Stripe"
    * instead of failing.
    */
   provider: string;
@@ -110,7 +96,7 @@ export interface InvoiceRow {
 
 export interface PaymentRow {
   id: string;
-  /** 'stripe' on Global, 'mollie' on the EU edition. */
+  /** 'mollie', or 'stripe' on rows from before Global moved into this install. */
   provider: string;
   /** The Mollie payment (`tr_…`); null on Stripe rows. */
   providerPaymentId: string | null;
@@ -140,8 +126,7 @@ export interface AuditEventRow {
 }
 
 // ---------------------------------------------------------------------------
-// Plan billing on Mollie (Kubernetes editions, master `billing_accounts`,
-// ADR BILL-014). Read-only here: changes run from `weldsuite admin billing`.
+// Plan billing on Mollie (master `billing_accounts`, ADR BILL-014). Read-only here: changes run from `weldsuite admin billing`.
 // ---------------------------------------------------------------------------
 
 /** The charge a past-due account still has to pay (its `billing_payments` row). */
@@ -185,101 +170,4 @@ export interface MollieBillingAccount {
     remindedAt: string | null;
     charge: MolliePastDueCharge | null;
   } | null;
-}
-
-// ---------------------------------------------------------------------------
-// Live Stripe snapshot (GET /api/internal/admin/workspaces/:id/stripe)
-// ---------------------------------------------------------------------------
-
-export interface PaymentMethodSummary {
-  type: string;
-  brand: string | null;
-  last4: string | null;
-  expMonth: number | null;
-  expYear: number | null;
-}
-
-export interface InvoiceSummary {
-  id: string;
-  status: string | null;
-  amountDueCents: number;
-  currency: string;
-  hostedUrl: string | null;
-}
-
-export interface StripeSnapshot {
-  customer: {
-    id: string;
-    email: string | null;
-    name: string | null;
-    balanceCents: number;
-    currency: string | null;
-    hasAddress: boolean;
-    defaultPaymentMethod: PaymentMethodSummary | null;
-  } | null;
-  subscription: {
-    id: string;
-    status: string;
-    priceId: string | null;
-    unitAmountCents: number | null;
-    currency: string | null;
-    interval: string | null;
-    quantity: number;
-    currentPeriodEnd: string | null;
-    cancelAtPeriodEnd: boolean;
-    cancelAt: string | null;
-    trialEnd: string | null;
-    collectionMethod: CollectionMethod;
-    daysUntilDue: number | null;
-    automaticTax: boolean;
-    paymentMethod: PaymentMethodSummary | null;
-    discount: {
-      couponId: string;
-      name: string | null;
-      percentOff: number | null;
-      amountOffCents: number | null;
-      currency: string | null;
-      duration: string;
-      durationInMonths: number | null;
-      endsAt: string | null;
-    } | null;
-    latestInvoice: InvoiceSummary | null;
-  } | null;
-  errors: string[];
-}
-
-/** Snapshot load result: the console may not be wired to the worker at all. */
-export type SnapshotState =
-  | { kind: 'ok'; snapshot: StripeSnapshot }
-  | { kind: 'not_configured' }
-  | { kind: 'error'; message: string };
-
-export interface InvoicePreview {
-  available: boolean;
-  amountDueCents: number;
-  currency: string;
-  lines: Array<{ description: string; amountCents: number }>;
-}
-
-/** Results some billing actions return; `warnings` are shown as toasts. */
-export interface WithWarnings {
-  warnings?: string[];
-}
-
-// ---------------------------------------------------------------------------
-// Single sign-on add-on (GET /api/internal/admin/workspaces/:id/sso)
-// ---------------------------------------------------------------------------
-
-/** SSO load result, like SnapshotState. */
-export type SsoViewState =
-  | { kind: 'ok'; view: SsoAdminView }
-  | { kind: 'not_configured' }
-  | { kind: 'error'; message: string };
-
-/** What `sso/grant` and `sso/revoke` did (billing-worker `SsoAdminResult`). */
-export interface SsoAdminResult {
-  action: 'created' | 'repriced' | 'canceled' | 'scheduled_cancel' | 'none';
-  subscriptionId: string | null;
-  entitled: boolean;
-  warnings: string[];
 }

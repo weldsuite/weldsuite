@@ -13,12 +13,6 @@ import WeldStashSettingsPage from './page';
 afterEach(() => setRuntimeConfig(null));
 
 describe('WeldStashSettingsPage', () => {
-  it('is the edition-unavailable page on Global', () => {
-    render(<WeldStashSettingsPage />);
-    expect(screen.getByText('Not available in this edition')).toBeInTheDocument();
-    expect(screen.queryByText('settings tab')).not.toBeInTheDocument();
-  });
-
   it('shows the title and the settings on the Rust editions', () => {
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: [] } as never);
     render(<WeldStashSettingsPage />);

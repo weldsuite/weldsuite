@@ -84,14 +84,16 @@ Run the full Definition of Done in bash:
 cd "$(git rev-parse --show-toplevel)"
 pnpm --filter '<touched-workspaces>' lint
 pnpm --filter '<touched-apps>' build
+pnpm rust:lint                                   # when Rust changed
+(cd rust && cargo test -p '<touched-crate>')     # per touched Rust crate
 git status --porcelain
 ```
 
 If any check fails, STOP the loop and report the failure. Do NOT auto-retry, do NOT auto-revert.
 
 Confirm (automatically, no user prompt):
-- Every Drizzle query touched has `workspaceId` scoping
-- Every new/changed route has a `requirePermission('<object>:<action>')` check
+- Every query touched runs on the tenant DB with its workspace and owner scoping
+- Every new/changed route has a permission gate (`object:action` key)
 - Any new user-visible string has `en` AND `nl` translations
 - No new `console.log`, `any`, `@ts-ignore`
 

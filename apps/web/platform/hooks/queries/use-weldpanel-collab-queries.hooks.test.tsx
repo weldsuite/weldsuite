@@ -29,7 +29,7 @@ const api = vi.hoisted(() => {
   };
 });
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => api }));
-vi.mock('@/lib/api/public-env', () => ({ getApiOriginForPath: () => 'https://panel-api.test' }));
+vi.mock('@/lib/api/public-env', () => ({ getAppApiUrl: () => 'https://api.test' }));
 
 import { weldpanelKeys } from './use-weldpanel-queries';
 import {
@@ -275,7 +275,7 @@ describe('public share page', () => {
     const { result } = renderHook(() => useWeldPanelPublicResult('wpsh_abc', input), { wrapper });
     await waitFor(() => expect(result.current.data).toEqual({ kind: 'trends', result: { series: [] } }));
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe('https://panel-api.test/public/panel/share/wpsh_abc/results');
+    expect(url).toBe('https://api.test/public/panel/share/wpsh_abc/results');
     expect(init).toMatchObject({ method: 'POST', credentials: 'omit', body: JSON.stringify(input) });
     expect(client.getQueryCache().find({ queryKey: weldpanelCollabKeys.publicResult('wpsh_abc', input), exact: true })).toBeDefined();
   });

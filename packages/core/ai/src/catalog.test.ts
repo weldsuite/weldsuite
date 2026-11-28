@@ -19,7 +19,6 @@ import {
   modelHas,
   taskModel,
 } from "./catalog.js";
-import { knownCanonicalIds } from "./model-map.js";
 import { recommended } from "./models.js";
 
 describe("AI catalog", () => {
@@ -36,7 +35,6 @@ describe("AI catalog", () => {
       for (const capability of model.capabilities)
         expect(AI_CAPABILITIES).toContain(capability);
       expect(MODEL_PRICES[model.id], model.id).toBeDefined();
-      expect(knownCanonicalIds()).toContain(model.id);
     }
   });
 

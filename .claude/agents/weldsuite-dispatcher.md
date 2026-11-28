@@ -36,7 +36,7 @@ with `ToolSearch` (`+get_task`, …) if deferred.
 | ticket, support, SLA, helpdesk, welddesk, article, KB | welddesk-helpdesk |
 | email, thread, inbox, deliverability, weldmail, DKIM | weldmail |
 | invoice, bill, payment, reconciliation, ledger, chart of accounts, weldbooks | weldbooks-accounting |
-| recurring invoice, dunning, subscription billing, stripe webhook | weldsuite-invoicing |
+| dunning, subscription billing, plan billing, seats, Mollie | weldsuite-invoicing |
 | time tracking, timesheet, timer, billable hours | weldsuite-time-tracking |
 | domain, DNS, registrar, nameserver, weldhost | weldhost-domains |
 | product catalog, order, checkout, weldcommerce, shop | weldcommerce |
@@ -51,11 +51,10 @@ with `ToolSearch` (`+get_task`, …) if deferred.
 | "button doesn't work", "form not submitting", "modal", "UI", React, Vite, platform | frontend-platform |
 | marketing site, helpcenter, portals, Next.js | frontend-nextjs |
 | iOS, Android, Expo, native, push notification | mobile-expo |
-| "500 error", "API returns", Hono route, new endpoint, module webhook | backend-app-api |
-| cron, queue, Workflow, background job in a non-API worker; external-api, helpdesk widget, billing, realtime | backend-workers |
-| schema, migration, Drizzle, Neon, tenant DB | database |
+| "500 error", "API returns", new endpoint, webhook, cron, queue, background job, external-api, MCP, helpdesk widget, billing, realtime, Rust | backend-rust |
+| schema, migration, SeaORM entity, tenant DB | database |
 
-Default routing for backend changes: **first-party API work (new or bugfix) goes to backend-app-api**. Core platform routes live in `apps/workers/app-api`; module routes in the module's worker `apps/workers/<module>-api` (crm, desk, mail, flow, books, commerce, stash, host, calendar, meet, call, chat, connect, agent, data, know, hr, social, ads, pass). To find the owner of a path, look up its prefix in `packages/core/api-modules/src/index.ts`. Crons, queues and Workflows hosted by a module worker also belong to backend-app-api; everything in the other workers goes to **backend-workers**.
+Default routing for backend changes: **all backend work (new or bugfix) goes to backend-rust**. The Rust backend in `rust/` is the only one. Module routes live in `rust/modules/<module>` (crm, desk, mail, flow, books, commerce, stash, host, calendar, meet, call, chat, connect, agent, data, know, hr, social, ads, pass, …), core platform routes in the `rust/modules/core-*` crates, shared and domain logic in `rust/crates`. To find the owner of a path, look up its prefix in `rust/catalogs/api-modules.json`. Crons, queue consumers, realtime and inbound mail run in the `weldsuite` binary (`rust/bins/weldsuite`) and also belong to backend-rust.
 
 ## Country accounting routing
 

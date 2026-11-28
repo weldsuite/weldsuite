@@ -276,16 +276,12 @@ describe('purchase orders list row delete', () => {
     expect(screen.queryByLabelText('Open row actions')).not.toBeInTheDocument();
   });
 
-  it('offers delete on any status on Global, but only on draft, pending or cancelled on a Kubernetes edition', () => {
+  it('offers delete only on draft, pending or cancelled', () => {
     setList([order({ status: 'ordered' })]);
-    const { unmount } = render(<WeldStashPurchaseOrdersPage />);
-    expect(screen.getByLabelText('Open row actions')).toBeInTheDocument();
-    unmount();
-
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: [] });
-    const { unmount: unmountRust } = render(<WeldStashPurchaseOrdersPage />);
+    const { unmount } = render(<WeldStashPurchaseOrdersPage />);
     expect(screen.queryByLabelText('Open row actions')).not.toBeInTheDocument();
-    unmountRust();
+    unmount();
 
     setList([order({ status: 'cancelled' })]);
     render(<WeldStashPurchaseOrdersPage />);

@@ -1,18 +1,14 @@
 /**
  * `@weldsuite/mobile-platform/api`: the app-api client every mobile app
- * builds its domain clients on, pointed at the booted server.
+ * builds its domain clients on, pointed at the booted server. Every path goes
+ * to the server's API origin (`MobileRuntime.apiOrigin`): one backend serves
+ * all modules.
  *
- * - Global: per-path hosts (`EXPO_PUBLIC_API_MODULES` modules go to their own
- *   `<module>-api` worker, the rest to app-api), as before.
- * - EU / self-hosted: every path to the server's origin (the Rust backend
- *   serves all modules).
- *
- * Hosts are read on each request, never at import time: modules load before
- * the runtime boots.
+ * The origin is read on each request, never at import time: modules load
+ * before the runtime boots.
  */
 
 import { createClientApi } from '@weldsuite/api-client/client';
-import { createApiOriginResolver, type ApiOriginResolver } from '@weldsuite/api-modules';
 import { getMobileRuntime } from '../runtime/state';
 
 /** `workspaces.id`, named in `X-Weld-Workspace` in OIDC header mode. */
@@ -47,21 +43,7 @@ export interface MobileApiClientOptions {
   getExtraHeaders?: () => Record<string, string> | Promise<Record<string, string>>;
 }
 
-let resolver: ApiOriginResolver | null = null;
-
-function origins(): ApiOriginResolver {
-  if (resolver) return resolver;
-  const runtime = getMobileRuntime();
-  resolver = createApiOriginResolver({ coreOrigin: runtime.apiOrigin, enabled: new Set(runtime.apiModules) });
-  return resolver;
-}
-
-/** The origin that serves `path` (a full path, `/api/...`). */
-export function apiOriginForPath(path: string): string {
-  return origins().originForPath(path);
-}
-
-/** The core API origin (app-api on Global, the server on Kubernetes). */
+/** The API origin, which serves every path (`/api/...`, `/public/...`). */
 export function apiOrigin(): string {
   return getMobileRuntime().apiOrigin;
 }
@@ -88,7 +70,7 @@ export function createMobileApiClient(options: MobileApiClientOptions) {
     ...(await workspaceHeaders()),
   });
   const client = createClientApi({
-    baseUrl: (fullPath: string) => apiOriginForPath(fullPath),
+    baseUrl: () => apiOrigin(),
     getToken: () => options.getToken(),
     getExtraHeaders: headers,
   });
@@ -103,7 +85,7 @@ export function createMobileApiClient(options: MobileApiClientOptions) {
     if (!token) throw new Error('Authentication required');
     const fullPath = `/api${path}`;
     return {
-      url: `${apiOriginForPath(fullPath)}${fullPath}`,
+      url: `${apiOrigin()}${fullPath}`,
       headers: { Authorization: `Bearer ${token}`, ...(await headers()) },
     };
   }
@@ -134,9 +116,4 @@ export function lazyClient<T extends object>(origin: () => string, build: (origi
       return typeof value === 'function' ? value.bind(client) : value;
     },
   });
-}
-
-/** For tests: forget the cached host resolver. */
-export function resetApiOrigins(): void {
-  resolver = null;
 }

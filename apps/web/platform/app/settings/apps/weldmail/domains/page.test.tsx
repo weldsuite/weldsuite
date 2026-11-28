@@ -1,8 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { DmarcSummary, MailDomainRow } from '@weldsuite/app-api-client/domains/mail-domains';
 import { en } from '@weldsuite/i18n/locales/en';
-import { setRuntimeConfig } from '@/lib/runtime-config';
 import MailDomainsSettingsPage from './page';
 
 const state = vi.hoisted(() => ({
@@ -168,21 +167,7 @@ beforeEach(() => {
   }
 });
 
-afterEach(() => setRuntimeConfig(null));
-
-describe('MailDomainsSettingsPage on Global', () => {
-  it('keeps to catch-all: no way to add a domain and no DNS records', () => {
-    render(<MailDomainsSettingsPage />);
-    expect(screen.getByText(td.description)).toBeInTheDocument();
-    expect(screen.queryByLabelText(td.addLabel)).not.toBeInTheDocument();
-    expect(screen.queryByText('weldmail-verify=tok123')).not.toBeInTheDocument();
-    expect(screen.getByText('acme.nl')).toBeInTheDocument();
-  });
-});
-
-describe('MailDomainsSettingsPage on the Kubernetes editions', () => {
-  beforeEach(() => setRuntimeConfig({ backend: 'rust' }));
-
+describe('MailDomainsSettingsPage', () => {
   it('lists the records a pending domain must publish, the ownership record included', () => {
     render(<MailDomainsSettingsPage />);
     const row = screen.getByTestId('mail-domain-acme.nl');
@@ -281,8 +266,6 @@ describe('MailDomainsSettingsPage on the Kubernetes editions', () => {
 });
 
 describe('MailDomainsSettingsPage DMARC', () => {
-  beforeEach(() => setRuntimeConfig({ backend: 'rust' }));
-
   type Dmarc = NonNullable<NonNullable<MailDomainRow['dnsRecords']>[number]['dmarc']>;
   const withDmarcRecord = (dmarc: Dmarc) => {
     state.settings = {

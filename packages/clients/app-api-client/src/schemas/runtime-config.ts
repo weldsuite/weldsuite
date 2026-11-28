@@ -1,8 +1,8 @@
 /**
  * The `/config.json` contract (ADR SEC-012, P4 work package 4.F2): what a
- * Kubernetes deployment (EU, self-hosted) tells its clients about itself.
+ * WeldSuite deployment (EU, self-hosted) tells its clients about itself.
  * The Rust backend answers it (`config_json` in
- * `rust/bins/weldsuite/src/server.rs`); Global serves none.
+ * `rust/bins/weldsuite/src/server.rs`).
  *
  * Shared by the platform (`apps/web/platform/lib/runtime-config.ts`, which
  * documents every field) and the mobile apps
@@ -14,6 +14,47 @@
 
 import { z } from 'zod';
 import { runtimeAiConfigSchema } from './ai-settings';
+
+/**
+ * The API modules a WeldSuite backend can serve: the core platform and one
+ * per `weld*` module. `/config.json` names the ones this backend serves in
+ * `modules`; the platform and the mobile apps hide the apps of any other.
+ * The backend serves every module from one origin, so an id says what is
+ * served, never where.
+ */
+export const API_MODULE_IDS = [
+  'core',
+  'crm',
+  'desk',
+  'mail',
+  'flow',
+  'books',
+  'commerce',
+  'stash',
+  'host',
+  'calendar',
+  'meet',
+  'chat',
+  'call',
+  'connect',
+  'agent',
+  'data',
+  'know',
+  'hr',
+  'social',
+  'ads',
+  'pass',
+  'reach',
+  'sheets',
+  'sign',
+  'docs',
+  'panel',
+  'board',
+  'merge',
+  'forms',
+] as const;
+
+export type ApiModuleId = (typeof API_MODULE_IDS)[number];
 
 export const runtimeAuthSchema = z.discriminatedUnion('provider', [
   z.object({
@@ -93,7 +134,7 @@ export const runtimeConfigSchema = z.object({
   realtimeUrl: z.string().url().optional(),
   /**
    * The origin WeldDesk's helpdesk widget is served from when it isn't
-   * Global's (`https://widget.weldsuite.org`, the SDK's default): the widget's
+   * the SDK's default (`https://widget.weldsuite.org`): the widget's
    * install code passes it as the SDK's `api.baseUrl`. A bad value reads as
    * absent rather than rejecting the document.
    */

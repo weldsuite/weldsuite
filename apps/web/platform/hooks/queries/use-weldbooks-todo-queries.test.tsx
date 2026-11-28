@@ -79,14 +79,6 @@ describe('useTodoSummary', () => {
     expect(todoKeys.infinite('documents').slice(0, 2)).toEqual(['accounting', 'todo']);
   });
 
-  it('does not fetch or poll on Global, where the route does not exist', () => {
-    setRuntimeConfig(null);
-    const { wrapper } = setup();
-    renderHook(() => useTodoSummary(), { wrapper });
-    expect(api.getTodoSummary).not.toHaveBeenCalled();
-    expect(idle.calls[0]).toMatchObject({ options: { active: false } });
-  });
-
   it('does not fetch when the caller leaves it off', () => {
     const { wrapper } = setup();
     renderHook(() => useTodoSummary({ enabled: false }), { wrapper });

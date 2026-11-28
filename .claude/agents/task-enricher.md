@@ -43,9 +43,9 @@ If the task is already enriched (description contains `## Enriched analysis`), S
 Use the keyword map in `.claude/agents/weldsuite-dispatcher.md` to identify which WeldSuite domain and stack layers the task touches. This determines what questions are relevant to ask in the interview.
 
 Examples:
-- "GitHub connection in WeldFlow" → `weldflow-projects` + `backend-app-api` + `frontend-platform` → interview should cover integration auth, sync direction, UX placement, data model
+- "GitHub connection in WeldFlow" → `weldflow-projects` + `backend-rust` + `frontend-platform` → interview should cover integration auth, sync direction, UX placement, data model
 - "invoices VAT wrong in Belgium" → `weldbooks-accounting` + `accounting-be` → interview should cover exact VAT calculation, affected invoice types, backfill for historical data
-- "push notification missing on mobile" → `mobile-expo` + `backend-app-api` → interview should cover trigger events, delivery guarantees, opt-out
+- "push notification missing on mobile" → `mobile-expo` + `backend-rust` → interview should cover trigger events, delivery guarantees, opt-out
 
 ### 3. Explore the codebase (lightly)
 
@@ -54,9 +54,9 @@ Do a FIRST-PASS exploration to understand WHAT EXISTS before interviewing. You'r
 Use `Grep` and `Read` (not the general-purpose agent, you have direct tools). For each identified layer:
 
 - **Frontend (apps/web/platform):** look at `apps/web/platform/app/<weldmodule>/` for similar features; note route patterns in `apps/web/platform/src/routes/`.
-- **Backend:** find the owning worker for the module in `packages/core/api-modules/src/index.ts`, then search `apps/workers/<module>-api/src/routes/<object>/` (e.g. `apps/workers/flow-api/src/routes/tasks/`) for the closest existing endpoints. Core platform objects (workspaces, members, roles, settings, drive, billing, credits, notifications, App Store) live in `apps/workers/app-api/src/routes/<object>/`.
-- **Database:** `ls packages/core/db/src/schema/` (via Glob). Find related tables. Note per-vendor patterns if it's an integration (e.g., `shopify-connections.ts`, `woocommerce-connections.ts`).
-- **Mobile, workers, webhooks:** identify the closest existing files.
+- **Backend:** find the owning module for the path prefix in `rust/catalogs/api-modules.json`, then search `rust/modules/<module>/src/` (e.g. `rust/modules/flow/src/`) for the closest existing endpoints. Core platform objects (workspaces, members, roles, settings, drive, billing, credits, notifications, App Store) live in the `rust/modules/core-*` crates; logic shared between modules in `rust/crates/<module>-domain`.
+- **Database:** `rust/crates/schema/src/tenant/` and `master/` (via Glob), one entity per table. Find related tables. Note per-vendor patterns if it's an integration (e.g., `github_connections.rs`, `bank_connections.rs`).
+- **Mobile, crons, queue consumers, webhooks:** identify the closest existing files (crons are in `rust/bins/weldsuite/src/cron.rs`, consumers in `rust/bins/weldsuite/src/consume/`).
 
 Cap FIRST-PASS exploration at ~10 file reads. Goal: know enough to ask the right questions, not to draft the design.
 
@@ -75,7 +75,7 @@ Compose an interview question set based on what the task actually touches. Draw 
 | **Scope boundary** | If the task could be interpreted narrowly or broadly (e.g., "GitHub sync" → Issues only, or also PRs/commits/labels?) |
 | **UX placement** | If this adds new UI, where should it live? (settings / appstore / top-level module / embedded) |
 | **User persona** | If the feature behavior depends on role (admin / member / external) |
-| **Data model** | If new storage is needed, new table, extend existing, KV, R2? |
+| **Data model** | If new storage is needed, new table, extend existing, the cache, file storage? |
 | **Auth / tenancy** | For integrations (OAuth App / GitHub App / PAT / API key) and for features where the auth scope matters (workspace vs user) |
 | **Success criteria** | Always at least one in the final round: "How will you know this is done?" |
 | **Edge cases** | When the happy path is obvious but failure modes aren't (what happens if the third-party is down? if the user's workspace has 10k of these? if two users edit at once?) |
@@ -128,7 +128,7 @@ Use this structure. It's denser than the old template because it now carries the
 _Added by task-enricher on <YYYY-MM-DD>. Original request preserved above._
 
 **Domain:** <weldflow | weldcrm | ...>
-**Stack layers touched:** <frontend-platform, backend-app-api, database, ...>
+**Stack layers touched:** <frontend-platform, backend-rust, database, ...>
 **Suggested specialist chain:** <comma-separated agent names, in dependency order>
 
 ### What the user is actually asking for

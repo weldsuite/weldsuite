@@ -83,8 +83,6 @@ const REVIEWED = [
     rule: 'sonarjs/todo-tag',
     reason: 'TODOs that record real missing work (unbuilt endpoints, product decisions); tracked, not dead comments.',
     files: [
-      'apps/mobile/weldcrm-app/app/(tabs)/customers.tsx',
-      'apps/mobile/weldcrm-app/app/customer/[id].tsx',
       'apps/web/platform/app/settings/integrations/[id]/integration-detail-client.tsx',
       'apps/web/platform/app/weldcrm/task-dialog.tsx',
       'apps/web/platform/app/welddesk/changelog/[id]/changelog-editor-client.tsx',
@@ -97,13 +95,9 @@ const REVIEWED = [
       'apps/web/platform/app/weldmail/inbox/inbox-client.tsx',
       'apps/web/platform/components/objects/task/task-panel.tsx',
       'apps/web/platform/hooks/queries/use-app-settings-queries.ts',
-      'apps/workers/crm-api/src/routes/leads/index.ts',
-      'apps/workers/mail-api/src/services/mail/accounts.ts',
       'packages/core/db/src/lib/admin.ts',
       'packages/core/db/src/lib/auth.ts',
       'packages/core/db/src/lib/tenant.ts',
-      'packages/domains/crm/src/workflows/execute-sequence.ts',
-      'packages/domains/crm/src/workflows/execute-workflow/action-handlers.ts',
     ],
   },
   {
@@ -111,10 +105,8 @@ const REVIEWED = [
     reason: 'Dev/CI scripts that intentionally resolve tools from PATH.',
     files: [
       'apps/web/docs/scripts/capture-screenshots-all.mjs',
-      'scripts/dev-api.mjs',
       'scripts/lint-sonar-new.mjs',
       'scripts/sonar-changed.mjs',
-      'scripts/rust-conformance.ts',
       'scripts/rust-differ-fixtures.ts',
       'packages/sdk/cli/src/commands/dev.ts',
     ],
@@ -124,42 +116,20 @@ const REVIEWED = [
     reason: 'Documented any/driver-type aliases that are part of a public API.',
     files: [
       'apps/mobile/weldmail-app/components/EmailDetailPanel.tsx',
-      'packages/core/credits/src/gateway-costs.ts',
-      'packages/core/credits/src/index.ts',
     ],
   },
   {
     rule: 'sonarjs/no-clear-text-protocols',
     reason: 'XML/XBRL namespace and scheme URIs in Digipoort, XAF, BTW and ICP documents, not network requests.',
     files: [
-      'apps/workers/books-api/src/services/accounting-digipoort.ts',
-      'apps/workers/books-api/src/services/accounting-icp-xml.ts',
-      'apps/workers/books-api/src/services/accounting-xaf.ts',
       'packages/domains/books/src/accounting-vat-xml.ts',
       'packages/domains/books/src/jurisdictions/nl/taxonomy.ts',
     ],
   },
   {
-    rule: 'sonarjs/no-small-switch',
-    reason: 'Single-provider switch kept on purpose as the explicit seam for further gateway providers.',
-    files: ['packages/core/ai/src/config.ts'],
-  },
-  {
     rule: 'sonarjs/no-hardcoded-ip',
     reason: 'Dotted chart-of-accounts codes such as 1.1.4.10 (Brazilian plano de contas), not IP addresses.',
     files: ['packages/domains/books/src/jurisdictions/br/chart-of-accounts.ts'],
-  },
-  {
-    rule: 'sonarjs/hashing',
-    reason:
-      "MD5 used as an HTTP ETag/content checksum in the in-memory R2 test fake, matching real R2's own (also MD5-based) etag format — not a password, token or any other sensitive use.",
-    files: ['packages/core/worker-kit/src/testing/r2.ts'],
-  },
-  {
-    rule: 'sonarjs/redundant-type-aliases',
-    reason:
-      "`FolderKey` (object-derived folder/thread-label keys) is open-ended — system keys plus any lower-cased user label — so there is no narrower literal union to give it; the alias is documented self-description, not a safety boundary.",
-    files: ['packages/domains/mail/src/store/model.ts', 'packages/domains/mail/src/store/types.ts'],
   },
 ];
 

@@ -8,7 +8,7 @@ function flatten(value: unknown, prefix = ''): Array<[string, string]> {
 
 const placeholders = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
 
-describe('SSO copy', () => {
+describe('SSO audit action labels', () => {
   const en = flatten(ssoCopyByLocale.en);
   const nl = new Map(flatten(ssoCopyByLocale.nl));
 
@@ -25,7 +25,7 @@ describe('SSO copy', () => {
     for (const [key, text] of en) expect(text.trim(), key).not.toBe('');
   });
 
-  it('labels every SSO audit action the billing worker records', () => {
+  it('labels every SSO audit action the billing worker recorded', () => {
     for (const action of ['sso.grant', 'sso.revoke', 'sso.connection.disable']) {
       expect(ssoCopyByLocale.en.activity[action as keyof typeof ssoCopyByLocale.en.activity], action).toBeTruthy();
     }

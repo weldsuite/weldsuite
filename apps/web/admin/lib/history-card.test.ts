@@ -1,19 +1,12 @@
 // The workspace billing history, rendered to markup (the admin tests run in
-// node): Stripe rows keep their void and refund actions; the EU edition's
+// node): Stripe rows (from before Global moved in) keep their links;
 // WeldBooks invoices and Mollie charges show where they came from instead.
+// Nothing here changes billing: refunds run from the CLI.
 
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { InvoiceRow, PaymentRow } from './billing-types';
-
-const edition = vi.hoisted(() => ({ global: true }));
-vi.mock('@/lib/edition', () => ({
-  get GLOBAL() {
-    return edition.global;
-  },
-}));
-vi.mock('@/actions/billing', () => ({ refundPayment: vi.fn(), voidInvoice: vi.fn() }));
 
 import { HistoryCard } from '@/app/workspaces/[id]/billing/history-card';
 import { adminCopy } from './i18n';
@@ -53,24 +46,23 @@ const payment = (over: Partial<PaymentRow>): PaymentRow => ({
   ...over,
 });
 
-function card(invoices: InvoiceRow[], payments: PaymentRow[], canWrite = true): string {
-  return renderToStaticMarkup(createElement(HistoryCard, { workspaceId: 'ws_1', invoices, payments, canWrite }));
+function card(invoices: InvoiceRow[], payments: PaymentRow[]): string {
+  return renderToStaticMarkup(createElement(HistoryCard, { invoices, payments }));
 }
 
 describe('HistoryCard', () => {
-  beforeEach(() => {
-    edition.global = true;
-  });
-
-  it('keeps the Stripe actions on Stripe rows', () => {
+  it('keeps the links of Stripe rows, without actions', () => {
     const html = card(
       [invoice({ status: 'open', pdfUrl: 'https://pay.stripe.com/invoice/acct/pdf' })],
       [payment({})],
     );
     expect(html).toContain('INV-0001');
-    expect(html).toContain(`>${t.invoices.void}<`);
-    expect(html).toContain(`>${t.payments.refund}<`);
+    expect(html).toContain('https://pay.stripe.com/invoice/acct/pdf');
+    expect(html).not.toContain(`>${t.invoices.void}<`);
+    expect(html).not.toContain(`>${t.payments.refund}<`);
     expect(html).not.toContain(c.history.weldbooks);
+    // Only Stripe payments: no refund command to point at.
+    expect(html).not.toContain(c.history.refundHint);
   });
 
   it('shows where a WeldBooks invoice and a Mollie charge came from, without Stripe actions', () => {
@@ -107,12 +99,9 @@ describe('HistoryCard', () => {
     expect(html).toContain('other');
     expect(html).not.toContain(`>${t.invoices.void}<`);
     expect(html).not.toContain(`>${t.payments.refund}<`);
-    // On Global there is no CLI to point at.
-    expect(html).not.toContain(c.history.refundHint);
   });
 
-  it('points staff at the refund command on Kubernetes', () => {
-    edition.global = false;
+  it('points staff at the refund command', () => {
     const html = card([], [payment({ id: 'bpy_1', provider: 'mollie', providerPaymentId: 'tr_1', kind: 'addon' })]);
     expect(html).toContain(c.history.refundHint.split(':')[0]);
     expect(html).toContain(c.history.kinds.addon);

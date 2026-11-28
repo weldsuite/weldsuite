@@ -76,13 +76,6 @@ describe('QuotesPage', () => {
   });
   afterEach(() => setRuntimeConfig(null));
 
-  it('shows what the edition does not offer on Global instead of a list that answers 404', () => {
-    setRuntimeConfig(null);
-    renderWithProviders(<QuotesPage />);
-    expect(env.listQuotes).not.toHaveBeenCalled();
-    expect(screen.queryByText('New quote')).not.toBeInTheDocument();
-  });
-
   it('lists the quotes with number, name, contact, total, valid until and status', async () => {
     setRuntimeConfig(RUST);
     renderWithProviders(<QuotesPage />);

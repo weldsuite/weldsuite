@@ -45,8 +45,7 @@ async function insertConsoleAudit(entry: ConsoleAuditEntry): Promise<void> {
 
 /**
  * Audit rows for changes this console makes directly in the master DB
- * (workspace deletion). Billing changes are audited by the billing worker,
- * which performs them. Never throws: the change itself already happened.
+ * (workspace deletion). Never throws: the change itself already happened.
  */
 export async function recordConsoleAudit(entry: ConsoleAuditEntry): Promise<void> {
   try {

@@ -24,7 +24,6 @@ export const APP: MobileAppIdentity = {
 
 export const BUILD: MobileBuildEnv = {
   appApiUrl: process.env.EXPO_PUBLIC_APP_API_URL,
-  apiModules: process.env.EXPO_PUBLIC_API_MODULES,
   personalApiUrl: process.env.EXPO_PUBLIC_PERSONAL_API_URL,
   realtimeUrl: process.env.EXPO_PUBLIC_REALTIME_URL,
   platformUrl: process.env.EXPO_PUBLIC_PLATFORM_URL,

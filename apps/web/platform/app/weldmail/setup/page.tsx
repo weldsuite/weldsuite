@@ -49,7 +49,6 @@ import {
 import { toast } from 'sonner';
 import { toPublicPath } from '@/lib/workspace-url-rewrite';
 import { isFeatureAvailable } from '@/lib/edition';
-import { isRustBackend } from '@/lib/runtime-config';
 import { EditionUnavailablePage } from '@/components/edition-unavailable-page';
 
 type SetupMethod = 'select' | 'weldmail' | 'custom-domain';
@@ -383,10 +382,8 @@ function CustomDomainContent({ onSuccess }: Readonly<{ onSuccess: () => void }>)
           variant="outline"
           className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
           onClick={() =>
-            (window.location.href = toPublicPath(
-              // Kubernetes editions add and verify the domain on the Domains tab.
-              isRustBackend() ? '/settings/apps/weldmail?tab=domains' : '/settings/apps/weldmail',
-            ))
+            // The domain is added and verified on the Domains tab.
+            (window.location.href = toPublicPath('/settings/apps/weldmail?tab=domains'))
           }
         >
           <Bolt className="size-7 text-gray-500" />

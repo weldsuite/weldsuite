@@ -46,7 +46,6 @@ vi.mock('@tanstack/react-start', () => ({
     return builder;
   },
 }));
-vi.mock('@/lib/edition', () => ({ kubernetesOnly: {} }));
 vi.mock('@/actions/seat-price.server', () => server);
 
 import { SeatPriceDialog } from '@/app/workspaces/[id]/billing/seat-price-dialog';

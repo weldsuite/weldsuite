@@ -16,7 +16,6 @@ config.watchFolders = [
   path.resolve(monorepoRoot, 'packages/clients/api-client'),
   path.resolve(monorepoRoot, 'packages/clients/app-api-client'),
   path.resolve(monorepoRoot, 'packages/clients/mobile-platform'),
-  path.resolve(monorepoRoot, 'packages/core/api-modules'),
   path.resolve(monorepoRoot, 'packages/clients/personal-api-client'),
   path.resolve(monorepoRoot, 'packages/core/text'),
 ];

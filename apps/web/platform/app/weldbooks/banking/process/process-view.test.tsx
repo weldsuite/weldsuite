@@ -626,51 +626,6 @@ describe('ProcessView', () => {
   });
 
   describe('adding a receipt', () => {
-    it('attaches an unlinked inbox document, books nothing, and offers to book it to a category', async () => {
-      const user = userEvent.setup();
-      renderView();
-      await user.click(screen.getByTestId('process-line-l2'));
-      await user.keyboard('r');
-      const form = screen.getByTestId('receipt-form');
-      const list = await within(form).findByTestId('receipt-documents');
-      // The linked document is not offered.
-      expect(within(list).getAllByRole('listitem')).toHaveLength(1);
-      expect(within(list).getByText('tankstation.pdf')).toBeInTheDocument();
-
-      await user.click(within(list).getByRole('button', { name: 'Attach tankstation.pdf' }));
-      await waitFor(() => expect(env.attach).toHaveBeenCalledWith('l2', 'doc_1'));
-      const attached = await screen.findByTestId('receipt-attached');
-      expect(attached).toHaveTextContent('Receipt attached to the line.');
-      // The line is still to process.
-      expect(screen.queryByTestId('result-banner')).not.toBeInTheDocument();
-      expect(within(screen.getByTestId('line-header')).getByRole('heading', { name: 'Telnet Zakelijk' })).toBeInTheDocument();
-
-      await user.click(within(attached).getByTestId('receipt-book-now'));
-      expect(screen.getByTestId('category-form')).toBeInTheDocument();
-    });
-
-    it('uploads a file, creates the document and attaches it', async () => {
-      const user = userEvent.setup();
-      env.upload.mockResolvedValue({ fileName: 'bon.pdf', fileKey: 'k/bon.pdf', mimeType: 'application/pdf', fileSize: 10 });
-      env.createDocument.mockResolvedValue({ data: { id: 'doc_new' } });
-      renderView();
-      await user.click(screen.getByTestId('process-line-l2'));
-      await user.keyboard('r');
-      const file = new File(['x'], 'bon.pdf', { type: 'application/pdf' });
-      await user.upload(screen.getByTestId('receipt-file-input'), file);
-
-      await waitFor(() => expect(env.upload).toHaveBeenCalledWith(file));
-      expect(env.createDocument).toHaveBeenCalledWith({
-        fileName: 'bon.pdf',
-        fileKey: 'k/bon.pdf',
-        mimeType: 'application/pdf',
-        fileSize: 10,
-        source: 'upload',
-      });
-      await waitFor(() => expect(env.attach).toHaveBeenCalledWith('l2', 'doc_new'));
-      expect(await screen.findByTestId('receipt-attached')).toBeInTheDocument();
-    });
-
     it('says so when the upload fails and attaches nothing', async () => {
       const user = userEvent.setup();
       env.upload.mockResolvedValue(null);

@@ -80,13 +80,6 @@ afterEach(() => {
 });
 
 describe('WeldStashReplenishmentPage', () => {
-  it('is the edition-unavailable page on Global', () => {
-    setRuntimeConfig(null);
-    render(<WeldStashReplenishmentPage />);
-    expect(screen.getByText('Not available in this edition')).toBeInTheDocument();
-    expect(screen.queryByText('reorder tab')).not.toBeInTheDocument();
-  });
-
   it('shows the Reorder tab and the run status by default', async () => {
     render(<WeldStashReplenishmentPage />);
     expect(await screen.findByRole('heading', { name: 'Replenishment' })).toBeInTheDocument();

@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { handleSignatureCallback } from '@weldsuite/sign-domain/portal-callback'
+import { handleSignatureCallback } from '@/lib/server/portal-callback'
 import { sessionForToken } from '@/lib/server/portal'
 import { signerPortal } from '@/lib/server/signer-portal'
 
@@ -8,7 +8,7 @@ import { signerPortal } from '@/lib/server/signer-portal'
  * has registered: `/signature-callback?code=…&state=…` (or `?error=…`). The
  * link token is not in it, so the `state` is matched against the cookie the
  * round trip started with (`signature/start`); the rest is
- * `@weldsuite/sign-domain/portal-callback`. Always a redirect: to the provider
+ * `lib/server/portal-callback.ts`. Always a redirect: to the provider
  * again for a second step, or to the signer's own link page.
  */
 export const Route = createFileRoute('/signature-callback')({

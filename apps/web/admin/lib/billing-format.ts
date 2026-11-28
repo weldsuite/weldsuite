@@ -3,8 +3,6 @@
 // server-rendered and then hydrated in the viewer's zone.
 
 import type { AdminCopy } from './i18n';
-import type { PaymentMethodSummary } from './billing-types';
-import { fill } from './i18n';
 import { ssoActionLabel } from './sso-copy';
 import { mollieActionLabel } from './mollie-billing-copy';
 
@@ -47,7 +45,7 @@ export function formatCredits(value: number): string {
   return new Intl.NumberFormat('en-GB').format(value);
 }
 
-/** Stripe subscription status → label; unknown statuses fall through as-is. */
+/** Subscription status → label; unknown statuses fall through as-is. */
 export function statusLabel(t: AdminCopy, status: string | null | undefined): string {
   if (!status) return t.status.none;
   return (t.status as Record<string, string>)[status] ?? status;
@@ -67,19 +65,6 @@ export function statusTone(status: string | null | undefined): 'success' | 'warn
     default:
       return 'secondary';
   }
-}
-
-export function paymentMethodLabel(t: AdminCopy, pm: PaymentMethodSummary | null): string {
-  if (!pm) return t.subscription.noPaymentMethod;
-  if (pm.type === 'card' && pm.brand) {
-    return fill(t.subscription.cardSummary, {
-      brand: pm.brand[0]!.toUpperCase() + pm.brand.slice(1),
-      last4: pm.last4 ?? '????',
-      month: String(pm.expMonth ?? '').padStart(2, '0'),
-      year: String(pm.expYear ?? '').slice(-2),
-    });
-  }
-  return fill(t.subscription.otherMethodSummary, { type: pm.type.replace(/_/g, ' '), last4: pm.last4 ?? '????' });
 }
 
 /** `subscription.change` → the `activity.actions` key `subscriptionChange`. */
@@ -113,30 +98,20 @@ export function actionLabel(t: AdminCopy, action: string): string {
   return ssoActionLabel(action) ?? mollieActionLabel(action) ?? action;
 }
 
-/** A fresh idempotency key for one form submission. */
-export function newRequestId(): string {
-  return crypto.randomUUID();
+/**
+ * An amount typed in major units to minor units: "75" → 7500, "49.50" → 4950,
+ * "49,5" → 4950. Null when it is not a plain amount with at most two decimals.
+ * Integer arithmetic, so no float rounding creeps in.
+ */
+export function parseMajorUnitsToCents(input: string): number | null {
+  const match = /^(\d{1,9})(?:[.,](\d{1,2}))?$/.exec(input.trim());
+  if (!match) return null;
+  return Number(match[1]) * 100 + Number((match[2] ?? '').padEnd(2, '0'));
 }
 
-/**
- * Failures after which the write may still have happened (timeout, worker or
- * Stripe 5xx). A retry must reuse the same request id so Stripe replays the
- * first result instead of charging, refunding or subscribing twice. Anything
- * else is a definite rejection and gets a fresh id.
- */
-const AMBIGUOUS_FAILURES = new Set(['UNREACHABLE', 'UPSTREAM', 'INTERNAL', 'STRIPE_UNAVAILABLE']);
-
-export function keepsRequestId(code: string | undefined): boolean {
-  return code !== undefined && AMBIGUOUS_FAILURES.has(code);
-}
-
-/**
- * Subscription states whose plan can still be changed. Mirrors the billing
- * worker's LIVE_SUBSCRIPTION_STATUSES: Stripe cannot change an `incomplete`
- * subscription, so the console starts a new one instead.
- */
-const LIVE_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing', 'past_due', 'unpaid']);
-
-export function isLiveSubscription(status: string | null | undefined): boolean {
-  return status != null && LIVE_SUBSCRIPTION_STATUSES.has(status);
+/** 7500 → "75", 4950 → "49.50": a saved price as the amount field shows it. */
+export function centsToMajorUnits(cents: number): string {
+  const whole = Math.floor(cents / 100);
+  const rest = cents % 100;
+  return rest === 0 ? String(whole) : `${whole}.${String(rest).padStart(2, '0')}`;
 }

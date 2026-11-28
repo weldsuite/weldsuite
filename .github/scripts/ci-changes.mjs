@@ -6,8 +6,8 @@
  * is affected when it changed or depends, transitively and through any
  * dependency field, on a package that did. The areas, one per group of jobs:
  *
- *   api          an API package is affected (API_PACKAGES): Type Check · app-api,
- *                the Unit jobs of the workers and their packages
+ *   libraries    a shared TypeScript package is affected (LIBRARY_PACKAGES):
+ *                Type Check · packages and Unit · packages
  *   platform     apps/web/platform is affected: Type Check, Unit and Build · platform
  *   desktop      apps/desktop is affected
  *   packages     any package but the platform is affected: Build · packages
@@ -30,9 +30,6 @@
  *                manifest and lockfile): Rust · image arm64. Decided like
  *                image, by its own paths alone.
  *   deploy       rust/deploy/ changed: Rust · deploy config
- *   conformance  rust, api, or a file a conformance suite covers (CONFORMANCE_SUITES):
- *                Rust · conformance (the suites narrow it further)
- *   workers      a file under apps/workers/ changed: Rust · conformance coverage
  *   native       the native apps or what they're built from changed
  *                (NATIVE_PATHS): Native · Android and Native · iOS. Nothing
  *                else reads those files, so they turn no other area on, except
@@ -59,7 +56,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-const AREAS = ['api', 'platform', 'desktop', 'packages', 'rust', 'image', 'crossbuild', 'deploy', 'conformance', 'workers', 'native'];
+const AREAS = ['libraries', 'platform', 'desktop', 'packages', 'rust', 'image', 'crossbuild', 'deploy', 'native'];
 
 /** Read by every job: a change here runs everything. */
 const GLOBAL = [
@@ -75,8 +72,6 @@ const GLOBAL = [
   '.github/workflows/ci.yml',
   '.github/actions/setup-monorepo/',
   '.github/scripts/ci-changes.mjs',
-  '.github/scripts/typecheck-targets.mjs',
-  '.github/scripts/module-workers.mjs',
 ];
 
 /**
@@ -117,24 +112,15 @@ const NATIVE_PATHS = ['apps/ios/', 'apps/android/', 'apps/mobile-shared/', 'scri
 /**
  * The API contract the native apps are generated from. Rust · checks reads it
  * too: `weldsuite_kit::openapi_contract` tests the server's answers against
- * it (`cargo test`, not a conformance suite).
+ * it (`cargo test`).
  */
 const CONTRACT_DIR = 'apps/mobile-shared/openapi/';
 
-/** What the api jobs type-check and test. Keep in step with ci.yml. */
-const API_PACKAGES = [
-  'apps/workers/*-api',
-  'apps/workers/mcp-server',
-  'apps/workers/workspace-worker',
-  'apps/workers/audit-log-worker',
-  'packages/core/api-modules',
-  'packages/core/worker-*',
-  'packages/core/neon-provisioning',
-  'packages/domains/*',
-];
+/** What the libraries jobs type-check and test. Keep in step with ci.yml. */
+const LIBRARY_PACKAGES = ['packages/core/*', 'packages/domains/*'];
 
 /**
- * What the Rust jobs read besides rust/: personal-api's migrations, the
+ * What the Rust jobs read besides rust/: the personal migrations, the
  * realtime parity test, and the collab-rooms image. That image bundles the
  * docs, sheets and board rooms from their domain packages, which the package
  * graph finds through collab-rooms' dependencies.
@@ -151,28 +137,18 @@ const RUST_PACKAGES = ['packages/core/realtime', 'apps/tools/collab-rooms'];
 /**
  * The master and tenant migrations (ADR DATA-019). They lived in @weldsuite/db
  * until the schema moved to Rust, and the TypeScript tests that apply the
- * journal still depend on that package: worker-kit's pglite harness,
- * workspace-worker, migrate-databases and the backfill tests. A changed
- * migration counts as a change to it, so those suites run.
+ * journal still depend on that package (its pglite harness,
+ * `@weldsuite/db/testing/pglite`). A changed migration counts as a change to
+ * it, so those suites run.
  */
 const MIGRATIONS_DIR = 'rust/migrations/';
 const MIGRATIONS_PACKAGE = 'packages/core/db';
 
 /**
- * WeldFlow's schedule and gate parity fixtures. They live in the Rust crate
- * that `include_str!`s them, and @weldsuite/flow-domain's schedule and gate
- * tests read them from there. A changed fixture counts as a change to that
- * package, so the TypeScript side runs too.
- */
-const FLOW_FIXTURES_DIR = 'rust/crates/flow-domain/fixtures/';
-const FLOW_FIXTURES_PACKAGE = 'packages/domains/flow';
-
-/**
  * Under rust/, but read by no Rust build or test (no `include_str!`, no test
  * reads them): the deploy configuration (the "deploy" area, and the image
  * area for the chart), the image's Dockerfile and helpers (the image area),
- * the docs. Markdown anywhere under rust/ counts too. These used to run
- * Rust · checks and every conformance suite.
+ * the docs. Markdown anywhere under rust/ counts too.
  */
 const RUST_NOT_CODE = ['rust/deploy/', 'rust/docs/', 'rust/Dockerfile', 'rust/Dockerfile.dockerignore', 'rust/docker/'];
 const isRustNotCode = (file) => startsWithAny(file, RUST_NOT_CODE) || (file.startsWith('rust/') && file.endsWith('.md'));
@@ -221,31 +197,11 @@ const CROSSBUILD_PATHS = [
 ];
 
 /**
- * Each conformance suite names the paths it covers, and
- * `rust:conformance --changed` runs a suite when one of them or one of its
- * tests changed. Some suites cover workers outside API_PACKAGES
- * (integration-webhook-worker, panel-ingest), so match them the same way.
- */
-const CONFORMANCE_SUITES = 'rust/conformance/suites.json';
-
-function touchedSuites(files) {
-  const { suites } = JSON.parse(readFileSync(path.join(repoRoot, CONFORMANCE_SUITES), 'utf8'));
-  return suites.filter((suite) =>
-    files.some(
-      (f) =>
-        suite.paths.some((p) => f.startsWith(p)) ||
-        suite.tests.some((t) => f.startsWith(`${suite.workspace}/${t}`)),
-    ),
-  );
-}
-
-/**
  * Locale files are mostly imported one at a time
  * (`@weldsuite/i18n/locales/en/emails`), and nearly every UI change adds
  * strings to one. A change confined to locale files reaches only the packages
  * that import the package root, another entry, or that very locale file, not
- * every package that lists @weldsuite/i18n (@weldsuite/emails, and through it
- * most workers).
+ * every package that lists @weldsuite/i18n.
  */
 const I18N_DIR = 'packages/core/i18n';
 const LOCALE_FILE = /^packages\/core\/i18n\/src\/locales\/([^/]+\/[^/]+)\.ts$/;
@@ -400,9 +356,7 @@ function decideAreas(files) {
     const rust = startsWithAny(file, RUST_PATHS);
     if (rust) on('rust', file);
     else if (isInert(file)) continue;
-    if (file.startsWith('apps/workers/')) on('workers', file);
     if (file.startsWith(MIGRATIONS_DIR) && packages.has(MIGRATIONS_PACKAGE)) changed.add(MIGRATIONS_PACKAGE);
-    if (file.startsWith(FLOW_FIXTURES_DIR) && packages.has(FLOW_FIXTURES_PACKAGE)) changed.add(FLOW_FIXTURES_PACKAGE);
     const dir = packageOf(file, dirs);
     if (dir) changed.add(dir);
     else if (!rust) return allAreas(`${file} is outside every package and not known to be inert`);
@@ -416,16 +370,13 @@ function decideAreas(files) {
 
   for (const dir of [...affectedPackages(changed, packages, spared)].sort()) {
     const why = changed.has(dir) ? `${dir} changed` : `${dir} depends on a changed package`;
-    if (matchesAny(dir, API_PACKAGES)) on('api', why);
+    if (matchesAny(dir, LIBRARY_PACKAGES)) on('libraries', why);
     if (dir === 'apps/web/platform') on('platform', why);
     else on('packages', why);
     if (dir === 'apps/desktop') on('desktop', why);
     if (matchesAny(dir, RUST_PACKAGES)) on('rust', why);
   }
-  for (const why of [...reasons.rust, ...reasons.api]) on('conformance', why);
-  // After conformance: the contract tests are Rust · checks alone.
   for (const file of contract) on('rust', `${file} is the API contract the Rust tests check`);
-  for (const suite of touchedSuites(files)) on('conformance', `the "${suite.name}" conformance suite covers a changed file`);
   return reasons;
 }
 

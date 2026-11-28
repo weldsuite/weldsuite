@@ -29,8 +29,7 @@ describe('booksSearchTypes', () => {
     expect(booksSearchTypes(false)).toEqual([]);
   });
 
-  it('asks for none where the edition lacks the Rust books features (Global, or books-todo unavailable)', () => {
-    expect(booksSearchTypes(true)).toEqual([]);
+  it('asks for none where the edition lacks the Rust books features (books-todo unavailable)', () => {
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: ['books-todo'] });
     expect(booksSearchTypes(true)).toEqual([]);
   });

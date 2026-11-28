@@ -1,11 +1,10 @@
 import { createMiddleware, createStart } from '@tanstack/react-start';
 import { getRequest } from '@tanstack/react-start/server';
-import { authRequestMiddleware } from '@/lib/auth-middleware';
 import { isSameSiteRequest } from '@/lib/same-site';
 
 /**
- * Headers on every response the Worker renders (pages, server functions,
- * server routes; static assets are served before the Worker runs). The console
+ * Headers on every response the server renders (pages, server functions,
+ * server routes; `node/server.mjs` serves static assets before it runs). The console
  * changes plans, credits and workspaces, so it must never be framed, and every
  * page is one admin's view, so no shared cache may keep it.
  */
@@ -24,7 +23,7 @@ const securityHeaders = createMiddleware().server(async ({ next }) => {
  * Server functions that change something are POSTs from this console's own
  * pages. Next checked the Origin of server actions itself; TanStack Start
  * doesn't, so a cross-site POST (a forged form, CSRF) is refused here before
- * any action runs. The Clerk session cookie is SameSite=Lax as well.
+ * any action runs. The session cookie is SameSite=Lax as well.
  */
 const sameSiteMutations = createMiddleware({ type: 'function' }).server(async ({ next }) => {
   const request = getRequest();
@@ -35,6 +34,6 @@ const sameSiteMutations = createMiddleware({ type: 'function' }).server(async ({
 });
 
 export const startInstance = createStart(() => ({
-  requestMiddleware: [securityHeaders, ...authRequestMiddleware],
+  requestMiddleware: [securityHeaders],
   functionMiddleware: [sameSiteMutations],
 }));

@@ -2,7 +2,7 @@
 // the dialog's state, and the messages the dialog and the server write
 // (actions/seat-price.server.ts) give. The rules are in ./seat-price.ts.
 
-import { formatCents } from './billing-format';
+import { formatCents, parseMajorUnitsToCents } from './billing-format';
 import { fill } from './i18n';
 import type { MollieBillingCopy } from './mollie-billing-copy';
 import {
@@ -14,7 +14,6 @@ import {
   type SeatPriceProblem,
   type SeatPriceRefusal,
 } from './seat-price';
-import { parseMajorUnitsToCents } from './sso-admin';
 
 /**
  * "Custom price, 20% below the list price of €25.00" ("Free seats, instead of

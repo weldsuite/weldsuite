@@ -88,11 +88,4 @@ describe('SendInvoiceDialog where the edition e-mails invoices', () => {
     expect(screen.getByTestId('entity-invoice-details-notice')).toHaveTextContent('IBAN');
     expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
   });
-
-  it('keeps "Mark as sent" where the edition does not e-mail (Global)', () => {
-    setRuntimeConfig(null);
-    renderDialog();
-    expect(screen.getByRole('button', { name: 'Mark as sent' })).toBeInTheDocument();
-    expect(screen.queryByLabelText('To')).not.toBeInTheDocument();
-  });
 });

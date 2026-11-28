@@ -35,7 +35,7 @@ export const BUNDLES = [
   {
     title: "Realtime cache-invalidation bundle",
     hyp: "Root cause: client mutations don't trigger immediate React Query invalidations + sidebar counters poll instead of subscribing to @weldsuite/realtime.",
-    specialist: "frontend-platform + backend-workers (realtime-worker review)",
+    specialist: "frontend-platform + backend-rust (realtime gateway review)",
     flags: ["bundle"],
     taskIds: [
       "task_mp2q1hz8md25hce2",
@@ -58,7 +58,7 @@ export const BUNDLES = [
   {
     title: "Activity page bundle",
     hyp: "Backend join missing channel name + last-activity timestamp not propagated.",
-    specialist: "backend-app-api + frontend-platform",
+    specialist: "backend-rust + frontend-platform",
     flags: ["bundle"],
     taskIds: ["task_mp749neib2vtrurr", "task_mox1x0e7e6mnssnq"],
   },
@@ -72,14 +72,14 @@ export const BUNDLES = [
   {
     title: "Notifications system rebuild",
     hyp: "Needs new entity-event types + a unified notifications service. ⛔ Expect schema + entity-events gate.",
-    specialist: "backend-app-api + weldagent-ai + frontend-platform",
+    specialist: "backend-rust + weldagent-ai + frontend-platform",
     flags: ["bundle", "gate"],
     taskIds: ["task_moojfeetsi1gbcfu", "task_mp2qp8y55e8445ej", "task_mp08c3udi2cnmufn"],
   },
   {
     title: "Pipeline templates in CRM settings (already in progress!)",
     hyp: "Your `git status` shows uncommitted work for this. Finish/commit BEFORE picking anything else.",
-    specialist: "database (approval) + backend-app-api + frontend-platform",
+    specialist: "database (approval) + backend-rust + frontend-platform",
     flags: ["gate"],
     taskIds: ["task_movy7a7869chvvvz"],
   },
@@ -108,7 +108,7 @@ export const BUNDLES = [
   {
     title: "WeldChat structure",
     hyp: "Role-based channel ACLs + agent membership rules. ⛔ Schema + entity-events likely needed.",
-    specialist: "database (approval) + backend-app-api + weldagent-ai",
+    specialist: "database (approval) + backend-rust + weldagent-ai",
     flags: ["bundle", "gate"],
     taskIds: ["task_mp2q40sxtkcc918q", "task_moq8vyybretnwpww", "task_mo7j5mrnl9qr47sc"],
   },

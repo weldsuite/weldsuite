@@ -1,11 +1,10 @@
-// Checks the Node build (`pnpm build:node`, ADR FE-018) for code that belongs
-// to Global's Worker only: Clerk (staff on Kubernetes sign in with the
-// install's Zitadel), Neon's driver (Postgres is reached over TCP there) and
-// Cloudflare's runtime modules (there is no Workers runtime). The Vite aliases
-// in vite.config.ts swap all three out; this fails the build if a new import
-// brings one back in.
+// Checks the build (`pnpm build`, ADR FE-018) for code of the retired
+// Cloudflare Worker build: Clerk (staff sign in with the install's OIDC
+// provider), Neon's driver (Postgres is reached over TCP) and Cloudflare's
+// runtime modules (the console runs on Node). None of them is a dependency
+// any more; this fails the build if a new import brings one back in.
 //
-//   node scripts/check-node-build.mjs        after `vite build --mode node`
+//   node scripts/check-node-build.mjs        after `vite build`
 
 /* global process */
 
@@ -42,11 +41,11 @@ for await (const file of files(dist)) {
 }
 
 if (checked === 0) {
-  console.error('[check-node-build] dist/ is empty: run `vite build --mode node` first');
+  console.error('[check-node-build] dist/ is empty: run `vite build` first');
   process.exit(1);
 }
 if (problems.length > 0) {
-  console.error('[check-node-build] the Node build carries Global-only code:');
+  console.error('[check-node-build] the build carries code of the Worker build:');
   for (const problem of problems) console.error(`  ${problem}`);
   process.exit(1);
 }

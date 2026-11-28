@@ -25,8 +25,9 @@ You are the Next.js Apps specialist for WeldSuite.
 
 ## API targets
 
-- Customer-facing portals → `external-api` worker.
-- helpdesk-widget → `helpdesk-widget-api` (@weldsuite/realtime real-time).
+- Customer-facing portals → the public API at `/v1` (`rust/modules/external-api`).
+- helpdesk-widget → the widget API at `/public/helpdesk-widget` (`rust/modules/desk-widget`), live updates through the realtime gateway (`rust/crates/realtime`).
+- Backend changes for any of these → `backend-rust`.
 
 ## Definition of done
 

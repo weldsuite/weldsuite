@@ -26,12 +26,18 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 const permissions = vi.hoisted(() => ({ allowed: new Set<string>() }));
 const edition = vi.hoisted(() => ({ processing: false }));
+// The panel without the contact page (`books-contact-page`) and without quotes:
+// the contact page has its tests in weldbooks-contact-page.test.tsx, the
+// Quotes tab in weldbooks-contact-quotes-tab.test.tsx.
 vi.mock('@/lib/edition', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/edition')>();
   return {
     ...actual,
-    isFeatureAvailable: (feature: Parameters<typeof actual.isFeatureAvailable>[0]) =>
-      feature === 'books-bank-processing' ? edition.processing : actual.isFeatureAvailable(feature),
+    isFeatureAvailable: (feature: Parameters<typeof actual.isFeatureAvailable>[0]) => {
+      if (feature === 'books-bank-processing') return edition.processing;
+      if (feature === 'books-contact-page' || feature === 'books-quotes') return false;
+      return actual.isFeatureAvailable(feature);
+    },
   };
 });
 vi.mock('@weldsuite/permissions/react', () => ({

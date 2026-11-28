@@ -47,9 +47,9 @@ If the body already contains `## Enriched analysis`, STOP, don't re-enrich. Prin
 Use the project title + issue title to identify the WeldSuite domain and the keyword map in `.claude/agents/weldsuite-dispatcher.md` to identify stack layers. This determines which interview questions are relevant.
 
 Examples:
-- Project `WeldChat`, title about "channels aanmaken" → `mobile-expo`/`frontend-platform` + `backend-app-api` (chat-api; there is no WeldChat domain agent)
+- Project `WeldChat`, title about "channels aanmaken" → `mobile-expo`/`frontend-platform` + `backend-rust` (`rust/modules/chat`; there is no WeldChat domain agent)
 - "invoices VAT wrong in Belgium" → `weldbooks-accounting` + `accounting-be`
-- "push notification missing on mobile" → `mobile-expo` + `backend-app-api`
+- "push notification missing on mobile" → `mobile-expo` + `backend-rust`
 
 ### 3. Explore the codebase (lightly)
 
@@ -58,10 +58,10 @@ Do a FIRST-PASS exploration to understand WHAT EXISTS before interviewing. You'r
 Use `Grep` and `Read` directly (not a sub-agent). For each identified layer:
 
 - **Frontend (apps/web/platform):** `apps/web/platform/app/<weldmodule>/` for similar features; route patterns in `apps/web/platform/src/routes/`.
-- **Backend:** find the owning worker for the module in `packages/core/api-modules/src/index.ts`, then search `apps/workers/<module>-api/src/routes/<object>/` (e.g. `apps/workers/chat-api/src/routes/channels/`) for the closest existing endpoints. Core platform objects (workspaces, members, roles, settings, drive, billing, credits, notifications, App Store) live in `apps/workers/app-api/src/routes/<object>/`.
+- **Backend:** find the owning module for the path prefix in `rust/catalogs/api-modules.json`, then search `rust/modules/<module>/src/` (e.g. `rust/modules/chat/src/`) for the closest existing endpoints. Core platform objects (workspaces, members, roles, settings, drive, billing, credits, notifications, App Store) live in the `rust/modules/core-*` crates.
 - **Mobile:** `apps/mobile/<app>/` (e.g., `apps/mobile/weldchat-app/`) for the closest existing screens/hooks.
-- **Database:** `packages/core/db/src/schema/`, find related tables.
-- **Workers / webhooks:** identify the closest existing files.
+- **Database:** `rust/crates/schema/src/tenant/` and `master/`, one entity per table; find related tables.
+- **Crons, queue consumers, webhooks:** identify the closest existing files (`rust/bins/weldsuite/src/cron.rs`, `rust/bins/weldsuite/src/consume/`, `rust/modules/integrations`).
 
 Cap FIRST-PASS exploration at ~10 file reads. Goal: ask the right questions, not draft the design.
 
@@ -122,7 +122,7 @@ Record answers verbatim, you'll cite them in the enrichment.
 _Added by github-issue-enricher on <YYYY-MM-DD>. Original request preserved above (title + any original body)._
 
 **Domain:** <weldchat | weldflow | weldcrm | ...>
-**Stack layers touched:** <frontend-platform, mobile-expo, backend-app-api, database, ...>
+**Stack layers touched:** <frontend-platform, mobile-expo, backend-rust, database, ...>
 **Suggested specialist chain:** <comma-separated agent names, in dependency order>
 
 ### What the user is actually asking for

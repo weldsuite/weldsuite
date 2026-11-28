@@ -12,7 +12,7 @@ import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-querie
 import { useWeldboardColors } from '@/hooks/queries/use-ui-preference';
 import { useUser } from '@/lib/auth';
 import { useAppApi } from '@/lib/api/use-app-api';
-import { getApiOriginForPath } from '@/lib/api/public-env';
+import { getAppApiUrl } from '@/lib/api/public-env';
 import { useI18n } from '@/lib/i18n/provider';
 import { BoardConnection } from '../collab/board-connection';
 import { BoardEditor, type BoardEditorProps, type BoardStatus } from '../editor/board-editor';
@@ -27,7 +27,7 @@ import { FollowBanner, PeerAvatars } from './peer-avatars';
 const PRESENCE_MS = 60;
 
 function roomUrl(ticket: string): string {
-  const origin = getApiOriginForPath(BOARD_CONNECT_PATH).replace(/^http/, 'ws');
+  const origin = getAppApiUrl().replace(/^http/, 'ws');
   return `${origin}${BOARD_CONNECT_PATH}?ticket=${encodeURIComponent(ticket)}`;
 }
 

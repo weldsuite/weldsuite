@@ -3,8 +3,8 @@
  * when `SMTP_URL` is set, as the Rust server does on the Kubernetes editions,
  * else whatever `transportFromEnv` picks (Cloudflare REST, Resend).
  *
- * Node only, because of `./smtp`. Workers use `./binding`; code that is also
- * bundled for Workers uses `./env`.
+ * Node only, because of `./smtp`. Code that must not pull in Node-only
+ * modules uses `./env`.
  */
 
 import { withFromAddress, type EmailTransport } from '../transport';

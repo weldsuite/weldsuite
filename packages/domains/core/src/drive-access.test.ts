@@ -6,8 +6,9 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { and, eq, isNull } from 'drizzle-orm';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import * as schema from '@weldsuite/db/schema';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
+import { createPgliteDb } from '@weldsuite/db/testing/pglite';
 import {
   containerRole,
   describeSharing,
