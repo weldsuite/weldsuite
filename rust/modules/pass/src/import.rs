@@ -44,10 +44,12 @@ pub(crate) struct CsvRecord {
 }
 
 /// `parseCsv`: RFC 4180 (quoted fields, doubled quotes, line breaks inside
-/// quotes), a leading BOM dropped, blank lines skipped.
+/// quotes), a leading BOM dropped, blank lines skipped. NUL characters are
+/// dropped too: an item's title, username and URL are stored as plain text
+/// columns, which Postgres refuses a `0x00` in, and no export means one.
 pub(crate) fn parse_csv(text: &str) -> Vec<CsvRecord> {
     let input = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let chars: Vec<char> = input.chars().collect();
+    let chars: Vec<char> = input.chars().filter(|c| *c != '\0').collect();
     let mut records = Vec::new();
     let mut cells: Vec<String> = Vec::new();
     let mut cell = String::new();
@@ -368,5 +370,43 @@ fn classify(format: &str, get: &dyn Fn(Column) -> String) -> &'static str {
                 "login"
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A NUL reaching an item's title, username or URL failed the whole
+    /// import with a 500: those are plain text columns, and Postgres refuses
+    /// `0x00` ("invalid byte sequence for encoding UTF8").
+    #[test]
+    fn drops_nul_characters() {
+        let content = "name,url,username,password,note,cardholdername,cardnumber,cvc,expirydate,type\n\
+             Git\0Hub,https://git\0hub.com,a\0lice,p\0w,n\0ote,,,,,password\n\
+             Visa,,,,,Car\0ol,4111\x00111111114242,123,08/29,credit_card\n\
+             N\0,,,,bo\0dy,,,,,note\n";
+        let parsed = parse_import(content, "auto").expect("parsed");
+        assert_eq!(parsed.format, "nordpass");
+        assert!(parsed.skipped.is_empty(), "{:?}", parsed.skipped);
+        assert_eq!(parsed.documents.len(), 3);
+        for document in &parsed.documents {
+            assert!(
+                !document.to_json_string().contains('\0'),
+                "{}",
+                document.to_json_string()
+            );
+        }
+        let login: Value =
+            serde_json::from_str(&parsed.documents[0].to_json_string()).expect("JSON");
+        assert_eq!(login["title"], "GitHub");
+        assert_eq!(login["url"], "https://github.com");
+        assert_eq!(login["fields"]["username"], "alice");
+    }
+
+    #[test]
+    fn a_nul_in_the_header_still_finds_the_columns() {
+        let parsed = parse_import("na\0me,pass\0word\nSite,secret\n", "auto").expect("parsed");
+        assert_eq!(parsed.documents.len(), 1);
     }
 }
