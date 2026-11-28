@@ -104,6 +104,32 @@ describe('QuotesPage', () => {
     expect(screen.getByText('2 invoices')).toBeInTheDocument();
   });
 
+  it('shows the invoices made from a quote as chips that open them, in place of the count, when the rows carry them', async () => {
+    setRuntimeConfig(RUST);
+    env.listQuotes.mockResolvedValue({
+      data: [
+        row('2', {
+          status: 'accepted',
+          invoiceIds: ['i1', 'i2', 'i3'],
+          invoices: [
+            { id: 'i1', invoiceNumber: 'F-1', status: 'paid' },
+            { id: 'i2', invoiceNumber: null, status: 'draft' },
+            { id: 'i3', invoiceNumber: 'F-3', status: 'sent' },
+          ],
+        }),
+      ],
+      pagination: { totalCount: 1, hasMore: false },
+    });
+    renderWithProviders(<QuotesPage />);
+    await screen.findByText('OFF-2');
+    expect(screen.getByText('F-1')).toBeInTheDocument();
+    expect(screen.getByText('Draft invoice')).toBeInTheDocument();
+    // Two chips and "+1": the third is on the quote's panel.
+    expect(screen.queryByText('F-3')).not.toBeInTheDocument();
+    expect(screen.getByText('+1')).toBeInTheDocument();
+    expect(screen.queryByText('3 invoices')).not.toBeInTheDocument();
+  });
+
   it('asks the server for the status in the address and for the first page', async () => {
     setRuntimeConfig(RUST);
     env.search = 'status=accepted';

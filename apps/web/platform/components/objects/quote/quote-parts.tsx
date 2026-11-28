@@ -18,9 +18,11 @@ import {
   User,
 } from 'lucide-react';
 import { ActivityTimeline, type ActivityTimelineItem } from '@weldsuite/ui/components/activity-timeline';
+import { CopyButton } from '@weldsuite/ui/components/copy-button';
 import { StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { RecordLink } from '@/components/object-panel/record-link';
 import { PanelRow, PanelSection } from '@/components/objects/_shared/record-panel-parts';
+import { usePublicLink } from '@/hooks/queries/use-weldbooks-contact-page-queries';
 import type { QuoteDetail } from '@/lib/api/domains/weldbooks-sales';
 import { useI18n } from '@/lib/i18n/provider';
 import { quoteTone } from '@/lib/weldbooks/quote-status';
@@ -79,6 +81,25 @@ function useQuoteTimeline(quote: QuoteDetail): ActivityTimelineItem[] {
   return events.sort((a, b) => a.at.localeCompare(b.at)).map((event) => event.item);
 }
 
+/**
+ * The quote's online link, read from the server (`GET /accounting-quotes/:id/public-link`) so "Copy link" works any
+ * time and in any browser, not only after a send in this one.
+ */
+function QuoteOnlineLink({ quoteId, sent }: Readonly<{ quoteId: string; sent: boolean }>) {
+  const { t } = useI18n();
+  const copy = t.weldbooksContactPage.link;
+  const query = usePublicLink('quote', quoteId, { enabled: sent });
+  const url = query.data ?? null;
+  return (
+    <PanelSection title={copy.quoteTitle}>
+      <div className="space-y-2" data-testid="quote-online-link">
+        <p className="text-[13px] text-muted-foreground">{url ? copy.quoteActive : copy.quoteNone}</p>
+        {url ? <CopyButton value={url} label={copy.copy} copiedLabel={copy.copied} failedLabel={copy.copyFailed} /> : null}
+      </div>
+    </PanelSection>
+  );
+}
+
 export function QuoteDetailsTab({ quote }: Readonly<{ quote: QuoteDetail }>) {
   const { t } = useI18n();
   const copy = t.weldbooksSales.quotes;
@@ -120,6 +141,8 @@ export function QuoteDetailsTab({ quote }: Readonly<{ quote: QuoteDetail }>) {
           </div>
         </PanelSection>
       ) : null}
+
+      <QuoteOnlineLink quoteId={quote.id} sent={Boolean(quote.sentAt)} />
 
       <PanelSection title={copy.timeline.title}>
         <ActivityTimeline label={copy.timeline.title} items={timeline} />

@@ -1104,7 +1104,7 @@ export const accountingApi = {
   deleteBankAccount: (id: string) => weldbooksApi.delete<ApiResponse<unknown>>(`/bank-accounts/${id}`),
 
   // Bank Transactions
-  listBankTransactions: (params?: { bankAccountId?: string; status?: string; from?: string; to?: string; search?: string; page?: number; pageSize?: number }) =>
+  listBankTransactions: (params?: { bankAccountId?: string; contactId?: string; status?: string; from?: string; to?: string; search?: string; page?: number; pageSize?: number }) =>
     weldbooksApi.get<PaginatedResponse<BankTransaction>>(`/bank-transactions${buildQuery(params || {})}`),
   getUnreconciledTransactions: () => weldbooksApi.get<ApiResponse<BankTransaction[]>>('/bank-transactions/unreconciled'),
   getTransactionSuggestions: (id: string) => weldbooksApi.get<ApiResponse<unknown[]>>(`/bank-transactions/${id}/suggestions`),

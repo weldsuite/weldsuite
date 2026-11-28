@@ -13,6 +13,8 @@ import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-li
 import { ContactCell, RowAmount, RowChip, RowDate, RowTitle } from '@/components/accounting/weldbooks-row-cells';
 import { EditionUnavailablePage } from '@/components/edition-unavailable-page';
 import { QuoteStatusChip } from '@/components/objects/quote/quote-parts';
+import { RecordLink } from '@/components/object-panel/record-link';
+import { isContactPageAvailable } from '@/hooks/queries/use-weldbooks-contact-page-queries';
 import { isQuotesAvailable, useInfiniteQuotes } from '@/hooks/queries/use-weldbooks-sales-queries';
 import { QUOTE_STATUSES, type QuoteRow } from '@/lib/api/domains/weldbooks-sales';
 import { getLocale } from '@/lib/i18n';
@@ -81,6 +83,33 @@ export default function QuotesPage() {
       width: 'shrink-0 w-[130px]',
       render: (quote) => <RowAmount>{formatMoney(quote.total, quote.currency)}</RowAmount>,
     },
+    // The invoices made from a quote, as chips that open them (Rust only: the rows carry them with the contact page).
+    ...(isContactPageAvailable()
+      ? [
+          {
+            id: 'invoices',
+            header: copy.colInvoices,
+            width: 'hidden shrink-0 @5xl/list:flex w-[170px] gap-1',
+            render: (quote: QuoteRow) => (
+              <>
+                {(quote.invoices ?? []).slice(0, 2).map((invoice) => (
+                  <RecordLink
+                    key={invoice.id}
+                    type="invoice"
+                    id={invoice.id}
+                    label={invoice.invoiceNumber ?? copy.draftInvoice}
+                    statusLabel={(t.accounting.statusLabels.invoice as Record<string, string>)[invoice.status]}
+                    tone={invoice.status === 'paid' ? 'success' : invoice.status === 'overdue' ? 'warning' : 'neutral'}
+                  />
+                ))}
+                {(quote.invoices?.length ?? 0) > 2 ? (
+                  <span className="text-xs text-muted-foreground">+{(quote.invoices?.length ?? 0) - 2}</span>
+                ) : null}
+              </>
+            ),
+          },
+        ]
+      : []),
     {
       id: 'progress',
       header: copy.colProgress,
@@ -102,7 +131,7 @@ export default function QuotesPage() {
               {copy.chipAccepted}
             </RowChip>
           ) : null}
-          {quote.invoiceIds.length > 0 ? (
+          {quote.invoiceIds.length > 0 && !quote.invoices ? (
             <RowChip tone="purple">{plural(quote.invoiceIds.length, copy.chipInvoices, getLocale())}</RowChip>
           ) : null}
         </>

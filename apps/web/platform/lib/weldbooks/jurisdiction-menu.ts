@@ -6,6 +6,7 @@ export const WELDBOOKS_ANNUAL_REPORTS_HREF = '/weldbooks/annual-reports';
 export const WELDBOOKS_FORM_1099_HREF = '/weldbooks/form-1099';
 export const WELDBOOKS_RECEIVED_NFE_HREF = '/weldbooks/received-nfe';
 export const WELDBOOKS_QUOTES_HREF = '/weldbooks/quotes';
+export const WELDBOOKS_UNBILLED_TIME_HREF = '/weldbooks/time/unbilled';
 
 /** Screens that only exist for jurisdictions with US sales tax. */
 export const WELDBOOKS_SALES_TAX_HREFS: ReadonlySet<string> = new Set([
@@ -35,6 +36,8 @@ export function isWeldbooksHrefVisible(
   if (href === WELDBOOKS_RECEIVED_NFE_HREF) return known && features.fiscalDocuments;
   // Quotes are built only in Rust (edition feature `books-quotes`).
   if (href === WELDBOOKS_QUOTES_HREF) return isFeatureAvailable('books-quotes');
+  // Unbilled time is built only in Rust (edition feature `books-time-billing`).
+  if (href === WELDBOOKS_UNBILLED_TIME_HREF) return isFeatureAvailable('books-time-billing');
   if (href === WELDBOOKS_FORM_1099_HREF) return known && features.form1099;
   if (WELDBOOKS_SALES_TAX_HREFS.has(href)) return known && features.salesTax;
   return true;

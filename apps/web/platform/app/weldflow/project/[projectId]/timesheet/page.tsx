@@ -32,8 +32,6 @@ import {
   Search,
   Link2,
   FileText,
-  Pencil,
-  DollarSign,
 } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { cn } from '@/lib/utils';
@@ -56,6 +54,7 @@ import {
 } from '@/hooks/queries/use-timer-queries';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { TeamTimesheetView } from './team-timesheet-view';
+import { TimesheetEntryRow } from './invoiced-entry';
 
 interface TimeEntry {
   id: string;
@@ -71,6 +70,8 @@ interface TimeEntry {
   userName?: string;
   billable: boolean;
   status: string;
+  /** The invoice the hours are on (WeldBooks time billing): the entry is read-only from then on. */
+  invoiceId?: string | null;
   task?: {
     id: string;
     title: string;
@@ -104,6 +105,7 @@ interface RawTimeEntry {
   billable?: boolean;
   isBillable?: boolean;
   status?: string;
+  invoiceId?: string | null;
   task?: { id: string; title: string };
   user?: { id: string; name: string; email: string };
 }
@@ -173,6 +175,7 @@ function toTimeEntry(
     userName: entry.user?.name || memberNameById.get(entry.userId),
     billable: entry.billable ?? entry.isBillable ?? true,
     status: entry.status || 'draft',
+    invoiceId: entry.invoiceId ?? null,
     task: entry.task ?? (entry.taskId && taskTitle ? { id: entry.taskId, title: taskTitle } : undefined),
     user: entry.user,
   };
@@ -753,59 +756,13 @@ function TimesheetWeekView({
                     </div>
                     <div className="max-h-64 overflow-y-auto divide-y divide-border">
                       {cellEntries.map((entry) => (
-                        <div key={entry.id} className="px-3 py-2 flex items-start gap-2">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[13px] font-semibold tabular-nums">
-                                {formatHoursMinutes(entry.duration)}
-                              </span>
-                              {entry.billable && (
-                                <DollarSign className="h-3 w-3 text-emerald-600" />
-                              )}
-                              {entry.status && entry.status !== 'draft' && (
-                                <Badge variant="outline" className="h-4 px-1 text-[9px]">
-                                  {entry.status}
-                                </Badge>
-                              )}
-                            </div>
-                            {entry.description && (
-                              <div className="text-[12px] text-muted-foreground mt-0.5 break-words">
-                                {entry.description}
-                              </div>
-                            )}
-                            {entry.userName && (
-                              <div className="text-[11px] text-muted-foreground mt-0.5">
-                                {st('sweep.weldflow.timesheetPage.byUser', { name: entry.userName })}
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-0.5 shrink-0">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              title={entry.status === 'approved' ? st('sweep.weldflow.timesheetPage.entryApprovedLocked') : st('sweep.weldflow.edit')}
-                              disabled={entry.status === 'approved'}
-                              onClick={() => openEditDialog(entry)}
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-red-600 hover:text-red-700"
-                              title={entry.status === 'approved' ? st('sweep.weldflow.timesheetPage.entryApprovedLocked') : st('sweep.weldflow.delete')}
-                              disabled={deletingEntryId === entry.id || entry.status === 'approved'}
-                              onClick={() => setEntryToDelete(entry)}
-                            >
-                              {deletingEntryId === entry.id ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-3.5 w-3.5" />
-                              )}
-                            </Button>
-                          </div>
-                        </div>
+                        <TimesheetEntryRow
+                          key={entry.id}
+                          entry={entry}
+                          deleting={deletingEntryId === entry.id}
+                          onEdit={openEditDialog}
+                          onDelete={setEntryToDelete}
+                        />
                       ))}
                     </div>
                   </PopoverContent>
@@ -1741,8 +1698,15 @@ export default function TimesheetPage() {
   const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
   const [entryToDelete, setEntryToDelete] = useState<TimeEntry | null>(null);
 
-  const tt = useI18n().t.projects.projectTimesheets;
+  const { t: i18n } = useI18n();
+  const tt = i18n.projects.projectTimesheets;
+  const tInvoiced = i18n.weldbooksContactPage.flow.invoicedTip;
   const st = useTranslations();
+  /** Why the server refused to change an entry: it is on an invoice, or approved. */
+  const lockedMessage = (entryId: string | null) =>
+    entries.find((entry) => entry.id === entryId)?.invoiceId
+      ? tInvoiced
+      : st('sweep.weldflow.timesheetPage.entryApprovedLocked');
 
   // Timer state. The running timer itself lives on the server (one per user),
   // so it survives refresh and navigation; only the compose-time fields below
@@ -2079,9 +2043,9 @@ export default function TimesheetPage() {
         setSelectedDate(null);
         void loadData();
       } else if (result.status === 409) {
-        // Approved entries are locked server-side. Nothing was applied locally;
-        // reload so the row shows its approved state.
-        toast.error(st('sweep.weldflow.timesheetPage.entryApprovedLocked'));
+        // Approved and invoiced entries are locked server-side. Nothing was applied locally;
+        // reload so the row shows its locked state.
+        toast.error(lockedMessage(editingEntryId));
         void loadData();
       } else {
         toast.error(result.error || st('sweep.weldflow.timesheetPage.saveFailed'));
@@ -2118,7 +2082,7 @@ export default function TimesheetPage() {
         toast.success(st('sweep.weldflow.timesheetPage.timeEntryDeleted'));
         void loadData();
       } else if (result.status === 409) {
-        toast.error(st('sweep.weldflow.timesheetPage.entryApprovedLocked'));
+        toast.error(lockedMessage(entryId));
         void loadData();
       } else {
         toast.error(result.error || st('sweep.weldflow.timesheetPage.deleteFailed'));

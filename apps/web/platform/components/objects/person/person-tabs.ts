@@ -11,6 +11,7 @@ import {
   Folder,
   FileText,
   History,
+  Wallet,
 } from 'lucide-react';
 import type { ObjectPanelTabDescriptor } from '@/components/object-panel';
 
@@ -34,6 +35,7 @@ export interface PersonTab extends ObjectPanelTabDescriptor {
     | 'tasks'
     | 'files'
     | 'forms'
+    | 'finance'
     | 'audit';
   defaultVisibleInPanel?: boolean;
   defaultVisibleInFullscreen?: boolean;
@@ -52,5 +54,12 @@ export const PERSON_TABS: PersonTab[] = [
   { id: 'tasks', label: 'Tasks', icon: SquareCheck, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'files', label: 'Files', icon: Folder, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'forms', label: 'Forms', icon: FileText, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
+  // WeldBooks contact page: only where the edition has it and the member can read invoices, see `personTabs`.
+  { id: 'finance', label: 'Finance', icon: Wallet, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'audit', label: 'Audit Log', icon: History, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
 ];
+
+/** The tabs a member gets: Finance only where the edition has the WeldBooks contact page and invoices are readable. */
+export function personTabs(showFinance: boolean): PersonTab[] {
+  return showFinance ? PERSON_TABS : PERSON_TABS.filter((tab) => tab.id !== 'finance');
+}

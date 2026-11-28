@@ -109,6 +109,17 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldbooks/quotes')).toBe(false);
   });
 
+  it('hides the Unbilled time page where books-time-billing is missing, and offers it on Rust', () => {
+    for (const path of ['/weldbooks/time/unbilled', '/weldbooks/time/unbilled?customerId=prt_1', '/weldbooks/time/unbilled?stack=invoice:inv_1']) {
+      expect(routeRequirement(path)).toEqual({ modules: ['books'], feature: 'books-time-billing' });
+      expect(isRouteOffered(path)).toBe(false);
+    }
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
+    expect(isRouteOffered('/weldbooks/time/unbilled')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: ['books-time-billing'] });
+    expect(isRouteOffered('/weldbooks/time/unbilled')).toBe(false);
+  });
+
   it('hides the document review screen and Pay bills on Global, keeps the inbox itself, and offers them on Rust', () => {
     expect(routeRequirement('/weldbooks/documents/doc_1/review')).toEqual({ modules: ['books'], feature: 'books-receipts' });
     expect(routeRequirement('/weldbooks/purchases/pay')).toEqual({ modules: ['books'], feature: 'books-sepa-batches' });

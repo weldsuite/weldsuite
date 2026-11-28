@@ -124,6 +124,8 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   ['/weldbooks/purchases/pay', { modules: ['books'], feature: 'books-sepa-batches' }],
   // WeldBooks quotes (list, form, panel) are built only in Rust.
   ['/weldbooks/quotes', { modules: ['books'], feature: 'books-quotes' }],
+  // WeldBooks' unbilled time (invoicing WeldFlow hours once) is built only in Rust.
+  ['/weldbooks/time', { modules: ['books'], feature: 'books-time-billing' }],
   // WeldPass's settings (the offline copy and its devices) exist only on the Rust backend (ADR PASS-010).
   ['/settings/apps/weldpass', { modules: ['pass'], feature: 'weldpass-offline' }],
 ];

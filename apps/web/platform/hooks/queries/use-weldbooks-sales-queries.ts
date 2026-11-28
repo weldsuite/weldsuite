@@ -57,7 +57,10 @@ export const salesKeys = {
   },
   emailTemplates: () => [...accountingKeys.settings(), 'email-templates'] as const,
   reminderSettings: () => [...accountingKeys.settings(), 'reminders'] as const,
-  /** The public link the browser learned from the last send of a document (the server stores only a nonce). */
+  /**
+   * The public link of a document: read from the server (`usePublicLink` in `use-weldbooks-contact-page-queries.ts`),
+   * and set by a send or a reminder, which bring it back, so the card has it before the next read.
+   */
   link: (type: 'invoice' | 'quote', id: string) => [...accountingKeys.all, 'public-link', type, id] as const,
 };
 
@@ -70,21 +73,6 @@ function invalidateInvoices(qc: QueryClient, id?: string) {
 
 function rememberLink(qc: QueryClient, type: 'invoice' | 'quote', id: string, link: string | null | undefined) {
   if (link) qc.setQueryData(salesKeys.link(type, id), link);
-}
-
-/**
- * The public link of a document, when this browser knows it: the server keeps
- * only a nonce, so the URL is known after a send or a reminder, not from the
- * history alone. Null otherwise.
- */
-export function useKnownLink(type: 'invoice' | 'quote', id: string) {
-  return useQuery({
-    queryKey: salesKeys.link(type, id),
-    queryFn: () => Promise.resolve<string | null>(null),
-    enabled: false,
-    staleTime: Number.POSITIVE_INFINITY,
-    gcTime: Number.POSITIVE_INFINITY,
-  }).data ?? null;
 }
 
 // ============================================================================
@@ -110,7 +98,8 @@ export function useRevokeInvoiceLink() {
   return useMutation({
     mutationFn: (id: string) => salesApi.revokeInvoiceLink(id),
     onSuccess: (_, id) => {
-      qc.removeQueries({ queryKey: salesKeys.link('invoice', id) });
+      // The old link no longer works: the document has none until it is sent again.
+      qc.setQueryData(salesKeys.link('invoice', id), null);
       invalidateInvoices(qc, id);
     },
   });
@@ -132,7 +121,7 @@ export function useRevokeQuoteLink() {
   return useMutation({
     mutationFn: (id: string) => salesApi.revokeQuoteLink(id),
     onSuccess: (_, id) => {
-      qc.removeQueries({ queryKey: salesKeys.link('quote', id) });
+      qc.setQueryData(salesKeys.link('quote', id), null);
       void qc.invalidateQueries({ queryKey: salesKeys.quotes.all });
     },
   });

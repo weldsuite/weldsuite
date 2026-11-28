@@ -138,6 +138,8 @@ export interface QuoteRow {
   viewedAt: string | null;
   acceptedAt: string | null;
   invoiceIds: string[];
+  /** The invoices made from the quote (Rust only, `books-contact-page`): number and status for a chip. */
+  invoices?: Array<{ id: string; invoiceNumber: string | null; status: string }>;
 }
 
 export interface QuoteLine {

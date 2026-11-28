@@ -19,6 +19,14 @@ const env = vi.hoisted(() => ({
   panel: { open: vi.fn(), sync: vi.fn() },
   push: vi.fn(),
   fetchPayment: vi.fn(),
+  timeBilling: false,
+  canReadTime: false,
+}));
+vi.mock('@weldsuite/permissions/react', () => ({
+  useCan: (permission: string) => permission === 'time:read' && env.canReadTime,
+}));
+vi.mock('@/hooks/queries/use-weldbooks-time-billing-queries', () => ({
+  isTimeBillingAvailable: () => env.timeBilling,
 }));
 
 vi.mock('@/lib/i18n/provider', async () => {
@@ -98,6 +106,8 @@ const card = (kind: TodoKind) => screen.getByTestId(`todo-card-${kind}`);
 
 beforeEach(() => {
   env.available = true;
+  env.timeBilling = false;
+  env.canReadTime = false;
   env.locale = 'en';
   env.summaryError = false;
   env.hasNextPage = false;
@@ -148,6 +158,27 @@ describe('visibleTodoKinds', () => {
 
   it('copes with no summary', () => {
     expect(visibleTodoKinds(undefined)).toEqual([]);
+  });
+});
+
+describe('ToProcessPage: the way to Unbilled time', () => {
+  it('links to the Unbilled time page where the edition bills time and the member may read it', () => {
+    env.timeBilling = true;
+    env.canReadTime = true;
+    render(<ToProcessPage />);
+    expect(screen.getByRole('link', { name: en.weldbooksContactPage.menu.unbilledTime })).toHaveAttribute('href', '/weldbooks/time/unbilled');
+  });
+
+  it('has no such link on Global, or for a member who may not read time', () => {
+    env.timeBilling = false;
+    env.canReadTime = true;
+    const { unmount } = render(<ToProcessPage />);
+    expect(screen.queryByRole('link', { name: en.weldbooksContactPage.menu.unbilledTime })).not.toBeInTheDocument();
+    unmount();
+    env.timeBilling = true;
+    env.canReadTime = false;
+    render(<ToProcessPage />);
+    expect(screen.queryByRole('link', { name: en.weldbooksContactPage.menu.unbilledTime })).not.toBeInTheDocument();
   });
 });
 

@@ -10,6 +10,7 @@ const env = vi.hoisted(() => ({
   push: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn() },
   salesApi: { getQuote: vi.fn(), emailQuote: vi.fn(), revokeQuoteLink: vi.fn(), invoiceFromQuote: vi.fn() },
+  contactPageApi: { quotePublicLink: vi.fn() },
 }));
 
 vi.mock('sonner', () => ({ toast: env.toast }));
@@ -51,6 +52,7 @@ vi.mock('@/lib/api/domains/weldbooks-sales', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api/domains/weldbooks-sales')>()),
   salesApi: env.salesApi,
 }));
+vi.mock('@/lib/api/domains/weldbooks-contact-page', () => ({ contactPageApi: env.contactPageApi }));
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   useWeldbooksFormat: () => ({
     formatMoney: (value: number | string | null | undefined) => `€${Number(value ?? 0).toFixed(2)}`,
@@ -111,6 +113,8 @@ describe('QuotePanel', () => {
     env.entities = [{ id: 'ent_1', name: 'Acme B.V.' }];
     for (const fn of Object.values(env.salesApi)) fn.mockReset();
     env.salesApi.getQuote.mockResolvedValue({ data: quote() });
+    env.contactPageApi.quotePublicLink.mockReset();
+    env.contactPageApi.quotePublicLink.mockResolvedValue({ data: { url: 'https://pay.example.test/d/q' } });
     env.toast.success.mockReset();
     env.toast.error.mockReset();
     env.push.mockReset();
@@ -149,6 +153,26 @@ describe('QuotePanel', () => {
       expect.stringContaining('Invoice F-9 made'),
     ]);
     expect(within(screen.getByTestId('quote-invoices')).getByRole('link', { name: 'F-9' })).toHaveAttribute('href', '#invoice:inv_1');
+  });
+
+  it('copies the online link from the server, though this browser never sent the quote', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    renderPanel();
+    const card = await screen.findByTestId('quote-online-link');
+    await user.click(await within(card).findByRole('button', { name: 'Copy link' }));
+    expect(writeText).toHaveBeenCalledWith('https://pay.example.test/d/q');
+    expect(env.contactPageApi.quotePublicLink).toHaveBeenCalledWith('q_1');
+  });
+
+  it('says there is no online link, and asks the server for none, before the quote is sent', async () => {
+    env.salesApi.getQuote.mockResolvedValue({ data: quote({ status: 'draft', sentAt: null }) });
+    renderPanel();
+    const card = await screen.findByTestId('quote-online-link');
+    expect(card).toHaveTextContent('There is no online link yet');
+    expect(within(card).queryByRole('button', { name: 'Copy link' })).not.toBeInTheDocument();
+    expect(env.contactPageApi.quotePublicLink).not.toHaveBeenCalled();
   });
 
   it('lists the lines with the totals on the Lines tab', async () => {

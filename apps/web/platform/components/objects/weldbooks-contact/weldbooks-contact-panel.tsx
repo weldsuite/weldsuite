@@ -81,8 +81,21 @@ import { contactIdLabels } from '@/lib/weldbooks/contact-id-labels';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { useContactCredits } from '@/hooks/queries/use-weldbooks-processing-queries';
 import { isQuotesAvailable } from '@/hooks/queries/use-weldbooks-sales-queries';
+import { EntityChat } from '@/components/entity-chat/entity-chat';
+import { isContactPageAvailable } from '@/hooks/queries/use-weldbooks-contact-page-queries';
+import { ContactBankLinesTab } from './weldbooks-contact-bank-lines-tab';
 import { ContactCreditTab } from './weldbooks-contact-credit-tab';
-import { ContactBillsTab, ContactInvoicesTab, ContactQuotesTab } from './weldbooks-contact-documents-tab';
+import { ContactDefaultsSection } from './weldbooks-contact-defaults-section';
+import {
+  ContactBillsTab,
+  ContactInvoicesTab,
+  ContactQuotesTab,
+  type ContactDocumentView,
+} from './weldbooks-contact-documents-tab';
+import { ContactOverviewTab } from './weldbooks-contact-overview-tab';
+import { ContactPageHeader } from './weldbooks-contact-page-header';
+import { ContactStatementDialog } from './weldbooks-contact-statement-dialog';
+import type { ContactTileTarget } from './weldbooks-contact-tiles';
 import {
   contactDocumentTabs,
   getWeldbooksContactTabs,
@@ -128,10 +141,20 @@ function ContactAvatar({ contact }: Readonly<{ contact?: Customer }>) {
 }
 
 function ContactTitle({ contact, t }: Readonly<{ contact?: Customer; t: Translations }>) {
+  const page = isContactPageAvailable();
+  const { labels } = useJurisdictionLabels();
   if (!contact) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
+  const roleChip = page
+    ? ({
+        both: t.weldbooksContactPage.header.customerAndSupplier,
+        customer: t.weldbooksContactPage.header.customer,
+        supplier: labels.supplier,
+      } as Record<string, string>)[contact.role]
+    : undefined;
   return (
     <div className="flex min-w-0 items-center gap-2">
       <span className="truncate text-[15px] font-medium text-foreground">{contact.name}</span>
+      {roleChip ? <span className={cn(PILL, PILL_GRAY, 'flex-shrink-0')}>{roleChip}</span> : null}
       {contact.archivedAt ? (
         <span className={cn(PILL, PILL_GRAY, 'flex-shrink-0')}>{t.accounting.contacts.archived}</span>
       ) : null}
@@ -801,20 +824,23 @@ function FinancialSection({ contact, t }: Readonly<{ contact: Customer; t: Trans
   const { formatMoney } = useCurrentEntityCurrency();
   return (
     <Section title={tc.financial}>
-      <FieldRow
-        icon={Clock}
-        label={tc.paymentTermsDays}
-        value={contact.paymentTermsDays}
-        toPatch={(next) => {
-          if (next === '') return { paymentTermsDays: null };
-          const days = Number(next);
-          if (!Number.isInteger(days) || days < 0) {
-            toast.error(tc.updateFailed, { description: tc.paymentTermsInvalid });
-            return null;
-          }
-          return { paymentTermsDays: days };
-        }}
-      />
+      {/* With the contact page the terms are a default and sit in that section. */}
+      {isContactPageAvailable() ? null : (
+        <FieldRow
+          icon={Clock}
+          label={tc.paymentTermsDays}
+          value={contact.paymentTermsDays}
+          toPatch={(next) => {
+            if (next === '') return { paymentTermsDays: null };
+            const days = Number(next);
+            if (!Number.isInteger(days) || days < 0) {
+              toast.error(tc.updateFailed, { description: tc.paymentTermsInvalid });
+              return null;
+            }
+            return { paymentTermsDays: days };
+          }}
+        />
+      )}
       <InfoRow icon={Coins} label={tc.outstandingBalance} value={formatMoney(contact.outstandingBalance)} />
     </Section>
   );
@@ -856,6 +882,7 @@ function WeldbooksContactDetailsTab({
         {showTax ? <TaxRegistrationSection contact={contact} t={t} /> : null}
         <BankingSection contact={contact} t={t} />
         <FinancialSection contact={contact} t={t} />
+        {isContactPageAvailable() ? <ContactDefaultsSection contactId={contact.id} canEdit={canEdit} /> : null}
         <NotesSection contact={contact} t={t} />
       </div>
     </SaveContactContext.Provider>
@@ -898,6 +925,12 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
   const credits = useContactCredits(contact?.id);
   const showCredit = (credits.data?.length ?? 0) > 0;
 
+  // The contact page (Rust only): an Overview, the tiles, bank lines, chat and the defaults.
+  const contactPage = isContactPageAvailable();
+  const [documentView, setDocumentView] = useState<ContactDocumentView>('all');
+  const [statementOpen, setStatementOpen] = useState(false);
+  const crmRecord = contact ? crmRecordOf(contact) : null;
+
   const tabs = useMemo(
     () =>
       getWeldbooksContactTabs({
@@ -913,12 +946,25 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
         showInvoices: showDocumentTabs && documentTabs.invoices,
         showBills: showDocumentTabs && documentTabs.bills,
         showExemptions,
+        contactPage: contactPage
+          ? {
+              overview: t.weldbooksContactPage.tabs.overview,
+              bankLines: t.weldbooksContactPage.tabs.bankLines,
+              chat: t.weldbooksContactPage.tabs.chat,
+            }
+          : undefined,
       }),
-    [st, t, showExemptions, showCredit, showDocumentTabs, documentTabs.invoices, documentTabs.bills],
+    [st, t, showExemptions, showCredit, showDocumentTabs, documentTabs.invoices, documentTabs.bills, contactPage],
   );
 
   // A deep-linked tab that only appears once the record is loaded is applied when it does.
   const [activeTab, setActiveTab] = usePanelInitialTab<WeldbooksContactTabId>(tabs, initialTab, 'overview');
+
+  /** A tile opens the tab of what it counts, narrowed to it. */
+  const openTile = (target: ContactTileTarget) => {
+    setDocumentView(target.view);
+    setActiveTab(target.tab);
+  };
 
   return (
     <>
@@ -937,7 +983,17 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
           />
         }
         subheader={
-          contact ? (
+          contact && contactPage ? (
+            <ContactPageHeader
+              contact={contact}
+              crmRecord={crmRecord}
+              canCreateInvoice={can('invoices:create')}
+              canCreateBill={can('bills:create')}
+              canSeeTime={can('time:read')}
+              onOpenTile={openTile}
+              onSendStatement={() => setStatementOpen(true)}
+            />
+          ) : contact ? (
             <ContactSubheader
               contact={contact}
               canCreateInvoice={can('invoices:create')}
@@ -963,12 +1019,29 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
           <div className="p-6 text-center text-sm text-muted-foreground">{tc.contactNotFound}</div>
         )}
 
-        {contact && activeTab === 'overview' && (
+        {contact && contactPage && activeTab === 'overview' && (
+          <ContactOverviewTab
+            contactId={contact.id}
+            contactName={contact.name}
+            showReceivable={documentTabs.invoices}
+            showPayable={documentTabs.bills}
+            canSeeTime={can('time:read')}
+          />
+        )}
+        {contact && (contactPage ? activeTab === 'details' : activeTab === 'overview') && (
           <WeldbooksContactDetailsTab contact={contact} canEdit={canEdit} t={t} />
         )}
-        {contact && activeTab === 'invoices' && <ContactInvoicesTab contactId={contact.id} />}
+        {contact && activeTab === 'invoices' && (
+          <ContactInvoicesTab contactId={contact.id} view={documentView} onViewChange={setDocumentView} />
+        )}
         {contact && activeTab === 'quotes' && <ContactQuotesTab contactId={contact.id} />}
-        {contact && activeTab === 'bills' && <ContactBillsTab contactId={contact.id} />}
+        {contact && activeTab === 'bills' && (
+          <ContactBillsTab contactId={contact.id} view={documentView} onViewChange={setDocumentView} />
+        )}
+        {contact && activeTab === 'bankLines' && <ContactBankLinesTab contactId={contact.id} />}
+        {contact && activeTab === 'chat' && (
+          <EntityChat entityType="accounting_contact" entityId={contact.id} fallbackName={contact.name} hideHeader />
+        )}
         {contact && activeTab === 'credit' && <ContactCreditTab contactId={contact.id} />}
         {contact && activeTab === 'exemptions' && (
           <div className="p-4">
@@ -984,6 +1057,14 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
       </EntityDetailView>
 
       {contact ? <ContactDialogs actions={actions} t={t} /> : null}
+      {contact && contactPage ? (
+        <ContactStatementDialog
+          open={statementOpen}
+          onOpenChange={setStatementOpen}
+          contactId={contact.id}
+          contactName={contact.name}
+        />
+      ) : null}
     </>
   );
 }

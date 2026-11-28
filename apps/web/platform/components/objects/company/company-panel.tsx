@@ -117,6 +117,7 @@ import { logoDomainForCompany, useCompanyLogo } from '@/lib/crm/company-logo';
 import { type CompanyTab } from './company-tabs';
 import { useCompanyTabList } from './use-company-tab-list';
 import { CompanyBuyersTab } from './company-buyers-tab';
+import { CrmFinanceTab } from '@/components/objects/_shared/crm-finance-tab';
 import type { Company } from '@weldsuite/app-api-client/schemas/companies';
 
 const COMPANY_PANEL_WIDTH = 400;
@@ -851,6 +852,17 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
       )}
       {company && activeTab === 'audit' && (
         <AuditTab entityId={company.id} entityKind="company" />
+      )}
+      {company && activeTab === 'finance' && (
+        <CrmFinanceTab
+          target={{
+            kind: 'company',
+            id: company.id,
+            name: company.displayName,
+            email: company.email,
+            phone: company.phone,
+          }}
+        />
       )}
       {company && activeTab === 'buyers' && (
         <CompanyBuyersTab companyId={company.id} companyName={company.displayName} />

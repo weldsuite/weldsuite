@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { setRuntimeConfig } from '@/lib/runtime-config';
 import type { InvoiceWithTax } from '@/lib/api/domains/weldbooks-sales-tax-preview';
@@ -8,6 +8,7 @@ const env = vi.hoisted(() => ({
   canUpdate: true,
   toast: { success: vi.fn(), error: vi.fn() },
   paymentsApi: { getConnection: vi.fn() },
+  contactPageApi: { invoicePublicLink: vi.fn() },
   salesApi: {
     getReminderSettings: vi.fn(),
     getQuote: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => env.canUpdate }))
 vi.mock('@/components/object-panel', () => import('@/components/objects/_shared/object-panel-test-mock'));
 vi.mock('@/lib/api/domains/weldbooks-sales', () => ({ salesApi: env.salesApi }));
 vi.mock('@/lib/api/domains/weldbooks-payments', () => ({ paymentsApi: env.paymentsApi }));
+vi.mock('@/lib/api/domains/weldbooks-contact-page', () => ({ contactPageApi: env.contactPageApi }));
 vi.mock('@/hooks/use-current-accounting-entity', () => ({ useCurrentAccountingEntity: () => ({ entityId: 'ent_1', setEntityId: vi.fn() }) }));
 vi.mock('@tanstack/react-router', async () => {
   const { RouteLink } = await import('@/app/weldbooks/invoices/components/test-utils');
@@ -80,12 +82,11 @@ function invoice(overrides: Record<string, unknown> = {}): InvoiceWithTax {
 }
 
 function renderSections(inv: InvoiceWithTax, props: { isCreditMemo?: boolean } = {}) {
-  const onSend = vi.fn();
   const onOpenPayments = vi.fn();
   const utils = renderWithProviders(
-    <InvoiceSalesSections invoice={inv} isCreditMemo={props.isCreditMemo ?? false} onSend={onSend} onOpenPayments={onOpenPayments} />,
+    <InvoiceSalesSections invoice={inv} isCreditMemo={props.isCreditMemo ?? false} onOpenPayments={onOpenPayments} />,
   );
-  return { onSend, onOpenPayments, ...utils };
+  return { onOpenPayments, ...utils };
 }
 
 describe('InvoiceSalesSections', () => {
@@ -96,6 +97,8 @@ describe('InvoiceSalesSections', () => {
     env.toast.error.mockReset();
     env.paymentsApi.getConnection.mockReset();
     env.paymentsApi.getConnection.mockResolvedValue({ data: null });
+    env.contactPageApi.invoicePublicLink.mockReset();
+    env.contactPageApi.invoicePublicLink.mockResolvedValue({ data: { url: 'https://pay.example.test/d/abc' } });
     env.salesApi.getReminderSettings.mockResolvedValue({ data: SETTINGS });
     env.salesApi.getQuote.mockResolvedValue({ data: { id: 'q_1', quoteNumber: 'OFF-12', name: 'Offerte' } });
     panelOpen.mockReset();
@@ -155,26 +158,41 @@ describe('InvoiceSalesSections', () => {
   });
 
   describe('Online link', () => {
-    it('offers to send again when this browser does not know the link, since the server keeps only a nonce', async () => {
+    it('copies the link the server derives, in a browser that never sent the invoice', async () => {
       const user = userEvent.setup();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
       setRuntimeConfig(RUST);
-      const { onSend } = renderSections(invoice());
+      renderSections(invoice());
       const card = await screen.findByTestId('online-link-card');
-      expect(within(card).queryByRole('button', { name: 'Copy link' })).not.toBeInTheDocument();
-      await user.click(within(card).getByRole('button', { name: 'Send again to copy the link' }));
-      expect(onSend).toHaveBeenCalled();
+      await user.click(await within(card).findByRole('button', { name: 'Copy link' }));
+      expect(writeText).toHaveBeenCalledWith('https://pay.example.test/d/abc');
+      expect(env.contactPageApi.invoicePublicLink).toHaveBeenCalledWith('inv_1');
+      // The old "send again to copy" fallback is gone.
+      expect(within(card).queryByRole('button', { name: /send again/i })).not.toBeInTheDocument();
     });
 
-    it('copies the link a send brought back', async () => {
+    it('copies the link a send brings back at once, without waiting for the server to be asked again', async () => {
       const user = userEvent.setup();
       const writeText = vi.fn().mockResolvedValue(undefined);
       Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
       setRuntimeConfig(RUST);
       const { client } = renderSections(invoice());
-      client.setQueryData(salesKeys.link('invoice', 'inv_1'), 'https://pay.example.test/d/abc');
       const card = await screen.findByTestId('online-link-card');
-      await user.click(await within(card).findByRole('button', { name: 'Copy link' }));
-      expect(writeText).toHaveBeenCalledWith('https://pay.example.test/d/abc');
+      await within(card).findByRole('button', { name: 'Copy link' });
+      // A send or a reminder answers with the link: the cache takes it.
+      act(() => client.setQueryData(salesKeys.link('invoice', 'inv_1'), 'https://pay.example.test/d/new'));
+      await user.click(within(card).getByRole('button', { name: 'Copy link' }));
+      expect(writeText).toHaveBeenCalledWith('https://pay.example.test/d/new');
+    });
+
+    it('offers no copy button while the document has no link', async () => {
+      setRuntimeConfig(RUST);
+      env.contactPageApi.invoicePublicLink.mockResolvedValue({ data: { url: null } });
+      renderSections(invoice());
+      const card = await screen.findByTestId('online-link-card');
+      await waitFor(() => expect(env.contactPageApi.invoicePublicLink).toHaveBeenCalled());
+      expect(within(card).queryByRole('button', { name: 'Copy link' })).not.toBeInTheDocument();
     });
 
     it('revokes the link only after a confirmation', async () => {

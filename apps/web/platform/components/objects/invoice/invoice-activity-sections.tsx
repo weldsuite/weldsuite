@@ -35,12 +35,12 @@ import {
   isInvoiceEmailAvailable,
   isQuotesAvailable,
   isRemindersAvailable,
-  useKnownLink,
   usePauseReminders,
   useReminderSettings,
   useRemindInvoice,
   useRevokeInvoiceLink,
 } from '@/hooks/queries/use-weldbooks-sales-queries';
+import { usePublicLink } from '@/hooks/queries/use-weldbooks-contact-page-queries';
 import { isOnlinePaymentsAvailable, usePaymentConnection } from '@/hooks/queries/use-weldbooks-payments-queries';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import type { InvoiceWithTax } from '@/lib/api/domains/weldbooks-sales-tax-preview';
@@ -238,15 +238,16 @@ function CardShell({ title, testId, children }: Readonly<{ title: string; testId
   );
 }
 
-export function OnlineLinkCard({ invoice, onSend }: Readonly<{ invoice: InvoiceWithTax; onSend: () => void }>) {
+export function OnlineLinkCard({ invoice }: Readonly<{ invoice: InvoiceWithTax }>) {
   const { t } = useI18n();
   const copy = t.weldbooksSales.link;
   const { formatDateTime } = useWeldbooksFormat();
   const canUpdate = useCan('invoices:update');
-  const known = useKnownLink('invoice', invoice.id);
   const revoke = useRevokeInvoiceLink();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const active = hasActiveLink(invoice);
+  // The server derives the link on demand, so it can be copied any time and from any browser.
+  const link = usePublicLink('invoice', invoice.id, { enabled: active }).data ?? null;
   const madeAt = linkMadeAt(invoice);
 
   const revokeLink = () => {
@@ -268,21 +269,15 @@ export function OnlineLinkCard({ invoice, onSend }: Readonly<{ invoice: InvoiceW
             {madeAt ? ` ${copy.since.replace('{time}', formatDateTime(madeAt))}` : ''}
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            {known ? (
-              <CopyButton value={known} label={copy.copy} copiedLabel={copy.copied} failedLabel={copy.copyFailed} />
-            ) : (
-              // The server keeps only a nonce: sending again returns the same link.
-              <Button type="button" variant="outline" size="sm" onClick={onSend} disabled={!canUpdate}>
-                {copy.sendToCopy}
-              </Button>
-            )}
+            {link ? (
+              <CopyButton value={link} label={copy.copy} copiedLabel={copy.copied} failedLabel={copy.copyFailed} />
+            ) : null}
             {canUpdate ? (
               <Button type="button" variant="outline" size="sm" onClick={() => setConfirmOpen(true)}>
                 {copy.revoke}
               </Button>
             ) : null}
           </div>
-          {known ? null : <p className="text-xs text-muted-foreground">{copy.sameLink}</p>}
         </>
       ) : (
         <p className="text-[13px] text-muted-foreground">{copy.none}</p>
@@ -485,12 +480,10 @@ export function RemindersCard({ invoice }: Readonly<{ invoice: InvoiceWithTax }>
 export function InvoiceSalesSections({
   invoice,
   isCreditMemo,
-  onSend,
   onOpenPayments,
 }: Readonly<{
   invoice: InvoiceWithTax;
   isCreditMemo: boolean;
-  onSend: () => void;
   onOpenPayments: () => void;
 }>) {
   const email = isInvoiceEmailAvailable();
@@ -504,7 +497,7 @@ export function InvoiceSalesSections({
       <InvoiceConnections invoice={invoice} onOpenPayments={onOpenPayments} />
       {sent && (email || reminders || online) ? (
         <div className="grid gap-3 @md:grid-cols-2">
-          {email ? <OnlineLinkCard invoice={invoice} onSend={onSend} /> : null}
+          {email ? <OnlineLinkCard invoice={invoice} /> : null}
           {online ? <OnlinePaymentCard invoice={invoice} /> : null}
           {reminders ? <RemindersCard invoice={invoice} /> : null}
         </div>

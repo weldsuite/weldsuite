@@ -1,4 +1,14 @@
-import { FileCheck2, FileText, History, LayoutGrid, Receipt, ScrollText, Wallet } from 'lucide-react';
+import {
+  ArrowLeftRight,
+  FileCheck2,
+  FileText,
+  History,
+  LayoutGrid,
+  MessageSquare,
+  Receipt,
+  ScrollText,
+  Wallet,
+} from 'lucide-react';
 import type { ConfigurablePanelTab } from '@/components/objects/_shared/configurable-panel-tabs';
 
 /**
@@ -12,8 +22,21 @@ import type { ConfigurablePanelTab } from '@/components/objects/_shared/configur
  *   exemptions  → `/exemption-certificates?partyId=`  (US sales tax only)
  *   credit      → `/accounting-contacts/:id/credits`  (Rust only; shown while the contact has unapplied credit)
  *   history     → `/api/audit-logs?entityType=accounting_contact`
+ *
+ * With the contact page (edition feature `books-contact-page`) `overview` is the Overview (open items and the
+ * timeline) and the old Details tab is `details`; `bankLines` (`/bank-transactions?contactId=`) and `chat` join them.
  */
-export type WeldbooksContactTabId = 'overview' | 'invoices' | 'quotes' | 'bills' | 'credit' | 'exemptions' | 'history';
+export type WeldbooksContactTabId =
+  | 'overview'
+  | 'details'
+  | 'invoices'
+  | 'quotes'
+  | 'bills'
+  | 'bankLines'
+  | 'credit'
+  | 'exemptions'
+  | 'chat'
+  | 'history';
 
 export type WeldbooksContactTab = ConfigurablePanelTab<WeldbooksContactTabId>;
 
@@ -42,11 +65,14 @@ export function getWeldbooksContactTabs(labels: {
   showBills: boolean;
   /** US entity and the contact is (also) a customer: it can hold exemption certificates. */
   showExemptions: boolean;
+  /** The contact page (`books-contact-page`): an Overview first, Bank lines and Chat, and Details as its own tab. */
+  contactPage?: { overview: string; bankLines: string; chat: string };
 }): WeldbooksContactTab[] {
+  const page = labels.contactPage;
   const tabs: WeldbooksContactTab[] = [
     {
       id: 'overview',
-      label: labels.details,
+      label: page ? page.overview : labels.details,
       icon: LayoutGrid,
       required: true,
       defaultVisibleInPanel: true,
@@ -80,6 +106,15 @@ export function getWeldbooksContactTabs(labels: {
       defaultVisibleInFullscreen: true,
     });
   }
+  if (page) {
+    tabs.push({
+      id: 'bankLines',
+      label: page.bankLines,
+      icon: ArrowLeftRight,
+      defaultVisibleInPanel: true,
+      defaultVisibleInFullscreen: true,
+    });
+  }
   if (labels.showCredit && labels.credit) {
     tabs.push({
       id: 'credit',
@@ -97,6 +132,24 @@ export function getWeldbooksContactTabs(labels: {
       defaultVisibleInPanel: true,
       defaultVisibleInFullscreen: true,
     });
+  }
+  if (page) {
+    tabs.push(
+      {
+        id: 'chat',
+        label: page.chat,
+        icon: MessageSquare,
+        defaultVisibleInPanel: false,
+        defaultVisibleInFullscreen: true,
+      },
+      {
+        id: 'details',
+        label: labels.details,
+        icon: FileText,
+        defaultVisibleInPanel: true,
+        defaultVisibleInFullscreen: true,
+      },
+    );
   }
   // The audit trail is reachable from the side panel too, not only in fullscreen.
   tabs.push({

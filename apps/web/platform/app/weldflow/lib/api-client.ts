@@ -124,6 +124,8 @@ export interface ApiTimeEntry {
   approvedAt: string | null;
   location: string | null;
   isRemote: boolean | null;
+  /** The invoice the hours are on (WeldBooks time billing); set, the entry can no longer be changed. */
+  invoiceId?: string | null;
 }
 
 /** One member's slice of a project's team timesheet. */

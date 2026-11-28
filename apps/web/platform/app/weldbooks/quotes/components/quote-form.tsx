@@ -73,10 +73,15 @@ function isAmount(text: string, options: { min: number; max?: number; required: 
   return Number.isFinite(value) && value >= options.min && (options.max === undefined || value <= options.max);
 }
 
-function buildDefaults(quote: QuoteDetail | undefined, today: string, taxRateId: string): QuoteFormValues {
+function buildDefaults(
+  quote: QuoteDetail | undefined,
+  today: string,
+  taxRateId: string,
+  initialContactId = '',
+): QuoteFormValues {
   if (!quote) {
     return {
-      contactId: '',
+      contactId: initialContactId,
       name: '',
       validFrom: today,
       validUntil: addDaysToIsoDate(today, DEFAULT_VALID_DAYS),
@@ -117,7 +122,11 @@ function FieldError({ id, message }: Readonly<{ id: string; message?: string }>)
   );
 }
 
-export function QuoteForm({ mode, quote }: Readonly<{ mode: 'add' | 'edit'; quote?: QuoteDetail }>) {
+export function QuoteForm({
+  mode,
+  quote,
+  initialContactId,
+}: Readonly<{ mode: 'add' | 'edit'; quote?: QuoteDetail; /** The customer a new quote starts with (the contact page's "New quote"). */ initialContactId?: string }>) {
   const { t } = useI18n();
   const copy = t.weldbooksSales.quoteForm;
   const tf = t.accounting.invoiceForm;
@@ -157,7 +166,7 @@ export function QuoteForm({ mode, quote }: Readonly<{ mode: 'add' | 'edit'; quot
 
   const form = useForm<QuoteFormValues>({
     resolver: zodResolver(schema),
-    defaultValues: buildDefaults(quote, today(), defaultRateId),
+    defaultValues: buildDefaults(quote, today(), defaultRateId, initialContactId),
     // The submit handler below moves the focus itself: the customer picker is not a plain field.
     shouldFocusError: false,
   });

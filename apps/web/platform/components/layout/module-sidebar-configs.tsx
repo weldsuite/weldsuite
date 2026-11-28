@@ -31,6 +31,7 @@ import {
   Calendar,
   HardDrive,
   Clock,
+  Hourglass,
   Trash2,
   CloudUpload,
   Share2,
@@ -657,6 +658,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
             { title: nav.invoices, href: '/weldbooks/invoices', icon: ReceiptText },
             // Only where the edition has quotes (`books-quotes`): the menu hook and the palette hide it elsewhere.
             { title: nav.quotes, href: '/weldbooks/quotes', icon: ScrollText },
+            // Only where the edition bills time (`books-time-billing`): the menu hook and the palette hide it elsewhere.
+            { title: t.weldbooksContactPage.menu.unbilledTime, href: '/weldbooks/time/unbilled', icon: Hourglass },
             { title: nav.recurring, href: '/weldbooks/recurring', icon: RefreshCw },
           ],
         },

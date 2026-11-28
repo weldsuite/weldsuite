@@ -38,7 +38,6 @@ import {
   useEmailTemplates,
   useInfiniteQuotes,
   useInvoiceFromQuote,
-  useKnownLink,
   usePauseReminders,
   useQuote,
   useReminderSettings,
@@ -106,17 +105,15 @@ describe('sales mutations', () => {
     expect(keys).toContain(JSON.stringify(['accounting', 'journal-entries']));
   });
 
-  it('the link a send brought back is read by the card, and revoking it forgets it', async () => {
+  it('the link a send brought back is kept for the card, and revoking it leaves the document with none', async () => {
     const { client, invalidate, wrapper } = setup();
     client.setQueryData(salesKeys.link('invoice', 'inv_1'), 'https://pay.example.test/d/1');
-    const known = renderHook(() => useKnownLink('invoice', 'inv_1'), { wrapper });
-    expect(known.result.current).toBe('https://pay.example.test/d/1');
-    expect(renderHook(() => useKnownLink('invoice', 'inv_2'), { wrapper }).result.current).toBeNull();
+    expect(client.getQueryData(salesKeys.link('invoice', 'inv_1'))).toBe('https://pay.example.test/d/1');
 
     api.revokeInvoiceLink.mockResolvedValue({ data: { id: 'inv_1', linkRevoked: true } });
     const { result } = renderHook(() => useRevokeInvoiceLink(), { wrapper });
     await result.current.mutateAsync('inv_1');
-    expect(client.getQueryData(salesKeys.link('invoice', 'inv_1'))).toBeUndefined();
+    expect(client.getQueryData(salesKeys.link('invoice', 'inv_1'))).toBeNull();
     expect(invalidated(invalidate)).toContain(INVOICES);
   });
 
@@ -162,7 +159,7 @@ describe('sales mutations', () => {
     await result.current.email.mutateAsync({ id: 'q_1', input: { to: ['a@b.test'] } });
     expect(client.getQueryData(salesKeys.link('quote', 'q_1'))).toBe('https://pay.example.test/d/q');
     await result.current.revoke.mutateAsync('q_1');
-    expect(client.getQueryData(salesKeys.link('quote', 'q_1'))).toBeUndefined();
+    expect(client.getQueryData(salesKeys.link('quote', 'q_1'))).toBeNull();
     expect(invalidated(invalidate).filter((key) => key === QUOTES).length).toBe(4);
   });
 

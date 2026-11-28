@@ -43,10 +43,11 @@ describe('the WeldBooks menu', () => {
     expect(hrefs()).toContain('/weldbooks/contacts');
   });
 
-  it('lists Quotes under Sales, and leaves out what does not exist yet: unbilled time and pay bills', () => {
+  it('lists Quotes and Unbilled time under Sales, and leaves out what does not exist yet: pay bills', () => {
     const sales = groups().find((group) => group.group === en.navigation.moduleSidebar.groups.sales);
     expect(sales?.items.map((item) => item.href)).toContain('/weldbooks/quotes');
-    for (const later of ['/weldbooks/unbilled-time', '/weldbooks/pay-bills']) {
+    expect(sales?.items.map((item) => item.href)).toContain('/weldbooks/time/unbilled');
+    for (const later of ['/weldbooks/pay-bills']) {
       expect(hrefs()).not.toContain(later);
     }
   });

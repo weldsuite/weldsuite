@@ -25,14 +25,16 @@ vi.mock('@/lib/router', () => ({
   useSearchParams: () => new URLSearchParams(route.search),
 }));
 
-const access = vi.hoisted(() => ({ accountant: true, processing: false, quotes: false }));
+const access = vi.hoisted(() => ({ accountant: true, processing: false, quotes: false, timeBilling: false }));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => (permission === 'journal:create' ? access.accountant : true) }),
 }));
 vi.mock('@/lib/edition', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/edition')>()),
   isFeatureAvailable: (feature: string) =>
-    (feature === 'books-bank-processing' && access.processing) || (feature === 'books-quotes' && access.quotes),
+    (feature === 'books-bank-processing' && access.processing) ||
+    (feature === 'books-quotes' && access.quotes) ||
+    (feature === 'books-time-billing' && access.timeBilling),
 }));
 
 const todo = vi.hoisted(() => ({ summary: undefined as unknown, enabledSeen: [] as boolean[] }));
@@ -73,6 +75,7 @@ describe('useWeldbooksSidebarItems', () => {
     access.accountant = true;
     access.processing = false;
     access.quotes = false;
+    access.timeBilling = false;
     localStorage.clear();
     todo.summary = undefined;
     todo.enabledSeen = [];
@@ -243,6 +246,32 @@ describe('Quotes in the menu', () => {
     const sales = groups.find((group) => group.group === en.navigation.moduleSidebar.groups.sales);
     expect(sales?.items.map((item) => item.href)).toEqual(['/weldbooks/invoices', '/weldbooks/quotes', '/weldbooks/recurring']);
     expect(sales?.items[1]?.title).toBe('Quotes');
+  });
+});
+
+describe('Unbilled time in the menu', () => {
+  beforeEach(() => {
+    jurisdiction = { ...known() };
+  });
+
+  it('is hidden where the edition does not bill time (Global)', () => {
+    expect(hrefs(adjust())).not.toContain('/weldbooks/time/unbilled');
+  });
+
+  it('is listed under Sales, after Quotes, where the edition bills time, with no count to fetch', () => {
+    access.quotes = true;
+    access.timeBilling = true;
+    const sales = adjust().find((group) => group.group === en.navigation.moduleSidebar.groups.sales);
+    expect(sales?.items.map((item) => item.href)).toEqual([
+      '/weldbooks/invoices',
+      '/weldbooks/quotes',
+      '/weldbooks/time/unbilled',
+      '/weldbooks/recurring',
+    ]);
+    const unbilled = sales?.items.find((item) => item.href === '/weldbooks/time/unbilled');
+    expect(unbilled?.title).toBe('Unbilled time');
+    // No summary call exists for the hours of all customers: no badge, and no extra request per customer.
+    expect(unbilled?.badge).toBeUndefined();
   });
 });
 

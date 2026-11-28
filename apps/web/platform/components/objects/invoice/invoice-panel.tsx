@@ -103,7 +103,6 @@ function InvoiceTabBody({
           <InvoiceSalesSections
             invoice={invoice}
             isCreditMemo={caps.isCreditMemo}
-            onSend={() => workflow.setSendOpen(true)}
             onOpenPayments={onOpenPayments}
           />
           <InvoiceDetailsTab

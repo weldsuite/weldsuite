@@ -181,10 +181,10 @@ export const platformSyncMap: EntitySyncMap = {
   // cross-screen sync covers every task surface. The RAID root too: an item's
   // mitigation progress and its linked tasks come from the task's status.
   project_task: inv(projectKeys.all, taskKeys.all, ['app-api', 'task-panel'], raidKeys.all, scheduleKeys.all, governanceKeys.all),
-  project_time_entry: inv(projectKeys.all),
+  project_time_entry: inv(projectKeys.all, ['accounting', 'time-billing']),
   project_timesheet: inv(['timesheets'], projectKeys.all),
   project_label: inv(['app-api', 'task-panel', 'labels'], projectKeys.all),
-  time_entry: { invalidate: [projectKeys.all] },
+  time_entry: { invalidate: [projectKeys.all, ['accounting', 'time-billing']] },
   // project_pipeline_stage — intentional omit (see intentional-omits.ts).
 
   task: {
@@ -300,23 +300,30 @@ export const platformSyncMap: EntitySyncMap = {
   // =========================================================================
   // Prefer targeted prefixes over bare ['accounting'] so WMS-style latency-
   // sensitive screens aren't forced to share an over-broad root.
+  // The contact page (edition feature books-contact-page) keeps its figures, timeline and document lists under
+  // ['accounting', 'customers', 'detail', <id>], and the unbilled time (books-time-billing) under
+  // ['accounting', 'time-billing']: an invoice, a bill or a payment changes both.
   invoice: inv(
     ['accounting', 'invoices'],
     ['accounting', 'payments'],
     ['accounting', 'dashboard'],
     ['accounting', 'reports'],
+    ['accounting', 'customers', 'detail'],
+    ['accounting', 'time-billing'],
   ),
   bill: inv(
     ['accounting', 'bills'],
     ['accounting', 'payments'],
     ['accounting', 'dashboard'],
     ['accounting', 'documents'],
+    ['accounting', 'customers', 'detail'],
   ),
   payment: inv(
     ['accounting', 'payments'],
     ['accounting', 'invoices'],
     ['accounting', 'bills'],
     ['accounting', 'dashboard'],
+    ['accounting', 'customers', 'detail'],
   ),
   account: inv(['accounting', 'accounts']),
   accounting_contact: inv(['accounting', 'customers']),
@@ -324,7 +331,7 @@ export const platformSyncMap: EntitySyncMap = {
   accounting_document: inv(['accounting', 'documents'], ['accounting', 'bills'], ['accounting', 'bank-transactions'], ['accounting', 'payments']),
   accounting_settings: inv(['accounting', 'settings']),
   bank_account: inv(['accounting', 'bank-accounts']),
-  bank_transaction: inv(['accounting', 'bank-transactions']),
+  bank_transaction: inv(['accounting', 'bank-transactions'], ['accounting', 'customers', 'detail']),
   // Posting a journal entry changes account balances → invalidate both.
   journal_entry: inv(['accounting', 'journal-entries'], ['accounting', 'accounts']),
   reconciliation_rule: inv(['accounting', 'reconciliation-rules']),
@@ -373,7 +380,7 @@ export const platformSyncMap: EntitySyncMap = {
   // SEPA batches (edition feature books-sepa-batches): the bills show "payment pending" with them.
   payment_batch: inv(['accounting', 'payment-batches'], ['accounting', 'bills']),
   // Quotes (edition feature books-quotes): the list, and the invoices made from them.
-  quote: inv(['accounting', 'quotes'], ['accounting', 'invoices']),
+  quote: inv(['accounting', 'quotes'], ['accounting', 'invoices'], ['accounting', 'customers', 'detail']),
   // The entity's Mollie connection (edition feature books-online-payments).
   payment_connection: inv(['accounting', 'payment-connections'], ['accounting', 'bank-accounts']),
   fixed_asset: inv(['accounting', 'fixed-assets']),
