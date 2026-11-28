@@ -1532,3 +1532,53 @@ async fn a_provider_account_is_never_the_default_bank() {
             .unwrap();
     assert_eq!(picked.as_deref(), Some(ledger.as_str()));
 }
+
+// ── the PDF ─────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn the_pdf_carries_the_pay_link_only_when_online_payment_is_set_up() {
+    use crate::delivery::view::invoice_document;
+    use crate::delivery::{attach_pay_link, history_of, link_nonce};
+    let Some(env) = env().await else {
+        return;
+    };
+    let db = &env.world.db;
+    let now = weldsuite_books_domain::http::now_ms();
+    // The PDF's model of invoice `id`, with the pay link attached when it applies.
+    let document = |id: String| {
+        let (env, db) = (&env, db);
+        async move {
+            let row = load_invoice(db, &id).await.unwrap().unwrap();
+            let items = crate::finalize::load_items(db, &id, true).await.unwrap();
+            let mut doc = invoice_document(db, &env.books.keyring, &row, &items, now)
+                .await
+                .unwrap()
+                .unwrap();
+            attach_pay_link(&env.books, db, WORKSPACE, &row, None, &mut doc)
+                .await
+                .unwrap();
+            doc
+        }
+    };
+    let (id, _) = sent_invoice(&env).await;
+
+    // Mollie is not connected: no link, even with a public link.
+    document_uri(&env, &id).await;
+    assert!(document(id.clone()).await.pdf.pay_link.is_none());
+
+    // Connected, with the invoice's public link: the PDF says where to pay.
+    connect_key(&env, "test_pdfkey123").await;
+    let link = document(id.clone()).await.pdf.pay_link.expect("a pay link");
+    assert_eq!(link.label, "Online betalen:");
+    assert!(
+        link.url.starts_with(&format!("{PORTAL}/d/")),
+        "{}",
+        link.url
+    );
+
+    // Connected, but the invoice has no public link yet: none is made here.
+    let (other, _) = sent_invoice(&env).await;
+    assert!(document(other.clone()).await.pdf.pay_link.is_none());
+    let row = load_invoice(db, &other).await.unwrap().unwrap();
+    assert!(link_nonce(&history_of(&row)).is_none());
+}

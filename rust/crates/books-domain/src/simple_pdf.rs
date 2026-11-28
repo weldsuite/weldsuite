@@ -69,6 +69,27 @@ pub struct DocumentPdf {
     pub balance_due: Option<String>,
     pub notes: Option<String>,
     pub payment_lines: Vec<String>,
+    /// A QR code with the payment details (the SEPA transfer of an invoice).
+    pub qr: Option<PdfQr>,
+    /// The pay-online link under the payment details.
+    pub pay_link: Option<PdfLink>,
+}
+
+/// A QR code and what to say under it.
+#[derive(Debug, Clone)]
+pub struct PdfQr {
+    /// The text the code holds ([`crate::epc::payload`]).
+    pub payload: String,
+    /// "Scan to pay with your banking app".
+    pub caption: String,
+}
+
+/// A clickable link with its lead-in.
+#[derive(Debug, Clone)]
+pub struct PdfLink {
+    /// "Pay online:".
+    pub label: String,
+    pub url: String,
 }
 
 /// Helvetica's width of `ch` in thousandths of the font size (close, not
@@ -141,9 +162,18 @@ fn wrap(text: &str, max: f64, size: f64) -> Vec<String> {
     lines
 }
 
+/// A clickable rectangle (`x1 y1 x2 y2`) and where it leads.
+type Link = ([f64; 4], String);
+
 #[derive(Default)]
+#[allow(
+    clippy::struct_field_names,
+    reason = "the pages' content streams and their links go side by side"
+)]
 struct Pages {
     pages: Vec<String>,
+    /// The link annotations of each page, as `pages`.
+    links: Vec<Vec<Link>>,
     y: f64,
 }
 
@@ -151,6 +181,7 @@ impl Pages {
     fn new() -> Self {
         Self {
             pages: vec![String::new()],
+            links: vec![Vec::new()],
             y: HEIGHT - MARGIN,
         }
     }
@@ -162,8 +193,55 @@ impl Pages {
     fn break_if(&mut self, needed: f64) {
         if self.y - needed < MARGIN {
             self.pages.push(String::new());
+            self.links.push(Vec::new());
             self.y = HEIGHT - MARGIN;
         }
+    }
+
+    /// `text` in link blue with an annotation to `url`.
+    fn link(&mut self, x: f64, y: f64, size: f64, text: &str, url: &str) {
+        let end = x + width(text, size);
+        let _ = writeln!(
+            self.page(),
+            "0.05 0.3 0.75 rg BT /F1 {size:.1} Tf {x:.2} {y:.2} Td {} Tj ET 0 g",
+            literal(text)
+        );
+        if let Some(links) = self.links.last_mut() {
+            links.push(([x, y - 2.0, end, y + size], url.to_owned()));
+        }
+    }
+
+    /// The dark modules of `matrix` as filled rectangles in a square `side`
+    /// points wide, its top left corner at `x`, `top`.
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "a QR code has under 200 modules"
+    )]
+    fn qr(&mut self, x: f64, top: f64, side: f64, matrix: &[Vec<bool>]) {
+        let module = side / matrix.len().max(1) as f64;
+        let mut ops = String::from("0 g\n");
+        for (row, modules) in matrix.iter().enumerate() {
+            let mut col = 0;
+            while col < modules.len() {
+                if !modules[col] {
+                    col += 1;
+                    continue;
+                }
+                let start = col;
+                while col < modules.len() && modules[col] {
+                    col += 1;
+                }
+                let _ = writeln!(
+                    ops,
+                    "{:.3} {:.3} {:.3} {module:.3} re",
+                    x + start as f64 * module,
+                    top - (row + 1) as f64 * module,
+                    (col - start) as f64 * module
+                );
+            }
+        }
+        ops.push_str("f\n");
+        self.page().push_str(&ops);
     }
 
     fn text(&mut self, x: f64, y: f64, size: f64, bold: bool, text: &str) {
@@ -311,10 +389,69 @@ pub fn render(doc: &DocumentPdf) -> Vec<u8> {
         p.y -= 8.0;
     };
     block(&mut p, &doc.labels.payment, &doc.payment_lines);
+    if let Some(qr) = &doc.qr {
+        let matrix = crate::epc::matrix(&qr.payload);
+        if !matrix.is_empty() {
+            // A quiet zone of four modules stays blank around the code; the
+            // page is white.
+            let side = QR_SIDE;
+            p.break_if(side + 16.0);
+            let top = p.y;
+            p.qr(MARGIN, top, side, &matrix);
+            for (i, part) in wrap(&qr.caption, WIDTH - 2.0 * MARGIN - side - 20.0, 9.5)
+                .iter()
+                .enumerate()
+            {
+                #[allow(clippy::cast_precision_loss)]
+                p.text(
+                    MARGIN + side + 14.0,
+                    top - 14.0 - i as f64 * 12.0,
+                    9.5,
+                    false,
+                    part,
+                );
+            }
+            p.y = top - side - 14.0;
+        }
+    }
+    if let Some(link) = &doc.pay_link {
+        let max = WIDTH - 2.0 * MARGIN;
+        let parts = url_lines(&link.url, max, 9.0);
+        #[allow(clippy::cast_precision_loss)]
+        p.break_if(16.0 + parts.len() as f64 * 12.0);
+        let y = p.y;
+        p.text(MARGIN, y, 9.5, true, &link.label);
+        p.y -= 13.0;
+        for part in &parts {
+            let y = p.y;
+            p.link(MARGIN, y, 9.0, part, &link.url);
+            p.y -= 12.0;
+        }
+        p.y -= 8.0;
+    }
     if let Some(notes) = &doc.notes {
         block(&mut p, &doc.labels.notes, std::slice::from_ref(notes));
     }
-    assemble(&p.pages)
+    assemble(&p.pages, &p.links)
+}
+
+/// The side of the QR code, including nothing of its quiet zone.
+const QR_SIDE: f64 = 92.0;
+
+/// `url` cut into lines that fit `max` points: a link has no spaces to wrap at.
+fn url_lines(url: &str, max: f64, size: f64) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for ch in url.chars() {
+        if !line.is_empty() && width(&format!("{line}{ch}"), size) > max {
+            lines.push(std::mem::take(&mut line));
+        }
+        line.push(ch);
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
 }
 
 /// One open item on a statement.
@@ -441,12 +578,13 @@ pub fn render_statement(doc: &StatementPdf) -> Vec<u8> {
         p.right(right, y, 11.0, true, total);
         p.y -= 15.0;
     }
-    assemble(&p.pages)
+    assemble(&p.pages, &p.links)
 }
 
-fn assemble(pages: &[String]) -> Vec<u8> {
+fn assemble(pages: &[String], links: &[Vec<Link>]) -> Vec<u8> {
     // Objects: 1 catalog, 2 pages, 3 and 4 fonts, then a content and a page
-    // object per page.
+    // object per page, then the link annotations.
+    let mut next_annotation = 5 + pages.len() * 2;
     let mut objects: Vec<String> = Vec::new();
     objects.push("<< /Type /Catalog /Pages 2 0 R >>".to_owned());
     let kids: Vec<String> = (0..pages.len())
@@ -472,8 +610,24 @@ fn assemble(pages: &[String]) -> Vec<u8> {
             content.len()
         ));
         debug_assert_eq!(objects.len(), content_id);
+        let page_links = links.get(i).map_or(&[][..], Vec::as_slice);
+        let annots = if page_links.is_empty() {
+            String::new()
+        } else {
+            let ids: Vec<String> = (next_annotation..next_annotation + page_links.len())
+                .map(|id| format!("{id} 0 R"))
+                .collect();
+            next_annotation += page_links.len();
+            format!(" /Annots [{}]", ids.join(" "))
+        };
         objects.push(format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {WIDTH} {HEIGHT}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents {content_id} 0 R >>"
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {WIDTH} {HEIGHT}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents {content_id} 0 R{annots} >>"
+        ));
+    }
+    for ([x1, y1, x2, y2], url) in links.iter().flatten() {
+        objects.push(format!(
+            "<< /Type /Annot /Subtype /Link /Rect [{x1:.2} {y1:.2} {x2:.2} {y2:.2}] /Border [0 0 0] /A << /S /URI /URI {} >> >>",
+            literal(url)
         ));
     }
     let mut out: Vec<u8> = b"%PDF-1.4\n".to_vec();
@@ -550,7 +704,60 @@ mod tests {
             balance_due: Some("121.00".into()),
             notes: Some("Bedankt".into()),
             payment_lines: vec!["IBAN NL00 TEST 0000 0000 00".into()],
+            qr: None,
+            pay_link: None,
         }
+    }
+
+    const PAY_URL: &str = "https://pay.example.org/d/eyJ2IjoxLCJ3cyI6IndzXzEyMzQ1Njc4OTAxMiIsInQiOiJpbnZvaWNlIiwiaWQiOiJpbnZfYWJjZGVmZ2hpamtsbW5vcHFyc3QiLCJuIjoibm9uY2Vub25jZW5vbmNlIn0.c2lnbmF0dXJlc2lnbmF0dXJlc2lnbmF0dXJlc2lnbmF0dXJl";
+
+    #[test]
+    fn a_qr_code_is_drawn_only_when_given() {
+        let plain = String::from_utf8_lossy(&render(&doc(1))).into_owned();
+        assert!(!plain.contains(" re\n"));
+        let mut with = doc(1);
+        with.qr = Some(PdfQr {
+            payload: "BCD\n002\n1\nSCT\n\nAcme\nNL91ABNA0417164300\nEUR121.00\n\n\nF-1".into(),
+            caption: "Scan om te betalen met je bank-app".into(),
+        });
+        let bytes = render(&with);
+        let text = String::from_utf8_lossy(&bytes);
+        // Filled rectangles, one fill, and the caption.
+        assert!(text.matches(" re\n").count() > 50);
+        assert!(text.contains("Scan om te betalen met je bank-app"));
+        assert!(text.contains("\nf\n"));
+    }
+
+    #[test]
+    fn a_pay_link_is_a_clickable_annotation() {
+        let none = String::from_utf8_lossy(&render(&doc(1))).into_owned();
+        assert!(!none.contains("/Subtype /Link"));
+        assert!(!none.contains("/Annots"));
+        let mut with = doc(1);
+        with.pay_link = Some(PdfLink {
+            label: "Online betalen:".into(),
+            url: PAY_URL.into(),
+        });
+        let bytes = render(&with);
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("(Online betalen:)"));
+        assert!(text.contains("/Subtype /Link"));
+        assert!(text.contains(&format!("/URI ({PAY_URL})")));
+        assert!(text.contains("/Annots ["));
+        // The long link wraps over lines inside the margins, one annotation each.
+        assert!(text.matches("/Subtype /Link").count() >= 2);
+        // Offsets still match with annotation objects after the pages.
+        let xref: usize = text
+            .rsplit("startxref\n")
+            .next()
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let first: usize = text[xref..].lines().nth(3).unwrap()[..10].parse().unwrap();
+        assert!(text[first..].starts_with("1 0 obj"));
     }
 
     #[test]

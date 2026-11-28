@@ -66,6 +66,7 @@ pub mod email_history;
 pub mod email_templates;
 pub mod entity_context;
 pub mod entity_settings;
+pub mod epc;
 pub mod fiscal_year;
 pub mod form_1099;
 pub mod fx;

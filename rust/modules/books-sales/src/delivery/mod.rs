@@ -180,6 +180,43 @@ pub(crate) async fn invoice_token(
     ))
 }
 
+/// Put the "pay online" link on the PDF of an open invoice, when the invoice
+/// has a current public link and the customer can pay it online (Mollie
+/// connected with methods). `url` is the link when the caller has just made
+/// it; otherwise it is built from the invoice's current link nonce. A link is
+/// never created here.
+pub(crate) async fn attach_pay_link(
+    state: &BooksState,
+    db: &PgPool,
+    workspace_id: &str,
+    invoice: &Value,
+    url: Option<&str>,
+    doc: &mut view::Document,
+) -> Result<(), DbErr> {
+    if doc.pdf.balance_due.is_none()
+        || !crate::online_payments::pay::online_ready(state, db, invoice).await?
+    {
+        return Ok(());
+    }
+    let url = if let Some(url) = url {
+        url.to_owned()
+    } else {
+        let Some(links) = Links::of(state) else {
+            return Ok(());
+        };
+        let Some(nonce) = link_nonce(&history_of(invoice)) else {
+            return Ok(());
+        };
+        let id = text(invoice, "id").unwrap_or_default();
+        links.url(&document_token::sign(
+            &links.secret,
+            &DocumentToken::new(workspace_id, "invoice", id, &nonce),
+        ))
+    };
+    doc.pdf.pay_link = Some(view::pay_link(doc.locale, url));
+    Ok(())
+}
+
 /// The public token of a quote sent at `sent_at_millis`.
 pub(crate) fn quote_token(
     secret: &[u8],
@@ -412,7 +449,8 @@ pub(crate) async fn mail_invoices(
     for invoice in &request.invoices {
         let id = text(invoice, "id").unwrap_or_default();
         let items = load_items(db, id, true).await?;
-        let Some(doc) = view::invoice_document(db, &state.keyring, invoice, &items, now_ms).await?
+        let Some(mut doc) =
+            view::invoice_document(db, &state.keyring, invoice, &items, now_ms).await?
         else {
             return Err(DeliveryError::Database(DbErr::RecordNotFound(
                 "entity".into(),
@@ -424,6 +462,9 @@ pub(crate) async fn mail_invoices(
             }
             None => None,
         };
+        if request.attach_pdf {
+            attach_pay_link(state, db, workspace_id, invoice, url.as_deref(), &mut doc).await?;
+        }
         prepared.push((doc, url));
     }
     let refs: Vec<(&view::Document, Option<String>)> =

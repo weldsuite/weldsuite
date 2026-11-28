@@ -566,7 +566,12 @@ config:
 #   MOLLIE_CONNECT_CLIENT_SECRET its secret (both or neither; optional): lets a workspace
 #                                connect its own Mollie account by OAuth. Its redirect URI is
 #                                https://app.<domain>/api/commerce-payments/connection/mollie/callback.
-#                                Unset: a workspace connects with its own API key instead
+#                                Unset: a workspace connects with its own API key instead.
+#                                WeldBooks' entities connect the same way with this app: register
+#                                https://app.<domain>/public/weldbooks/mollie/callback as well
+#                                (both redirect URIs on the Connect app)
+#   BOOKS_DOCUMENT_TOKEN_SECRET  WeldBooks' document links and Mollie webhook references are signed
+#                                with it (optional: unset, derived from the field encryption key)
 #   APNS_KEY_ID / APNS_TEAM_ID / APNS_PRIVATE_KEY  WeldChat's call ring on iPhones: an APNs auth
 #                                key of the Apple team that owns the WeldChat app (its key id, the
 #                                team id and the .p8 PEM), for Apple's VoIP push that makes CallKit

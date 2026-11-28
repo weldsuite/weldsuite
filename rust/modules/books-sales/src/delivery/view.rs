@@ -11,13 +11,51 @@ use weldsuite_books_domain::accounting_entity::load_invoice_entity;
 use weldsuite_books_domain::address::{format_postal_address_lines, normalize_postal_address};
 use weldsuite_books_domain::contacts::load_contact_snapshot;
 use weldsuite_books_domain::email_templates::locale_of;
+use weldsuite_books_domain::epc::{self, EpcTransfer};
 use weldsuite_books_domain::js::millis_of;
 use weldsuite_books_domain::reminders::{cents_text, parse_cents};
-use weldsuite_books_domain::simple_pdf::{DocumentPdf, PdfLabels, PdfLine, PdfParty};
+use weldsuite_books_domain::simple_pdf::{
+    DocumentPdf, PdfLabels, PdfLine, PdfLink, PdfParty, PdfQr,
+};
 use weldsuite_db::{Keyring, PgPool, orm};
 use weldsuite_schema::tenant::{companies, parties, people};
 
 use crate::persist::{owned, text};
+
+/// The SEPA transfer QR code of an open invoice: euro only, the seller has an
+/// IBAN and something is left to pay.
+fn epc_qr(
+    currency: &str,
+    seller: &str,
+    iban: Option<&str>,
+    bic: Option<&str>,
+    balance: &str,
+    number: &str,
+    caption: &str,
+) -> Option<PdfQr> {
+    if !currency.eq_ignore_ascii_case("EUR") {
+        return None;
+    }
+    let payload = epc::payload(&EpcTransfer {
+        name: seller,
+        iban: iban?,
+        bic,
+        amount_cents: cents(balance),
+        remittance: number,
+    })?;
+    Some(PdfQr {
+        payload,
+        caption: caption.to_owned(),
+    })
+}
+
+/// The "pay online" line of an invoice's PDF, in the document's language.
+pub(crate) fn pay_link(locale: &str, url: String) -> PdfLink {
+    PdfLink {
+        label: words(locale).pay_online.to_owned(),
+        url,
+    }
+}
 
 /// An invoice or quote ready to show.
 pub(crate) struct Document {
@@ -260,6 +298,10 @@ struct Words {
     registration: &'static str,
     pay_to: &'static str,
     pay_ref: &'static str,
+    /// Under the SEPA QR code.
+    scan_to_pay: &'static str,
+    /// Before the pay link.
+    pay_online: &'static str,
     terms_days: fn(i64) -> String,
 }
 
@@ -292,6 +334,8 @@ fn words(locale: &str) -> Words {
             registration: "KvK-nummer",
             pay_to: "Maak het bedrag over naar IBAN",
             pay_ref: "onder vermelding van",
+            scan_to_pay: "Scan om te betalen met je bank-app",
+            pay_online: "Online betalen:",
             terms_days: |n| format!("Betaling binnen {n} dagen"),
         }
     } else {
@@ -322,6 +366,8 @@ fn words(locale: &str) -> Words {
             registration: "Registration number",
             pay_to: "Please transfer the amount to IBAN",
             pay_ref: "quoting",
+            scan_to_pay: "Scan to pay with your banking app",
+            pay_online: "Pay online:",
             terms_days: |n| format!("Payment within {n} days"),
         }
     }
@@ -528,6 +574,20 @@ fn assemble(parts: Parts<'_>) -> Document {
         balance_due: open_invoice.then(|| money_of(&balance)),
         notes: notes.clone(),
         payment_lines,
+        qr: if open_invoice {
+            epc_qr(
+                &currency,
+                &company_name,
+                iban.as_deref(),
+                filled(&bank, "bic").as_deref(),
+                &balance,
+                &number,
+                w.scan_to_pay,
+            )
+        } else {
+            None
+        },
+        pay_link: None,
     };
     let amount = if kind == "invoice" && status != "paid" {
         &balance
@@ -829,6 +889,42 @@ mod tests {
     use super::*;
 
     const NOW: i64 = 1_795_000_000_000;
+
+    #[test]
+    fn the_sepa_qr_needs_euro_an_iban_and_a_balance() {
+        let qr = |currency, iban, balance| {
+            epc_qr(
+                currency,
+                "Acme B.V.",
+                iban,
+                None,
+                balance,
+                "F-1",
+                "Scan to pay",
+            )
+        };
+        let iban = Some("NL91 ABNA 0417 1643 00");
+        let made = qr("EUR", iban, "121.00").unwrap();
+        assert!(made.payload.contains("\nEUR121.00\n"));
+        assert!(made.payload.ends_with("\nF-1"));
+        assert_eq!(made.caption, "Scan to pay");
+        assert!(qr("eur", iban, "5").is_some());
+        assert!(qr("GBP", iban, "121.00").is_none());
+        assert!(qr("EUR", None, "121.00").is_none());
+        assert!(qr("EUR", Some("NL00 0000"), "121.00").is_none());
+        assert!(qr("EUR", iban, "0.00").is_none());
+        assert!(qr("EUR", iban, "-10").is_none());
+    }
+
+    #[test]
+    fn the_pay_link_speaks_the_documents_language() {
+        assert_eq!(pay_link("nl", "https://x".into()).label, "Online betalen:");
+        assert_eq!(pay_link("en", "https://x".into()).label, "Pay online:");
+        assert_eq!(
+            words("nl").scan_to_pay,
+            "Scan om te betalen met je bank-app"
+        );
+    }
 
     #[test]
     fn decimals_follow_the_contract() {

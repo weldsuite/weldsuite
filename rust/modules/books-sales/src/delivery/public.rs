@@ -444,7 +444,20 @@ async fn pdf(
         Ok(opened) => opened,
         Err(response) => return response,
     };
-    match build(&opened, &state.books, now_ms()).await {
+    let built = match build(&opened, &state.books, now_ms()).await {
+        Ok(Some(mut doc)) if opened.token.t == "invoice" => super::attach_pay_link(
+            &state.books,
+            &opened.db,
+            &opened.token.ws,
+            &opened.row,
+            None,
+            &mut doc,
+        )
+        .await
+        .map(|()| Some(doc)),
+        other => other,
+    };
+    match built {
         Ok(Some(doc)) => {
             let safe: String = doc
                 .number

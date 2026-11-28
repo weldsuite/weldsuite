@@ -143,6 +143,30 @@ pub(crate) async fn document_payment(
     })))
 }
 
+/// Whether the customer can pay `invoice` online: the entity has Mollie
+/// connected with methods, the install can take the payment and the invoice is
+/// open in a currency Mollie takes. What the public page offers as `enabled`,
+/// and when the invoice's PDF carries the pay link.
+pub(crate) async fn online_ready(
+    books: &BooksState,
+    db: &PgPool,
+    invoice: &Value,
+) -> Result<bool, sea_orm::DbErr> {
+    if !payable(invoice) || !SUPPORTED_CURRENCIES.contains(&currency_of(invoice).as_str()) {
+        return Ok(false);
+    }
+    let settings = Settings::of(books);
+    if settings.public_url.is_none() || settings.secret.is_none() {
+        return Ok(false);
+    }
+    let Some(entity) = text(invoice, "entityId") else {
+        return Ok(false);
+    };
+    Ok(connection::connected(&orm(db), entity)
+        .await?
+        .is_some_and(|conn| !methods_of(&conn).is_empty()))
+}
+
 /// How a pay request ended.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Outcome {
