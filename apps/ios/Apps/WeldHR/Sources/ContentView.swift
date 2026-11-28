@@ -128,7 +128,7 @@ struct ContentView: View {
             }
             if tabs.announcements {
                 stack(.announcements) { AnnouncementsView() }
-                    .tabItem { Label(HRStrings.tabsAnnouncements, systemImage: "megaphone") }
+                    .tabItem { Label(HRStrings.tabsNews, systemImage: "megaphone") }
                     .tag(HRTab.announcements)
                     .badge(ready ? store.announcements.data?.unread ?? 0 : 0)
                     .accessibilityIdentifier("tab-announcements")

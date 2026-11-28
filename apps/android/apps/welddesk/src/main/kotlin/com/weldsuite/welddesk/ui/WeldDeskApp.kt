@@ -39,6 +39,7 @@ import org.weldsuite.core.AppEnvironment
 import org.weldsuite.core.SessionState
 import org.weldsuite.push.NotificationPermissionRequest
 import org.weldsuite.push.WeldPush
+import org.weldsuite.ui.TabLabel
 import org.weldsuite.ui.AppearancePreference
 import org.weldsuite.ui.ToastHost
 import org.weldsuite.ui.Toaster
@@ -166,7 +167,7 @@ private fun TabBar(nav: NavHostController) {
                     }
                 },
                 icon = { Icon(tab.icon, contentDescription = null) },
-                label = { Text(stringResource(tab.label)) },
+                label = { TabLabel(stringResource(tab.label)) },
                 modifier = Modifier.tagged(tab.tag),
             )
         }

@@ -791,6 +791,8 @@ enum HRStrings {
     static var tabsExpenses: String { tr("tabs.expenses") }
     /// Home
     static var tabsHome: String { tr("tabs.home") }
+    /// News
+    static var tabsNews: String { tr("tabs.news") }
     /// Schedule
     static var tabsSchedule: String { tr("tabs.schedule") }
     /// For {role}

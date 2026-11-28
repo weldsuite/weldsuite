@@ -507,6 +507,7 @@
     <string name="weldchat_tabs_activity">Activity</string>
     <string name="weldchat_tabs_calls">Calls</string>
     <string name="weldchat_tabs_direct_messages">Direct messages</string>
+    <string name="weldchat_tabs_dms">DMs</string>
     <string name="weldchat_tabs_home">Home</string>
     <string name="weldchat_thread_reply_failed">Reply failed to send</string>
     <string name="weldchat_thread_reply_placeholder">Reply...</string>

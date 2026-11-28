@@ -416,6 +416,7 @@
     <string name="weldhr_tabs_announcements">Announcements</string>
     <string name="weldhr_tabs_expenses">Expenses</string>
     <string name="weldhr_tabs_home">Home</string>
+    <string name="weldhr_tabs_news">News</string>
     <string name="weldhr_tabs_schedule">Schedule</string>
     <string name="weldhr_tasks_assigned_to">For %1$s</string>
     <string name="weldhr_tasks_checklist_done">Checklist complete</string>

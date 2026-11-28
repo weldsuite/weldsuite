@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /** A spinner in the middle of the available space. */
@@ -97,3 +98,12 @@ fun EmptyState(title: String, description: String? = null, modifier: Modifier = 
 
 /** A test tag, for Maestro (`id:`) and Compose tests, when one is given. */
 fun Modifier.tagged(tag: String?): Modifier = if (tag == null) this else testTag(tag)
+
+/**
+ * A bottom-bar label: one line, cut with an ellipsis, so a long label (or its
+ * Dutch translation) never wraps and pushes its tab out of line with the others.
+ */
+@Composable
+fun TabLabel(text: String) {
+    Text(text, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+}

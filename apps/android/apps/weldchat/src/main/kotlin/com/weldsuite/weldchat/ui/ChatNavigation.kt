@@ -17,7 +17,7 @@ import com.weldsuite.weldchat.R
 /** The tabs: Home, Direct messages, Activity and (where the server has calls) Calls. */
 enum class ChatTab(val route: String, val label: Int, val icon: ImageVector, val tag: String) {
     HOME("home", R.string.weldchat_tabs_home, Icons.Filled.Home, "tab-home"),
-    DMS("dms", R.string.weldchat_tabs_direct_messages, Icons.AutoMirrored.Filled.Chat, "tab-dms"),
+    DMS("dms", R.string.weldchat_tabs_dms, Icons.AutoMirrored.Filled.Chat, "tab-dms"),
     ACTIVITY("activity", R.string.weldchat_tabs_activity, Icons.Filled.AlternateEmail, "tab-activity"),
     CALLS("calls", R.string.weldchat_tabs_calls, Icons.Filled.Call, "tab-calls"),
     ;

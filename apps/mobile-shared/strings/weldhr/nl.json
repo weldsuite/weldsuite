@@ -20,7 +20,8 @@
     "schedule": "Rooster",
     "absence": "Afwezigheid",
     "expenses": "Declaraties",
-    "announcements": "Mededelingen"
+    "announcements": "Mededelingen",
+    "news": "Nieuws"
   },
   "notLinked": {
     "title": "Nog geen medewerkersdossier",

@@ -20,7 +20,8 @@
     "schedule": "Schedule",
     "absence": "Absence",
     "expenses": "Expenses",
-    "announcements": "Announcements"
+    "announcements": "Announcements",
+    "news": "News"
   },
   "notLinked": {
     "title": "No employee record yet",
