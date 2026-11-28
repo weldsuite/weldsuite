@@ -83,6 +83,35 @@ where
             "/{id}/status",
             patch(actions::status).route_layer(need("invoices:update")),
         )
+        // Rust only (edition feature `books-invoice-email`): e-mail the
+        // invoice with its public link and PDF; revoke the link.
+        .route(
+            "/{id}/email",
+            post(crate::delivery::email::invoice).route_layer(need("invoices:update")),
+        )
+        .route(
+            "/{id}/public-link",
+            axum::routing::delete(crate::delivery::email::revoke_invoice_link)
+                .route_layer(need("invoices:update")),
+        )
+        // Rust only (edition feature `books-reminders`).
+        .route(
+            "/{id}/remind",
+            post(crate::reminders::remind).route_layer(need("invoices:update")),
+        )
+        .route(
+            "/remind-bulk",
+            post(crate::reminders::remind_bulk).route_layer(need("invoices:update")),
+        )
+        .route(
+            "/{id}/reminders",
+            patch(crate::reminders::pause).route_layer(need("invoices:update")),
+        )
+        // Rust only (edition feature `books-quotes`).
+        .route(
+            "/from-quote/{quote_id}",
+            post(crate::quotes::from_quote).route_layer(need("invoices:create")),
+        )
         .route(
             "/{id}/finalize",
             post(actions::finalize).route_layer(need("invoices:update")),

@@ -208,12 +208,18 @@ pub struct Model {
     pub reminders_paused: bool,
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref, reason = "serde's skip_serializing_if signature")]
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if signature"
+)]
 fn is_zero(value: &i32) -> bool {
     *value == 0
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref, reason = "serde's skip_serializing_if signature")]
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if signature"
+)]
 fn is_false(value: &bool) -> bool {
     !*value
 }

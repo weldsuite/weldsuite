@@ -69,6 +69,30 @@ where
                 .patch(update_differences)
                 .route_layer(need("accounts:update")),
         )
+        // Rust only (edition feature `books-invoice-email`): the entity's e-mail
+        // texts for invoices, quotes, reminders and credit notes.
+        .route(
+            "/email-templates",
+            get(read_email_templates).route_layer(need("accounts:read")),
+        )
+        .route(
+            "/email-templates",
+            axum::routing::put(update_email_templates)
+                .patch(update_email_templates)
+                .route_layer(need("accounts:update")),
+        )
+        // Rust only (edition feature `books-reminders`): the entity's reminder
+        // workflow and (NL) statutory collection costs.
+        .route(
+            "/reminders",
+            get(read_reminders).route_layer(need("accounts:read")),
+        )
+        .route(
+            "/reminders",
+            axum::routing::put(update_reminders)
+                .patch(update_reminders)
+                .route_layer(need("accounts:update")),
+        )
         .route("/inbox", post(inbox).route_layer(need("accounts:update")))
         .route(
             "/seed-workflows",
@@ -508,6 +532,175 @@ async fn update_differences(
     )
 }
 
+// ── GET|PUT|PATCH /email-templates ──────────────────────────────────────────
+
+/// The entity's whole `jurisdictionSettings` and its jurisdiction.
+async fn entity_settings_row(
+    caller: &Caller,
+    entity_id: &str,
+) -> Result<(Option<Value>, bool), Refusal> {
+    let entity = weldsuite_books_domain::document_posting::load_entity(&caller.db, entity_id)
+        .await
+        .map_err(|error| Refusal::Internal(error.to_string()))?;
+    let nl = entity.get("jurisdictionCode").and_then(Value::as_str) == Some("NL");
+    Ok((entity.get("jurisdictionSettings").cloned(), nl))
+}
+
+fn templates_answer(entity_id: &str, settings: Option<&Value>) -> Response {
+    use weldsuite_books_domain::email_templates as t;
+    ok(json!({
+        "entityId": entity_id,
+        "kinds": t::KINDS,
+        "locales": t::LOCALES,
+        "placeholders": t::PLACEHOLDERS,
+        "templates": t::view(settings),
+    }))
+}
+
+async fn read_email_templates(caller: Caller) -> Response {
+    reply(
+        async {
+            let Some(entity_id) = resolve_entity_id(&caller).await? else {
+                return Err(Refusal::bad_request("No accounting entity resolved"));
+            };
+            let (settings, _) = entity_settings_row(&caller, &entity_id).await?;
+            Ok(templates_answer(&entity_id, settings.as_ref()))
+        }
+        .await,
+        "Failed to fetch the e-mail templates",
+    )
+}
+
+/// `{ templates: { <kind>: { <locale>: { subject, body } | null } } }`.
+async fn update_email_templates(
+    caller: Caller,
+    State(state): State<BooksState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    reply(
+        async {
+            let body = weldsuite_books_domain::http::json_of(&headers, &body)?;
+            let patch = body
+                .get("templates")
+                .and_then(Value::as_object)
+                .ok_or_else(|| Refusal::bad_request("templates is required"))?;
+            let Some(entity_id) = resolve_entity_id(&caller).await? else {
+                return Err(Refusal::bad_request("No accounting entity resolved"));
+            };
+            let (settings, _) = entity_settings_row(&caller, &entity_id).await?;
+            let next = weldsuite_books_domain::email_templates::merged(settings.as_ref(), patch)
+                .map_err(Refusal::bad_request)?;
+            weldsuite_books_domain::differences::store(&caller.db, &entity_id, &next).await?;
+            let mut changes = Map::new();
+            for kind in patch.keys() {
+                changes.insert(format!("emailTemplates.{kind}"), change(Value::Null, json!("updated")));
+            }
+            write_accounting_audit(
+                &caller,
+                &caller.db,
+                AuditInput {
+                    accounting_entity_id: Some(&entity_id),
+                    entity_type: "accounting_settings",
+                    entity_id: &entity_id,
+                    action: "updated",
+                    changes: Some(changes),
+                },
+            )
+            .await;
+            caller.publish(
+                &state,
+                ACCOUNTING_SETTINGS_UPDATED,
+                &entity_id,
+                json!({ "entityId": entity_id, "emailTemplates": patch.keys().collect::<Vec<_>>() }),
+            );
+            Ok(templates_answer(&entity_id, Some(&next)))
+        }
+        .await,
+        "Failed to update the e-mail templates",
+    )
+}
+
+// ── GET|PUT|PATCH /reminders ────────────────────────────────────────────────
+
+fn reminders_answer(entity_id: &str, settings: Option<&Value>, nl: bool) -> Response {
+    use weldsuite_books_domain::reminders as r;
+    let mut answer = r::ReminderSettings::of(settings).to_json();
+    answer["entityId"] = json!(entity_id);
+    // The statutory costs exist for Dutch entities only.
+    answer["statutoryAvailable"] = json!(nl);
+    answer["defaultRates"] = json!({
+        "commercialRate": r::COMMERCIAL_RATE,
+        "consumerRate": r::CONSUMER_RATE,
+    });
+    ok(answer)
+}
+
+async fn read_reminders(caller: Caller) -> Response {
+    reply(
+        async {
+            let Some(entity_id) = resolve_entity_id(&caller).await? else {
+                return Err(Refusal::bad_request("No accounting entity resolved"));
+            };
+            let (settings, nl) = entity_settings_row(&caller, &entity_id).await?;
+            Ok(reminders_answer(&entity_id, settings.as_ref(), nl))
+        }
+        .await,
+        "Failed to fetch the reminder settings",
+    )
+}
+
+/// `{ enabled?, steps?, statutoryCosts? }`: what is not named stays.
+async fn update_reminders(
+    caller: Caller,
+    State(state): State<BooksState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    reply(
+        async {
+            let body = weldsuite_books_domain::http::json_of(&headers, &body)?;
+            let patch = body
+                .as_object()
+                .ok_or_else(|| Refusal::bad_request("The body must be an object"))?;
+            let Some(entity_id) = resolve_entity_id(&caller).await? else {
+                return Err(Refusal::bad_request("No accounting entity resolved"));
+            };
+            let (settings, nl) = entity_settings_row(&caller, &entity_id).await?;
+            let before = weldsuite_books_domain::reminders::ReminderSettings::of(settings.as_ref());
+            let next = weldsuite_books_domain::reminders::merged(settings.as_ref(), patch, nl)
+                .map_err(Refusal::bad_request)?;
+            weldsuite_books_domain::differences::store(&caller.db, &entity_id, &next).await?;
+            let after = weldsuite_books_domain::reminders::ReminderSettings::of(Some(&next));
+            let mut changes = Map::new();
+            if before != after {
+                changes.insert(
+                    "reminders".to_owned(),
+                    change(before.to_json(), after.to_json()),
+                );
+            }
+            write_accounting_audit(
+                &caller,
+                &caller.db,
+                AuditInput {
+                    accounting_entity_id: Some(&entity_id),
+                    entity_type: "accounting_settings",
+                    entity_id: &entity_id,
+                    action: "updated",
+                    changes: Some(changes),
+                },
+            )
+            .await;
+            let mut event = after.to_json();
+            event["entityId"] = json!(entity_id);
+            caller.publish(&state, ACCOUNTING_SETTINGS_UPDATED, &entity_id, event);
+            Ok(reminders_answer(&entity_id, Some(&next), nl))
+        }
+        .await,
+        "Failed to update the reminder settings",
+    )
+}
+
 // ── exchange rates ──────────────────────────────────────────────────────────
 
 async fn exchange_rates(caller: Caller, State(state): State<BooksState>) -> Response {
@@ -933,6 +1126,141 @@ mod tests {
             status,
             serde_json::from_slice(&bytes).unwrap_or(Value::Null),
         )
+    }
+
+    /// The e-mail templates and the reminder workflow of an entity (phase 4,
+    /// Rust only): read with defaults, written, merged with the other
+    /// settings, bounded to their own entity, and the NL-only statutory costs.
+    #[tokio::test]
+    async fn an_entity_keeps_its_templates_and_its_reminder_workflow() {
+        let Ok(url) = std::env::var("WELDSUITE_TEST_TENANT_URL") else {
+            eprintln!("WELDSUITE_TEST_TENANT_URL is not set; skipping");
+            return;
+        };
+        let db = weldsuite_db::master_pool(&url, 2).unwrap();
+        let mut ids = Vec::new();
+        for jurisdiction in ["NL", "DE"] {
+            let id = generate_id("ent");
+            sqlx::query(
+                "insert into entities (id, name, jurisdiction_code, base_currency, is_active, jurisdiction_settings) \
+                 values ($1, 'Settings', $2, 'EUR', true, '{\"differences\": {\"roundingCap\": \"2.00\"}}'::jsonb)",
+            )
+            .bind(&id)
+            .bind(jurisdiction)
+            .execute(&db)
+            .await
+            .unwrap();
+            sqlx::query("insert into accounting_entity_settings (entity_id) values ($1)")
+                .bind(&id)
+                .execute(&db)
+                .await
+                .unwrap();
+            ids.push(id);
+        }
+        let (nl, de) = (ids[0].clone(), ids[1].clone());
+        let state = BooksState::new(EntityEventPublisher::new(
+            Some(Arc::new(RecordingEventBus::new()) as Arc<dyn DynEventBus>),
+            TaskTracker::new(),
+        ));
+        let caller = |entity: &str| {
+            Caller::in_process(
+                db.clone(),
+                "ws_p4_settings",
+                "ws_p4_settings",
+                "user_p4",
+                entity,
+                None,
+            )
+        };
+        let patch = |value: Value| {
+            (
+                State(state.clone()),
+                json_headers(),
+                Bytes::from(value.to_string()),
+            )
+        };
+
+        // Defaults first.
+        let (status, body) = answer(read_reminders(caller(&nl)).await).await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["data"]["enabled"], false);
+        assert_eq!(body["data"]["steps"].as_array().unwrap().len(), 3);
+        assert_eq!(body["data"]["statutoryAvailable"], true);
+        assert_eq!(body["data"]["defaultRates"]["commercialRate"], 10.4);
+        let (_, body) = answer(read_reminders(caller(&de)).await).await;
+        assert_eq!(body["data"]["statutoryAvailable"], false);
+        let (status, body) = answer(read_email_templates(caller(&nl)).await).await;
+        assert_eq!(status, 200);
+        assert_eq!(
+            body["data"]["templates"]["invoice"]["nl"]["isDefault"],
+            true
+        );
+        assert_eq!(body["data"]["kinds"].as_array().unwrap().len(), 6);
+
+        // Write both; the other settings stay, and each entity has its own.
+        let (s, h, b) = patch(
+            json!({ "enabled": true, "statutoryCosts": { "enabled": true, "commercialRate": 9.5 } }),
+        );
+        let (status, body) = answer(update_reminders(caller(&nl), s, h, b).await).await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["data"]["enabled"], true);
+        assert_eq!(body["data"]["statutoryCosts"]["commercialRate"], 9.5);
+        let (s, h, b) = patch(
+            json!({ "templates": { "invoice": { "nl": { "subject": "Eigen {number}", "body": "Hoi {customerName} {link}" } } } }),
+        );
+        let (status, body) = answer(update_email_templates(caller(&nl), s, h, b).await).await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(
+            body["data"]["templates"]["invoice"]["nl"]["subject"],
+            "Eigen {number}"
+        );
+        assert_eq!(
+            body["data"]["templates"]["invoice"]["nl"]["isDefault"],
+            false
+        );
+        let stored: Value =
+            sqlx::query_scalar("select jurisdiction_settings from entities where id = $1")
+                .bind(&nl)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(
+            stored["differences"]["roundingCap"], "2.00",
+            "the other settings stay"
+        );
+        assert_eq!(stored["reminders"]["enabled"], true);
+        assert_eq!(
+            stored["emailTemplates"]["invoice"]["nl"]["subject"],
+            "Eigen {number}"
+        );
+        let (_, body) = answer(read_reminders(caller(&de)).await).await;
+        assert_eq!(
+            body["data"]["enabled"], false,
+            "another entity is not changed"
+        );
+        let (_, body) = answer(read_email_templates(caller(&de)).await).await;
+        assert_eq!(
+            body["data"]["templates"]["invoice"]["nl"]["isDefault"],
+            true
+        );
+
+        // Bad bodies, and statutory costs outside NL.
+        for bad in [
+            json!({ "steps": [] }),
+            json!({ "enabled": "yes" }),
+            json!({ "statutoryCosts": { "commercialRate": 500 } }),
+        ] {
+            let (s, h, b) = patch(bad.clone());
+            let (status, _) = answer(update_reminders(caller(&nl), s, h, b).await).await;
+            assert_eq!(status, 400, "{bad}");
+        }
+        let (s, h, b) = patch(json!({ "statutoryCosts": { "enabled": true } }));
+        let (status, _) = answer(update_reminders(caller(&de), s, h, b).await).await;
+        assert_eq!(status, 400);
+        let (s, h, b) =
+            patch(json!({ "templates": { "welcome": { "en": { "subject": "a", "body": "b" } } } }));
+        let (status, _) = answer(update_email_templates(caller(&nl), s, h, b).await).await;
+        assert_eq!(status, 400);
     }
 
     fn json_headers() -> HeaderMap {

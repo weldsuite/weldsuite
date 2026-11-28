@@ -1604,6 +1604,13 @@ async fn books_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     // notifications.
     books.cache = infra.cache.clone();
     books.realtime = infra.realtime.clone();
+    // The sweep announces what it changes (`invoice.overdue`, `invoice.reminded`)
+    // and e-mails the reminders that send themselves.
+    books.events = infra.events.clone();
+    #[cfg(not(feature = "conformance"))]
+    {
+        books.mail = infra.mail.clone();
+    }
     let now = time::OffsetDateTime::now_utc();
     // Due again in a day; a little less, so tomorrow's run at the same hour finds it.
     let next = now + time::Duration::hours(23);
@@ -1635,6 +1642,9 @@ async fn books_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                     totals.depreciation_skipped += swept.depreciation_skipped;
                     totals.reminders_sent += swept.reminders_sent;
                     totals.reminders_failed += swept.reminders_failed;
+                    totals.bills_overdue += swept.bills_overdue;
+                    totals.payment_reminders_sent += swept.payment_reminders_sent;
+                    totals.payment_reminders_failed += swept.payment_reminders_failed;
                 }
                 Ok::<_, String>(Some(next))
             }

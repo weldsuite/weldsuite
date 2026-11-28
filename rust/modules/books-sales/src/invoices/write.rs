@@ -231,10 +231,27 @@ async fn create_invoice(
     state: &BooksState,
     data: InvoiceInput,
 ) -> Result<Response, SalesError> {
-    let db = &caller.db;
     let Some(entity_id) = resolve_entity_id(caller).await? else {
         return Err(Refusal::bad_request("No accounting entity resolved — set X-Accounting-Entity-Id or configure a default entity.").into());
     };
+    Ok(created(
+        create_in_entity(caller, state, data, entity_id).await?,
+    ))
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "the route's steps in its order: numbering, rate, tax, rows, audit, event"
+)]
+/// The draft of `POST /`, made in `entity_id` (the request's entity, or the
+/// one `POST /from-quote/:quoteId` names): the invoice with its `items`.
+pub(crate) async fn create_in_entity(
+    caller: &Caller,
+    state: &BooksState,
+    data: InvoiceInput,
+    entity_id: String,
+) -> Result<Value, SalesError> {
+    let db = &caller.db;
     if let Field::Set(template_id) = &data.template_id
         && !template_id.is_empty()
         && !template_belongs_to_entity(db, template_id, &entity_id).await?
@@ -447,7 +464,7 @@ async fn create_invoice(
         }),
     );
     invoice.insert("items".into(), Value::Array(records));
-    Ok(created(Value::Object(invoice)))
+    Ok(Value::Object(invoice))
 }
 
 // ── PUT / PATCH /:id ────────────────────────────────────────────────────────

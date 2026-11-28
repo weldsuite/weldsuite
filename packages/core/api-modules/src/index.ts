@@ -166,6 +166,15 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   // WeldBooks: paying approved bills with a SEPA credit-transfer file
   // (`/api/payment-batches`).
   'books-sepa-batches',
+  // WeldBooks: invoices, credit notes and quotes sent by e-mail, with a public
+  // document page (`/public/weldbooks`).
+  'books-invoice-email',
+  // WeldBooks: quotes (`/api/accounting-quotes`), their acceptance and the
+  // invoice made from one (`/api/invoices/from-quote/:quoteId`).
+  'books-quotes',
+  // WeldBooks: payment reminders (workflow per entity, bulk, paused, the NL
+  // statutory costs).
+  'books-reminders',
 ];
 
 const mod = (
@@ -407,6 +416,9 @@ export const API_MODULES: readonly ApiModule[] = [
     // SEPA credit-transfer batches for supplier bills, served by the Rust backend only
     // (rust/modules/books-purchases).
     '/api/payment-batches',
+    // Quotes (WeldCRM's `crm_quotes` as WeldBooks lists, sends and converts them), served by
+    // the Rust backend only (rust/modules/books-sales).
+    '/api/accounting-quotes',
     '/api/payroll',
     '/api/sales-tax',
     '/api/sales-tax-agencies',
@@ -417,6 +429,9 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/tax-returns',
     '/api/w9-requests',
     '/public/w9',
+    // The public invoice and quote page's documents (apps/web/pay-portal), served by the Rust
+    // backend only (rust/modules/books-sales).
+    '/public/weldbooks',
     // Brazil (weldsuite-documentation/plans/weldbooks-br.md)
     '/api/br-tax',
     '/api/fiscal-documents',

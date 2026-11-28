@@ -34,6 +34,7 @@ use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::http::{BooksState, Caller, Query, Refusal, Reply, paged, reply};
 use weldsuite_books_domain::js::days_from_civil;
 use weldsuite_books_domain::jurisdictions;
+use weldsuite_books_domain::reminders::ReminderSettings;
 use weldsuite_books_domain::reports_basis::today_for;
 use weldsuite_legal_entities::{LegalEntityApp, default_entity_id_for};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -72,6 +73,9 @@ enum Kind {
     VatReturn,
     BankFeeds,
     InvoicesOverdue,
+    /// Rust only (edition feature `books-invoice-email`): the last e-mail
+    /// of the invoice failed, so the customer may not have it.
+    InvoicesUndelivered,
     BillsDue,
     BillsToApprove,
     Documents,
@@ -84,10 +88,11 @@ enum Kind {
     MissingReceipts,
 }
 
-const KINDS: [Kind; 10] = [
+const KINDS: [Kind; 11] = [
     Kind::VatReturn,
     Kind::BankFeeds,
     Kind::InvoicesOverdue,
+    Kind::InvoicesUndelivered,
     Kind::BillsDue,
     Kind::BillsToApprove,
     Kind::Documents,
@@ -103,6 +108,7 @@ impl Kind {
             Self::VatReturn => "vat_return",
             Self::BankFeeds => "bank_feeds",
             Self::InvoicesOverdue => "invoices_overdue",
+            Self::InvoicesUndelivered => "invoices_undelivered",
             Self::BillsDue => "bills_due",
             Self::BillsToApprove => "bills_to_approve",
             Self::Documents => "documents",
@@ -132,7 +138,7 @@ impl Kind {
             Self::BankFeeds | Self::Duplicates | Self::BankLines | Self::UnappliedCredit => {
                 "banking:read"
             }
-            Self::InvoicesOverdue | Self::Documents => "invoices:read",
+            Self::InvoicesOverdue | Self::InvoicesUndelivered | Self::Documents => "invoices:read",
             Self::BillsDue | Self::BillsToApprove => "bills:read",
         }
     }
@@ -152,6 +158,8 @@ struct Ctx {
     is_default_entity: bool,
     /// The entity's jurisdiction has a VAT return.
     has_vat_return: bool,
+    /// The entity's reminder workflow (`jurisdictionSettings.reminders`).
+    reminders: ReminderSettings,
 }
 
 impl Ctx {
@@ -188,6 +196,7 @@ impl Ctx {
             has_vat_return: jurisdictions::features(text("jurisdictionCode"))["vatReturn"]
                 .as_bool()
                 .unwrap_or(false),
+            reminders: ReminderSettings::of(entity.get("jurisdictionSettings")),
             entity_id,
         })
     }
@@ -280,6 +289,34 @@ fn invoices_overdue_cond(ctx: &Ctx) -> Result<Condition, DbErr> {
         ]))
         .add(C::Type.is_not_in(["credit_note", "proforma"]))
         .add(C::DueDate.lt(timestamp_of_millis(ctx.today_ms)?)))
+}
+
+/// Sent invoices whose last e-mail failed (`email_history`'s last send or
+/// reminder is a `bounced`): the customer may not have them.
+fn invoices_undelivered_cond(ctx: &Ctx) -> Condition {
+    use invoices::Column as C;
+    Condition::all()
+        .add(C::EntityId.eq(ctx.entity_id.as_str()))
+        .add(C::DeletedAt.is_null())
+        .add(C::Status.is_not_in(["draft", "cancelled", "void"]))
+        .add(Expr::cust(
+            weldsuite_books_domain::email_history::UNDELIVERED_SQL,
+        ))
+}
+
+/// An overdue invoice whose next reminder step is due and does not send
+/// itself: the owner is asked to send it (hint `reminder_due`).
+fn reminder_due(ctx: &Ctx, row: &Value, days_overdue: i64) -> bool {
+    let level = row
+        .get("reminderLevel")
+        .and_then(Value::as_i64)
+        .and_then(|l| i32::try_from(l).ok())
+        .unwrap_or(0);
+    row.get("remindersPaused") != Some(&Value::Bool(true))
+        && ctx
+            .reminders
+            .due_step(level, days_overdue)
+            .is_some_and(|step| !step.auto)
 }
 
 /// A VAT return the books hold that is not filed, for a period that has ended
@@ -489,6 +526,16 @@ async fn tally(kind: Kind, ctx: &Ctx) -> Result<Tally, DbErr> {
             aggregate(
                 orm,
                 invoices::Entity::find().filter(invoices_overdue_cond(ctx)?),
+                Some(amount),
+                None,
+            )
+            .await
+        }
+        Kind::InvoicesUndelivered => {
+            let amount = in_base("invoices", "invoices.total", &ctx.base);
+            aggregate(
+                orm,
+                invoices::Entity::find().filter(invoices_undelivered_cond(ctx)),
                 Some(amount),
                 None,
             )
@@ -869,12 +916,40 @@ async fn items(kind: Kind, ctx: &Ctx, offset: u64, limit: u64) -> Result<Vec<Ite
                         date: s(row, "issueDate"),
                         due_date: s(row, "dueDate"),
                         severity: if days > 30 { "danger" } else { "warning" },
-                        hint: Some(if s(row, "status").as_deref() == Some("partial") {
+                        hint: Some(if reminder_due(ctx, row, days) {
+                            "reminder_due"
+                        } else if s(row, "status").as_deref() == Some("partial") {
                             "overdue_partial"
                         } else {
                             "overdue"
                         }),
                     }
+                })
+                .collect())
+        }
+        Kind::InvoicesUndelivered => {
+            use invoices::Column as C;
+            let rows = invoices::Entity::find()
+                .filter(invoices_undelivered_cond(ctx))
+                .order_by_desc(C::UpdatedAt)
+                .order_by_asc(C::Id)
+                .offset(offset)
+                .limit(limit)
+                .all(orm)
+                .await?;
+            Ok(js_rows!(rows)?
+                .iter()
+                .map(|row| Item {
+                    object_type: "invoice",
+                    object_id: s(row, "id").unwrap_or_default(),
+                    title: s(row, "contactName"),
+                    subtitle: s(row, "invoiceNumber"),
+                    amount: s(row, "total"),
+                    currency: s(row, "currency"),
+                    date: s(row, "issueDate"),
+                    due_date: s(row, "dueDate"),
+                    severity: "warning",
+                    hint: Some("undelivered"),
                 })
                 .collect())
         }
@@ -1734,6 +1809,124 @@ mod db_tests {
         .await;
     }
 
+    /// Phase 4 (Rust only): an invoice whose last e-mail failed is in To
+    /// process until a send goes through, and an overdue invoice whose next
+    /// reminder is a manual step says so.
+    #[tokio::test]
+    #[allow(clippy::unwrap_used, reason = "a scenario read top to bottom")]
+    async fn undelivered_invoices_and_due_reminders_are_asked_for() {
+        let Some(db) = pool() else { return };
+        let settings = json!({ "reminders": { "enabled": true, "steps": [
+            { "level": 1, "daysAfterDue": 7, "auto": true, "template": "reminder1" },
+            { "level": 2, "daysAfterDue": 14, "auto": false, "template": "reminder2" },
+        ] } });
+        let a = entity(&db, "NL").await;
+        let b = entity(&db, "NL").await;
+        run(
+            &db,
+            "update entities set jurisdiction_settings = $2::jsonb where id = $1",
+            &[&a, &settings.to_string()],
+        )
+        .await;
+        let party = party(&db).await;
+        let history = |kinds: &[&str]| {
+            json!(
+                kinds
+                    .iter()
+                    .map(|k| json!({ "type": k, "at": "2026-11-01T00:00:00.000Z" }))
+                    .collect::<Vec<_>>()
+            )
+            .to_string()
+        };
+        let set_history = |id: String, kinds: &'static [&'static str]| {
+            let db = db.clone();
+            let text = history(kinds);
+            async move {
+                run(
+                    &db,
+                    "update invoices set email_history = $2::jsonb where id = $1",
+                    &[&id, &text],
+                )
+                .await;
+            }
+        };
+        // Sent and failed, failed after a good send, failed then sent again, opened after failing.
+        let failed = invoice(&db, &a, &party, "UD-1", "invoice", "sent", 5, "121").await;
+        set_history(failed.clone(), &["sent", "bounced"]).await;
+        let resent = invoice(&db, &a, &party, "UD-2", "invoice", "sent", 5, "121").await;
+        set_history(resent, &["bounced", "reminder"]).await;
+        let viewed = invoice(&db, &a, &party, "UD-3", "invoice", "sent", 5, "121").await;
+        set_history(viewed.clone(), &["sent", "bounced", "viewed"]).await;
+        let draft = invoice(&db, &a, &party, "UD-4", "invoice", "draft", 5, "121").await;
+        set_history(draft, &["bounced"]).await;
+        let clean = invoice(&db, &a, &party, "UD-5", "invoice", "sent", 5, "121").await;
+        set_history(clean, &["sent", "viewed"]).await;
+        // Another entity's failure stays in its own list.
+        let foreign = invoice(&db, &b, &party, "UD-6", "invoice", "sent", 5, "121").await;
+        set_history(foreign, &["bounced"]).await;
+
+        let caller = caller(&db, &a, &ALL);
+        let summary = summary_of(&caller).await;
+        assert_eq!(count(&summary, "invoices_undelivered"), 2, "{summary}");
+        assert_eq!(summary["kinds"]["invoices_undelivered"]["amount"], "242.00");
+        let (status, list) = list_of(&caller, "kind=invoices_undelivered&limit=100").await;
+        assert_eq!(status, 200, "{list}");
+        let mut ids: Vec<&str> = list["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["objectId"].as_str().unwrap())
+            .collect();
+        ids.sort_unstable();
+        let mut wanted = vec![failed.as_str(), viewed.as_str()];
+        wanted.sort_unstable();
+        assert_eq!(ids, wanted);
+        assert_eq!(list["data"][0]["hint"], "undelivered");
+        assert_eq!(list["data"][0]["kind"], "invoices_undelivered");
+        assert_eq!(list["data"][0]["severity"], "warning");
+        // Reading invoices is what lists them.
+        let blind = summary_of(&self::caller(&db, &a, &["bills:read"])).await;
+        assert!(blind["kinds"].get("invoices_undelivered").is_none());
+
+        // Reminders: level 1 sent and 15 days overdue: the manual step 2 is due; 10 days overdue: not yet;
+        // level 0 and 8 days overdue: step 1 sends itself, so it is just overdue; paused: just overdue.
+        let due = invoice(&db, &a, &party, "RD-1", "invoice", "overdue", -15, "121").await;
+        run(
+            &db,
+            "update invoices set reminder_level = 1 where id = $1",
+            &[&due],
+        )
+        .await;
+        let early = invoice(&db, &a, &party, "RD-2", "invoice", "overdue", -10, "121").await;
+        run(
+            &db,
+            "update invoices set reminder_level = 1 where id = $1",
+            &[&early],
+        )
+        .await;
+        let auto = invoice(&db, &a, &party, "RD-3", "invoice", "overdue", -8, "121").await;
+        let paused = invoice(&db, &a, &party, "RD-4", "invoice", "overdue", -15, "121").await;
+        run(
+            &db,
+            "update invoices set reminder_level = 1, reminders_paused = true where id = $1",
+            &[&paused],
+        )
+        .await;
+        let (_, list) = list_of(&caller, "kind=invoices_overdue&limit=100").await;
+        let hint = |id: &str| {
+            list["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|i| i["objectId"] == json!(id))
+                .map(|i| i["hint"].clone())
+        };
+        assert_eq!(hint(&due), Some(json!("reminder_due")));
+        assert_eq!(hint(&early), Some(json!("overdue")));
+        assert_eq!(hint(&auto), Some(json!("overdue")));
+        assert_eq!(hint(&paused), Some(json!("overdue")));
+    }
+
     #[tokio::test]
     async fn a_kind_is_left_out_unless_the_caller_can_read_it() {
         let Some(db) = pool() else { return };
@@ -1747,7 +1940,10 @@ mod db_tests {
         let bills = summary_of(&caller(&db, &a, &["bills:read"])).await;
         assert_eq!(kind_names(&bills), ["bills_due", "bills_to_approve"]);
         let invoices = summary_of(&caller(&db, &a, &["invoices:read"])).await;
-        assert_eq!(kind_names(&invoices), ["documents", "invoices_overdue"]);
+        assert_eq!(
+            kind_names(&invoices),
+            ["documents", "invoices_overdue", "invoices_undelivered"]
+        );
         let reports = summary_of(&caller(&db, &a, &["reports:read"])).await;
         assert_eq!(kind_names(&reports), ["missing_receipts", "vat_return"]);
         let nothing = summary_of(&caller(&db, &a, &[])).await;
@@ -2148,7 +2344,7 @@ mod tests {
             assert_eq!(Kind::parse(kind.as_str()), Some(kind));
         }
         assert_eq!(Kind::parse("nope"), None);
-        assert_eq!(parse_cursor("bills_due:20"), Some((3, 20)));
+        assert_eq!(parse_cursor("bills_due:20"), Some((4, 20)));
         assert_eq!(parse_cursor("bills_due"), None);
         assert_eq!(parse_cursor("nope:1"), None);
         assert_eq!(parse_cursor("bills_due:x"), None);

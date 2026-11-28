@@ -1084,6 +1084,21 @@
           "description": "When a invoice is sent",
           "id": "sent",
           "name": "Invoice Sent"
+        },
+        {
+          "description": "When a invoice \"Emailed\" event occurs",
+          "id": "emailed",
+          "name": "Invoice Emailed"
+        },
+        {
+          "description": "When a invoice \"Viewed\" event occurs",
+          "id": "viewed",
+          "name": "Invoice Viewed"
+        },
+        {
+          "description": "When a invoice \"Reminded\" event occurs",
+          "id": "reminded",
+          "name": "Invoice Reminded"
         }
       ],
       "label": "Invoice"
@@ -3943,12 +3958,21 @@
     "bill.approved",
     "bill.rejected",
     "bill.paid",
+    "bill.overdue",
     "invoice.created",
     "invoice.updated",
     "invoice.deleted",
     "invoice.paid",
     "invoice.overdue",
     "invoice.sent",
+    "invoice.emailed",
+    "invoice.viewed",
+    "invoice.reminded",
+    "quote.created",
+    "quote.updated",
+    "quote.deleted",
+    "quote.accepted",
+    "quote.emailed",
     "journal_entry.created",
     "journal_entry.updated",
     "journal_entry.deleted",

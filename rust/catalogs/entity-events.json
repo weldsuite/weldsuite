@@ -119,7 +119,8 @@
     "deleted",
     "approved",
     "rejected",
-    "paid"
+    "paid",
+    "overdue"
   ],
   "board": [
     "created",
@@ -735,7 +736,10 @@
     "deleted",
     "paid",
     "overdue",
-    "sent"
+    "sent",
+    "emailed",
+    "viewed",
+    "reminded"
   ],
   "invoice_template": [
     "created",
@@ -1345,6 +1349,13 @@
     "updated",
     "deleted",
     "completed"
+  ],
+  "quote": [
+    "created",
+    "updated",
+    "deleted",
+    "accepted",
+    "emailed"
   ],
   "reach_campaign": [
     "created",

@@ -15,8 +15,15 @@ export const ACCOUNTING_ENTITY_EVENTS = {
   // `processed` carries `how` (category, transfer, private, ignore, rule, auto, link);
   // `unprocessed` is the undo. Both Rust backend only (edition feature `books-bank-processing`).
   bank_transaction: ['created', 'updated', 'deleted', 'apply_reconciliation_rules', 'processed', 'unprocessed'],
-  bill: ['created', 'updated', 'deleted', 'approved', 'rejected', 'paid'],
-  invoice: ['created', 'updated', 'deleted', 'paid', 'overdue', 'sent'],
+  // `overdue`: the daily books sweep marked an approved bill past its due date (Rust backend only).
+  bill: ['created', 'updated', 'deleted', 'approved', 'rejected', 'paid', 'overdue'],
+  // `emailed`, `viewed` and `reminded` come from the Rust backend (edition features
+  // `books-invoice-email` and `books-reminders`): the invoice went out by e-mail, its public
+  // page was opened, a payment reminder went out.
+  invoice: ['created', 'updated', 'deleted', 'paid', 'overdue', 'sent', 'emailed', 'viewed', 'reminded'],
+  // A WeldCRM quote as WeldBooks sends and converts it (Rust backend only, edition feature
+  // `books-quotes`). `accepted` is the customer accepting on the public page.
+  quote: ['created', 'updated', 'deleted', 'accepted', 'emailed'],
   journal_entry: ['created', 'updated', 'deleted'],
   payment: ['created', 'updated', 'deleted'],
   // `ordered`, `received`, `cancelled` and `closed` come from WeldStash's

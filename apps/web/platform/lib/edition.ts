@@ -330,6 +330,28 @@ export const EDITION_FEATURES = [
    * `GLOBAL_UNAVAILABLE_FEATURES`.
    */
   'books-sepa-batches',
+  /**
+   * WeldBooks "send by e-mail": e-mailing invoices, credit notes and quotes
+   * from the entity (templates per entity, delivery history, a failed
+   * delivery in To process) and the public document page the e-mail links to
+   * (`/public/weldbooks/documents/{token}`, served to the pay portal). Built
+   * only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-invoice-email',
+  /**
+   * WeldBooks quotes: the list of WeldCRM quotes, creating and editing them,
+   * e-mailing them, the customer accepting on the public page and an invoice
+   * (or an advance invoice for a share) made from a quote. Built only in
+   * Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-quotes',
+  /**
+   * WeldBooks payment reminders: a workflow per legal entity, reminders sent
+   * by hand, in bulk or by the daily sweep, paused per invoice, and (NL,
+   * optional) the statutory collection costs and interest on the final
+   * notice. Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-reminders',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

@@ -116,18 +116,22 @@ pub(crate) async fn send(
     Path(id): Path<String>,
 ) -> Response {
     reply(
-        send_invoice(&caller, &state, &id)
+        mark_sent(&caller, &state, &id)
             .await
+            .map(ok)
             .map_err(Refusal::from),
         "Failed to send invoice",
     )
 }
 
-async fn send_invoice(
+/// `PATCH /:id/send`: finalize a draft, mark a finalized invoice sent. The
+/// invoice as the route answers it. The e-mail route (`delivery::email`)
+/// goes through here too, so e-mailing a draft finalizes it the same way.
+pub(crate) async fn mark_sent(
     caller: &Caller,
     state: &BooksState,
     id: &str,
-) -> Result<Response, SalesError> {
+) -> Result<Value, SalesError> {
     let db = &caller.db;
     let Some(invoice) = load_invoice(db, id).await? else {
         return Err(Refusal::not_found("Invoice", id).into());
@@ -191,7 +195,7 @@ async fn send_invoice(
     out.insert("status".into(), json!(status));
     out.insert("sentAt".into(), json!(at));
     out.insert("journalEntryId".into(), journal_entry_id);
-    Ok(ok(Value::Object(out)))
+    Ok(Value::Object(out))
 }
 
 // ── PATCH /:id/status ───────────────────────────────────────────────────────

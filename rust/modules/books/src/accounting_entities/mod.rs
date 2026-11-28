@@ -1625,6 +1625,18 @@ async fn update_entity(caller: &Caller, state: &BooksState, id: &str, body: Enti
             "jurisdictionSettings".to_owned(),
             weldsuite_books_domain::differences::keep_stored(settings, stored.as_ref()),
         );
+        // So do the Rust-only delivery settings (e-mail templates, reminders).
+        let all = weldsuite_books_domain::entity_settings::load(db, id).await?;
+        if let Some(current) = patch.get("jurisdictionSettings").cloned() {
+            patch.insert(
+                "jurisdictionSettings".to_owned(),
+                weldsuite_books_domain::entity_settings::keep_keys(
+                    current,
+                    all.as_ref(),
+                    &weldsuite_books_domain::entity_settings::DELIVERY_KEYS,
+                ),
+            );
+        }
     }
 
     // 1. The company's own fields go through core.

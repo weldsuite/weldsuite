@@ -412,6 +412,11 @@ exists, and needs only the databases.
 {{- define "weldsuite.env" -}}
 {{- include "weldsuite.envBase" . }}
 {{- include "weldsuite.bundleEnv" . }}
+{{- /* WeldBooks e-mails invoices and quotes with a link to the pay portal (BOOKS-014); the server needs its address. */}}
+{{- with .Values.payPortal.publicUrl }}
+- name: PAY_PORTAL_PUBLIC_URL
+  value: {{ . | quote }}
+{{- end }}
 {{- end }}
 
 {{- /*

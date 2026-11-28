@@ -372,6 +372,8 @@ export const platformSyncMap: EntitySyncMap = {
   payment_run: inv(['accounting', 'payment-runs'], ['accounting', 'bills'], ['accounting', 'payments']),
   // SEPA batches (edition feature books-sepa-batches): the bills show "payment pending" with them.
   payment_batch: inv(['accounting', 'payment-batches'], ['accounting', 'bills']),
+  // Quotes (edition feature books-quotes): the list, and the invoices made from them.
+  quote: inv(['accounting', 'quotes'], ['accounting', 'invoices']),
   fixed_asset: inv(['accounting', 'fixed-assets']),
   accounting_dimension: inv(['accounting', 'dimensions']),
   invoice_template: inv(['accounting', 'invoice-templates']),
