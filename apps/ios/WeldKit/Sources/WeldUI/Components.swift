@@ -1,9 +1,10 @@
 import SwiftUI
 import WeldCore
 
-/// A person's picture, or their initials when there is none (or it doesn't
-/// load): white on the colour the web platform gives that name, or in `tint`
-/// on a light wash of it when one is passed.
+/// A person's picture, or the first letter of their name when there is none
+/// (or it doesn't load): white on the colour the web platform gives that name,
+/// or in `tint` on a light wash of it when one is passed. The platform's shape:
+/// a rounded square with corners of about a third of the width.
 public struct AvatarView: View {
     let name: String?
     let url: URL?
@@ -32,13 +33,14 @@ public struct AvatarView: View {
             }
         }
         .frame(width: size, height: size)
-        .clipShape(Circle())
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.32, style: .continuous))
         .accessibilityHidden(true)
     }
 
+    /// The first letter of the name, as the platform shows it.
     private var initials: some View {
-        Text(Self.initials(of: name))
-            .font(.inter(size: size * 0.38, weight: .semibold))
+        Text(String(Self.initials(of: name).prefix(1)))
+            .font(.inter(size: size * 0.42, weight: .semibold))
             .foregroundStyle(tint ?? .white)
             .frame(width: size, height: size)
             .background(tint?.opacity(0.15) ?? PlatformColors.avatar(name ?? ""))

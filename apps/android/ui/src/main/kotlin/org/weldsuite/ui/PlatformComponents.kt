@@ -2,26 +2,32 @@ package org.weldsuite.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.ButtonColors
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonElevation
 import androidx.compose.material3.CardColors
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CardElevation
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.FloatingActionButtonElevation
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBarDefaults
+import androidx.compose.material3.SheetState
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -162,3 +168,23 @@ fun NavigationBar(
         androidx.compose.material3.NavigationBar(Modifier, containerColor, contentColor, tonalElevation, windowInsets, content)
     }
 }
+
+/**
+ * Material's bottom sheet on the card colour. A sheet is its own window, so
+ * it doesn't inherit `testTagsAsResourceId` from SessionGate: it sets it
+ * again, or Maestro can't find the test tags inside it.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ModalBottomSheet(
+    onDismissRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+    sheetState: SheetState = rememberModalBottomSheetState(),
+    content: @Composable ColumnScope.() -> Unit,
+) = androidx.compose.material3.ModalBottomSheet(
+    onDismissRequest = onDismissRequest,
+    modifier = modifier.semantics { testTagsAsResourceId = true },
+    sheetState = sheetState,
+    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    content = content,
+)

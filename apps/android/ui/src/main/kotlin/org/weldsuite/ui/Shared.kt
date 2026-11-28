@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
@@ -28,7 +27,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -43,13 +44,14 @@ import org.weldsuite.core.api.ApiException
 import org.weldsuite.core.apiErrorMessage
 
 /**
- * A person's picture, or their initials when there is none (or it doesn't
- * load): white on the colour the web platform gives that name, or in `tint`
- * on a light wash of it when one is passed.
+ * A person's picture, or the first letter of their name when there is none
+ * (or it doesn't load): white on the colour the web platform gives that name,
+ * or in `tint` on a light wash of it when one is passed. The platform's shape:
+ * a rounded square with corners of about a third of the width.
  */
 @Composable
 fun Avatar(name: String?, url: String? = null, size: Dp = 36.dp, tint: Color? = null, modifier: Modifier = Modifier) {
-    val box = modifier.size(size).clip(CircleShape).clearAndSetSemantics { }
+    val box = modifier.size(size).clip(AvatarShape).clearAndSetSemantics { }
     if (url.isNullOrBlank()) {
         Initials(name, size, tint, box)
     } else {
@@ -68,9 +70,23 @@ fun Avatar(name: String?, url: String? = null, size: Dp = 36.dp, tint: Color? = 
 private fun Initials(name: String?, size: Dp, tint: Color?, modifier: Modifier) {
     val background = tint?.copy(alpha = 0.15f) ?: avatarColor(name.orEmpty())
     Box(modifier.background(background), contentAlignment = Alignment.Center) {
-        Text(initialsOf(name), color = tint ?: Color.White, fontWeight = FontWeight.SemiBold, fontSize = (size.value * 0.38f).sp)
+        val letter = (size.value * 0.42f).sp
+        Text(
+            initialsOf(name).take(1),
+            color = tint ?: Color.White,
+            fontWeight = FontWeight.SemiBold,
+            // A line as tall as the letter, so it sits in the middle at any size.
+            style = TextStyle(
+                fontSize = letter,
+                lineHeight = letter,
+                lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+            ),
+        )
     }
 }
+
+/** The platform's avatar shape (`rounded-[32%]`). */
+val AvatarShape = RoundedCornerShape(percent = 32)
 
 private val AvatarColors = listOf(
     0xFF4F46E5, 0xFF7C3AED, 0xFFEC4899, 0xFFEF4444, 0xFFF97316,
