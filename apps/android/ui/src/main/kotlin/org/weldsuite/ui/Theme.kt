@@ -1,5 +1,8 @@
 package org.weldsuite.ui
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
@@ -11,13 +14,16 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 
 /** Whether the app is drawn dark: the person's choice in Settings, else the system's. */
 val LocalWeldDark = staticCompositionLocalOf<Boolean?> { null }
@@ -45,6 +51,18 @@ val Inter = FontFamily(
  */
 @Composable
 fun WeldTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+    // The status and navigation bar icons follow the app's appearance, which
+    // the person can set apart from the system's.
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = view.context.findActivity()?.window ?: return@SideEffect
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = !dark
+                isAppearanceLightNavigationBars = !dark
+            }
+        }
+    }
     CompositionLocalProvider(LocalWeldDark provides dark) {
         MaterialTheme(
             colorScheme = weldColors(dark),
@@ -53,6 +71,12 @@ fun WeldTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> 
             content = content,
         )
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 private fun weldColors(dark: Boolean): ColorScheme {
