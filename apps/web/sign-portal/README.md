@@ -44,3 +44,6 @@ pnpm --filter sign-portal dev        # http://localhost:3023
 pnpm --filter sign-portal test
 pnpm --filter sign-portal build && pnpm --filter sign-portal start:node
 ```
+
+`vercel.json` only switches off the Git builds of the old Vercel project;
+delete it once that project is archived.

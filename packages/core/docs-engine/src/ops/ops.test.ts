@@ -123,7 +123,8 @@ describe('applyOp', () => {
         expect(snapshotKey(doc)).toBe(after);
       }
     }
-  });
+    // 3,000 ops with four snapshots each: about 5 s on a CI runner.
+  }, 30_000);
 
   it('survives a snapshot round trip', () => {
     const random = rng(99);

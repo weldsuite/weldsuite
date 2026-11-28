@@ -40,3 +40,6 @@ steps.
 
 Global's console (a Cloudflare Worker with Clerk sign-in) was removed after
 Global's workspaces moved into EU production (ADR OPS-025).
+
+`vercel.json` only switches off the Git builds of the old Vercel project
+(`weldsuite-admin`); delete it once that project is archived.
