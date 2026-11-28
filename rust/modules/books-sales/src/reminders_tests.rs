@@ -577,7 +577,7 @@ async fn a_bulk_reminder_bundles_a_contact_and_stays_inside_its_entity() {
     let bundle = sent
         .iter()
         .find(|s| s["invoiceIds"].as_array().unwrap().len() == 2)
-        .unwrap();
+        .unwrap_or_else(|| panic!("no bundle of two: {out}"));
     assert_eq!(bundle["level"], 1);
     assert_eq!(bundle["to"], json!(["x@example.test"]));
     let skipped: Vec<(String, String)> = out["data"]["skipped"]

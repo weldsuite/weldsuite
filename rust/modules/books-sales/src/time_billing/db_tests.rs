@@ -111,6 +111,18 @@ async fn entry(
     id
 }
 
+/// Removes the time entries on `projects`: the tenant database is shared with
+/// other crates' tests, and one that clears `projects` (WeldConnect's engine
+/// parity) cannot while entries still point at them.
+async fn forget_hours(db: &PgPool, projects: &[&String]) {
+    let projects: Vec<&str> = projects.iter().map(|p| p.as_str()).collect();
+    sqlx::query("delete from time_entries where project_id = any($1)")
+        .bind(&projects)
+        .execute(db)
+        .await
+        .unwrap();
+}
+
 async fn from_time(
     world: &World,
     caller: &Caller,
@@ -302,6 +314,7 @@ async fn unbilled_hours_are_priced_by_entry_project_then_member_and_grouped_per_
     assert_eq!(one["data"].as_array().unwrap().len(), 1);
     let (status, _) = answer_of(unbilled(world.caller(&ent).with_query("to=soon")).await).await;
     assert_eq!(status, 400);
+    forget_hours(&world.db, &[&p1, &p2, &p3, &nobody]).await;
 }
 
 #[tokio::test]
@@ -433,6 +446,7 @@ async fn hours_become_lines_in_each_grouping_and_are_invoiced_once() {
     let row_i = row_of(&world.db, "time_entries", &i).await;
     assert_ne!(row_h["invoice_item_id"], row_i["invoice_item_id"]);
     assert_eq!(row_h["invoice_id"], row_i["invoice_id"]);
+    forget_hours(&world.db, &[&p]).await;
 }
 
 #[tokio::test]
@@ -603,6 +617,7 @@ async fn hours_are_added_to_a_draft_of_the_same_customer_and_refused_elsewhere()
     for id in [&theirs, &dollars, &free] {
         assert!(row_of(&world.db, "time_entries", id).await["invoice_id"].is_null());
     }
+    forget_hours(&world.db, &[&p, &q, &r]).await;
 }
 
 #[tokio::test]
@@ -723,6 +738,7 @@ async fn hours_are_released_when_the_draft_goes_or_a_line_is_removed() {
     .await;
     assert_eq!(status, 200);
     assert!(row_of(&world.db, "time_entries", &e1).await["invoice_id"].is_null());
+    forget_hours(&world.db, &[&p, &q]).await;
 }
 
 #[tokio::test]
@@ -818,4 +834,5 @@ async fn a_project_shows_what_is_invoiced_unbilled_and_spent() {
     assert_eq!(finance["data"]["draft"], json!([]));
     let (status, _) = answer(finance_in(&world.caller(&ent), &only(&ent), "prj_nope").await).await;
     assert_eq!(status, 404);
+    forget_hours(&world.db, &[&p]).await;
 }

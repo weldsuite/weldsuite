@@ -824,6 +824,13 @@ async fn the_summary_sums_per_currency_and_hides_what_is_not_readable() {
         json!([{ "currency": "EUR", "amount": "10.00", "count": 1 }])
     );
     assert_eq!(elsewhere["overdue"], json!([]));
+    // The tenant database is shared: another crate's test clears `projects`,
+    // which it cannot while this entry points at one.
+    sqlx::query("delete from time_entries where project_id = $1")
+        .bind(&project)
+        .execute(&world.db)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
