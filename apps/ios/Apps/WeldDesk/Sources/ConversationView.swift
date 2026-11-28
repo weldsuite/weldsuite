@@ -92,7 +92,7 @@ final class ConversationModel {
             let loaded = try await store.conversation(conversationID)
             detail = loaded
             error = nil
-            loadAssigneeName(loaded.conversation.assigneeID)
+            loadRoster()
         } catch {
             self.error = APIError.from(error)
         }
@@ -163,9 +163,10 @@ final class ConversationModel {
         membersLoading = false
     }
 
-    /// A teammate's name for the header: the roster, loaded once.
-    private func loadAssigneeName(_ assigneeID: String?) {
-        guard let assigneeID, !assigneeID.isEmpty, assigneeID != userID, members == nil else { return }
+    /// The roster, loaded once: the timeline names the teammate behind each
+    /// reply and event, and the header shows the assignee's avatar.
+    private func loadRoster() {
+        guard members == nil, !membersLoading else { return }
         Task { await loadMembers() }
     }
 
@@ -243,7 +244,7 @@ final class ConversationModel {
         guard var current = detail else { return }
         current.conversation = conversation
         detail = current
-        loadAssigneeName(conversation.assigneeID)
+        loadRoster()
     }
 }
 
@@ -261,17 +262,13 @@ struct ConversationView: View {
         Group {
             if let detail = model.detail {
                 VStack(spacing: 0) {
-                    ConversationHeader(model: model, conversation: detail.conversation) { picking = true }
-                    Divider()
-                    thread(detail.messages)
-                    if let name = model.room?.state.visitorsTyping.first {
-                        Text(DeskStrings.conversationTyping(name: name.isEmpty ? DeskStrings.conversationTypingFallback : name))
-                            .font(.inter(.caption).italic())
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, Tokens.Spacing.l)
-                            .padding(.bottom, Tokens.Spacing.xs)
-                            .accessibilityIdentifier("typing")
+                    // The clock the SLA countdown and "4min" read, once a minute.
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        VStack(spacing: 0) {
+                            StatusStrip(conversation: detail.conversation, visitorOnline: model.room?.state.visitorOnline == true, now: context.date)
+                            Divider()
+                            thread(detail, now: context.date)
+                        }
                     }
                     ComposerView(model: model)
                 }
@@ -281,21 +278,28 @@ struct ConversationView: View {
                 ProgressView()
             }
         }
-        .navigationTitle(model.detail.map { DeskLogic.threadTitle($0.conversation) } ?? DeskStrings.conversationTitle)
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if let conversation = model.detail?.conversation {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        Task { await model.toggleState() }
-                    } label: {
-                        Label(
-                            conversation.state == .open ? DeskStrings.conversationClose : DeskStrings.conversationReopen,
-                            systemImage: conversation.state == .open ? "checkmark.circle" : "arrow.uturn.backward.circle"
-                        )
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 0) {
+                    Text(title)
+                        .font(.inter(.subheadline, weight: .semibold))
+                        .lineLimit(1)
+                        .accessibilityIdentifier("conversation-title")
+                    if let conversation = model.detail?.conversation {
+                        Text(DeskLogic.threadSubtitle(conversation))
+                            .font(.inter(.caption))
+                            .foregroundStyle(Tokens.Palette.mutedForeground)
+                            .lineLimit(1)
+                            .accessibilityIdentifier("conversation-subtitle")
                     }
-                    .disabled(model.managing)
-                    .accessibilityIdentifier("conversation-toggle-state")
+                }
+            }
+            if let conversation = model.detail?.conversation {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    AssignButton(model: model, conversation: conversation) { picking = true }
+                    StateButton(model: model, conversation: conversation)
                 }
             }
         }
@@ -322,27 +326,53 @@ struct ConversationView: View {
         }
     }
 
-    private func thread(_ messages: [DeskMessage]) -> some View {
-        ScrollViewReader { proxy in
+    /// The platform's header title: the subject, the customer's name, their email, or "Untitled conversation".
+    private var title: String {
+        guard let conversation = model.detail?.conversation else { return DeskStrings.conversationTitle }
+        return DeskLogic.threadTitle(conversation) ?? DeskStrings.conversationUntitled
+    }
+
+    /// Who's typing, when the visitor is.
+    private var typingName: String? {
+        guard let name = model.room?.state.visitorsTyping.first else { return nil }
+        return name.isEmpty ? DeskStrings.conversationTypingFallback : name
+    }
+
+    private func thread(_ detail: ConversationDetail, now: Date) -> some View {
+        let messages = detail.messages
+        let names = TimelineNames(
+            members: model.members,
+            visitor: DeskLogic.rowTitle(detail.conversation) ?? DeskStrings.conversationVisitor
+        )
+        return ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 10) {
+                LazyVStack(spacing: 0) {
                     if messages.isEmpty {
                         Text(DeskStrings.conversationEmptyThread)
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 40)
+                            .font(.inter(.subheadline))
+                            .foregroundStyle(Tokens.Palette.mutedForeground)
+                            .padding(.vertical, 64)
                     }
-                    ForEach(messages) { message in
-                        MessageRow(message: message) { model.attachmentOpenFailed() }
+                    ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                        if DeskLogic.startsDay(index > 0 ? messages[index - 1] : nil, message), let day = message.createdAt {
+                            DaySeparator(day: day)
+                        }
+                        MessageRow(message: message, names: names, now: now) { model.attachmentOpenFailed() }
                             .id(message.id)
                     }
+                    if let typingName {
+                        TypingBubble(name: typingName).id("typing")
+                    }
                 }
-                .padding(.horizontal, Tokens.Spacing.l)
-                .padding(.vertical, Tokens.Spacing.m)
+                .padding(.vertical, Tokens.Spacing.s)
             }
             .scrollDismissesKeyboard(.interactively)
             .accessibilityIdentifier("thread")
             .onAppear { scrollToEnd(messages, proxy, animated: false) }
             .onChange(of: messages.count) { _, _ in scrollToEnd(messages, proxy, animated: true) }
+            .onChange(of: typingName) { _, name in
+                if name != nil { withAnimation { proxy.scrollTo("typing", anchor: .bottom) } }
+            }
         }
     }
 
@@ -356,90 +386,83 @@ struct ConversationView: View {
     }
 }
 
-/// State, channel, number, the visitor online, and who it's assigned to, with the assign actions.
-private struct ConversationHeader: View {
-    let model: ConversationModel
+/// What the platform's header shows beside the title: the SLA chip, and the visitor online.
+private struct StatusStrip: View {
     let conversation: DeskConversation
-    let onPick: () -> Void
+    let visitorOnline: Bool
+    let now: Date
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
-            HStack(spacing: Tokens.Spacing.s) {
-                StateBadge(state: conversation.state)
-                ChannelBadge(channel: conversation.channel, value: conversation.channelValue)
-                Text("#\(conversation.number)").font(.inter(.footnote, weight: .medium)).foregroundStyle(.secondary)
-                if model.room?.state.visitorOnline == true {
-                    HStack(spacing: 4) {
-                        Circle().fill(Color.green).frame(width: 7, height: 7)
-                        Text(DeskStrings.conversationVisitorOnline).font(.inter(.footnote, weight: .medium)).foregroundStyle(.secondary)
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("visitor-online")
-                }
+        let sla = DeskLogic.slaDisplay(conversation, now: now, showPaused: true, showFinished: true)
+        if sla != nil || visitorOnline {
+            HStack(spacing: Tokens.Spacing.m) {
+                if let sla { SlaChip(display: sla) }
+                if visitorOnline { OnlineIndicator() }
                 Spacer(minLength: 0)
             }
-            if let email = conversation.email, !email.isEmpty, conversation.name != nil {
-                Text(email).font(.inter(.footnote)).foregroundStyle(.secondary).lineLimit(1)
-            }
-            HStack(spacing: 4) {
-                Text(DeskStrings.conversationAssignee).foregroundStyle(.secondary)
-                Text(assigneeText).fontWeight(.semibold).lineLimit(1).accessibilityIdentifier("assignee-label")
-            }
-            .font(.inter(.footnote))
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Tokens.Spacing.s) {
-                    let mine = conversation.assigneeID != nil && conversation.assigneeID == model.userID
-                    if !mine, let userID = model.userID {
-                        AssignChip(title: DeskStrings.conversationAssignToMe, icon: "person.crop.circle.badge.checkmark", identifier: "assign-to-me", disabled: model.managing) {
-                            Task { await model.assign(userID) }
-                        }
-                    }
-                    AssignChip(title: DeskStrings.conversationChangeAssignee, icon: "person.badge.plus", identifier: "change-assignee", disabled: model.managing, action: onPick)
-                    if let assignee = conversation.assigneeID, !assignee.isEmpty {
-                        AssignChip(title: DeskStrings.conversationUnassign, icon: "person.badge.minus", identifier: "unassign", disabled: model.managing) {
-                            Task { await model.assign(nil) }
-                        }
-                    }
-                }
+            .padding(.horizontal, Tokens.Spacing.l)
+            .padding(.vertical, Tokens.Spacing.s)
+        }
+    }
+}
+
+/// Assign: the assignee's avatar once someone has it, else the add-person icon; opens the picker.
+private struct AssignButton: View {
+    let model: ConversationModel
+    let conversation: DeskConversation
+    let action: () -> Void
+
+    var body: some View {
+        let member = conversation.assigneeID.flatMap { id in model.members?.first { $0.userID == id } }
+        Button(action: action) {
+            if let member {
+                InitialAvatar(name: member.name, url: member.picture.flatMap(URL.init(string:)), size: 24)
+            } else {
+                Image(systemName: "person.badge.plus")
             }
         }
-        .padding(.horizontal, Tokens.Spacing.l)
-        .padding(.vertical, Tokens.Spacing.s)
+        .disabled(model.managing)
+        .accessibilityLabel(label(member))
+        .accessibilityIdentifier("change-assignee")
     }
 
-    private var assigneeText: String {
+    private func label(_ member: DeskMember?) -> String {
         switch DeskLogic.assigneeLabel(assigneeID: conversation.assigneeID, userID: model.userID, members: model.members) {
-        case .unassigned: DeskStrings.conversationUnassignedLabel
-        case .you: DeskStrings.conversationAssignedToYou
-        case .someone: DeskStrings.conversationAssignedEvent
+        case .unassigned, .someone: DeskStrings.conversationAssign
+        case .you: member?.name ?? DeskStrings.conversationAssignedToYou
         case let .teammate(name): name
         }
     }
 }
 
-private struct AssignChip: View {
-    let title: String
-    let icon: String
-    let identifier: String
-    let disabled: Bool
-    let action: () -> Void
+/// Close while open (the primary button), Reopen once closed (outline), as on the platform.
+private struct StateButton: View {
+    let model: ConversationModel
+    let conversation: DeskConversation
 
     var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: icon)
-                .font(.inter(.caption, weight: .semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Tokens.Palette.primary.opacity(0.12), in: Capsule())
+        let open = conversation.state == .open
+        let title = open ? DeskStrings.conversationClose : DeskStrings.conversationReopen
+        Group {
+            if open {
+                Button(title) { Task { await model.toggleState() } }
+                    .buttonStyle(.borderedProminent)
+            } else {
+                Button(title) { Task { await model.toggleState() } }
+                    .buttonStyle(.bordered)
+                    .tint(Tokens.Palette.foreground)
+            }
         }
-        .buttonStyle(.plain)
-        .disabled(disabled)
-        .opacity(disabled ? 0.5 : 1)
-        .accessibilityIdentifier(identifier)
+        .font(.inter(.subheadline, weight: .medium))
+        .controlSize(.small)
+        .disabled(model.managing)
+        .accessibilityIdentifier("conversation-toggle-state")
     }
 }
 
-/// Reply or note, the files on it, the text, and send.
+/// The platform's composer: a rounded box with the field on top, the files
+/// under it, and a row of attach, reply or note, and send. A note tints the
+/// box amber, so it never reads as a reply.
 private struct ComposerView: View {
     @Bindable var model: ConversationModel
     @State private var photoItem: PhotosPickerItem?
@@ -447,47 +470,36 @@ private struct ComposerView: View {
     @State private var choosingFile = false
     @State private var takingPhoto = false
 
+    private var isNote: Bool { model.mode == .note }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
-            Picker(DeskStrings.conversationReply, selection: $model.mode) {
-                Text(DeskStrings.conversationReply).tag(MessageKind.message)
-                Text(DeskStrings.conversationNote).tag(MessageKind.note)
-            }
-            .pickerStyle(.segmented)
-            .fixedSize()
-            .accessibilityIdentifier("composer-mode")
-            .onChange(of: model.mode) { _, _ in model.modeChanged() }
+        VStack(alignment: .leading, spacing: 0) {
+            TextField(
+                isNote ? DeskStrings.conversationNotePlaceholder : DeskStrings.conversationReplyPlaceholder,
+                text: $model.body,
+                axis: .vertical
+            )
+            .font(.inter(.subheadline))
+            .lineLimit(1...8)
+            .padding(.leading, 10)
+            .padding(.top, 7)
+            .padding(.bottom, Tokens.Spacing.m)
+            .frame(minHeight: 40, alignment: .topLeading)
+            .onChange(of: model.body) { _, _ in model.bodyChanged() }
+            .accessibilityIdentifier("composer-input")
 
             if !model.files.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Tokens.Spacing.s) {
-                        ForEach(model.files) { file in
-                            HStack(spacing: 4) {
-                                if file.uploading {
-                                    ProgressView().controlSize(.mini).accessibilityLabel(DeskStrings.conversationUploading)
-                                } else {
-                                    Image(systemName: "doc").accessibilityHidden(true)
-                                }
-                                Text(file.name).lineLimit(1)
-                                Button {
-                                    model.remove(file)
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel(DeskStrings.conversationRemoveAttachment(name: file.name))
-                            }
-                            .font(.inter(.caption))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color(.secondarySystemFill), in: Capsule())
-                            .accessibilityIdentifier("pending-attachment")
-                        }
+                let flow = FlowLayout(spacing: 6)
+                flow {
+                    ForEach(model.files) { file in
+                        PendingFileChip(file: file) { model.remove(file) }
                     }
                 }
+                .padding(.horizontal, 10)
+                .padding(.bottom, Tokens.Spacing.s)
             }
 
-            HStack(alignment: .bottom, spacing: Tokens.Spacing.s) {
+            HStack(spacing: 6) {
                 Menu {
                     if UIImagePickerController.isSourceTypeAvailable(.camera) {
                         Button { takingPhoto = true } label: { Label(DeskStrings.conversationTakePhoto, systemImage: "camera") }
@@ -498,47 +510,48 @@ private struct ComposerView: View {
                     Button { choosingFile = true } label: { Label(DeskStrings.conversationChooseFile, systemImage: "doc") }
                         .accessibilityIdentifier("attach-file")
                 } label: {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: 18))
-                        .frame(width: 36, height: 36)
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Tokens.Palette.mutedForeground)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
                 }
                 .accessibilityLabel(DeskStrings.conversationAttach)
                 .accessibilityIdentifier("composer-attach")
 
-                TextField(
-                    model.mode == .note ? DeskStrings.conversationNotePlaceholder : DeskStrings.conversationReplyPlaceholder,
-                    text: $model.body,
-                    axis: .vertical
-                )
-                .lineLimit(1...5)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
-                .onChange(of: model.body) { _, _ in model.bodyChanged() }
-                .accessibilityIdentifier("composer-input")
+                FilterChip(title: DeskStrings.conversationReply, selected: !isNote, identifier: "mode-reply") { setMode(.message) }
+                FilterChip(title: DeskStrings.conversationNote, selected: isNote, identifier: "mode-note") { setMode(.note) }
+
+                Spacer(minLength: 0)
 
                 Button {
                     Task { await model.send() }
                 } label: {
                     Group {
                         if model.sending {
-                            ProgressView().tint(.white)
+                            ProgressView().tint(Tokens.Palette.primaryForeground)
                         } else {
-                            Image(systemName: "paperplane.fill").foregroundStyle(.white)
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(model.canSend ? Tokens.Palette.primaryForeground : DeskColors.idleSendIcon)
                         }
                     }
-                    .frame(width: 36, height: 36)
-                    .background(model.canSend ? Tokens.Palette.primary : Color(.systemGray3), in: Circle())
+                    .frame(width: 32, height: 32)
+                    .background(model.canSend || model.sending ? Tokens.Palette.primary : DeskColors.idleSend, in: RoundedRectangle(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
                 .disabled(!model.canSend)
-                .accessibilityLabel(DeskStrings.conversationSend)
+                .accessibilityLabel(isNote ? DeskStrings.conversationAddNote : DeskStrings.conversationSendReply)
                 .accessibilityIdentifier("composer-send")
             }
         }
+        .padding(10)
+        .background(isNote ? DeskColors.noteComposer : Tokens.Palette.background, in: RoundedRectangle(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(isNote ? DeskColors.noteBorder : Tokens.Palette.border, lineWidth: 1))
         .padding(.horizontal, Tokens.Spacing.m)
-        .padding(.vertical, Tokens.Spacing.s)
-        .background(.bar)
+        .padding(.top, Tokens.Spacing.s)
+        .padding(.bottom, Tokens.Spacing.m)
+        .background(Tokens.Palette.background)
         .photosPicker(isPresented: $choosingPhoto, selection: $photoItem, matching: .images)
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
@@ -569,6 +582,48 @@ private struct ComposerView: View {
             }
             .ignoresSafeArea()
         }
+    }
+
+    private func setMode(_ mode: MessageKind) {
+        model.mode = mode
+        model.modeChanged()
+    }
+}
+
+/// A file on the reply: uploading (a spinner) or uploaded (a paperclip and its size), with a remove button.
+private struct PendingFileChip: View {
+    let file: PendingFile
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if file.uploading {
+                ProgressView().controlSize(.mini).accessibilityLabel(DeskStrings.conversationUploading)
+            } else {
+                Image(systemName: "paperclip")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
+                    .accessibilityHidden(true)
+            }
+            Text(file.name).lineLimit(1)
+            if let size = file.uploaded.map({ DeskLogic.formatFileSize($0.size) }), !size.isEmpty {
+                Text(size).foregroundStyle(Tokens.Palette.mutedForeground)
+            }
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(DeskStrings.conversationRemoveAttachment(name: file.name))
+        }
+        .font(.inter(.caption))
+        .padding(.horizontal, Tokens.Spacing.s)
+        .padding(.vertical, Tokens.Spacing.xs)
+        .frame(maxWidth: 240, alignment: .leading)
+        .background(Tokens.Palette.muted.opacity(0.6), in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.medium).stroke(Tokens.Palette.border, lineWidth: 1))
+        .accessibilityIdentifier("pending-attachment")
     }
 }
 

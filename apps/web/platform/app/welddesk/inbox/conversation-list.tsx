@@ -119,8 +119,8 @@ function conversationToItem(
     labelColors[t.list.unassignedBadge] = '#6b7280';
   }
   if (waiting) {
-    labels.push(t.sort.waitingLongest);
-    labelColors[t.sort.waitingLongest] = '#2563eb';
+    labels.push(t.list.waitingBadge);
+    labelColors[t.list.waitingBadge] = '#2563eb';
   }
 
   return {

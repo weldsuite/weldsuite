@@ -31,25 +31,53 @@ tags: [writes]
 - extendedWaitUntil:
     visible: "Maestro note"
     timeout: 15000
-# Assign to me (unless it is already), then unassign.
+# Assigning happens in the sheet behind the assignee button in the top bar,
+# as on the platform: it lists the team, searchable, with "Assign to me"
+# first (unless it is yours already) and "Unassign" last.
+- tapOn:
+    id: change-assignee
+- extendedWaitUntil:
+    visible:
+      id: assignee-search
+    timeout: 15000
+- assertVisible: "Search team members"
+# Picking someone closes the sheet. If it was assigned to me already, there
+# is nothing to pick: close the sheet instead.
 - tapOn:
     id: assign-to-me
     optional: true
+- runFlow:
+    when:
+      visible:
+        id: assignee-search
+      platform: Android
+    commands:
+      - back
+- runFlow:
+    when:
+      visible:
+        id: assignee-search
+      platform: iOS
+    commands:
+      - tapOn: "Close"
+# Now it is mine: unassign it.
+- tapOn:
+    id: change-assignee
 - extendedWaitUntil:
     visible:
-      id: unassign
+      id: assignee-unassign
     timeout: 15000
 - tapOn:
-    id: unassign
+    id: assignee-unassign
+# Unassigned, the sheet offers "Assign to me" again and no "Unassign".
+- tapOn:
+    id: change-assignee
 - extendedWaitUntil:
     visible:
       id: assign-to-me
     timeout: 15000
-# The picker lists the team, searchable.
-- tapOn:
-    id: change-assignee
-- assertVisible: "Assign conversation"
-- assertVisible: "Search team members"
+- assertNotVisible:
+    id: assignee-unassign
 - runFlow:
     when:
       platform: Android

@@ -2,8 +2,9 @@ import SwiftUI
 import WeldCore
 import WeldUI
 
-/// Who to assign the conversation to: "Unassign" on top when it is
-/// assigned, then the team, searchable. The roster loads the first time it opens.
+/// Who to assign the conversation to, as the platform's assign menu: the
+/// search, "Assign to me" first, the team (a check on the assignee), and
+/// "Unassign" last, in red. The roster loads the first time it opens.
 struct AssigneePicker: View {
     let model: ConversationModel
     /// Nil unassigns.
@@ -11,18 +12,37 @@ struct AssigneePicker: View {
     @State private var search = ""
     @Environment(\.dismiss) private var dismiss
 
+    private var assigneeID: String? {
+        guard let id = model.detail?.conversation.assigneeID, !id.isEmpty else { return nil }
+        return id
+    }
+
     var body: some View {
         NavigationStack {
             List {
-                if let assignee = model.detail?.conversation.assigneeID, !assignee.isEmpty {
+                if let userID = model.userID, assigneeID != userID, search.trimmingCharacters(in: .whitespaces).isEmpty {
                     Button {
+                        onSelect(userID)
+                    } label: {
+                        PickerRow(title: DeskStrings.conversationAssignToMe) {
+                            Image(systemName: "person.crop.circle.badge.checkmark")
+                                .foregroundStyle(Tokens.Palette.foreground)
+                        }
+                    }
+                    .accessibilityIdentifier("assign-to-me")
+                }
+                content
+                if assigneeID != nil {
+                    Button(role: .destructive) {
                         onSelect(nil)
                     } label: {
-                        Label(DeskStrings.conversationUnassign, systemImage: "person.badge.minus")
+                        PickerRow(title: DeskStrings.conversationUnassign, color: Tokens.Status.danger) {
+                            Image(systemName: "person.badge.minus")
+                                .foregroundStyle(Tokens.Status.danger)
+                        }
                     }
                     .accessibilityIdentifier("assignee-unassign")
                 }
-                content
             }
             .listStyle(.plain)
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: DeskStrings.conversationSearchMembers)
@@ -48,7 +68,8 @@ struct AssigneePicker: View {
             let visible = DeskLogic.filterMembers(members, search: search)
             if visible.isEmpty {
                 Text(DeskStrings.conversationNoMembers)
-                    .foregroundStyle(.secondary)
+                    .font(.inter(.subheadline))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
                     .frame(maxWidth: .infinity)
                     .listRowSeparator(.hidden)
             } else {
@@ -56,14 +77,22 @@ struct AssigneePicker: View {
                     Button {
                         onSelect(member.userID)
                     } label: {
-                        MemberRow(member: member, isMe: member.userID == model.userID, selected: member.userID == model.detail?.conversation.assigneeID)
+                        PickerRow(
+                            title: member.userID == model.userID ? "\(member.name) (\(DeskStrings.conversationAssignedToYou))" : member.name,
+                            checked: member.userID == assigneeID
+                        ) {
+                            InitialAvatar(name: member.name, url: member.picture.flatMap(URL.init(string:)), size: 24)
+                        }
                     }
                     .accessibilityIdentifier("assignee-\(member.userID)")
                 }
             }
         } else if model.membersFailed {
             VStack(spacing: Tokens.Spacing.s) {
-                Text(DeskStrings.conversationMembersError).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Text(DeskStrings.conversationMembersError)
+                    .font(.inter(.subheadline))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
+                    .multilineTextAlignment(.center)
                 Button(CoreStrings.commonTryAgain) { Task { await model.loadMembers(force: true) } }
                     .accessibilityIdentifier("retry")
             }
@@ -76,26 +105,28 @@ struct AssigneePicker: View {
     }
 }
 
-private struct MemberRow: View {
-    let member: DeskMember
-    let isMe: Bool
-    let selected: Bool
+/// One choice of the assign menu: an icon or avatar, the title, and a check on the current one.
+private struct PickerRow<Leading: View>: View {
+    let title: String
+    var color: Color = Tokens.Palette.foreground
+    var checked = false
+    @ViewBuilder var leading: () -> Leading
 
     var body: some View {
         HStack(spacing: Tokens.Spacing.m) {
-            AvatarView(name: member.name, url: member.picture.flatMap(URL.init(string:)), size: 32)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(isMe ? "\(member.name) (\(DeskStrings.conversationAssignedToYou))" : member.name)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                if !member.email.isEmpty, member.email != member.name {
-                    Text(member.email).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
+            leading()
+                .frame(width: 24, height: 24)
+            Text(title)
+                .font(.inter(.subheadline))
+                .foregroundStyle(color)
+                .lineLimit(1)
             Spacer(minLength: 0)
-            if selected {
-                Image(systemName: "checkmark").foregroundStyle(Tokens.Palette.primary)
+            if checked {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Tokens.Palette.primary)
             }
         }
+        .contentShape(Rectangle())
     }
 }

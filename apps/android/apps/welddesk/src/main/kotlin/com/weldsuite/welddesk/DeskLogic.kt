@@ -1,6 +1,14 @@
 package com.weldsuite.welddesk
 
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
 import java.util.Locale
+import kotlin.math.abs
 
 /** The inbox request's parameters, as `GET /api/desk/conversations` takes them. */
 data class InboxRequest(
@@ -58,26 +66,206 @@ object DeskLogic {
         )
     }
 
-    /** A row's title: the customer's name or email; null for neither (the screen says "Conversation"). */
+    /** A row's name: the customer's name or email; null for neither (the screen says "(no subject)"). */
     fun rowTitle(conversation: Conversation): String? =
         conversation.name.nonBlank() ?: conversation.email.nonBlank()
 
-    /** A row's second line: the last message, else the subject, else the email. */
+    /** A row's subject: the conversation's title, else `#42`. */
+    fun rowSubject(conversation: Conversation): String =
+        conversation.title.nonBlank() ?: "#${conversation.number}"
+
+    /** A row's preview: the last message, else the subject, else the email. */
     fun rowSubtitle(conversation: Conversation): String =
         conversation.lastMessagePreview.nonBlank() ?: conversation.title.nonBlank() ?: conversation.email.nonBlank().orEmpty()
 
-    /** `#42 · Order question`, or `#42` without a subject. */
-    fun numberLabel(conversation: Conversation): String {
-        val number = "#${conversation.number}"
-        return conversation.title.nonBlank()?.let { "$number · $it" } ?: number
-    }
+    /** The thread's title, as the platform's header: the subject, the name, the email; null for none ("Untitled conversation"). */
+    fun threadTitle(conversation: Conversation): String? =
+        conversation.title.nonBlank() ?: conversation.name.nonBlank() ?: conversation.email.nonBlank()
 
-    /** The thread's title: the customer's name, their email, or `#42`. */
-    fun threadTitle(conversation: Conversation): String =
-        conversation.name.nonBlank() ?: conversation.email.nonBlank() ?: "#${conversation.number}"
+    /** Under the title: the customer when the title is something else, and the number (`Ann · #42`). */
+    fun threadSubtitle(conversation: Conversation): String {
+        val customer = conversation.name.nonBlank() ?: conversation.email.nonBlank()
+        val number = "#${conversation.number}"
+        return if (customer == null || customer == threadTitle(conversation)) number else "$customer · $number"
+    }
 
     /** The time a row shows: the last message's, else the last change's. */
     fun rowTime(conversation: Conversation) = conversation.lastMessageAt ?: conversation.updatedAt
+
+    // ── The inbox's date groups ─────────────────────────────────────────────
+
+    /** The platform's date groups (Gmail's): today, yesterday, a weekday this week, last week, weeks ago, a month. */
+    sealed interface DateGroup {
+        /** Today has no header. */
+        data object Today : DateGroup
+        data object Yesterday : DateGroup
+        data class Weekday(val day: DayOfWeek) : DateGroup
+        data object LastWeek : DateGroup
+        data class WeeksAgo(val weeks: Int) : DateGroup
+        /** The month, with its year once it is not this year's. */
+        data class Month(val month: YearMonth, val withYear: Boolean) : DateGroup
+        /** A later day (a scheduled message): the day itself. */
+        data class Later(val day: LocalDate) : DateGroup
+    }
+
+    /** The group of a day, seen from [today]; weeks start on Monday, as on the platform. */
+    fun dateGroup(day: LocalDate, today: LocalDate): DateGroup {
+        if (day == today) return DateGroup.Today
+        if (day == today.minusDays(1)) return DateGroup.Yesterday
+        if (day.isAfter(today)) return DateGroup.Later(day)
+        val thisWeek = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        if (!day.isBefore(thisWeek)) return DateGroup.Weekday(day.dayOfWeek)
+        val weeks = ChronoUnit.WEEKS.between(day.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)), thisWeek).toInt()
+        if (weeks == 1) return DateGroup.LastWeek
+        if (weeks <= 3) return DateGroup.WeeksAgo(weeks)
+        return DateGroup.Month(YearMonth.from(day), withYear = day.year != today.year)
+    }
+
+    /** The inbox in its date groups, each in the order its first conversation comes (the list's sort). */
+    fun groupByDate(items: List<Conversation>, now: Instant, zone: ZoneId): List<Pair<DateGroup, List<Conversation>>> {
+        val today = now.atZone(zone).toLocalDate()
+        val groups = LinkedHashMap<DateGroup, MutableList<Conversation>>()
+        for (item in items) {
+            val day = rowTime(item)?.atZone(zone)?.toLocalDate() ?: today
+            groups.getOrPut(dateGroup(day, today)) { mutableListOf() }.add(item)
+        }
+        return groups.map { (group, members) -> group to members.toList() }
+    }
+
+    // ── SLA ─────────────────────────────────────────────────────────────────
+
+    enum class SlaTone { OK, WARNING, BREACHED, MUTED }
+
+    /** What the SLA chip says. [metric] is first_response, next_response or resolution. */
+    sealed interface SlaLabel {
+        data class DueIn(val metric: String, val time: String) : SlaLabel
+        data class Overdue(val metric: String, val time: String) : SlaLabel
+        data object Breached : SlaLabel
+        data object Paused : SlaLabel
+        data object Achieved : SlaLabel
+    }
+
+    data class SlaDisplay(val label: SlaLabel, val tone: SlaTone)
+
+    /**
+     * A conversation's SLA chip at [now] (the platform's `deskSlaDisplay`):
+     * the countdown while a target runs, "SLA breached" after. The list
+     * leaves out paused and met; the header shows them.
+     */
+    fun slaDisplay(conversation: Conversation, now: Instant, showPaused: Boolean = false, showFinished: Boolean = false): SlaDisplay? {
+        val status = conversation.slaStatus.nonBlank() ?: return null
+        val due = conversation.slaDueAt
+        val metric = conversation.slaMetric.nonBlank()
+        if (due != null && metric != null && conversation.state == ConversationState.OPEN) {
+            val remaining = due.toEpochMilli() - now.toEpochMilli()
+            if (remaining <= 0) return SlaDisplay(SlaLabel.Overdue(metric, formatSlaDuration(remaining)), SlaTone.BREACHED)
+            val tone = when (status) {
+                "warning" -> SlaTone.WARNING
+                "breached" -> SlaTone.BREACHED
+                else -> SlaTone.OK
+            }
+            return SlaDisplay(SlaLabel.DueIn(metric, formatSlaDuration(remaining)), tone)
+        }
+        return when {
+            status == "paused" && showPaused -> SlaDisplay(SlaLabel.Paused, SlaTone.MUTED)
+            status == "breached" -> SlaDisplay(SlaLabel.Breached, SlaTone.BREACHED)
+            status == "achieved" && showFinished -> SlaDisplay(SlaLabel.Achieved, SlaTone.OK)
+            else -> null
+        }
+    }
+
+    /** "45m", "3h 5m", "2d 4h": how long until (or since) an SLA target. */
+    fun formatSlaDuration(millis: Long): String {
+        val minutes = maxOf(1L, Math.round(abs(millis) / 60_000.0))
+        if (minutes < 60) return "${minutes}m"
+        val hours = minutes / 60
+        if (hours < 24) return if (minutes % 60 != 0L) "${hours}h ${minutes % 60}m" else "${hours}h"
+        val days = hours / 24
+        return if (hours % 24 != 0L) "${days}d ${hours % 24}h" else "${days}d"
+    }
+
+    // ── The inbox row's badges ──────────────────────────────────────────────
+
+    /** A badge under an inbox row, in the platform's order. */
+    sealed interface RowBadge {
+        data class Sla(val display: SlaDisplay) : RowBadge
+        /** Only urgent and high: the priorities that should catch the eye. */
+        data class Priority(val priority: String) : RowBadge
+        data class Tag(val tag: String) : RowBadge
+        /** Email, phone, help center and API; chat has none. */
+        data class Channel(val channel: DeskChannel) : RowBadge
+        data object Unassigned : RowBadge
+        /** The customer waits for an answer. */
+        data object Waiting : RowBadge
+    }
+
+    /** How many badges a row shows before "+N". */
+    const val MAX_ROW_BADGES = 3
+
+    /** A row's badges (the platform's `conversationToItem` labels): SLA, priority, two tags, channel, unassigned, waiting. */
+    fun rowBadges(conversation: Conversation, now: Instant): List<RowBadge> = buildList {
+        slaDisplay(conversation, now)?.let { add(RowBadge.Sla(it)) }
+        conversation.priority?.takeIf { it == "urgent" || it == "high" }?.let { add(RowBadge.Priority(it)) }
+        conversation.tags.filter { it.isNotBlank() }.take(2).forEach { add(RowBadge.Tag(it)) }
+        if (conversation.channel in setOf(DeskChannel.EMAIL, DeskChannel.PHONE, DeskChannel.PORTAL, DeskChannel.API)) {
+            add(RowBadge.Channel(conversation.channel))
+        }
+        if (conversation.assigneeId.isNullOrEmpty()) add(RowBadge.Unassigned)
+        if (conversation.isWaiting) add(RowBadge.Waiting)
+    }
+
+    // ── The thread ──────────────────────────────────────────────────────────
+
+    /** How long ago a message was, short: now, minutes, hours, days, then the date. */
+    sealed interface Ago {
+        data object Now : Ago
+        data class Minutes(val n: Long) : Ago
+        data class Hours(val n: Long) : Ago
+        data class Days(val n: Long) : Ago
+        data class On(val day: LocalDate) : Ago
+    }
+
+    fun ago(at: Instant, now: Instant, zone: ZoneId): Ago {
+        val minutes = (now.toEpochMilli() - at.toEpochMilli()) / 60_000
+        return when {
+            minutes < 1 -> Ago.Now
+            minutes < 60 -> Ago.Minutes(minutes)
+            minutes < 60 * 24 -> Ago.Hours(minutes / 60)
+            minutes < 60 * 24 * 7 -> Ago.Days(minutes / (60 * 24))
+            else -> Ago.On(at.atZone(zone).toLocalDate())
+        }
+    }
+
+    /** Whether [message] starts a new day after [previous] (the timeline's day line). */
+    fun startsDay(previous: Message?, message: Message, zone: ZoneId): Boolean {
+        val day = message.createdAt?.atZone(zone)?.toLocalDate() ?: return false
+        val before = previous?.createdAt?.atZone(zone)?.toLocalDate() ?: return true
+        return day != before
+    }
+
+    /** The tags a change added and removed, in order. */
+    fun tagDiff(change: AttributeChange): Pair<List<String>, List<String>> {
+        val before = (change.from as? ChangeValue.Items)?.items.orEmpty()
+        val after = (change.to as? ChangeValue.Items)?.items.orEmpty()
+        return after.filter { it !in before } to before.filter { it !in after }
+    }
+
+    /** Whether a change cleared its field (nothing, an empty text or an empty list). */
+    fun isCleared(value: ChangeValue): Boolean = when (value) {
+        ChangeValue.Empty -> true
+        is ChangeValue.Text -> value.text.isEmpty()
+        is ChangeValue.Items -> value.items.isEmpty()
+        is ChangeValue.Flag -> false
+    }
+
+    /** Events only the team sees, which the timeline marks with a lock. */
+    val INTERNAL_EVENTS = setOf(
+        "attributes_changed",
+        "linked", "unlinked", "merged_into", "merged_from", "incident_marked", "incident_unmarked",
+        "problem_linked", "problem_unlinked",
+        "approval_requested", "approval_approved", "approval_rejected", "fulfilment_started",
+        "sla_warning", "sla_breached",
+    )
 
     /** Insert or replace a message by id, keeping the timeline in time order. */
     fun mergeMessage(messages: List<Message>, incoming: Message): List<Message> {

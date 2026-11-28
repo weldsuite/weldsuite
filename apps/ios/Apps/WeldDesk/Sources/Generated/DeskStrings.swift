@@ -11,7 +11,7 @@ enum DeskStrings {
     static var channelApi: String { tr("channel.api") }
     /// Email
     static var channelEmail: String { tr("channel.email") }
-    /// Chat
+    /// Messenger
     static var channelMessenger: String { tr("channel.messenger") }
     /// Phone
     static var channelPhone: String { tr("channel.phone") }
@@ -21,76 +21,76 @@ enum DeskStrings {
     static var channelSms: String { tr("channel.sms") }
     /// WhatsApp
     static var channelWhatsapp: String { tr("channel.whatsapp") }
-    /// —
-    static var commonDash: String { tr("common.dash") }
-    /// You
+    /// Add note
+    static var conversationAddNote: String { tr("conversation.addNote") }
+    /// Agent
     static var conversationAgent: String { tr("conversation.agent") }
-    /// Could not update the assignee.
+    /// AI
+    static var conversationAi: String { tr("conversation.ai") }
+    /// Assign
+    static var conversationAssign: String { tr("conversation.assign") }
+    /// Failed to assign conversation
     static var conversationAssignError: String { tr("conversation.assignError") }
     /// Assign conversation
     static var conversationAssignTitle: String { tr("conversation.assignTitle") }
     /// Assign to me
     static var conversationAssignToMe: String { tr("conversation.assignToMe") }
-    /// Assigned
-    static var conversationAssignedEvent: String { tr("conversation.assignedEvent") }
     /// You
     static var conversationAssignedToYou: String { tr("conversation.assignedToYou") }
-    /// Assignee:
-    static var conversationAssignee: String { tr("conversation.assignee") }
-    /// Attach
+    /// Attach file
     static var conversationAttach: String { tr("conversation.attach") }
     /// Attachment
     static var conversationAttachment: String { tr("conversation.attachment") }
     /// Could not open this attachment.
     static var conversationAttachmentOpenError: String { tr("conversation.attachmentOpenError") }
-    /// Bot
-    static var conversationBot: String { tr("conversation.bot") }
-    /// Assign to…
-    static var conversationChangeAssignee: String { tr("conversation.changeAssignee") }
     /// Choose file
     static var conversationChooseFile: String { tr("conversation.chooseFile") }
     /// Choose photo
     static var conversationChoosePhoto: String { tr("conversation.choosePhoto") }
     /// Close
     static var conversationClose: String { tr("conversation.close") }
-    /// Conversation closed
-    static var conversationClosedEvent: String { tr("conversation.closedEvent") }
-    /// No messages yet.
+    /// No messages yet
     static var conversationEmptyThread: String { tr("conversation.emptyThread") }
-    /// Could not load this conversation.
+    /// Internal note
+    static var conversationInternalNote: String { tr("conversation.internalNote") }
+    /// Failed to load conversation
     static var conversationLoadError: String { tr("conversation.loadError") }
-    /// Could not update the conversation.
+    /// Failed to update conversation
     static var conversationManageError: String { tr("conversation.manageError") }
     /// Could not load team members.
     static var conversationMembersError: String { tr("conversation.membersError") }
-    /// No team members found.
+    /// No teammates found.
     static var conversationNoMembers: String { tr("conversation.noMembers") }
     /// Note
     static var conversationNote: String { tr("conversation.note") }
-    /// Add an internal note…
+    /// Leave an internal note…
     static var conversationNotePlaceholder: String { tr("conversation.notePlaceholder") }
-    /// Customer rated this {rating}/5
-    static func conversationRatedEvent(rating: String) -> String { tr("conversation.ratedEvent", rating) }
+    /// Online
+    static var conversationOnline: String { tr("conversation.online") }
     /// Remove {name}
     static func conversationRemoveAttachment(name: String) -> String { tr("conversation.removeAttachment", name) }
     /// Reopen
     static var conversationReopen: String { tr("conversation.reopen") }
-    /// Conversation reopened
-    static var conversationReopenedEvent: String { tr("conversation.reopenedEvent") }
     /// Reply
     static var conversationReply: String { tr("conversation.reply") }
-    /// Write a reply…
+    /// Type a reply to the customer…
     static var conversationReplyPlaceholder: String { tr("conversation.replyPlaceholder") }
     /// Search team members
     static var conversationSearchMembers: String { tr("conversation.searchMembers") }
-    /// Send
-    static var conversationSend: String { tr("conversation.send") }
-    /// Could not send your message.
+    /// Failed to send reply
     static var conversationSendError: String { tr("conversation.sendError") }
-    /// System
-    static var conversationSystem: String { tr("conversation.system") }
+    /// Send reply
+    static var conversationSendReply: String { tr("conversation.sendReply") }
     /// Take photo
     static var conversationTakePhoto: String { tr("conversation.takePhoto") }
+    /// {n}d
+    static func conversationTimeDays(n: String) -> String { tr("conversation.timeDays", n) }
+    /// {n}h
+    static func conversationTimeHours(n: String) -> String { tr("conversation.timeHours", n) }
+    /// {n}min
+    static func conversationTimeMinutes(n: String) -> String { tr("conversation.timeMinutes", n) }
+    /// Now
+    static var conversationTimeNow: String { tr("conversation.timeNow") }
     /// Conversation
     static var conversationTitle: String { tr("conversation.title") }
     /// A reply can have at most 10 attachments.
@@ -101,13 +101,11 @@ enum DeskStrings {
     static var conversationTypingFallback: String { tr("conversation.typingFallback") }
     /// Unassign
     static var conversationUnassign: String { tr("conversation.unassign") }
-    /// Unassigned
-    static var conversationUnassignedEvent: String { tr("conversation.unassignedEvent") }
-    /// Unassigned
-    static var conversationUnassignedLabel: String { tr("conversation.unassignedLabel") }
-    /// Could not upload {name}.
+    /// Untitled conversation
+    static var conversationUntitled: String { tr("conversation.untitled") }
+    /// Failed to upload {name}
     static func conversationUploadError(name: String) -> String { tr("conversation.uploadError", name) }
-    /// {name} is larger than 10 MB.
+    /// {name} is larger than 10 MB
     static func conversationUploadTooLarge(name: String) -> String { tr("conversation.uploadTooLarge", name) }
     /// {name} can’t be attached: images, PDFs, text and Office files only.
     static func conversationUploadTypeNotAllowed(name: String) -> String { tr("conversation.uploadTypeNotAllowed", name) }
@@ -117,23 +115,21 @@ enum DeskStrings {
     static var conversationUploading: String { tr("conversation.uploading") }
     /// Visitor
     static var conversationVisitor: String { tr("conversation.visitor") }
-    /// Online
-    static var conversationVisitorOnline: String { tr("conversation.visitorOnline") }
     /// All
     static var inboxAll: String { tr("inbox.all") }
     /// Closed
     static var inboxClosed: String { tr("inbox.closed") }
-    /// No closed conversations
-    static var inboxEmptyClosed: String { tr("inbox.emptyClosed") }
-    /// Visitor chat and support email land here.
-    static var inboxEmptyHint: String { tr("inbox.emptyHint") }
-    /// No open conversations
-    static var inboxEmptyOpen: String { tr("inbox.emptyOpen") }
-    /// Could not load conversations.
+    /// No conversations here
+    static var inboxEmpty: String { tr("inbox.empty") }
+    /// Conversations matching this view will show up here.
+    static var inboxEmptyDescription: String { tr("inbox.emptyDescription") }
+    /// Last week
+    static var inboxLastWeek: String { tr("inbox.lastWeek") }
+    /// Failed to load conversations
     static var inboxLoadError: String { tr("inbox.loadError") }
     /// Could not load more conversations.
     static var inboxLoadMoreError: String { tr("inbox.loadMoreError") }
-    /// Mine
+    /// Your inbox
     static var inboxMine: String { tr("inbox.mine") }
     /// Newest
     static var inboxNewest: String { tr("inbox.newest") }
@@ -141,7 +137,7 @@ enum DeskStrings {
     static var inboxNoResults: String { tr("inbox.noResults") }
     /// Try a different name, email, number or word.
     static var inboxNoResultsHint: String { tr("inbox.noResultsHint") }
-    /// Conversation
+    /// (no subject)
     static var inboxNoSubject: String { tr("inbox.noSubject") }
     /// Oldest
     static var inboxOldest: String { tr("inbox.oldest") }
@@ -157,22 +153,156 @@ enum DeskStrings {
     static var inboxTitle: String { tr("inbox.title") }
     /// Unassigned
     static var inboxUnassigned: String { tr("inbox.unassigned") }
-    /// Waiting
-    static var inboxWaiting: String { tr("inbox.waiting") }
+    /// Unassigned
+    static var inboxUnassignedBadge: String { tr("inbox.unassignedBadge") }
+    /// Waiting for reply
+    static var inboxWaitingBadge: String { tr("inbox.waitingBadge") }
     /// Waiting longest
     static var inboxWaitingLongest: String { tr("inbox.waitingLongest") }
+    /// {count} weeks ago
+    static func inboxWeeksAgo(count: Int) -> String { tr("inbox.weeksAgo", count) }
     /// Helpdesk notifications
     static var notificationsChannel: String { tr("notifications.channel") }
+    /// High
+    static var priorityHigh: String { tr("priority.high") }
+    /// Low
+    static var priorityLow: String { tr("priority.low") }
+    /// Medium
+    static var priorityMedium: String { tr("priority.medium") }
+    /// Urgent
+    static var priorityUrgent: String { tr("priority.urgent") }
     /// Channels
     static var settingsChannels: String { tr("settings.channels") }
     /// Chat widget, support email, and the help center are configured in WeldDesk on the web.
     static var settingsChannelsHint: String { tr("settings.channelsHint") }
     /// Settings
     static var settingsTitle: String { tr("settings.title") }
+    /// SLA met
+    static var slaAchieved: String { tr("sla.achieved") }
+    /// SLA breached
+    static var slaBreached: String { tr("sla.breached") }
+    /// {metric} in {time}
+    static func slaDueIn(metric: String, time: String) -> String { tr("sla.dueIn", metric, time) }
+    /// First response
+    static var slaFirstResponse: String { tr("sla.firstResponse") }
+    /// Next response
+    static var slaNextResponse: String { tr("sla.nextResponse") }
+    /// {metric} overdue {time}
+    static func slaOverdue(metric: String, time: String) -> String { tr("sla.overdue", metric, time) }
+    /// SLA paused
+    static var slaPaused: String { tr("sla.paused") }
+    /// Resolution
+    static var slaResolution: String { tr("sla.resolution") }
     /// Inbox
     static var tabsInbox: String { tr("tabs.inbox") }
     /// Settings
     static var tabsSettings: String { tr("tabs.settings") }
+    /// {actor} approved {step}
+    static func timelineApprovalApproved(actor: String, step: String) -> String { tr("timeline.approvalApproved", actor, step) }
+    /// {actor} rejected {step}
+    static func timelineApprovalRejected(actor: String, step: String) -> String { tr("timeline.approvalRejected", actor, step) }
+    /// Approval requested from {approver} ({step})
+    static func timelineApprovalRequested(approver: String, step: String) -> String { tr("timeline.approvalRequested", approver, step) }
+    /// Approval requested ({step}). No approver, a catalogue manager decides.
+    static func timelineApprovalRequestedNobody(step: String) -> String { tr("timeline.approvalRequestedNobody", step) }
+    /// {actor} assigned this to {target}
+    static func timelineAssigned(actor: String, target: String) -> String { tr("timeline.assigned", actor, target) }
+    /// Automatically assigned to {target}
+    static func timelineAutoAssigned(target: String) -> String { tr("timeline.autoAssigned", target) }
+    /// {actor} closed this conversation
+    static func timelineClosed(actor: String) -> String { tr("timeline.closed", actor) }
+    /// An escalation rule fired because {reason}, but there was nobody to escalate to
+    static func timelineEscalatedNoTarget(reason: String) -> String { tr("timeline.escalatedNoTarget", reason) }
+    /// Escalated to {target} because {reason}
+    static func timelineEscalatedTo(target: String, reason: String) -> String { tr("timeline.escalatedTo", target, reason) }
+    /// Escalated to the next team because {reason}
+    static func timelineEscalatedToNextTeam(reason: String) -> String { tr("timeline.escalatedToNextTeam", reason) }
+    /// {actor} cleared {field}
+    static func timelineFieldCleared(actor: String, field: String) -> String { tr("timeline.fieldCleared", actor, field) }
+    /// {actor} set {field} to {value}
+    static func timelineFieldSet(actor: String, field: String, value: String) -> String { tr("timeline.fieldSet", actor, field, value) }
+    /// Fulfilment started: 1 task created
+    static var timelineFulfilmentStartedOne: String { tr("timeline.fulfilmentStartedOne") }
+    /// Fulfilment started: {count} tasks created
+    static func timelineFulfilmentStartedOther(count: Int) -> String { tr("timeline.fulfilmentStartedOther", count) }
+    /// {actor} {event}
+    static func timelineGeneric(actor: String, event: String) -> String { tr("timeline.generic", actor, event) }
+    /// {actor} cleared the impact
+    static func timelineImpactCleared(actor: String) -> String { tr("timeline.impactCleared", actor) }
+    /// {actor} set the impact to {value}
+    static func timelineImpactSet(actor: String, value: String) -> String { tr("timeline.impactSet", actor, value) }
+    /// {actor} marked this ticket as a major incident
+    static func timelineIncidentMarked(actor: String) -> String { tr("timeline.incidentMarked", actor) }
+    /// {actor} removed the major incident mark
+    static func timelineIncidentUnmarked(actor: String) -> String { tr("timeline.incidentUnmarked", actor) }
+    /// High
+    static var timelineLevelHigh: String { tr("timeline.levelHigh") }
+    /// Low
+    static var timelineLevelLow: String { tr("timeline.levelLow") }
+    /// Medium
+    static var timelineLevelMedium: String { tr("timeline.levelMedium") }
+    /// {actor} linked #{number} to this ticket
+    static func timelineLinkedChild(actor: String, number: String) -> String { tr("timeline.linkedChild", actor, number) }
+    /// {actor} linked this ticket to #{number}
+    static func timelineLinkedToParent(actor: String, number: String) -> String { tr("timeline.linkedToParent", actor, number) }
+    /// {actor} merged #{number} into this ticket
+    static func timelineMergedFrom(actor: String, number: String) -> String { tr("timeline.mergedFrom", actor, number) }
+    /// {actor} merged this ticket into #{number}
+    static func timelineMergedInto(actor: String, number: String) -> String { tr("timeline.mergedInto", actor, number) }
+    /// No
+    static var timelineNo: String { tr("timeline.no") }
+    /// {actor} removed the priority
+    static func timelinePriorityCleared(actor: String) -> String { tr("timeline.priorityCleared", actor) }
+    /// {actor} set the priority to {value}
+    static func timelinePrioritySet(actor: String, value: String) -> String { tr("timeline.prioritySet", actor, value) }
+    /// {actor} linked this ticket to problem #{number}
+    static func timelineProblemLinked(actor: String, number: String) -> String { tr("timeline.problemLinked", actor, number) }
+    /// {actor} unlinked this ticket from problem #{number}
+    static func timelineProblemUnlinked(actor: String, number: String) -> String { tr("timeline.problemUnlinked", actor, number) }
+    /// {actor} rated this conversation {rating}/5
+    static func timelineRated(actor: String, rating: String) -> String { tr("timeline.rated", actor, rating) }
+    /// the customer waited too long
+    static var timelineReasonNoResponse: String { tr("timeline.reasonNoResponse") }
+    /// an SLA target was breached
+    static var timelineReasonSlaBreach: String { tr("timeline.reasonSlaBreach") }
+    /// nobody picked it up
+    static var timelineReasonUnassigned: String { tr("timeline.reasonUnassigned") }
+    /// {actor} reopened this conversation
+    static func timelineReopened(actor: String) -> String { tr("timeline.reopened", actor) }
+    /// {metric} target was missed
+    static func timelineSlaBreached(metric: String) -> String { tr("timeline.slaBreached", metric) }
+    /// {metric} target is due soon
+    static func timelineSlaWarning(metric: String) -> String { tr("timeline.slaWarning", metric) }
+    /// Someone
+    static var timelineSomeone: String { tr("timeline.someone") }
+    /// step {number}
+    static func timelineStep(number: String) -> String { tr("timeline.step", number) }
+    /// {actor} added {value}
+    static func timelineTagsAdded(actor: String, value: String) -> String { tr("timeline.tagsAdded", actor, value) }
+    /// {actor} removed {value}
+    static func timelineTagsRemoved(actor: String, value: String) -> String { tr("timeline.tagsRemoved", actor, value) }
+    /// {actor} removed the team
+    static func timelineTeamCleared(actor: String) -> String { tr("timeline.teamCleared", actor) }
+    /// {actor} moved this to {value}
+    static func timelineTeamSet(actor: String, value: String) -> String { tr("timeline.teamSet", actor, value) }
+    /// {actor} removed the type
+    static func timelineTypeCleared(actor: String) -> String { tr("timeline.typeCleared", actor) }
+    /// {actor} set the type to {value}
+    static func timelineTypeSet(actor: String, value: String) -> String { tr("timeline.typeSet", actor, value) }
+    /// {actor} unassigned this conversation
+    static func timelineUnassigned(actor: String) -> String { tr("timeline.unassigned", actor) }
+    /// {actor} unlinked #{number} from this ticket
+    static func timelineUnlinkedChild(actor: String, number: String) -> String { tr("timeline.unlinkedChild", actor, number) }
+    /// {actor} unlinked this ticket from #{number}
+    static func timelineUnlinkedFromParent(actor: String, number: String) -> String { tr("timeline.unlinkedFromParent", actor, number) }
+    /// {actor} cleared the urgency
+    static func timelineUrgencyCleared(actor: String) -> String { tr("timeline.urgencyCleared", actor) }
+    /// {actor} set the urgency to {value}
+    static func timelineUrgencySet(actor: String, value: String) -> String { tr("timeline.urgencySet", actor, value) }
+    /// {sentence}: “{comment}”
+    static func timelineWithComment(sentence: String, comment: String) -> String { tr("timeline.withComment", sentence, comment) }
+    /// Yes
+    static var timelineYes: String { tr("timeline.yes") }
 
     private static func tr(_ key: String, _ args: CVarArg...) -> String {
         let format = NSLocalizedString(key, bundle: Bundle.main, comment: "")

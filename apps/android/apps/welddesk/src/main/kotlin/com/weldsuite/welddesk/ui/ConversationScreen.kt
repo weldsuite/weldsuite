@@ -4,50 +4,51 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AttachFile
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.HowToReg
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.PersonAdd
-import androidx.compose.material.icons.outlined.PersonRemove
+import androidx.compose.material.icons.outlined.PersonAddAlt
 import androidx.compose.material.icons.outlined.PhotoCamera
-import androidx.compose.material.icons.outlined.Replay
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -61,18 +62,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -87,6 +89,7 @@ import com.weldsuite.welddesk.DeskLogic
 import com.weldsuite.welddesk.DeskRepository
 import com.weldsuite.welddesk.ManageAction
 import com.weldsuite.welddesk.Member
+import com.weldsuite.welddesk.Message
 import com.weldsuite.welddesk.MessageKind
 import com.weldsuite.welddesk.R
 import com.weldsuite.welddesk.ReadResult
@@ -101,9 +104,14 @@ import kotlinx.coroutines.launch
 import org.weldsuite.core.AppEnvironment
 import org.weldsuite.core.api.ApiException
 import org.weldsuite.core.realtime.RealtimeEvent
+import org.weldsuite.ui.Button
+import org.weldsuite.ui.DayNight
+import org.weldsuite.ui.OutlinedButton
 import org.weldsuite.ui.Tokens
 import org.weldsuite.ui.tagged
+import java.time.ZoneId
 import java.util.UUID
+
 
 /** A file on the reply being written: uploading, or uploaded to the conversation. */
 data class PendingFile(val key: String, val name: String, val uploaded: Attachment?) {
@@ -177,7 +185,7 @@ class ConversationViewModel(
             runCatching { repository.conversation(conversationId) }
                 .onSuccess { detail ->
                     stateFlow.update { it.copy(detail = detail, loading = false, error = null) }
-                    loadAssigneeName(detail.conversation.assigneeId)
+                    loadRoster()
                 }
                 .onFailure { error -> stateFlow.update { it.copy(loading = false, error = error) } }
         }
@@ -253,9 +261,12 @@ class ConversationViewModel(
         }
     }
 
-    /** A teammate's name for the header: the roster, loaded once. */
-    private fun loadAssigneeName(assigneeId: String?) {
-        if (assigneeId.isNullOrEmpty() || assigneeId == userId || stateFlow.value.members != null) return
+    /**
+     * The roster, loaded once: the timeline names the teammate behind each
+     * reply and event, and the header shows the assignee's avatar.
+     */
+    private fun loadRoster() {
+        if (stateFlow.value.members != null || stateFlow.value.membersLoading) return
         loadMembers()
     }
 
@@ -323,7 +334,7 @@ class ConversationViewModel(
             val detail = state.detail ?: return@update state
             state.copy(detail = detail.copy(conversation = conversation))
         }
-        loadAssigneeName(conversation.assigneeId)
+        loadRoster()
     }
 
     override fun onCleared() {
@@ -338,7 +349,35 @@ object OpenConversation {
     var id: String? = null
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+
+/** What the thread lists: a day line, a message or event, the visitor typing. */
+private sealed interface TimelineEntry {
+    val key: String
+
+    data class Day(val day: java.time.LocalDate) : TimelineEntry {
+        override val key get() = "day-$day"
+    }
+
+    data class Entry(val message: Message) : TimelineEntry {
+        override val key get() = message.id
+    }
+
+    data class Typing(val name: String) : TimelineEntry {
+        override val key get() = "typing"
+    }
+}
+
+private fun timeline(messages: List<Message>, typing: String?, zone: ZoneId): List<TimelineEntry> = buildList {
+    messages.forEachIndexed { index, message ->
+        if (DeskLogic.startsDay(messages.getOrNull(index - 1), message, zone)) {
+            message.createdAt?.let { add(TimelineEntry.Day(it.atZone(zone).toLocalDate())) }
+        }
+        add(TimelineEntry.Entry(message))
+    }
+    if (typing != null) add(TimelineEntry.Typing(typing))
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConversationScreen(
     env: AppEnvironment,
@@ -395,12 +434,18 @@ fun ConversationScreen(
             }
         }
     }
-    val messages = state.detail?.messages.orEmpty()
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
-    }
 
     val detail = state.detail
+    val zone = remember { ZoneId.systemDefault() }
+    val now = rememberNow(60_000)
+    val typingFallback = stringResource(R.string.welddesk_conversation_typing_fallback)
+    val typingName = room.visitorsTyping.firstOrNull()?.let { name -> name.ifBlank { typingFallback } }
+    val entries = remember(detail?.messages, typingName, zone) { timeline(detail?.messages.orEmpty(), typingName, zone) }
+    // Opening lands on the latest message; a new one (or the visitor typing) follows along.
+    LaunchedEffect(entries.size) {
+        if (entries.isNotEmpty()) listState.animateScrollToItem(entries.lastIndex)
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -412,25 +457,30 @@ fun ConversationScreen(
                 title = {
                     Column {
                         Text(
-                            detail?.conversation?.let(DeskLogic::threadTitle) ?: stringResource(R.string.welddesk_conversation_title),
+                            detail?.conversation?.let(DeskLogic::threadTitle)
+                                ?: stringResource(if (detail == null) R.string.welddesk_conversation_title else R.string.welddesk_conversation_untitled),
+                            style = MaterialTheme.typography.titleMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.tagged("conversation-title"),
                         )
-                        detail?.conversation?.email?.let {
-                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        detail?.conversation?.let {
+                            Text(
+                                DeskLogic.threadSubtitle(it),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.tagged("conversation-subtitle"),
+                            )
                         }
                     }
                 },
                 actions = {
                     if (detail != null) {
-                        val open = detail.conversation.state == ConversationState.OPEN
-                        IconButton(onClick = model::toggleState, enabled = !state.managing, modifier = Modifier.tagged("conversation-toggle-state")) {
-                            Icon(
-                                if (open) Icons.Outlined.CheckCircle else Icons.Outlined.Replay,
-                                contentDescription = stringResource(if (open) R.string.welddesk_conversation_close else R.string.welddesk_conversation_reopen),
-                            )
-                        }
+                        AssignButton(detail.conversation, state, userId, enabled = !state.managing) { picking = true }
+                        StateButton(detail.conversation, state.managing, onClick = model::toggleState)
+                        Spacer(Modifier.width(Tokens.Spacing.s))
                     }
                 },
             )
@@ -439,36 +489,40 @@ fun ConversationScreen(
         Column(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
             when {
                 detail == null && state.error != null -> DeskLoadError(stringResource(R.string.welddesk_conversation_load_error), state.error, onRetry = model::retry)
-                detail == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                detail == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, strokeWidth = 2.dp)
+                }
                 else -> {
-                    ConversationHeader(detail.conversation, room, state, userId, model, onPick = { picking = true })
-                    HorizontalDivider()
+                    StatusStrip(detail.conversation, room, now)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    val names = TimelineNames(
+                        members = state.members,
+                        visitor = DeskLogic.rowTitle(detail.conversation) ?: stringResource(R.string.welddesk_conversation_visitor),
+                        someone = stringResource(R.string.welddesk_timeline_someone),
+                    )
                     LazyColumn(
                         Modifier.weight(1f).fillMaxWidth().tagged("thread"),
                         state = listState,
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.m),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(vertical = Tokens.Spacing.s),
                     ) {
-                        if (messages.isEmpty()) {
+                        if (entries.isEmpty()) {
                             item {
                                 Text(
                                     stringResource(R.string.welddesk_conversation_empty_thread),
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
                                 )
                             }
                         }
-                        items(messages, key = { it.id }) { message -> MessageRow(message, onOpenFailed = model::attachmentOpenFailed) }
-                    }
-                    room.visitorsTyping.firstOrNull()?.let { name ->
-                        Text(
-                            stringResource(R.string.welddesk_conversation_typing, name.ifBlank { stringResource(R.string.welddesk_conversation_typing_fallback) }),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontStyle = FontStyle.Italic,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.xs).tagged("typing"),
-                        )
+                        items(entries, key = { it.key }) { entry ->
+                            when (entry) {
+                                is TimelineEntry.Day -> DaySeparator(entry.day)
+                                is TimelineEntry.Entry -> MessageRow(entry.message, names, now, zone, onOpenFailed = model::attachmentOpenFailed)
+                                is TimelineEntry.Typing -> TypingBubble(entry.name)
+                            }
+                        }
                     }
                     Composer(state, model)
                 }
@@ -491,70 +545,73 @@ fun ConversationScreen(
     }
 }
 
+/** What the platform's header shows beside the title: the SLA chip, and the visitor online. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ConversationHeader(
-    conversation: Conversation,
-    room: RoomState,
-    state: ConversationUiState,
-    userId: String?,
-    model: ConversationViewModel,
-    onPick: () -> Unit,
-) {
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    Column(Modifier.padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s), verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
-            StateBadge(conversation.state)
-            ChannelBadge(conversation)
-            Text("#${conversation.number}", style = MaterialTheme.typography.labelLarge, color = muted)
-            if (room.visitorOnline) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.xs), modifier = Modifier.tagged("visitor-online")) {
-                    Box(Modifier.size(7.dp).background(Color(0xFF10B981), CircleShape))
-                    Text(stringResource(R.string.welddesk_conversation_visitor_online), style = MaterialTheme.typography.labelLarge, color = muted)
-                }
-            }
-        }
-        val label = when (val assignee = DeskLogic.assigneeLabel(conversation.assigneeId, userId, state.members)) {
-            DeskLogic.AssigneeLabel.Unassigned -> stringResource(R.string.welddesk_conversation_unassigned_label)
-            DeskLogic.AssigneeLabel.You -> stringResource(R.string.welddesk_conversation_assigned_to_you)
-            DeskLogic.AssigneeLabel.Someone -> stringResource(R.string.welddesk_conversation_assigned_event)
-            is DeskLogic.AssigneeLabel.Teammate -> assignee.name
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.xs)) {
-            Text(stringResource(R.string.welddesk_conversation_assignee), style = MaterialTheme.typography.labelLarge, color = muted)
-            Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.tagged("assignee-label"))
-        }
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
-            val mine = !conversation.assigneeId.isNullOrEmpty() && conversation.assigneeId == userId
-            if (!mine && userId != null) {
-                AssignChip(R.string.welddesk_conversation_assign_to_me, Icons.Outlined.HowToReg, "assign-to-me", !state.managing) { model.assign(userId) }
-            }
-            AssignChip(R.string.welddesk_conversation_change_assignee, Icons.Outlined.PersonAdd, "change-assignee", !state.managing, onPick)
-            if (!conversation.assigneeId.isNullOrEmpty()) {
-                AssignChip(R.string.welddesk_conversation_unassign, Icons.Outlined.PersonRemove, "unassign", !state.managing) { model.assign(null) }
-            }
+private fun StatusStrip(conversation: Conversation, room: RoomState, now: java.time.Instant) {
+    val sla = DeskLogic.slaDisplay(conversation, now, showPaused = true, showFinished = true)
+    if (sla == null && !room.visitorOnline) return
+    FlowRow(
+        Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s),
+        horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
+        verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.xs),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
+        sla?.let { SlaChip(it) }
+        if (room.visitorOnline) OnlineIndicator()
+    }
+}
+
+/** Assign: the assignee's avatar once someone has it, else the add-person icon; opens the picker. */
+@Composable
+private fun AssignButton(conversation: Conversation, state: ConversationUiState, userId: String?, enabled: Boolean, onClick: () -> Unit) {
+    val assignee = conversation.assigneeId?.takeIf { it.isNotEmpty() }
+    val member = assignee?.let { id -> state.members?.firstOrNull { it.userId == id } }
+    val label = when (val who = DeskLogic.assigneeLabel(conversation.assigneeId, userId, state.members)) {
+        DeskLogic.AssigneeLabel.Unassigned -> stringResource(R.string.welddesk_conversation_assign)
+        DeskLogic.AssigneeLabel.You -> member?.name ?: stringResource(R.string.welddesk_conversation_assigned_to_you)
+        DeskLogic.AssigneeLabel.Someone -> stringResource(R.string.welddesk_conversation_assign)
+        is DeskLogic.AssigneeLabel.Teammate -> who.name
+    }
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.semantics { contentDescription = label }.tagged("change-assignee")) {
+        if (member != null) {
+            InitialAvatar(member.name, url = member.picture, size = 22.dp, modifier = Modifier.tagged("assignee-avatar"))
+        } else {
+            Icon(Icons.Outlined.PersonAddAlt, contentDescription = null)
         }
     }
 }
 
+/** Close while open (the primary button), Reopen once closed (outline), as on the platform. */
 @Composable
-private fun AssignChip(label: Int, icon: androidx.compose.ui.graphics.vector.ImageVector, tag: String, enabled: Boolean, onClick: () -> Unit) {
-    val brand = Tokens.Palette.primary.current()
-    AssistChip(
-        onClick = onClick,
-        enabled = enabled,
-        label = { Text(stringResource(label)) },
-        leadingIcon = { Icon(icon, contentDescription = null, tint = brand, modifier = Modifier.size(16.dp)) },
-        colors = AssistChipDefaults.assistChipColors(containerColor = brand.copy(alpha = 0.12f)),
-        border = null,
-        modifier = Modifier.tagged(tag),
-    )
+private fun StateButton(conversation: Conversation, busy: Boolean, onClick: () -> Unit) {
+    val open = conversation.state == ConversationState.OPEN
+    val padding = PaddingValues(horizontal = Tokens.Spacing.m)
+    val content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
+        if (busy) {
+            CircularProgressIndicator(Modifier.size(14.dp).padding(end = 2.dp), strokeWidth = 2.dp, color = androidx.compose.material3.LocalContentColor.current)
+            Spacer(Modifier.width(6.dp))
+        }
+        Text(stringResource(if (open) R.string.welddesk_conversation_close else R.string.welddesk_conversation_reopen), style = MaterialTheme.typography.labelLarge)
+    }
+    val modifier = Modifier.height(34.dp).tagged("conversation-toggle-state")
+    if (open) {
+        Button(onClick = onClick, enabled = !busy, contentPadding = padding, modifier = modifier, content = content)
+    } else {
+        OutlinedButton(onClick = onClick, enabled = !busy, contentPadding = padding, modifier = modifier, content = content)
+    }
 }
 
+/**
+ * The platform's composer: a rounded box with the field on top, the files
+ * under it, and a row of attach, reply or note, and send. A note tints the
+ * box amber, so it never reads as a reply.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Composer(state: ConversationUiState, model: ConversationViewModel) {
     val context = LocalContext.current
+    val colors = MaterialTheme.colorScheme
     var menu by remember { mutableStateOf(false) }
     var cameraTarget by rememberSaveable { mutableStateOf<String?>(null) }
     val photoName = stringResource(R.string.welddesk_conversation_attachment)
@@ -569,105 +626,152 @@ private fun Composer(state: ConversationUiState, model: ConversationViewModel) {
     val document = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) model.attach(uri, photoName)
     }
-    Column(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = Tokens.Spacing.m, vertical = Tokens.Spacing.s),
-        verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.s),
-    ) {
-        HorizontalDivider()
-        Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
-            FilterChip(
-                selected = state.mode == MessageKind.MESSAGE,
-                onClick = { model.setMode(MessageKind.MESSAGE) },
-                label = { Text(stringResource(R.string.welddesk_conversation_reply)) },
-                modifier = Modifier.tagged("mode-reply"),
-            )
-            FilterChip(
-                selected = state.mode == MessageKind.NOTE,
-                onClick = { model.setMode(MessageKind.NOTE) },
-                label = { Text(stringResource(R.string.welddesk_conversation_note)) },
-                modifier = Modifier.tagged("mode-note"),
-            )
-        }
-        if (state.files.isNotEmpty()) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
-                state.files.forEach { file ->
-                    val remove = stringResource(R.string.welddesk_conversation_remove_attachment, file.name)
-                    InputChip(
-                        selected = false,
-                        onClick = { model.removeFile(file.key) },
-                        label = { Text(file.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        leadingIcon = {
-                            if (file.uploading) {
-                                val uploading = stringResource(R.string.welddesk_conversation_uploading)
-                                CircularProgressIndicator(Modifier.size(16.dp).semantics { contentDescription = uploading }, strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(16.dp))
-                            }
-                        },
-                        trailingIcon = { Icon(Icons.Outlined.Close, contentDescription = remove, modifier = Modifier.size(16.dp)) },
-                        modifier = Modifier.tagged("pending-attachment"),
-                    )
-                }
-            }
-        }
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
-            Box {
-                IconButton(onClick = { menu = true }, modifier = Modifier.tagged("composer-attach")) {
-                    Icon(Icons.Outlined.AttachFile, contentDescription = stringResource(R.string.welddesk_conversation_attach))
-                }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.welddesk_conversation_take_photo)) },
-                        leadingIcon = { Icon(Icons.Outlined.PhotoCamera, contentDescription = null) },
-                        onClick = {
-                            menu = false
-                            runCatching { Attachments.cameraUri(context) }.getOrNull()?.let { uri ->
-                                cameraTarget = uri.toString()
-                                camera.launch(uri)
-                            }
-                        },
-                        modifier = Modifier.tagged("attach-camera"),
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.welddesk_conversation_choose_photo)) },
-                        leadingIcon = { Icon(Icons.Outlined.Image, contentDescription = null) },
-                        onClick = {
-                            menu = false
-                            photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                        },
-                        modifier = Modifier.tagged("attach-photo"),
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.welddesk_conversation_choose_file)) },
-                        leadingIcon = { Icon(Icons.Outlined.Description, contentDescription = null) },
-                        onClick = {
-                            menu = false
-                            document.launch(DeskLogic.ATTACHMENT_TYPES.toTypedArray())
-                        },
-                        modifier = Modifier.tagged("attach-file"),
-                    )
-                }
-            }
-            OutlinedTextField(
+    val note = state.mode == MessageKind.NOTE
+    val frame = RoundedCornerShape(20.dp)
+    Box(Modifier.fillMaxWidth().background(colors.background).padding(start = Tokens.Spacing.m, end = Tokens.Spacing.m, top = Tokens.Spacing.s, bottom = Tokens.Spacing.m)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(frame)
+                .background(if (note) DeskColors.noteComposer.current() else colors.background)
+                .border(BorderStroke(1.dp, if (note) DeskColors.noteBorder.current() else colors.outlineVariant), frame)
+                .padding(10.dp),
+        ) {
+            BasicTextField(
                 value = state.body,
                 onValueChange = model::setBody,
-                placeholder = {
-                    Text(
-                        stringResource(
-                            if (state.mode == MessageKind.NOTE) R.string.welddesk_conversation_note_placeholder else R.string.welddesk_conversation_reply_placeholder,
-                        ),
-                    )
+                textStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 22.sp, color = colors.onSurface),
+                cursorBrush = SolidColor(colors.onSurface),
+                maxLines = 8,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp, max = 200.dp).tagged("composer-input"),
+                decorationBox = { field ->
+                    Box(Modifier.padding(start = 10.dp, top = 7.dp, bottom = Tokens.Spacing.m)) {
+                        if (state.body.isEmpty()) {
+                            Text(
+                                stringResource(if (note) R.string.welddesk_conversation_note_placeholder else R.string.welddesk_conversation_reply_placeholder),
+                                fontSize = 15.sp,
+                                lineHeight = 22.sp,
+                                color = colors.onSurfaceVariant,
+                            )
+                        }
+                        field()
+                    }
                 },
-                maxLines = 5,
-                modifier = Modifier.weight(1f).tagged("composer-input"),
             )
-            FilledIconButton(onClick = model::send, enabled = state.canSend, modifier = Modifier.tagged("composer-send")) {
-                if (state.sending) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                } else {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.welddesk_conversation_send))
+            if (state.files.isNotEmpty()) {
+                FlowRow(
+                    Modifier.padding(start = 10.dp, end = 10.dp, bottom = Tokens.Spacing.s),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    state.files.forEach { file -> PendingFileChip(file) { model.removeFile(file.key) } }
                 }
             }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box {
+                    IconButton(onClick = { menu = true }, modifier = Modifier.size(32.dp).tagged("composer-attach")) {
+                        Icon(Icons.Outlined.Add, contentDescription = stringResource(R.string.welddesk_conversation_attach), tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                    }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.welddesk_conversation_take_photo)) },
+                            leadingIcon = { Icon(Icons.Outlined.PhotoCamera, contentDescription = null) },
+                            onClick = {
+                                menu = false
+                                runCatching { Attachments.cameraUri(context) }.getOrNull()?.let { uri ->
+                                    cameraTarget = uri.toString()
+                                    camera.launch(uri)
+                                }
+                            },
+                            modifier = Modifier.tagged("attach-camera"),
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.welddesk_conversation_choose_photo)) },
+                            leadingIcon = { Icon(Icons.Outlined.Image, contentDescription = null) },
+                            onClick = {
+                                menu = false
+                                photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            },
+                            modifier = Modifier.tagged("attach-photo"),
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.welddesk_conversation_choose_file)) },
+                            leadingIcon = { Icon(Icons.Outlined.Description, contentDescription = null) },
+                            onClick = {
+                                menu = false
+                                document.launch(DeskLogic.ATTACHMENT_TYPES.toTypedArray())
+                            },
+                            modifier = Modifier.tagged("attach-file"),
+                        )
+                    }
+                }
+                DeskToggle(stringResource(R.string.welddesk_conversation_reply), !note, "mode-reply") { model.setMode(MessageKind.MESSAGE) }
+                DeskToggle(stringResource(R.string.welddesk_conversation_note), note, "mode-note") { model.setMode(MessageKind.NOTE) }
+                Spacer(Modifier.weight(1f))
+                SendButton(
+                    canSend = state.canSend,
+                    sending = state.sending,
+                    label = stringResource(if (note) R.string.welddesk_conversation_add_note else R.string.welddesk_conversation_send_reply),
+                    onClick = model::send,
+                )
+            }
+        }
+    }
+}
+
+/** A file on the reply: uploading (a spinner) or uploaded (a paperclip and its size), with a remove button. */
+@Composable
+private fun PendingFileChip(file: PendingFile, onRemove: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val remove = stringResource(R.string.welddesk_conversation_remove_attachment, file.name)
+    Row(
+        Modifier
+            .widthIn(max = 240.dp)
+            .clip(RoundedCornerShape(Tokens.Radius.medium))
+            .background(colors.surfaceVariant.copy(alpha = 0.6f))
+            .border(BorderStroke(1.dp, colors.outlineVariant), RoundedCornerShape(Tokens.Radius.medium))
+            .padding(start = Tokens.Spacing.s, end = Tokens.Spacing.xs, top = 2.dp, bottom = 2.dp)
+            .tagged("pending-attachment"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (file.uploading) {
+            val uploading = stringResource(R.string.welddesk_conversation_uploading)
+            CircularProgressIndicator(Modifier.size(12.dp).semantics { contentDescription = uploading }, strokeWidth = 1.5.dp, color = colors.onSurfaceVariant)
+        } else {
+            Icon(Icons.Outlined.AttachFile, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(12.dp))
+        }
+        Text(file.name, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        file.uploaded?.size?.let(DeskLogic::formatFileSize)?.takeIf { it.isNotEmpty() }?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 1)
+        }
+        IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
+            Icon(Icons.Outlined.Close, contentDescription = remove, tint = colors.onSurfaceVariant, modifier = Modifier.size(12.dp))
+        }
+    }
+}
+
+/** The platform's send button: a rounded square, solid while there is something to send, plain grey while there isn't. */
+@Composable
+private fun SendButton(canSend: Boolean, sending: Boolean, label: String, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val idleBackground = DayNight(Color(0xFFD1D5DB), Tokens.Palette.muted.dark).current()
+    val idleContent = DayNight(Color(0xFF6B7280), Tokens.Palette.mutedForeground.dark).current()
+    val active = canSend || sending
+    Box(
+        Modifier
+            .size(32.dp)
+            .clip(RoundedCornerShape(Tokens.Spacing.m))
+            .background(if (active) colors.primary else idleBackground)
+            .clickable(enabled = canSend, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label }
+            .tagged("composer-send"),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (sending) {
+            CircularProgressIndicator(Modifier.size(15.dp), strokeWidth = 2.dp, color = colors.onPrimary)
+        } else {
+            Icon(Icons.Filled.ArrowUpward, contentDescription = null, tint = if (active) colors.onPrimary else idleContent, modifier = Modifier.size(16.dp))
         }
     }
 }
