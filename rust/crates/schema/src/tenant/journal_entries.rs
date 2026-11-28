@@ -79,6 +79,20 @@ pub struct Model {
     #[sea_orm(column_type = "String(StringLen::N(255))")]
     #[serde(rename = "createdBy")]
     pub created_by: Option<String>,
+    // WeldBooks phase 7 (plan weldbooks-connected-ux, M6). Rust only, so both are
+    // left out of the JSON while unset and the routes a TypeScript worker also
+    // serves answer as they always did.
+    /// When the accountant marked the booking as reviewed.
+    #[serde(
+        rename = "reviewedAt",
+        with = "crate::js::timestamp::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub reviewed_at: Option<TimeDateTime>,
+    /// Who marked it (a member id).
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "reviewedBy", skip_serializing_if = "Option::is_none")]
+    pub reviewed_by: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

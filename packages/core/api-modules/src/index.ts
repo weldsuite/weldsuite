@@ -184,6 +184,10 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   // WeldBooks: billable hours from WeldFlow invoiced once, and a project's
   // finance (`/api/accounting-time`, `/api/invoices/from-time`).
   'books-time-billing',
+  // WeldBooks: working with the accountant (questions on records as record
+  // chats, the VAT return check, a suggested lock date, review marks on
+  // bookings).
+  'books-questions',
 ];
 
 const mod = (

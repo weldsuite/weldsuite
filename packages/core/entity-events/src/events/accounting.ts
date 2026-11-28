@@ -24,7 +24,9 @@ export const ACCOUNTING_ENTITY_EVENTS = {
   // A WeldCRM quote as WeldBooks sends and converts it (Rust backend only, edition feature
   // `books-quotes`). `accepted` is the customer accepting on the public page.
   quote: ['created', 'updated', 'deleted', 'accepted', 'emailed'],
-  journal_entry: ['created', 'updated', 'deleted'],
+  // `reviewed` and `unreviewed`: the accountant's review mark on a booking (Rust backend only,
+  // edition feature `books-questions`). The mark is not a ledger change.
+  journal_entry: ['created', 'updated', 'deleted', 'reviewed', 'unreviewed'],
   payment: ['created', 'updated', 'deleted'],
   // A legal entity's own Mollie account for online invoice payments (Rust backend only, edition
   // feature `books-online-payments`). `created` is connecting (OAuth or API key), `updated` the

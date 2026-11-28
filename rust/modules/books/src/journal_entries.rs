@@ -28,7 +28,8 @@ use weldsuite_books_domain::guards::{
     write_accounting_audit,
 };
 use weldsuite_books_domain::http::{
-    BooksState, Caller, Query, Refusal, Reply, created, no_content, now, ok, paged, reply, validate,
+    BooksState, Caller, Query, Refusal, Reply, created, json_of, no_content, now, ok, paged, reply,
+    validate,
 };
 use weldsuite_books_domain::js::{parse_float, parse_int, to_fixed};
 use weldsuite_books_domain::posting::{
@@ -37,7 +38,8 @@ use weldsuite_books_domain::posting::{
 };
 use weldsuite_books_domain::tables::{JOURNAL_ENTRIES, JOURNAL_LINES};
 use weldsuite_catalogs::entity_events::{
-    JOURNAL_ENTRY_CREATED, JOURNAL_ENTRY_DELETED, JOURNAL_ENTRY_UPDATED,
+    JOURNAL_ENTRY_CREATED, JOURNAL_ENTRY_DELETED, JOURNAL_ENTRY_REVIEWED, JOURNAL_ENTRY_UNREVIEWED,
+    JOURNAL_ENTRY_UPDATED,
 };
 use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
@@ -73,6 +75,18 @@ where
         .route(
             "/{id}/reverse",
             post(reverse_entry).route_layer(need("journal:create")),
+        )
+        // Rust only (edition feature `books-questions`, M6): the accountant's
+        // review mark.
+        .route(
+            "/{id}/review",
+            post(review_entry)
+                .delete(unreview_entry)
+                .route_layer(need("journal:update")),
+        )
+        .route(
+            "/review-bulk",
+            post(review_bulk).route_layer(need("journal:update")),
         )
         .with_state(state)
 }
@@ -692,6 +706,183 @@ async fn post_entry(
     reply(result, "Failed to post journal entry")
 }
 
+// ── Review marks (Rust only, edition feature `books-questions`, M6) ─────────
+//
+// The accountant marks a booking as reviewed (`reviewed_at`, `reviewed_by`).
+// The mark is an annotation, not a ledger change: a posted entry stays
+// immutable, `updated_at` is not touched, and a closed period or a lock date
+// does not stop it. Marking an entry that is marked, or unmarking one that is
+// not, changes nothing and publishes nothing.
+
+/// The live entries of the request's entity among `ids`.
+async fn entries_of_entity(
+    caller: &Caller,
+    entity_id: &str,
+    ids: &[String],
+) -> Result<Vec<journal_entries::Model>, DbErr> {
+    journal_entries::Entity::find()
+        .filter(Column::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .all(&orm(&caller.db))
+        .await
+}
+
+/// Mark (`reviewed`) or unmark `entry` as `caller`, with the audit row and
+/// the event. `false` when it was already so.
+async fn set_review(
+    caller: &Caller,
+    state: &BooksState,
+    entry: &journal_entries::Model,
+    reviewed: bool,
+) -> Result<bool, DbErr> {
+    if entry.reviewed_at.is_some() == reviewed {
+        return Ok(false);
+    }
+    let (at, by) = if reviewed {
+        (Some(weldsuite_db::utc_now()), Some(caller.user_id.clone()))
+    } else {
+        (None, None)
+    };
+    // Guarded on the old state, so two marks at once publish once.
+    let updated = journal_entries::Entity::update_many()
+        .col_expr(Column::ReviewedAt, Expr::value(at))
+        .col_expr(Column::ReviewedBy, Expr::value(by))
+        .filter(Column::Id.eq(entry.id.as_str()))
+        .filter(if reviewed {
+            Column::ReviewedAt.is_null()
+        } else {
+            Column::ReviewedAt.is_not_null()
+        })
+        .exec(&orm(&caller.db))
+        .await?
+        .rows_affected;
+    if updated == 0 {
+        return Ok(false);
+    }
+    let mut changes = Map::new();
+    changes.insert(
+        "reviewed".to_owned(),
+        change(json!(!reviewed), json!(reviewed)),
+    );
+    write_accounting_audit(
+        caller,
+        &caller.db,
+        AuditInput {
+            accounting_entity_id: Some(entry.entity_id.as_str()),
+            entity_type: "journal_entry",
+            entity_id: &entry.id,
+            action: if reviewed { "reviewed" } else { "unreviewed" },
+            changes: Some(changes),
+        },
+    )
+    .await;
+    caller.publish(
+        state,
+        if reviewed {
+            JOURNAL_ENTRY_REVIEWED
+        } else {
+            JOURNAL_ENTRY_UNREVIEWED
+        },
+        &entry.id,
+        json!({
+            "id": entry.id,
+            "entityId": entry.entity_id,
+            "entryNumber": entry.entry_number,
+            "reviewedBy": caller.user_id,
+        }),
+    );
+    Ok(true)
+}
+
+async fn review_entry(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+) -> Response {
+    reply(
+        review_one(&caller, &state, &id, true).await,
+        "Failed to mark the journal entry as reviewed",
+    )
+}
+
+async fn unreview_entry(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+) -> Response {
+    reply(
+        review_one(&caller, &state, &id, false).await,
+        "Failed to remove the review mark",
+    )
+}
+
+async fn review_one(caller: &Caller, state: &BooksState, id: &str, reviewed: bool) -> Reply {
+    let Some(entity_id) = resolve_entity_id(caller).await? else {
+        return Err(Refusal::bad_request("No accounting entity resolved"));
+    };
+    let ids = [id.to_owned()];
+    let Some(entry) = entries_of_entity(caller, &entity_id, &ids)
+        .await?
+        .into_iter()
+        .next()
+    else {
+        return Err(Refusal::not_found("Journal entry", id));
+    };
+    set_review(caller, state, &entry, reviewed).await?;
+    let Some(entry) = find_entry(caller, id).await? else {
+        return Err(Refusal::not_found("Journal entry", id));
+    };
+    Ok(ok(entry))
+}
+
+/// `POST /review-bulk` `{ ids }`: `{ reviewed: [ids marked now], skipped:
+/// [ids that were marked already, are unknown or belong to another entity] }`.
+async fn review_bulk(
+    caller: Caller,
+    State(state): State<BooksState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let result = async {
+        let body = json_of(&headers, &body)?;
+        let list = body
+            .get("ids")
+            .and_then(Value::as_array)
+            .ok_or_else(|| Refusal::bad_request("ids is required"))?;
+        if list.is_empty() || list.len() > 200 {
+            return Err(Refusal::bad_request("ids must hold 1 to 200 ids"));
+        }
+        let mut ids: Vec<String> = Vec::new();
+        for id in list {
+            let id = id
+                .as_str()
+                .filter(|i| !i.is_empty() && i.len() <= 30)
+                .ok_or_else(|| Refusal::bad_request("ids must hold journal entry ids"))?;
+            if !ids.iter().any(|i| i == id) {
+                ids.push(id.to_owned());
+            }
+        }
+        let Some(entity_id) = resolve_entity_id(&caller).await? else {
+            return Err(Refusal::bad_request("No accounting entity resolved"));
+        };
+        let entries = entries_of_entity(&caller, &entity_id, &ids).await?;
+        let mut reviewed: Vec<String> = Vec::new();
+        for entry in &entries {
+            if set_review(&caller, &state, entry, true).await? {
+                reviewed.push(entry.id.clone());
+            }
+        }
+        let skipped: Vec<String> = ids
+            .into_iter()
+            .filter(|id| !reviewed.contains(id))
+            .collect();
+        Ok(ok(json!({ "reviewed": reviewed, "skipped": skipped })))
+    }
+    .await;
+    reply(result, "Failed to mark the journal entries as reviewed")
+}
+
 // ── POST /:id/reverse ───────────────────────────────────────────────────────
 
 async fn reverse_entry(
@@ -822,5 +1013,226 @@ mod tests {
         assert_eq!(like_pattern("100%"), "%100\\%%");
         assert_eq!(like_pattern("R_1"), "%R\\_1%");
         assert_eq!(like_pattern("a\\b"), "%a\\\\b%");
+    }
+}
+
+/// The review marks (M6) against the real tenant schema
+/// (`WELDSUITE_TEST_TENANT_URL`, built by `scripts/rust-test-db.ts`; each test
+/// returns early without it).
+#[cfg(test)]
+#[allow(
+    clippy::disallowed_methods,
+    clippy::unwrap_used,
+    clippy::assert_is_empty,
+    reason = "test fixtures are written in SQL; each test is one scenario read top to bottom"
+)]
+mod review_tests {
+    use std::sync::Arc;
+
+    use sqlx::PgPool;
+    use weldsuite_events::{EntityEventPublisher, TaskTracker};
+    use weldsuite_ports::{DynEventBus, RecordingEventBus};
+
+    use super::*;
+
+    struct World {
+        db: PgPool,
+        state: BooksState,
+        bus: Arc<RecordingEventBus>,
+    }
+
+    impl World {
+        fn new() -> Option<Self> {
+            let Ok(url) = std::env::var("WELDSUITE_TEST_TENANT_URL") else {
+                eprintln!("WELDSUITE_TEST_TENANT_URL is not set; skipping");
+                return None;
+            };
+            let db = weldsuite_db::master_pool(&url, 2).unwrap();
+            let bus = Arc::new(RecordingEventBus::new());
+            let state = BooksState::new(EntityEventPublisher::new(
+                Some(Arc::clone(&bus) as Arc<dyn DynEventBus>),
+                TaskTracker::new(),
+            ));
+            Some(Self { db, state, bus })
+        }
+
+        fn caller(&self, entity: &str) -> Caller {
+            Caller::in_process(
+                self.db.clone(),
+                "ws_review_test",
+                "ws_review_test",
+                "user_reviewer",
+                entity,
+                None,
+            )
+        }
+
+        async fn actions(&self) -> Vec<String> {
+            for _ in 0..200 {
+                tokio::task::yield_now().await;
+            }
+            let actions = self
+                .bus
+                .payloads()
+                .into_iter()
+                .map(|payload| {
+                    format!(
+                        "{}.{}",
+                        payload["entityType"].as_str().unwrap_or_default(),
+                        payload["action"].as_str().unwrap_or_default()
+                    )
+                })
+                .collect();
+            self.bus.clear();
+            actions
+        }
+    }
+
+    async fn entity(db: &PgPool) -> String {
+        let id = weldsuite_kit::generate_id("ent");
+        sqlx::query(
+            "insert into entities (id, name, jurisdiction_code, base_currency, is_active) \
+             values ($1, 'Review marks', 'NL', 'EUR', true)",
+        )
+        .bind(&id)
+        .execute(db)
+        .await
+        .unwrap();
+        id
+    }
+
+    async fn entry(db: &PgPool, entity: &str, status: &str) -> String {
+        let id = weldsuite_kit::generate_id("je");
+        sqlx::query(
+            "insert into journal_entries (id, entity_id, entry_number, date, status, is_automatic) \
+             values ($1, $2, $1, now(), $3, true)",
+        )
+        .bind(&id)
+        .bind(entity)
+        .bind(status)
+        .execute(db)
+        .await
+        .unwrap();
+        id
+    }
+
+    async fn answer(reply: Reply) -> (u16, Value) {
+        let response = reply.unwrap_or_else(|refusal| refusal.respond("Failed"));
+        let status = response.status().as_u16();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_mark_names_who_and_when_and_leaves_the_entry_alone() {
+        let Some(world) = World::new() else { return };
+        let entity = entity(&world.db).await;
+        let id = entry(&world.db, &entity, "posted").await;
+        let caller = world.caller(&entity);
+
+        let (status, body) = answer(review_one(&caller, &world.state, &id, true).await).await;
+        assert_eq!(status, 200);
+        assert_eq!(body["data"]["reviewedBy"], "user_reviewer");
+        assert!(body["data"]["reviewedAt"].is_string());
+        // A review is not a change of the entry.
+        let unchanged: (bool,) =
+            sqlx::query_as("select updated_at = created_at from journal_entries where id = $1")
+                .bind(&id)
+                .fetch_one(&world.db)
+                .await
+                .unwrap();
+        assert!(unchanged.0);
+        assert_eq!(world.actions().await, ["journal_entry.reviewed"]);
+
+        // Again: nothing changes and nothing is published.
+        let (status, again) = answer(review_one(&caller, &world.state, &id, true).await).await;
+        assert_eq!(status, 200);
+        assert_eq!(again["data"]["reviewedAt"], body["data"]["reviewedAt"]);
+        assert!(world.actions().await.is_empty());
+
+        // Removing the mark takes both columns out of the JSON again.
+        let (_, cleared) = answer(review_one(&caller, &world.state, &id, false).await).await;
+        assert!(cleared["data"].get("reviewedAt").is_none());
+        assert!(cleared["data"].get("reviewedBy").is_none());
+        assert_eq!(world.actions().await, ["journal_entry.unreviewed"]);
+        let (_, nothing) = answer(review_one(&caller, &world.state, &id, false).await).await;
+        assert!(nothing["data"].get("reviewedAt").is_none());
+        assert!(world.actions().await.is_empty());
+
+        let audit: (i64,) = sqlx::query_as(
+            "select count(*) from audit_log where entity_id = $1 \
+             and action in ('reviewed', 'unreviewed')",
+        )
+        .bind(&id)
+        .fetch_one(&world.db)
+        .await
+        .unwrap();
+        assert_eq!(audit.0, 2);
+    }
+
+    #[tokio::test]
+    async fn an_entry_of_another_entity_is_not_found() {
+        let Some(world) = World::new() else { return };
+        let mine = entity(&world.db).await;
+        let other = entity(&world.db).await;
+        let theirs = entry(&world.db, &other, "posted").await;
+        let caller = world.caller(&mine);
+        let (status, _) = answer(review_one(&caller, &world.state, &theirs, true).await).await;
+        assert_eq!(status, 404);
+        let (status, _) = answer(review_one(&caller, &world.state, "je_missing", true).await).await;
+        assert_eq!(status, 404);
+        let marked: (bool,) =
+            sqlx::query_as("select reviewed_at is not null from journal_entries where id = $1")
+                .bind(&theirs)
+                .fetch_one(&world.db)
+                .await
+                .unwrap();
+        assert!(!marked.0);
+    }
+
+    #[tokio::test]
+    async fn the_bulk_mark_marks_only_what_is_unmarked_in_the_entity() {
+        let Some(world) = World::new() else { return };
+        let mine = entity(&world.db).await;
+        let other = entity(&world.db).await;
+        let a = entry(&world.db, &mine, "posted").await;
+        let b = entry(&world.db, &mine, "posted").await;
+        let foreign = entry(&world.db, &other, "posted").await;
+        let caller = world.caller(&mine);
+        // `b` is marked already.
+        answer(review_one(&caller, &world.state, &b, true).await).await;
+        world.actions().await;
+
+        let ids = vec![
+            a.clone(),
+            b,
+            foreign.clone(),
+            "je_missing".to_owned(),
+            a.clone(),
+        ];
+        let entries = entries_of_entity(&caller, &mine, &ids).await.unwrap();
+        let mut reviewed = Vec::new();
+        for entry in &entries {
+            if set_review(&caller, &world.state, entry, true)
+                .await
+                .unwrap()
+            {
+                reviewed.push(entry.id.clone());
+            }
+        }
+        assert_eq!(reviewed, [a]);
+        assert_eq!(world.actions().await, ["journal_entry.reviewed"]);
+        let untouched: (bool,) =
+            sqlx::query_as("select reviewed_at is not null from journal_entries where id = $1")
+                .bind(&foreign)
+                .fetch_one(&world.db)
+                .await
+                .unwrap();
+        assert!(!untouched.0);
     }
 }

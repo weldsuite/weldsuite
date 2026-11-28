@@ -749,7 +749,9 @@
   "journal_entry": [
     "created",
     "updated",
-    "deleted"
+    "deleted",
+    "reviewed",
+    "unreviewed"
   ],
   "knowledge_page": [
     "created",

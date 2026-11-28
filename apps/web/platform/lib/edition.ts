@@ -377,6 +377,14 @@ export const EDITION_FEATURES = [
    * `GLOBAL_UNAVAILABLE_FEATURES`.
    */
   'books-time-billing',
+  /**
+   * WeldBooks working with the accountant: questions on invoices, bills, bank
+   * lines, documents, VAT returns and contacts (record chats of WeldChat, with
+   * an open, answered or resolved status and a place in To process), the VAT
+   * return's Check step, a suggested lock date and the accountant's review
+   * marks on bookings. Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-questions',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

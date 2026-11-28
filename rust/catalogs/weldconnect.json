@@ -3976,6 +3976,8 @@
     "journal_entry.created",
     "journal_entry.updated",
     "journal_entry.deleted",
+    "journal_entry.reviewed",
+    "journal_entry.unreviewed",
     "payment.created",
     "payment.updated",
     "payment.deleted",

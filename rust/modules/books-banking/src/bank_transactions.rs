@@ -50,7 +50,9 @@ use weldsuite_kit::validation::{
 };
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_schema::tenant::{bank_accounts, bank_import_batches, bank_transactions};
+use weldsuite_schema::tenant::{
+    bank_accounts, bank_import_batches, bank_transactions, journal_entries,
+};
 
 use crate::bank_line_links;
 use crate::bank_links;
@@ -217,6 +219,11 @@ struct LineFilters<'a> {
     /// `processedAutomatically=true` (Rust only): the lines the automatic
     /// matcher or a rule booked (`reconciliation_type = 'auto'`).
     automatic: bool,
+    /// `reviewed=true|false` (Rust only, edition feature `books-questions`):
+    /// the lines whose journal entry the accountant did, or did not, mark as
+    /// reviewed. A line with no entry of its own (a link to a payment) is
+    /// neither.
+    reviewed: Option<bool>,
     /// `contactId` (Rust only, edition feature `books-contact-page`): the
     /// lines of one contact, by the rule the contact page's timeline uses
     /// ([`weldsuite_books_domain::contact_page::bank_line_condition`]).
@@ -244,6 +251,13 @@ impl LineFilters<'_> {
             query = query
                 .filter(Column::Status.eq("reconciled"))
                 .filter(Column::ReconciliationType.eq("auto"));
+        }
+        if let Some(reviewed) = self.reviewed {
+            query = query.filter(Expr::cust(format!(
+                "EXISTS (SELECT 1 FROM journal_entries je WHERE je.id = bank_transactions.journal_entry_id \
+                 AND je.deleted_at IS NULL AND je.reviewed_at IS {} NULL)",
+                if reviewed { "NOT" } else { "" }
+            )));
         }
         if let Some(contact) = self.contact {
             query = query.filter(weldsuite_books_domain::contact_page::bank_line_condition(
@@ -313,6 +327,11 @@ async fn list_lines(caller: &Caller) -> Reply {
         to: date_bound("to")?,
         search: q.present("search"),
         automatic: q.present("processedAutomatically") == Some("true"),
+        reviewed: match q.present("reviewed") {
+            Some("true") => Some(true),
+            Some("false") => Some(false),
+            _ => None,
+        },
         contact: q.present("contactId"),
     };
     let db = orm(&caller.db);
@@ -325,14 +344,62 @@ async fn list_lines(caller: &Caller) -> Reply {
         .await?;
     let total = filters.select().count(&db).await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
-    Ok(paged(
-        rows.into_iter()
-            .map(|row| serde_json::to_value(row).unwrap_or_default())
-            .collect(),
-        total,
-        page * size < total,
-        None,
-    ))
+    let mut rows: Vec<Value> = rows
+        .into_iter()
+        .map(|row| serde_json::to_value(row).unwrap_or_default())
+        .collect();
+    if filters.automatic || filters.reviewed.is_some() {
+        add_review_marks(&db, &mut rows).await?;
+    }
+    Ok(paged(rows, total, page * size < total, None))
+}
+
+/// `reviewedAt` and `reviewedBy` on each line: the mark of the journal entry
+/// the line is booked to (null when it has none, or none is set). Only on the
+/// lists that ask for the automatic lines or a review state, so every other
+/// answer is the TypeScript route's.
+async fn add_review_marks(
+    db: &sea_orm::DatabaseConnection,
+    rows: &mut [Value],
+) -> Result<(), DbErr> {
+    let entries: Vec<String> = rows
+        .iter()
+        .filter_map(|row| row.get("journalEntryId").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect();
+    let marks: std::collections::HashMap<String, (Option<Value>, Option<String>)> =
+        if entries.is_empty() {
+            std::collections::HashMap::new()
+        } else {
+            journal_entries::Entity::find()
+                .filter(journal_entries::Column::Id.is_in(&entries))
+                .all(db)
+                .await?
+                .into_iter()
+                .map(|entry| {
+                    (
+                        entry.id,
+                        (
+                            entry
+                                .reviewed_at
+                                .map(|at| Value::from(iso_timestamp(at.assume_utc()))),
+                            entry.reviewed_by,
+                        ),
+                    )
+                })
+                .collect()
+        };
+    for row in rows {
+        let mark = row
+            .get("journalEntryId")
+            .and_then(Value::as_str)
+            .and_then(|id| marks.get(id))
+            .cloned()
+            .unwrap_or((None, None));
+        row["reviewedAt"] = mark.0.unwrap_or(Value::Null);
+        row["reviewedBy"] = mark.1.map_or(Value::Null, Value::from);
+    }
+    Ok(())
 }
 
 // ── GET /unreconciled ───────────────────────────────────────────────────────
@@ -1820,3 +1887,6 @@ async fn remove(
 
 #[cfg(test)]
 mod contact_filter_tests;
+
+#[cfg(test)]
+mod review_filter_tests;
