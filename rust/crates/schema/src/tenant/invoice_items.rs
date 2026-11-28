@@ -127,6 +127,12 @@ pub struct Model {
     #[sea_orm(column_type = "String(StringLen::N(30))")]
     #[serde(rename = "locationId")]
     pub location_id: Option<String>,
+    // WeldBooks phase 6 (plan weldbooks-connected-ux, M4). Rust only: left out
+    // of the JSON while unset.
+    /// The WeldFlow project the line bills (`projects.id`).
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "projectId", skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -204,6 +210,17 @@ pub const DDL: Table = Table {
             name: "acct_invoice_items_invoice_idx",
             columns: &[IndexColumn {
                 expression: "invoice_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_invoice_items_project_idx",
+            columns: &[IndexColumn {
+                expression: "project_id",
                 is_expression: false,
                 asc: true,
             }],

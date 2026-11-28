@@ -111,6 +111,20 @@ impl World {
     }
 }
 
+/// `caller` holding exactly `keys` (the in-process caller holds none).
+pub(crate) fn with_permissions(mut caller: Caller, keys: &[&str]) -> Caller {
+    caller.permissions = weldsuite_permissions::Permissions::new(
+        weldsuite_permissions::ResolvedPermissions {
+            permissions: keys.iter().map(|k| (*k).to_owned()).collect(),
+            ..weldsuite_permissions::ResolvedPermissions::default()
+        },
+        None,
+        false,
+        "user_perm".to_owned(),
+    );
+    caller
+}
+
 pub(crate) fn fresh(prefix: &str) -> String {
     weldsuite_kit::generate_id(prefix)
 }

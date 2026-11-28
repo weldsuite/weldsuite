@@ -283,6 +283,8 @@
       "/api/payment-batches",
       "/api/accounting-quotes",
       "/api/accounting-payment-connections",
+      "/api/accounting-time",
+      "/api/accounting-projects",
       "/api/payroll",
       "/api/sales-tax",
       "/api/sales-tax-agencies",

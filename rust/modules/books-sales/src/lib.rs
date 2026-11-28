@@ -27,6 +27,7 @@ mod template_schema;
 mod templates;
 #[cfg(test)]
 mod test_support;
+mod time_billing;
 
 use std::sync::Arc;
 
@@ -76,6 +77,15 @@ where
         (
             "/accounting-payment-connections",
             online_payments::router(state.clone(), gate),
+        ),
+        // Rust only (edition feature `books-time-billing`).
+        (
+            "/accounting-time",
+            time_billing::router(state.clone(), gate),
+        ),
+        (
+            "/accounting-projects",
+            time_billing::projects_router(state.clone(), gate),
         ),
     ]
     .into_iter()

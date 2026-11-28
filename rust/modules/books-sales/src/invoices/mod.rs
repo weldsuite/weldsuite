@@ -107,6 +107,14 @@ where
             "/{id}/reminders",
             patch(crate::reminders::pause).route_layer(need("invoices:update")),
         )
+        // Rust only (edition feature `books-time-billing`): invoice hours from
+        // WeldFlow, on a new draft or on a draft of the same customer.
+        .route(
+            "/from-time",
+            post(crate::time_billing::from_time)
+                .route_layer(need("time:read"))
+                .route_layer(need("invoices:create")),
+        )
         // Rust only (edition feature `books-quotes`).
         .route(
             "/from-quote/{quote_id}",

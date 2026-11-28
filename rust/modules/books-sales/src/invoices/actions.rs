@@ -278,6 +278,8 @@ async fn change_status(
             .filter(invoices::Column::Id.eq(id))
             .exec(&orm(db))
             .await?;
+        // A discarded draft frees the hours it billed.
+        weldsuite_books_domain::time_billing::release_entries(&orm(db), id, None).await?;
     } else {
         let (posted, relief) =
             write_off_invoice(db, &invoice, caller.user().map(str::to_owned), None).await?;

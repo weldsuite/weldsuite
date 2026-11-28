@@ -360,6 +360,14 @@ export const EDITION_FEATURES = [
    * Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
    */
   'books-online-payments',
+  /**
+   * WeldBooks time billing: billable WeldFlow time per customer and project
+   * (`/api/accounting-time/unbilled`), invoiced once on a new or an existing
+   * draft invoice (`/api/invoices/from-time`), read-only in WeldFlow from then
+   * on, and a project's finance. Built only in Rust, so it is in
+   * `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-time-billing',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

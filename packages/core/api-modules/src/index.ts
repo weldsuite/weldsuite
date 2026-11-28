@@ -178,6 +178,9 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   // WeldBooks: online invoice payments through the entity's own Mollie account
   // (`/api/accounting-payment-connections`, `/public/weldbooks/mollie`).
   'books-online-payments',
+  // WeldBooks: billable hours from WeldFlow invoiced once, and a project's
+  // finance (`/api/accounting-time`, `/api/invoices/from-time`).
+  'books-time-billing',
 ];
 
 const mod = (
@@ -425,6 +428,10 @@ export const API_MODULES: readonly ApiModule[] = [
     // The entity's own Mollie account for online invoice payments, served by the Rust backend
     // only (rust/modules/books-sales).
     '/api/accounting-payment-connections',
+    // Billable hours from WeldFlow to invoice lines and a project's finance, served by the
+    // Rust backend only (rust/modules/books-sales).
+    '/api/accounting-time',
+    '/api/accounting-projects',
     '/api/payroll',
     '/api/sales-tax',
     '/api/sales-tax-agencies',

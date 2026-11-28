@@ -93,6 +93,7 @@ pub mod table;
 pub mod tables;
 pub mod tax;
 pub mod tax_calendar;
+pub mod time_billing;
 pub mod unapplied_credit;
 pub mod vendor_tax;
 pub mod vies;

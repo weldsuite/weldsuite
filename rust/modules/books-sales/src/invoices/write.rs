@@ -44,9 +44,10 @@ use crate::finalize::{load_invoice, load_items};
 use crate::persist::{
     Drafted, calculate_draft_tax, engine_unavailable_warning, invoice_document_context,
     invoice_item_to_tax_item, invoice_kind, invoice_tax_columns, item_tax_columns,
-    merge_sync_warning, text,
+    merge_sync_warning, owned, text,
 };
 use crate::templates::template_belongs_to_entity;
+use crate::time_billing::{TimeLinks, apply_carry, link_lines, mark_projects, plan_carry};
 
 /// The runtime the sales tax engines get (`salesTaxRuntimeFromEnv(c.env)`).
 pub(crate) fn runtime(caller: &Caller, state: &BooksState) -> Runtime {
@@ -239,10 +240,6 @@ async fn create_invoice(
     ))
 }
 
-#[allow(
-    clippy::too_many_lines,
-    reason = "the route's steps in its order: numbering, rate, tax, rows, audit, event"
-)]
 /// The draft of `POST /`, made in `entity_id` (the request's entity, or the
 /// one `POST /from-quote/:quoteId` names): the invoice with its `items`.
 pub(crate) async fn create_in_entity(
@@ -250,6 +247,22 @@ pub(crate) async fn create_in_entity(
     state: &BooksState,
     data: InvoiceInput,
     entity_id: String,
+) -> Result<Value, SalesError> {
+    create_in_entity_with(caller, state, data, entity_id, None).await
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "the route's steps in its order: numbering, rate, tax, rows, audit, event"
+)]
+/// [`create_in_entity`] that also links the lines to the time entries they
+/// bill (`from-time`), in the transaction that writes them.
+pub(crate) async fn create_in_entity_with(
+    caller: &Caller,
+    state: &BooksState,
+    data: InvoiceInput,
+    entity_id: String,
+    links: Option<&TimeLinks>,
 ) -> Result<Value, SalesError> {
     let db = &caller.db;
     if let Field::Set(template_id) = &data.template_id
@@ -433,6 +446,9 @@ pub(crate) async fn create_in_entity(
             .insert_raw(&mut *tx, INVOICE_ITEMS.values(&fields_of(record)))
             .await?;
     }
+    if let Some(links) = links {
+        link_lines(&OrmConn::new(&mut tx), &invoice_id, &item_ids, links).await?;
+    }
     tx.commit().await?;
 
     promote_accounting_role(db, &contact_id, PromoteTo::Customer).await?;
@@ -463,6 +479,8 @@ pub(crate) async fn create_in_entity(
             "dueDate": invoice["dueDate"],
         }),
     );
+    let mut records = records;
+    mark_projects(&mut records, links, None);
     invoice.insert("items".into(), Value::Array(records));
     Ok(Value::Object(invoice))
 }
@@ -481,7 +499,7 @@ pub(crate) async fn update(
         Err(refusal) => return refusal.respond("Failed to update invoice"),
     };
     reply(
-        update_invoice(&caller, &state, &id, input, &body)
+        update_invoice(&caller, &state, &id, input, &body, None)
             .await
             .map_err(Refusal::from),
         "Failed to update invoice",
@@ -591,12 +609,29 @@ fn given(data: &InvoiceInput, sent: &Map<String, Value>, field: &str) -> bool {
     clippy::too_many_lines,
     reason = "the route's steps in its order: checks, fields, rate, contact, re-tax, write, audit"
 )]
+/// `PATCH /:id` with lines, from `from-time`: the lines `links` names are
+/// linked to their time entries when they are written.
+pub(crate) async fn update_with_links(
+    caller: &Caller,
+    state: &BooksState,
+    id: &str,
+    data: InvoiceInput,
+    links: Option<&TimeLinks>,
+) -> Result<Response, SalesError> {
+    update_invoice(caller, state, id, data, &Bytes::from_static(b"{}"), links).await
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "the route's steps in order: checks, rate, contact, retax, lines and header in one transaction, audit, event"
+)]
 async fn update_invoice(
     caller: &Caller,
     state: &BooksState,
     id: &str,
     data: InvoiceInput,
     body: &Bytes,
+    links: Option<&TimeLinks>,
 ) -> Result<Response, SalesError> {
     let db = &caller.db;
     let sent = sent(body);
@@ -717,6 +752,31 @@ async fn update_invoice(
         stored_item_tax = stored;
     }
 
+    // The lines that bill time: which carry on in the new set, which are gone.
+    let new_ids: Vec<String> = new_items
+        .iter()
+        .flatten()
+        .map(|item| owned(item, "id").unwrap_or_default())
+        .collect();
+    let carry = match &new_items {
+        Some(items) => {
+            let pairs: Vec<(String, String)> = items
+                .iter()
+                .map(|item| {
+                    (
+                        owned(item, "description").unwrap_or_default(),
+                        owned(item, "unitPrice").unwrap_or_default(),
+                    )
+                })
+                .collect();
+            let explicit = links
+                .map(|l| l.lines.iter().map(|line| line.index).collect())
+                .unwrap_or_default();
+            plan_carry(db, id, &pairs, &explicit).await?
+        }
+        None => None,
+    };
+
     // Replace the lines and update the header together.
     let (replaced_at, replaced_stamp) = now_stamped();
     let mut tx = db.begin().await?;
@@ -734,6 +794,12 @@ async fn update_invoice(
             INVOICE_ITEMS
                 .insert_raw(&mut *tx, INVOICE_ITEMS.values(&fields_of(item)))
                 .await?;
+        }
+        if let Some(carry) = &carry {
+            apply_carry(&OrmConn::new(&mut tx), id, &new_ids, carry).await?;
+        }
+        if let Some(links) = links {
+            link_lines(&OrmConn::new(&mut tx), id, &new_ids, links).await?;
         }
     }
     for (item_id, columns) in &stored_item_tax {
@@ -782,7 +848,8 @@ async fn update_invoice(
     );
     let mut out = fields_of(&invoice);
     out.extend(update);
-    if let Some(items) = new_items {
+    if let Some(mut items) = new_items {
+        mark_projects(&mut items, links, carry.as_ref());
         out.insert("items".into(), Value::Array(items));
     }
     Ok(ok(Value::Object(out)))
@@ -967,6 +1034,8 @@ async fn delete_invoice(caller: &Caller, state: &BooksState, id: &str) -> Reply 
         .filter(invoices::Column::Id.eq(id))
         .exec(&orm(db))
         .await?;
+    // The hours the draft billed are free to bill again.
+    weldsuite_books_domain::time_billing::release_entries(&orm(db), id, None).await?;
     write_accounting_audit(
         caller,
         db,
