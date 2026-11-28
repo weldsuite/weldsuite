@@ -67,11 +67,11 @@ public struct SessionGate<Content: View>: View {
                     LockView(lock: env.lock, branding: branding)
                 } else {
                     content(person, workspace, workspaces)
-                        .task(id: workspace.id) { await env.didEnterWorkspace(workspace.id) }
+                        .modifier(EnterWorkspace(env: env, workspace: workspace.id))
                 }
             }
         }
-        .task { if case .booting = env.state, env.session == nil { await env.start() } }
+        .modifier(StartEnvironment(env: env))
     }
 
     private func problemText(_ problem: ServerProblem, server: String) -> String {
@@ -81,6 +81,32 @@ public struct SessionGate<Content: View>: View {
         case .noMobileSignIn: CoreStrings.serverNoMobileSignIn(server: server)
         case .appUnavailable: CoreStrings.serverAppUnavailable(app: branding.name, server: server)
         }
+    }
+}
+
+// SessionGate is generic over the app's content, so a release build
+// specializes its body inside the app. SwiftUI's `task` modifiers there
+// (Xcode 26's back-deployed `task(id:name:priority:…)`) then need the
+// back-deployment copy the compiler only emits into a module that calls
+// `task` itself: an app that never does (WeldDesk) fails to link. Private
+// modifiers keep the `task` calls compiled here.
+
+/// Tells the environment which workspace the person is in.
+private struct EnterWorkspace: ViewModifier {
+    let env: AppEnvironment
+    let workspace: String
+
+    func body(content: Content) -> some View {
+        content.task(id: workspace) { await env.didEnterWorkspace(workspace) }
+    }
+}
+
+/// Loads the server and the session the first time the gate shows.
+private struct StartEnvironment: ViewModifier {
+    let env: AppEnvironment
+
+    func body(content: Content) -> some View {
+        content.task { if case .booting = env.state, env.session == nil { await env.start() } }
     }
 }
 

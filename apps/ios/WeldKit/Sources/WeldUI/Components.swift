@@ -149,7 +149,21 @@ extension View {
 /// ```
 extension View {
     public func realtimeRefresh(_ env: AppEnvironment, topics: [String], action: @escaping () async -> Void) -> some View {
-        task(id: topics) {
+        modifier(RealtimeRefresh(env: env, topics: topics, action: action))
+    }
+}
+
+/// The `task` behind `realtimeRefresh`, in a private modifier so it stays
+/// compiled in WeldUI and is never inlined into an app: an app that doesn't
+/// call `task(id:)` itself would then miss Xcode 26's back-deployed copy of it
+/// and fail to link (see `EnterWorkspace` in SessionGate.swift).
+private struct RealtimeRefresh: ViewModifier {
+    let env: AppEnvironment
+    let topics: [String]
+    let action: () async -> Void
+
+    func body(content: Content) -> some View {
+        content.task(id: topics) {
             guard let realtime = env.realtime else { return }
             for await _ in realtime.events(topics) {
                 await action()
