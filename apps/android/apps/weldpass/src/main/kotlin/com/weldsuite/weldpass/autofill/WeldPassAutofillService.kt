@@ -43,7 +43,9 @@ class WeldPassAutofillService : AutofillService() {
             return
         }
         val fields = FormFields.from(structure)
-        if (fields.isEmpty || fields.packageName == packageName) {
+        if (fields.isEmpty || fields.packageName == packageName ||
+            AutofillLogins.isInsecurePage(fields.webDomain, fields.webScheme, fields.packageName)
+        ) {
             callback.onSuccess(null)
             return
         }
@@ -51,7 +53,11 @@ class WeldPassAutofillService : AutofillService() {
         val unlock = Intent(this, AutofillAuthActivity::class.java).apply {
             putExtra(AutofillAuthActivity.EXTRA_USERNAME_ID, fields.username)
             putExtra(AutofillAuthActivity.EXTRA_PASSWORD_ID, fields.password)
-            putExtra(AutofillAuthActivity.EXTRA_WEB_DOMAIN, fields.webDomain)
+            // Only a known browser's word for the page; an app's own claim is dropped.
+            putExtra(
+                AutofillAuthActivity.EXTRA_WEB_DOMAIN,
+                AutofillLogins.trustedDomain(fields.webDomain, fields.webScheme, fields.packageName),
+            )
             putExtra(AutofillAuthActivity.EXTRA_PACKAGE, fields.packageName)
         }
         val sender = PendingIntent.getActivity(
@@ -89,7 +95,9 @@ class WeldPassAutofillService : AutofillService() {
         val fields = FormFields.from(structure)
         val (username, password) = typedValues(structure, fields)
         if (password.isNotEmpty()) {
-            PendingSave.put(PendingSave.Values(username, password, fields.webDomain, fields.packageName))
+            // A domain only from a known browser; an app's login is saved for its package.
+            val domain = AutofillLogins.trustedDomain(fields.webDomain, fields.webScheme, fields.packageName)
+            PendingSave.put(PendingSave.Values(username, password, domain, fields.packageName))
             // The app's "New login" form takes the pending save.
             startActivity(
                 Intent(this, MainActivity::class.java)

@@ -58,6 +58,22 @@ enum CopyRules {
         (copy?.vaults ?? [:]).mapValues(\.cursor)
     }
 
+    /// The copies on the phone (by workspace id) whose workspace the person's
+    /// list from the server no longer has: removed from it, or it was
+    /// deleted. AutoFill reads every copy on the phone, so a copy is only as
+    /// good as the person's access to its workspace.
+    static func copiesToDrop(onPhone: [String], workspaces: [String]) -> [String] {
+        let kept = Set(workspaces)
+        return onPhone.filter { !kept.contains($0) }.sorted()
+    }
+
+    /// A sync refused with this status: the person no longer has WeldPass in
+    /// the workspace (removed from it, or the permission taken away), so its
+    /// copy goes. Nothing is lost; it comes back at the next sync that works.
+    static func lostAccess(status: Int?) -> Bool {
+        status == 403
+    }
+
     /// Apply a sync. The server lists every vault the person can read now, so
     /// a vault the copy holds but the answer leaves out is dropped as well as
     /// the ones named in `removedVaultIds`.

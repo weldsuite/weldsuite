@@ -68,6 +68,11 @@ struct WeldPassApp: App {
             // Locked again: the copy and its key leave memory until the next unlock.
             if locked { store.offline.close() }
         }
+        .onChange(of: env.state, initial: true) { _, state in
+            // Signed out (any way), or a workspace gone from the list: its copy goes,
+            // so AutoFill can't keep serving it.
+            Task { await store.offline.follow(state) }
+        }
     }
 }
 

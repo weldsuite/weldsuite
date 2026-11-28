@@ -2,6 +2,7 @@ package com.weldsuite.weldpass.offline
 
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -71,6 +72,28 @@ class OfflineCopyTest {
             SyncResult(wipe = true, reason = SyncResult.Reason.REVOKED, syncedAt = "", vaults = emptyList(), removedVaultIds = emptyList()),
         )
         assertEquals(SyncOutcome.Wiped(SyncResult.Reason.REVOKED), wiped)
+    }
+
+    @Test
+    fun `a copy goes when its workspace leaves the person's list`() {
+        assertEquals(listOf("ws_gone"), CopyRules.copiesToDrop(listOf("ws_1", "ws_gone"), listOf("ws_1", "ws_2")))
+        assertEquals(emptyList<String>(), CopyRules.copiesToDrop(listOf("ws_1"), listOf("ws_1")))
+        // Removed from every workspace: every copy goes.
+        assertEquals(listOf("ws_1", "ws_2"), CopyRules.copiesToDrop(listOf("ws_1", "ws_2"), emptyList()))
+    }
+
+    @Test
+    fun `a sync the server refuses with 403 means the access is gone`() {
+        // Removed from the workspace, or WeldPass taken away: the server can't
+        // answer "wipe" to someone it no longer lets in.
+        assertTrue(CopyRules.lostAccess(403))
+        // An expired token, a missing device, an outage: the copy stays.
+        assertFalse(CopyRules.lostAccess(401))
+        assertFalse(CopyRules.lostAccess(404))
+        assertFalse(CopyRules.lostAccess(500))
+        assertFalse(CopyRules.lostAccess(503))
+        // No answer at all (offline).
+        assertFalse(CopyRules.lostAccess(null))
     }
 
     @Test

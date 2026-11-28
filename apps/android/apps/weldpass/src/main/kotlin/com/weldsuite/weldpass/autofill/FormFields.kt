@@ -10,14 +10,19 @@ import android.view.autofill.AutofillId
 /**
  * The login fields of a screen the system asks to fill, and whose screen it
  * is: a native app (its package name) or a web page in a browser (the domain
- * the browser reports for the node).
+ * reported for the page the fields sit in).
+ *
+ * [webDomain] is what the screen *says*: any app can set it on its own views.
+ * It is believed only through [AutofillLogins.trustedDomain].
  */
 @RequiresApi(Build.VERSION_CODES.O)
 data class FormFields(
     val username: AutofillId?,
     val password: AutofillId?,
-    /** The page's domain, when the fields are in a browser's web view. */
+    /** The reported domain of the page the password field (else the username field) is in. */
     val webDomain: String?,
+    /** That page's scheme, where Android reports one (Android 9 and later). */
+    val webScheme: String?,
     val packageName: String,
 ) {
     val isEmpty: Boolean get() = username == null && password == null
@@ -27,26 +32,38 @@ data class FormFields(
 
     companion object {
         fun from(structure: AssistStructure): FormFields {
-            var username: AutofillId? = null
-            var password: AutofillId? = null
-            var webDomain: String? = null
+            var username: Found? = null
+            var password: Found? = null
 
-            fun visit(node: AssistStructure.ViewNode) {
-                node.webDomain?.takeIf { it.isNotBlank() }?.let { if (webDomain == null) webDomain = it.lowercase() }
+            // A node's page is the nearest one reported on it or above it, so a
+            // field in a frame of another site carries that site, not the top page's.
+            fun visit(node: AssistStructure.ViewNode, page: Page?) {
+                val here = node.webDomain?.takeIf { it.isNotBlank() }?.let { Page(it.lowercase(), schemeOf(node)) } ?: page
                 val id = node.autofillId
                 if (id != null && node.autofillType == View.AUTOFILL_TYPE_TEXT) {
                     when (kindOf(node)) {
-                        Kind.PASSWORD -> if (password == null) password = id
-                        Kind.USERNAME -> if (username == null) username = id
+                        Kind.PASSWORD -> if (password == null) password = Found(id, here)
+                        Kind.USERNAME -> if (username == null) username = Found(id, here)
                         Kind.OTHER -> Unit
                     }
                 }
-                for (index in 0 until node.childCount) visit(node.getChildAt(index))
+                for (index in 0 until node.childCount) visit(node.getChildAt(index), here)
             }
 
-            for (index in 0 until structure.windowNodeCount) visit(structure.getWindowNodeAt(index).rootViewNode)
-            return FormFields(username, password, webDomain, structure.activityComponent.packageName)
+            for (index in 0 until structure.windowNodeCount) visit(structure.getWindowNodeAt(index).rootViewNode, null)
+            // The page is the password field's (else the username's); a username
+            // field in another page is left alone.
+            val page = (password ?: username)?.page
+            val user = username?.takeIf { it.page == page }
+            return FormFields(user?.id, password?.id, page?.domain, page?.scheme, structure.activityComponent.packageName)
         }
+
+        private data class Page(val domain: String, val scheme: String?)
+
+        private class Found(val id: AutofillId, val page: Page?)
+
+        private fun schemeOf(node: AssistStructure.ViewNode): String? =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) node.webScheme?.lowercase() else null
 
         private enum class Kind { USERNAME, PASSWORD, OTHER }
 

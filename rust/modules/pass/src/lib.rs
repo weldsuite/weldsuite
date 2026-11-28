@@ -92,6 +92,9 @@ pub struct PassState {
     /// provider token or call a provider answer 403 `SYNC_UNAVAILABLE`, and
     /// writes skip auto-sync. Lists and deletes still work.
     pub sync: bool,
+    /// `TRUSTED_PROXIES`: where the caller's address sits in
+    /// `X-Forwarded-For`, counted from the right, for the trails.
+    pub trusted_proxies: usize,
 }
 
 impl std::fmt::Debug for PassState {
@@ -99,13 +102,15 @@ impl std::fmt::Debug for PassState {
         f.debug_struct("PassState")
             .field("root_keys", &self.root_keys)
             .field("sync", &self.sync)
+            .field("trusted_proxies", &self.trusted_proxies)
             .finish_non_exhaustive()
     }
 }
 
 impl PassState {
     /// The root keys from the process environment, and reqwest for the
-    /// providers.
+    /// providers; one proxy in front until the server sets
+    /// [`PassState::trusted_proxies`].
     pub fn from_env() -> Self {
         let read = |name: &str| std::env::var(name).ok();
         let root_keys = RootKeyring {
@@ -127,6 +132,7 @@ impl PassState {
             root_keys,
             http: Arc::new(ReqwestTransport::new()),
             sync: true,
+            trusted_proxies: 1,
         }
     }
 }
@@ -447,12 +453,12 @@ impl Caller {
 
 /// Behind the session and tenant database layers; without them it is a
 /// routing mistake (500).
-impl<S: Send + Sync> FromRequestParts<S> for Caller {
+impl FromRequestParts<PassState> for Caller {
     type Rejection = ApiError;
 
     fn from_request_parts(
         parts: &mut Parts,
-        _state: &S,
+        state: &PassState,
     ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
         let auth = parts.extensions.get::<AuthContext>();
         let tenant = parts.extensions.get::<Tenant>();
@@ -462,7 +468,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                 user_id: auth.user_id.clone(),
                 clerk_org_id: tenant.clerk_org_id.clone(),
                 permissions: parts.extensions.get::<Permissions>().cloned(),
-                audit: audit::AuditContext::from_headers(&parts.headers),
+                audit: audit::AuditContext::from_headers(&parts.headers, state.trusted_proxies),
                 client: parts
                     .headers
                     .get("x-weldpass-client")

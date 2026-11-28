@@ -9628,6 +9628,7 @@ dependencies = [
  "sqlx",
  "time",
  "tokio",
+ "tower",
  "tracing",
  "url",
  "weldsuite-auth",

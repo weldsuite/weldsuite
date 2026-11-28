@@ -14,7 +14,7 @@ use time::format_description::well_known::Rfc3339;
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_kit::{ApiError, List, NoContent, Pagination};
 
-use crate::audit::{AuditEntry, list_audit_events, record_audit};
+use crate::audit::{AuditEntry, list_audit_events, record_audit, require_audit};
 use crate::dotenv::{parse_dotenv, render_dotenv};
 use crate::envelope::Key;
 use crate::js::{clamped_limit, parse_js_date};
@@ -33,6 +33,9 @@ use crate::{
 };
 
 type Params = Path<HashMap<String, String>>;
+
+/// `GET …/secrets/export?format=`: JSON (the default) or a `.env` file.
+const EXPORT_FORMATS: [&str; 2] = ["json", "dotenv"];
 
 /// A query parameter as `c.req.query(name)` reads it: the first value,
 /// form-decoded.
@@ -589,7 +592,7 @@ pub(crate) async fn reveal_secret(
                 param(&params, "secretId"),
             )
             .await?;
-            record_audit(
+            require_audit(
                 &caller.db,
                 &caller.audit,
                 AuditEntry::new(&project.id, &caller.user_id, "secret.revealed")
@@ -597,7 +600,7 @@ pub(crate) async fn reveal_secret(
                     .secret(&secret.id)
                     .target(&secret.key),
             )
-            .await;
+            .await?;
             Ok(ok(merge(secret.json, json!({ "value": value }))))
         }
         .await,
@@ -791,22 +794,27 @@ pub(crate) async fn export_secrets(
 ) -> Response {
     answer(
         async {
+            // Only the two formats there are: anything else went into the
+            // trail's metadata as sent, where a NUL failed the insert.
+            let format = query(raw.as_deref(), "format").unwrap_or_else(|| "json".to_owned());
+            if !EXPORT_FORMATS.contains(&format.as_str()) {
+                return Err(ApiError::bad_request("format must be json or dotenv").into());
+            }
             let (project, kek, environment) = environment_for(&caller, &state, &params).await?;
             let values =
                 secrets::read_environment_values(&caller.db, &kek, &environment.id).await?;
-            let format = query(raw.as_deref(), "format");
-            record_audit(
+            require_audit(
                 &caller.db,
                 &caller.audit,
                 AuditEntry::new(&project.id, &caller.user_id, "secret.exported")
                     .environment(&environment.id)
                     .metadata(json!({
                         "keyCount": values.len(),
-                        "format": format.as_deref().unwrap_or("json"),
+                        "format": format,
                     })),
             )
-            .await;
-            if format.as_deref() == Some("dotenv") {
+            .await?;
+            if format == "dotenv" {
                 let mut response = (StatusCode::OK, render_dotenv(&values)).into_response();
                 let headers = response.headers_mut();
                 headers.insert(
@@ -1456,6 +1464,7 @@ mod tests {
             root_keys: RootKeyring::default(),
             http: Arc::new(ReqwestTransport::new()),
             sync,
+            trusted_proxies: 1,
         }
     }
 

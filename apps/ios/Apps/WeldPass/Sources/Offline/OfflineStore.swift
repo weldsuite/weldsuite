@@ -30,9 +30,14 @@ enum OfflineStatus: Equatable {
 ///   foreground (at most every 30 s) and after every write.
 /// - **Reading**: lists and item fields come from the copy while it's open,
 ///   so the app works without a connection. Edits go to the server.
-/// - **Wiping**: on sign-out (this phone is revoked on the server first), when
-///   the server says the phone was revoked or offline copies are off, and per
-///   vault when the person loses access.
+/// - **Wiping**: on sign-out (this phone is revoked on the server first), and
+///   whenever the session ends some other way (WeldID refused it: a
+///   deactivated account); when the server says the phone was revoked or
+///   offline copies are off, or refuses the sync (403: the person was removed
+///   from the workspace); when the workspace drops out of the person's list;
+///   and per vault when the person loses access. AutoFill reads every copy on
+///   the phone without the network, so a copy must never outlive the access
+///   it was made with.
 @MainActor
 @Observable
 final class OfflineStore {
@@ -74,6 +79,24 @@ final class OfflineStore {
     }
 
     // MARK: - Following the session and the lock
+
+    /// The session changed: no copy outlives it, nor the person's place in a
+    /// workspace. The workspace lists are the server's (a failed read keeps the
+    /// last one).
+    func follow(_ state: SessionState) async {
+        switch state {
+        case .signedOut:
+            // However the session ended: signed out here or on the "no
+            // workspaces" screen, or WeldID refused it.
+            await wipeEverything()
+        case let .ready(person, _, workspaces):
+            dropCopies(outside: workspaces, userID: person.id)
+        case let .choosingWorkspace(person, loading, workspaces) where !loading:
+            dropCopies(outside: workspaces, userID: person.id)
+        default:
+            break
+        }
+    }
 
     /// The app is unlocked in `workspace`: open its copy and sync.
     func open(person: Person, workspace: WorkspaceRef) async {
@@ -130,7 +153,15 @@ final class OfflineStore {
         do {
             try await runSync(session, key: key, client: client)
         } catch {
-            isOffline = APIError.from(error).isNetwork
+            let problem = APIError.from(error)
+            if CopyRules.lostAccess(status: problem.status) {
+                // Removed from the workspace, or WeldPass taken away: the server
+                // can't say "wipe" to someone it no longer lets in.
+                wipeWorkspace(session, forgetDevice: true)
+                close(.off, session: session)
+            } else {
+                isOffline = problem.isNetwork
+            }
         }
     }
 
@@ -264,6 +295,12 @@ final class OfflineStore {
         if let session, let device = defaults.string(forKey: deviceKey(session)) {
             try? await revoke(deviceID: device)
         }
+        await wipeEverything()
+    }
+
+    /// Every copy, the device registrations, the queued events, the QuickType
+    /// suggestions and the copy's key.
+    private func wipeEverything() async {
         files.deleteAll()
         for key in defaults.dictionaryRepresentation().keys
         where key.hasPrefix("weldpass:device:") || key.hasPrefix("weldpass:offline-") {
@@ -272,6 +309,14 @@ final class OfflineStore {
         CopyKey.delete()
         await CredentialIdentities.removeAll()
         close(.off, session: nil)
+    }
+
+    /// The copies of workspaces no longer in `workspaces`, the person's list from the server.
+    private func dropCopies(outside workspaces: [WorkspaceRef], userID: String) {
+        let gone = CopyRules.copiesToDrop(onPhone: Array(files.index().keys), workspaces: workspaces.map(\.id))
+        for workspaceID in gone {
+            wipeWorkspace(Session(server: env.serverURL.absoluteString, userID: userID, workspaceID: workspaceID), forgetDevice: true)
+        }
     }
 
     private func wipeWorkspace(_ session: Session, forgetDevice: Bool) {
