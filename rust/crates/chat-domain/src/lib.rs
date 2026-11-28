@@ -11,12 +11,14 @@
 
 pub mod access;
 pub mod agents;
+pub mod books_records;
 pub mod calls;
 pub mod entity;
 mod flow;
 pub mod members;
 pub mod policy;
 pub mod publish;
+pub mod questions;
 pub mod system_message;
 pub mod text;
 

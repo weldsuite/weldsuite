@@ -31,6 +31,7 @@ export const brChartOfAccounts: ChartOfAccountsTemplateRow[] = [
   { code: '1.1.1.02', name: 'Bancos conta movimento', type: 'asset', subtype: 'bank', normalSide: 'debit' },
   { code: '1.1.1.03', name: 'Aplicações financeiras de liquidez imediata', type: 'asset', subtype: 'current_assets', normalSide: 'debit' },
   system('1.1.1.04', 'Numerário em trânsito', 'asset', 'current_assets', 'debit', 'undeposited_funds'),
+  system('1.1.1.05', 'Transferências em trânsito', 'asset', 'current_assets', 'debit', 'transfers_in_transit'),
   system('1.1.2.01', 'Clientes', 'asset', 'accounts_receivable', 'debit', 'accounts_receivable'),
   { code: '1.1.2.02', name: '(-) Perdas estimadas com créditos de liquidação duvidosa', type: 'asset', subtype: 'accounts_receivable', normalSide: 'credit' },
   { code: '1.1.3.01', name: 'Estoque de mercadorias', type: 'asset', subtype: 'current_assets', normalSide: 'debit' },

@@ -35,6 +35,7 @@ import { useObjectPanelShell, type ObjectPanelComponentProps } from '@/component
 import { usePanelInitialTab } from '@/components/objects/_shared/use-panel-initial-tab';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { StatusChip } from '@/components/accounting/weldbooks-row-cells';
+import { PaymentPendingChip } from '@/components/accounting/payment-pending-chip';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import { useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
 import { useAccountingBill, useDeleteBill } from '@/hooks/queries/use-accounting-queries';
@@ -47,6 +48,8 @@ import { canRecordBillPayment } from './bill-capabilities';
 import { BillDetailsTab } from './bill-details-tab';
 import { BillPaymentsTab } from './bill-payments-tab';
 import { BillLineItemsTab, BillTaxTab, hasBillTaxTab } from './bill-items-tab';
+import { RecordQuestionChat } from '@/components/accounting/questions/record-question-chat';
+import { isQuestionsAvailable } from '@/hooks/queries/use-weldbooks-questions-queries';
 import { getBillTabs, type BillTab } from './bill-tabs';
 
 const BILL_PANEL_WIDTH = 480;
@@ -65,6 +68,7 @@ function BillTitle({
     <div className="flex min-w-0 items-center gap-2">
       <span className="relative top-px truncate text-[15px] font-medium text-foreground">{bill.billNumber ?? fallback}</span>
       <StatusChip status={chipStatus}>{statusLabels[chipStatus] ?? chipStatus}</StatusChip>
+      <PaymentPendingChip billId={bill.id} status={bill.status} />
     </div>
   );
 }
@@ -220,11 +224,13 @@ export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
         payments: st('sweep.weldbooks.records.paymentsTab'),
         tax: tb.tax,
         history: st('sweep.entities.auditLogTab'),
+        chat: t.weldbooksQuestions.chat.tab,
+        showChat: isQuestionsAvailable(),
         itemsCount: bill?.items?.length || undefined,
         paymentsCount: bill?.payments?.length || undefined,
         showTax,
       }),
-    [st, tb, bill?.items?.length, bill?.payments?.length, showTax],
+    [st, t.weldbooksQuestions.chat.tab, tb, bill?.items?.length, bill?.payments?.length, showTax],
   );
 
   // A deep-linked tab that only appears once the record is loaded is applied when it does.
@@ -288,6 +294,9 @@ export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
           <BillPaymentsTab bill={bill} onRecordPayment={canPay ? () => setPaymentOpen(true) : undefined} />
         )}
         {bill && activeTab === 'tax' && <BillTaxTab bill={bill} />}
+        {bill && activeTab === 'chat' && (
+          <RecordQuestionChat recordType="bill" recordId={bill.id} name={bill.billNumber ?? undefined} />
+        )}
         {bill && activeTab === 'history' && <EntityAuditPanel entityType="bill" entityId={bill.id} />}
       </EntityDetailView>
 

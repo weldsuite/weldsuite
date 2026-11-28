@@ -12,7 +12,14 @@
  * result goes to the caller and nowhere else.
  */
 import { useCallback, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
 import {
   form1099Api,
   vendorTaxApi,
@@ -25,7 +32,7 @@ import {
   type CorrectLineInput,
   type W9RequestStatus,
 } from '@/lib/api/domains/weldbooks-1099';
-import { accountingKeys } from '@/hooks/queries/use-accounting-queries';
+import { accountingKeys, LIST_PAGE_SIZE, nextPageParam, selectRows } from '@/hooks/queries/use-accounting-queries';
 
 export const form1099Keys = {
   all: ['accounting', 'form-1099'] as const,
@@ -151,9 +158,10 @@ export function useForm945(year: number, options: { enabled?: boolean } = {}) {
 /**
  * The supplier list with each vendor's tax status. Kept under the contact
  * list keys, so every contact mutation refreshes it; `only1099` asks the
- * server for the vendors flagged for 1099 reporting.
+ * server for the vendors flagged for 1099 reporting. A page at a time (the
+ * list asks for the next one at its end), with the search on the server.
  */
-export function useSupplierContacts(
+export function useInfiniteSupplierContacts(
   options: {
     search?: string;
     role?: 'supplier' | 'both';
@@ -162,17 +170,55 @@ export function useSupplierContacts(
     archived?: 'only' | 'include';
   } = {},
 ) {
-  return useQuery({
-    queryKey: [...accountingKeys.customers.lists(), 'suppliers', options] as const,
-    queryFn: () =>
+  return useInfiniteQuery({
+    queryKey: [...accountingKeys.customers.lists(), 'suppliers', options, 'infinite'] as const,
+    queryFn: ({ pageParam }) =>
       vendorTaxApi.listContacts({
         role: options.role ?? 'supplier',
         kind: options.kind,
         search: options.search || undefined,
         is1099Vendor: options.only1099 ? true : undefined,
         archived: options.archived,
-        pageSize: 100,
+        page: pageParam,
+        pageSize: LIST_PAGE_SIZE,
       }),
+    initialPageParam: 1,
+    getNextPageParam: nextPageParam,
+    select: selectRows,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * The one Contacts list, a page at a time: every contact, or only a role's (a
+ * customer or supplier list includes the contacts that are both). The rows
+ * carry the vendor tax fields, shown where the jurisdiction has 1099s.
+ */
+export function useInfiniteContacts(
+  options: {
+    search?: string;
+    role?: 'customer' | 'supplier' | 'both';
+    kind?: 'company' | 'person';
+    only1099?: boolean;
+    archived?: 'only' | 'include';
+  } = {},
+) {
+  return useInfiniteQuery({
+    queryKey: [...accountingKeys.customers.lists(), 'contacts', options, 'infinite'] as const,
+    queryFn: ({ pageParam }) =>
+      vendorTaxApi.listContacts({
+        role: options.role,
+        kind: options.kind,
+        search: options.search || undefined,
+        is1099Vendor: options.only1099 ? true : undefined,
+        archived: options.archived,
+        page: pageParam,
+        pageSize: LIST_PAGE_SIZE,
+      }),
+    initialPageParam: 1,
+    getNextPageParam: nextPageParam,
+    select: selectRows,
+    placeholderData: keepPreviousData,
   });
 }
 

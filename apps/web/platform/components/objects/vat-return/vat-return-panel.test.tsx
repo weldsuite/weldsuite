@@ -28,10 +28,19 @@ vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
     today,
   }),
 }));
-const edition = vi.hoisted(() => ({ digipoort: true }));
+const edition = vi.hoisted(() => ({ digipoort: true, questions: true }));
 vi.mock('@/lib/edition', () => ({
-  isFeatureAvailable: (feature: string) => (feature === 'vat-digipoort' ? edition.digipoort : true),
+  isFeatureAvailable: (feature: string) => {
+    if (feature === 'books-questions') return edition.questions;
+    return feature === 'vat-digipoort' ? edition.digipoort : true;
+  },
 }));
+vi.mock('@/components/accounting/questions/record-question-chat', () => ({
+  RecordQuestionChat: ({ recordType, recordId }: { recordType: string; recordId: string }) => (
+    <div data-testid="record-question-chat" data-type={recordType} data-id={recordId} />
+  ),
+}));
+
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
 vi.mock('@/hooks/use-workspace-url', () => ({ useWorkspaceUrl: () => (path: string) => `https://app.test${path}` }));
@@ -91,6 +100,7 @@ beforeEach(() => {
   toast.info.mockReset();
   jurisdiction.vatReturn = true;
   edition.digipoort = true;
+  edition.questions = true;
   permissions.allowed = new Set(['reports:read', 'reports:create', 'reports:update', 'reports:delete']);
   serve(vatReturn());
 });
@@ -425,5 +435,65 @@ describe('VatReturnPanel', () => {
     serve(null);
     renderPanel();
     expect(await screen.findByText('VAT return not found.')).toBeInTheDocument();
+  });
+});
+
+describe('VatReturnPanel: questions to the accountant (books-questions)', () => {
+  beforeAll(installPointerPolyfills);
+
+  it("has a Chat tab with the return's chat", async () => {
+    const user = userEvent.setup();
+    serve(vatReturn());
+    renderPanel();
+    await user.click(await screen.findByRole('tab', { name: 'Chat' }));
+    const chat = screen.getByTestId('record-question-chat');
+    expect(chat).toHaveAttribute('data-type', 'vat_return');
+    expect(chat).toHaveAttribute('data-id', 'vr_1');
+  });
+
+  it('has no Chat tab on Global', async () => {
+    edition.questions = false;
+    serve(vatReturn());
+    renderPanel();
+    await screen.findByRole('tab', { name: 'Details' });
+    expect(screen.queryByRole('tab', { name: 'Chat' })).not.toBeInTheDocument();
+  });
+
+  it('shows the check above the filing actions of the Details tab, and fetches it for this return', async () => {
+    permissions.allowed = new Set(['reports:read', 'reports:update']);
+    serve(vatReturn());
+    api.get.mockImplementation(async (path: string) => {
+      if (path === '/vat-returns/vr_1') return { data: vatReturn() };
+      if (path === '/vat-returns/vr_1/checks') {
+        return {
+          data: {
+            unprocessed_bank_lines: { count: 3, sampleIds: ['b1'] },
+            unbooked_documents: { count: 0, sampleIds: [] },
+            missing_receipts: { count: 0, sampleIds: [], restricted: true },
+            possible_duplicates: { count: 0, sampleIds: [] },
+            draft_invoices_in_period: { count: 0, sampleIds: [] },
+            open_transfers: { count: 0, sampleIds: [] },
+          },
+        };
+      }
+      return { data: [] };
+    });
+    renderPanel();
+    const check = await screen.findByTestId('vat-check');
+    expect(await within(check).findByTestId('vat-check-unprocessed_bank_lines-count')).toHaveTextContent('3');
+    expect(within(check).getByTestId('vat-check-missing_receipts-restricted')).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith('/vat-returns/vr_1/checks');
+    // A warning only: the file action is still there.
+    expect(screen.getByRole('button', { name: /File with/ })).toBeEnabled();
+  });
+
+  it('shows no check, and asks for none, on Global', async () => {
+    edition.questions = false;
+    permissions.allowed = new Set(['reports:read']);
+    serve(vatReturn());
+    renderPanel();
+    await screen.findByRole('tab', { name: 'Details' });
+    expect(screen.queryByTestId('vat-check')).not.toBeInTheDocument();
+    expect(api.get).not.toHaveBeenCalledWith('/vat-returns/vr_1/checks');
   });
 });

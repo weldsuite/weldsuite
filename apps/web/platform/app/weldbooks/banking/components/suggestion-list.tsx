@@ -1,6 +1,7 @@
 import { Link2 } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
+import { RecordLink } from '@/components/object-panel/record-link';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import type { MatchSuggestion, SuggestionType } from '@/lib/api/domains/weldbooks-banking';
@@ -78,6 +79,23 @@ const TYPE_VARIANT: Record<SuggestionType, 'default' | 'secondary' | 'outline' |
   rule: 'secondary',
 };
 
+/** The panel a suggestion's record opens in: deposits and payments have one; a rule has none. */
+const SUGGESTION_PANELS: Partial<Record<SuggestionType, 'invoice' | 'bill' | 'deposit'>> = {
+  invoice: 'invoice',
+  bill: 'bill',
+  deposit: 'deposit',
+};
+
+/** The number of the suggested record, as a chip that opens it where it can be opened. Never the raw id. */
+function SuggestionTarget({ suggestion }: Readonly<{ suggestion: MatchSuggestion }>) {
+  const { t } = useI18n();
+  const ts = t.weldbooksUs.banking.suggestions;
+  const label = suggestion.number || ts.types[suggestion.type];
+  const type = SUGGESTION_PANELS[suggestion.type];
+  if (!type) return <span className="text-sm font-medium">{label}</span>;
+  return <RecordLink type={type} id={suggestion.id} label={label} />;
+}
+
 interface SuggestionListProps {
   suggestions: readonly MatchSuggestion[];
   formatAmount: (amount: string | number) => string;
@@ -104,9 +122,9 @@ export function SuggestionList({ suggestions, formatAmount, pending, readOnly, o
         return (
           <li key={`${s.type}-${s.id}`} className="space-y-2 rounded-lg border p-3" data-testid={`suggestion-${s.type}`}>
             <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <span className="text-sm font-medium">{s.number || s.id}</span>
-                {s.contactName ? <span className="ml-2 text-xs text-muted-foreground">({s.contactName})</span> : null}
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <SuggestionTarget suggestion={s} />
+                {s.contactName ? <span className="text-xs text-muted-foreground">({s.contactName})</span> : null}
               </div>
               <Badge variant={TYPE_VARIANT[s.type]}>{ts.types[s.type]}</Badge>
             </div>

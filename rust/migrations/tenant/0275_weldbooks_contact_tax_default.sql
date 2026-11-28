@@ -1,0 +1,1 @@
+ALTER TABLE "parties" ADD COLUMN "default_tax_rate_id" varchar(30);

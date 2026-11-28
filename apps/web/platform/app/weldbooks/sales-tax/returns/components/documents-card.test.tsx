@@ -113,7 +113,7 @@ describe('DocumentsCard', () => {
 
     const row = await screen.findByTestId('document-row');
     expect(api.get).toHaveBeenCalledWith('/tax-returns/txr_1/documents?limit=100');
-    expect(within(row).getByRole('link', { name: 'INV-0042' })).toHaveAttribute('href', '/weldbooks/invoices/inv_1');
+    expect(within(row).getByRole('link', { name: 'INV-0042' })).toHaveAttribute('href', expect.stringContaining('stack=invoice%3Ainv_1'));
     expect(row).toHaveTextContent('Acme Corp');
     expect(row).toHaveTextContent('$1000.00');
     expect(row).toHaveTextContent('$70.00');
@@ -132,8 +132,8 @@ describe('DocumentsCard', () => {
     );
     renderWithProviders(<DocumentsCard returnId="txr_1" enabled />);
 
-    expect(await screen.findByRole('link', { name: 'BILL-1' })).toHaveAttribute('href', '/weldbooks/bills/b1');
-    expect(screen.getByRole('link', { name: 'JE-1' })).toHaveAttribute('href', '/weldbooks/journal/je1');
+    expect(await screen.findByRole('link', { name: 'BILL-1' })).toHaveAttribute('href', expect.stringContaining('stack=bill%3Ab1'));
+    expect(screen.getByRole('link', { name: 'JE-1' })).toHaveAttribute('href', expect.stringContaining('stack=journal_entry%3Aje1'));
     expect(screen.getByText('Use tax accrual')).toBeInTheDocument();
   });
 

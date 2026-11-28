@@ -10,22 +10,36 @@
 mod body;
 mod commerce;
 mod credit_notes;
+mod delivery;
 mod errors;
 mod finalize;
 mod invoices;
+mod online_payments;
 mod payments;
 mod persist;
 mod provider_sync;
+mod quotes;
 mod recurring;
+mod reminders;
+#[cfg(test)]
+mod reminders_tests;
 mod template_schema;
 mod templates;
+#[cfg(test)]
+mod test_support;
+mod time_billing;
 
 use std::sync::Arc;
 
 use axum::Router;
 pub use commerce::CommerceInvoicing;
+pub use delivery::public_router;
 pub use invoices::pdf::render_invoice_html_as_system;
+pub use online_payments::settlements::{
+    SweepSettlements, sync_workspace as sync_mollie_settlements,
+};
 pub use recurring::{SystemGenerateError, SystemGenerated, generate_recurring_invoice_as_system};
+pub use reminders::{SweepReminders, send_due_reminders};
 pub use weldsuite_books_domain::http::BooksState;
 use weldsuite_legal_entities::{LegalEntityApp, LegalEntityContextOptions, legal_entity_context};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -57,6 +71,22 @@ where
             recurring::router(state.clone(), gate),
         ),
         ("/invoice-templates", templates::router(state.clone(), gate)),
+        // Rust only (edition feature `books-quotes`).
+        ("/accounting-quotes", quotes::router(state.clone(), gate)),
+        // Rust only (edition feature `books-online-payments`).
+        (
+            "/accounting-payment-connections",
+            online_payments::router(state.clone(), gate),
+        ),
+        // Rust only (edition feature `books-time-billing`).
+        (
+            "/accounting-time",
+            time_billing::router(state.clone(), gate),
+        ),
+        (
+            "/accounting-projects",
+            time_billing::projects_router(state.clone(), gate),
+        ),
     ]
     .into_iter()
     .map(|(prefix, router)| (prefix, router.layer(context.clone())))

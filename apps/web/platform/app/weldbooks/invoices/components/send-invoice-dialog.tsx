@@ -7,7 +7,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
+import { SendEmailDialog } from '@/components/accounting/send-email-dialog';
 import { useSendInvoice } from '@/hooks/queries/use-accounting-queries';
+import { isInvoiceEmailAvailable, useEmailInvoice } from '@/hooks/queries/use-weldbooks-sales-queries';
 import { salesTaxErrorCode } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { useI18n } from '@/lib/i18n/provider';
 import { missingFieldsFromError } from '@/lib/weldbooks/invoice-requirements';
@@ -15,9 +17,19 @@ import { useEntityInvoiceDetails } from '@/lib/weldbooks/use-entity-invoice-deta
 import { EntityInvoiceDetailsNotice } from './entity-invoice-details';
 import { useDescribeError } from './sales-tax-error-notice';
 
+/**
+ * Where the edition has `books-invoice-email` (Rust) "Send" opens a real e-mail dialog. Elsewhere
+ * (Global) WeldBooks does not e-mail invoices (the backend only sets the status and `sentAt`), so the
+ * dialog stays "Mark as sent" and says that instead of promising an email.
+ */
 interface SendInvoiceDialogProps {
   invoiceId: string;
-  contactEmail: string | null;
+  /** The invoice's number, named in the confirmation. */
+  invoiceNumber?: string | null;
+  /** The contact's e-mail address, put in "To". */
+  contactEmail?: string | null;
+  /** A credit note goes out with the credit note template. */
+  creditNote?: boolean;
   /** A draft is finalized (posted) by the server before it is sent. */
   isDraft?: boolean;
   open: boolean;
@@ -30,9 +42,69 @@ interface SendInvoiceDialogProps {
   onTaxError?: (error: unknown) => void;
 }
 
-export function SendInvoiceDialog({
+export function SendInvoiceDialog(props: Readonly<SendInvoiceDialogProps>) {
+  return isInvoiceEmailAvailable() ? <EmailInvoiceDialog {...props} /> : <MarkAsSentDialog {...props} />;
+}
+
+/** The e-mail dialog of an invoice or a credit note (edition feature `books-invoice-email`). */
+function EmailInvoiceDialog({
   invoiceId,
+  invoiceNumber,
   contactEmail,
+  creditNote = false,
+  isDraft = false,
+  open,
+  onOpenChange,
+  onTaxError,
+}: Readonly<SendInvoiceDialogProps>) {
+  const email = useEmailInvoice();
+  const { t } = useI18n();
+  const invoiceDetails = useEntityInvoiceDetails();
+  // Sending a draft finalizes it, which needs the company details every invoice shows.
+  const detailsMissing = isDraft && invoiceDetails.missing.length > 0;
+  const copy = t.weldbooksSales.send;
+
+  return (
+    <SendEmailDialog
+      kind={creditNote ? 'credit_note' : 'invoice'}
+      open={open}
+      onOpenChange={onOpenChange}
+      defaultTo={contactEmail}
+      entityName={invoiceDetails.entity?.name}
+      documentNumber={invoiceNumber}
+      sendDisabled={detailsMissing}
+      send={async (input) => {
+        onTaxError?.(null);
+        return (await email.mutateAsync({ id: invoiceId, input })).data.delivery;
+      }}
+      onFailure={(error) => {
+        // A sales tax rule refused the finalize that sending a draft starts: the panel shows it as a notice.
+        if (onTaxError && salesTaxErrorCode(error)) {
+          onTaxError(error);
+          return true;
+        }
+        return false;
+      }}
+      notice={
+        isDraft ? (
+          <>
+            <p className="text-sm text-muted-foreground">{copy.draftWillFinalize}</p>
+            <EntityInvoiceDetailsNotice
+              entity={invoiceDetails.entity}
+              missing={invoiceDetails.missing}
+              labels={invoiceDetails.labels}
+              context="issue"
+            />
+          </>
+        ) : null
+      }
+    />
+  );
+}
+
+/** "Mark as sent": the dialog of an edition that does not e-mail. */
+function MarkAsSentDialog({
+  invoiceId,
   isDraft = false,
   open,
   onOpenChange,
@@ -79,11 +151,8 @@ export function SendInvoiceDialog({
         <DialogHeader>
           <DialogTitle>{ts.title}</DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          {contactEmail
-            ? ts.sendToEmail.replace('{email}', contactEmail)
-            : ts.noEmailFound}
-        </p>
+        {/* Nothing is e-mailed yet: the action only marks the invoice as sent, and the dialog says so. */}
+        <p className="text-sm text-muted-foreground">{ts.notEmailed}</p>
         {isDraft && <p className="text-sm text-muted-foreground">{ts.draftWillFinalize}</p>}
         {isDraft && (
           <EntityInvoiceDetailsNotice

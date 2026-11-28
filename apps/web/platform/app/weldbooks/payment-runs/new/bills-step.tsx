@@ -137,7 +137,7 @@ export function BillsStep({
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
                     <span>
                       {tb.blockHelp[block]}{' '}
-                      <Link to="/weldbooks/suppliers" className="font-medium underline underline-offset-2">
+                      <Link to="/weldbooks/contacts" search={{ role: 'supplier' }} className="font-medium underline underline-offset-2">
                         {tb.openVendors}
                       </Link>
                     </span>

@@ -373,6 +373,17 @@ pub const DDL: Table = Table {
             method: "btree",
             filter: None,
         },
+        Index {
+            name: "acct_bills_source_document_idx",
+            columns: &[IndexColumn {
+                expression: "source_document_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
     ],
     foreign_keys: &[],
     uniques: &[],

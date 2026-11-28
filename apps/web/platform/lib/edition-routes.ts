@@ -117,6 +117,17 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   ['/weldstash/replenishment', { modules: ['stash'], feature: 'stash-replenishment' }],
   // Carrier shipping (PostNL, DHL Parcel labels, tracking, returns) exists only on the Rust backend.
   ['/weldstash/shipments', { modules: ['stash'], feature: 'stash-shipping' }],
+  // WeldBooks' to-process list and counts (`/api/accounting-todo`) are built only in Rust.
+  ['/weldbooks/to-process', { modules: ['books'], feature: 'books-todo' }],
+  // WeldBooks' review screen for an inbox document and the SEPA payment files (Pay bills) are built only in Rust.
+  ['/weldbooks/documents/', { modules: ['books'], feature: 'books-receipts' }],
+  ['/weldbooks/purchases/pay', { modules: ['books'], feature: 'books-sepa-batches' }],
+  // WeldBooks quotes (list, form, panel) are built only in Rust.
+  ['/weldbooks/quotes', { modules: ['books'], feature: 'books-quotes' }],
+  // WeldBooks' unbilled time (invoicing WeldFlow hours once) is built only in Rust.
+  ['/weldbooks/time', { modules: ['books'], feature: 'books-time-billing' }],
+  // WeldBooks' questions list (questions to the accountant, ADR BOOKS-015) is built only in Rust.
+  ['/weldbooks/questions', { modules: ['books'], feature: 'books-questions' }],
   // WeldPass's settings (the offline copy and its devices) exist only on the Rust backend (ADR PASS-010).
   ['/settings/apps/weldpass', { modules: ['pass'], feature: 'weldpass-offline' }],
 ];

@@ -3,6 +3,27 @@
 
 use super::{DATA, TaxIdValidation, strip};
 
+/// The Belastingdienst's account for what is paid on a return (BTW,
+/// loonheffing, the other taxes it collects), as an IBAN without spaces. A
+/// payment out to it that names a VAT return is booked to VAT payable by the
+/// automatic bank matching.
+pub const TAX_AUTHORITY_IBANS: &[&str] = &["NL86INGB0002445588"];
+
+/// Whether `iban` (any spacing and case) is the tax authority's.
+pub fn is_tax_authority_iban(iban: &str) -> bool {
+    let normalized = strip(iban, &[]).to_uppercase();
+    TAX_AUTHORITY_IBANS.contains(&normalized.as_str())
+}
+
+/// Whether a payment's description names a VAT return: an *aangifte*,
+/// *btw* or *omzetbelasting* reference.
+pub fn names_vat_return(description: &str) -> bool {
+    let lower = description.to_lowercase();
+    ["aangifte", "btw", "omzetbelasting"]
+        .iter()
+        .any(|word| lower.contains(word))
+}
+
 /// `validateBtwNumber`: `NL` + 9 digits + `B` + 2 digits.
 pub fn validate_btw_number(value: &str) -> TaxIdValidation {
     let normalized = strip(value, &[]).to_uppercase();

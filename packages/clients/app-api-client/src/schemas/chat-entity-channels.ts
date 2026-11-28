@@ -31,6 +31,48 @@ export const RECORD_CHAT_TYPES = ['company', 'person', 'task', 'project', 'domai
 export type RecordChatType = (typeof RECORD_CHAT_TYPES)[number];
 
 /**
+ * The record chats of WeldBooks' records (Rust backend only, edition feature
+ * `books-questions`; ADR BOOKS-015). Not in {@link RECORD_CHAT_TYPES}: Global's
+ * chat-api has no provider for them. `accounting_contact` is a WeldBooks contact.
+ */
+export const BOOKS_RECORD_CHAT_TYPES = [
+  'invoice',
+  'bill',
+  'bank_transaction',
+  'accounting_document',
+  'vat_return',
+  'accounting_contact',
+] as const;
+export type BooksRecordChatType = (typeof BOOKS_RECORD_CHAT_TYPES)[number];
+
+/** A question's status: `metadata.question.status` of the thread's first message. */
+export const QUESTION_STATUSES = ['open', 'answered', 'resolved'] as const;
+export type QuestionStatus = (typeof QUESTION_STATUSES)[number];
+
+/** POST /api/accounting-questions */
+export const askQuestionSchema = z.object({
+  recordType: z.enum(BOOKS_RECORD_CHAT_TYPES),
+  recordId: z.string().min(1).max(255),
+  text: z.string().min(1).max(10_000),
+  /** Member (user) ids the question is for; they follow the record's chat. */
+  askedTo: z.array(z.string()).max(20).optional(),
+});
+export type AskQuestionInput = z.infer<typeof askQuestionSchema>;
+
+/** POST /api/accounting-questions/bulk */
+export const askQuestionsBulkSchema = z.object({
+  recordType: z.enum(BOOKS_RECORD_CHAT_TYPES),
+  recordIds: z.array(z.string().min(1)).min(1).max(100),
+  text: z.string().min(1).max(10_000),
+  askedTo: z.array(z.string()).max(20).optional(),
+});
+export type AskQuestionsBulkInput = z.infer<typeof askQuestionsBulkSchema>;
+
+/** PATCH /api/accounting-questions/:messageId */
+export const setQuestionStatusSchema = z.object({ status: z.enum(QUESTION_STATUSES) });
+export type SetQuestionStatusInput = z.infer<typeof setQuestionStatusSchema>;
+
+/**
  * `following`: chats the caller follows. `unread`: followed, not muted, with
  * messages after the caller's read marker. `mentions`: followed, with unread
  * @mentions. `all`: every record chat the caller may read.

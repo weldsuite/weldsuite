@@ -27,13 +27,15 @@ use sqlx::PgPool;
 use weldsuite_books_domain::bank_matching::{
     DifferenceAccount, DocumentShare, reconcile_to_documents, score_line_for_document,
 };
-use weldsuite_books_domain::entity_context::records_in_entity;
+use weldsuite_books_domain::differences;
+use weldsuite_books_domain::entity_context::{records_in_entity, resolve_entity_base_currency};
 use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
 use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, ok, reply, validate};
 use weldsuite_books_domain::js::{parse_float, round_money, to_fixed};
 use weldsuite_books_domain::jurisdictions::js_trim;
 use weldsuite_catalogs::entity_events::{
-    BANK_TRANSACTION_UPDATED, BILL_UPDATED, INVOICE_UPDATED, PAYMENT_CREATED,
+    BANK_TRANSACTION_PROCESSED, BANK_TRANSACTION_UPDATED, BILL_UPDATED, INVOICE_UPDATED,
+    PAYMENT_CREATED,
 };
 use weldsuite_db::orm;
 use weldsuite_kit::validation::{Issues, Presence};
@@ -55,7 +57,7 @@ const OPEN_BILL: [&str; 3] = ["approved", "partial", "overdue"];
 
 /// A row that would not serialize, as a database error.
 #[allow(clippy::needless_pass_by_value)] // the shape `map_err` hands over
-fn json_error(error: serde_json::Error) -> DbErr {
+pub(crate) fn json_error(error: serde_json::Error) -> DbErr {
     DbErr::Json(error.to_string())
 }
 
@@ -78,7 +80,7 @@ fn like_pattern(term: &str) -> String {
 }
 
 /// The contacts (`id → (name, iban)`) of `rows`.
-async fn contacts_of(
+pub(crate) async fn contacts_of(
     db: &PgPool,
     rows: &[Value],
 ) -> Result<HashMap<String, (Option<String>, Option<String>)>, DbErr> {
@@ -338,10 +340,10 @@ async fn list_open_documents(caller: &Caller, id: &str) -> Reply {
 
 /// The body: `{ documents: [{ type, id, amount }], differenceAccountId?,
 /// differenceDescription? }`.
-struct MatchBody {
-    documents: Vec<(String, String, String)>,
-    difference_account_id: Option<String>,
-    difference_description: Option<String>,
+pub(crate) struct MatchBody {
+    pub(crate) documents: Vec<(String, String, String)>,
+    pub(crate) difference_account_id: Option<String>,
+    pub(crate) difference_description: Option<String>,
 }
 
 fn read_match(issues: &mut Issues, body: &Map<String, Value>) -> Option<MatchBody> {
@@ -406,7 +408,12 @@ pub(crate) async fn match_documents(
 }
 
 #[allow(clippy::too_many_lines)] // check, match, audit, announce
-async fn match_line(caller: &Caller, state: &BooksState, id: &str, data: MatchBody) -> Reply {
+pub(crate) async fn match_line(
+    caller: &Caller,
+    state: &BooksState,
+    id: &str,
+    data: MatchBody,
+) -> Reply {
     let mut shares = Vec::with_capacity(data.documents.len());
     for (kind, document_id, amount) in &data.documents {
         let amount = parse_float(amount);
@@ -441,16 +448,30 @@ async fn match_line(caller: &Caller, state: &BooksState, id: &str, data: MatchBo
         return Err(Refusal::not_found("Transaction", id));
     };
     let http = caller.http(state);
+    let mut difference = data
+        .difference_account_id
+        .map(|account_id| DifferenceAccount {
+            account_id,
+            description: data.difference_description,
+        });
+    // No account named: a gap of a few cents goes to the rounding account;
+    // never more than the entity's cap, however large the gap.
+    let mut rounded = Value::Null;
+    if difference.is_none()
+        && let Some((account_id, gap)) = small_gap(&caller.db, &txn, &shares).await?
+    {
+        rounded = json!({ "accountId": account_id, "amount": to_fixed(gap, 2) });
+        difference = Some(DifferenceAccount {
+            account_id,
+            description: Some("Rounding difference".to_owned()),
+        });
+    }
     let matched = reconcile_to_documents(
         &caller.db,
         http.as_ref(),
         &txn,
         &shares,
-        data.difference_account_id
-            .map(|account_id| DifferenceAccount {
-                account_id,
-                description: data.difference_description,
-            }),
+        difference,
         caller.user().map(str::to_owned),
     )
     .await
@@ -503,6 +524,9 @@ async fn match_line(caller: &Caller, state: &BooksState, id: &str, data: MatchBo
         id,
         line_event(&txn, "reconciled"),
     );
+    let mut processed = line_event(&txn, "reconciled");
+    processed["how"] = json!("link");
+    caller.publish(state, BANK_TRANSACTION_PROCESSED, id, processed);
     let amount = parse_float(text(&txn, "amount").unwrap_or("0")).abs();
     let mut payment = Map::new();
     payment.insert("id".to_owned(), json!(matched.id));
@@ -548,12 +572,53 @@ async fn match_line(caller: &Caller, state: &BooksState, id: &str, data: MatchBo
             json!({ "id": share.id, "paymentId": matched.id }),
         );
     }
-    Ok(ok(json!({
+    let mut answer = json!({
         "id": id,
         "status": "reconciled",
         "paymentId": matched.id,
         "journalEntryId": matched.journal_entry_id,
-    })))
+    });
+    if !rounded.is_null() {
+        answer["roundingDifference"] = rounded;
+    }
+    Ok(ok(answer))
+}
+
+/// The gap between the documents and the line, when it is small enough to
+/// round off without being asked: at least a cent and within the entity's
+/// rounding cap, in the entity's own currency, with a rounding account to
+/// book it to. The account and the gap (documents minus line, signed).
+pub(crate) async fn small_gap(
+    db: &PgPool,
+    txn: &Value,
+    shares: &[DocumentShare],
+) -> Result<Option<(String, f64)>, DbErr> {
+    let paid = round_money(parse_float(text(txn, "amount").unwrap_or("0")).abs());
+    let allocated = shares.iter().fold(0.0, |sum, share| {
+        round_money(sum + round_money(share.amount))
+    });
+    let gap = round_money(allocated - paid);
+    let entity_id = text(txn, "entityId").unwrap_or_default();
+    let (differences, rounding) = differences::load_with_rounding(db, entity_id).await?;
+    let Some(rounding) = rounding.filter(|_| differences.within_cap(gap)) else {
+        return Ok(None);
+    };
+    // The cap is in the entity's currency: a line in another one is not rounded off.
+    let line_currency: Option<Option<String>> = bank_accounts::Entity::find()
+        .select_only()
+        .column(bank_accounts::Column::Currency)
+        .filter(bank_accounts::Column::Id.eq(text(txn, "bankAccountId").unwrap_or_default()))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    let base = resolve_entity_base_currency(db, entity_id).await?;
+    if line_currency
+        .flatten()
+        .is_some_and(|currency| !currency.is_empty() && currency != base)
+    {
+        return Ok(None);
+    }
+    Ok(Some((rounding, gap)))
 }
 
 // ── GET /for-document ───────────────────────────────────────────────────────

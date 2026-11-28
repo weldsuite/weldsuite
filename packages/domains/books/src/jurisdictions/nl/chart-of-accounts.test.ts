@@ -27,6 +27,15 @@ describe('NL chart of accounts', () => {
     expect(byRole('depreciation_expense')).toMatchObject({ code: '4700', name: 'Afschrijvingen', type: 'expense' });
   });
 
+  it('carries the accounts bank-line processing books to: kruisposten, privé, rekening-courant DGA, rounding', () => {
+    const byRole = (role: string) => chart.find((a) => a.systemRole === role);
+    expect(byRole('transfers_in_transit')).toMatchObject({ code: '1250', name: 'Kruisposten', type: 'asset', normalSide: 'debit' });
+    // Sole trader / VOF: privé-opnamen en -stortingen; BV / NV: the current account with the DGA.
+    expect(byRole('private')).toMatchObject({ code: '0540', name: 'Privé', type: 'equity', normalSide: 'debit' });
+    expect(byRole('director_current_account')).toMatchObject({ code: '1960', name: 'Rekening-courant DGA', type: 'liability' });
+    expect(byRole('rounding')).toMatchObject({ code: '4660', name: 'Afrondingsverschillen', type: 'expense', normalSide: 'debit' });
+  });
+
   it('keeps the codes the journal falls back on for entities created before the roles existed', () => {
     // Pension costs (employer benefits) and the bank account have no role: books-api resolves them by code.
     expect(chart.find((a) => a.code === '4130')).toMatchObject({ name: 'Pensioenlasten', type: 'expense' });

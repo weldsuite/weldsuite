@@ -16,6 +16,7 @@ weldsuite-digipoort = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-events = { workspace = true }
 weldsuite-kit = { workspace = true }
+weldsuite-chat-domain = { workspace = true }
 weldsuite-legal-entities = { workspace = true }
 weldsuite-outside-eu = { workspace = true }
 weldsuite-permissions = { workspace = true }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { RecordChatTypeSummary } from '@weldsuite/app-api-client/schemas/chat-entity-channels';
 import {
   coversUnread,
@@ -7,7 +7,18 @@ import {
   recordGroupTypes,
   uniqueRows,
 } from './record-chat-groups';
-import { getRecordChatTypeInfo, recordGroupKey } from './record-chat-types';
+import { BOOKS_RECORD_CHAT_TYPES, getRecordChatTypeInfo, openRecordPanel, recordGroupKey } from './record-chat-types';
+
+/** Whether the edition has questions to the accountant (`books-questions`); Global has not. */
+const edition = vi.hoisted(() => ({ questions: true }));
+vi.mock('@/lib/edition', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/edition')>();
+  return {
+    ...actual,
+    isFeatureAvailable: (feature: Parameters<typeof actual.isFeatureAvailable>[0]) =>
+      feature === 'books-questions' ? edition.questions : actual.isFeatureAvailable(feature),
+  };
+});
 
 const summaryRow = (type: string, followed: number, unread = 0, mentions = 0): RecordChatTypeSummary => ({
   type,
@@ -103,5 +114,59 @@ describe('record chat types', () => {
     expect(getRecordChatTypeInfo('contact')).toBeNull();
     expect(getRecordChatTypeInfo('customer')).toBeNull();
     expect(getRecordChatTypeInfo(undefined)).toBeNull();
+  });
+});
+
+describe('WeldBooks record chat types (books-questions)', () => {
+  const BOOKS_SUMMARY = [
+    summaryRow('invoice', 2),
+    summaryRow('bill', 1),
+    summaryRow('bank_transaction', 4),
+    summaryRow('accounting_document', 1),
+    summaryRow('vat_return', 1),
+    summaryRow('accounting_contact', 3),
+  ];
+
+  it('gives each of the six types a group, after the base ones, in a fixed order', () => {
+    edition.questions = true;
+    expect(recordGroupTypes([summaryRow('company', 1), ...BOOKS_SUMMARY.reverse()], notHidden)).toEqual([
+      'company',
+      ...BOOKS_RECORD_CHAT_TYPES,
+    ]);
+  });
+
+  it('shows the icon, the labels and where the record opens for every type', () => {
+    edition.questions = true;
+    for (const type of BOOKS_RECORD_CHAT_TYPES) {
+      const info = getRecordChatTypeInfo(type);
+      expect(info).not.toBeNull();
+      expect(info?.icon).toBeTruthy();
+      expect(info?.groupLabelKey).toBe(`sweep.weldchat.recordChats.groups.${type}`);
+      expect(info?.labelKey).toBe(`sweep.weldchat.recordChats.types.${type}`);
+      expect(info?.openLabelKey).toBe(`sweep.weldchat.recordChats.open.${type}`);
+    }
+    expect(getRecordChatTypeInfo('invoice')?.panelType).toBe('invoice');
+    expect(getRecordChatTypeInfo('bill')?.panelType).toBe('bill');
+    expect(getRecordChatTypeInfo('bank_transaction')?.panelType).toBe('bank_transaction');
+    expect(getRecordChatTypeInfo('vat_return')?.panelType).toBe('vat_return');
+    expect(getRecordChatTypeInfo('accounting_contact')?.panelType).toBe('weldbooks_contact');
+  });
+
+  it('opens a panel for a record, and the documents page for an inbox document', () => {
+    edition.questions = true;
+    const open = vi.fn();
+    const push = vi.fn();
+    openRecordPanel(open, 'accounting_contact', 'prt_1', push);
+    expect(open).toHaveBeenCalledWith({ type: 'weldbooks_contact', id: 'prt_1' });
+    openRecordPanel(open, 'accounting_document', 'doc 1', push);
+    expect(push).toHaveBeenCalledWith('/weldbooks/documents?document=doc%201');
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves them out where the edition has no questions (Global)', () => {
+    edition.questions = false;
+    expect(recordGroupTypes(BOOKS_SUMMARY, notHidden)).toEqual([]);
+    for (const type of BOOKS_RECORD_CHAT_TYPES) expect(getRecordChatTypeInfo(type)).toBeNull();
+    edition.questions = true;
   });
 });

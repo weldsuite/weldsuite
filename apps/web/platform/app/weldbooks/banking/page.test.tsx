@@ -145,6 +145,21 @@ describe('BankAccountsPage', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Connect bank' })).toBeEnabled());
   });
 
+  it('labels the Mollie account a payment provider, and no regular account', async () => {
+    routes({
+      accounts: [
+        makeBankAccount({ id: 'ba_1', name: 'Operating', accountType: 'checking', accountNumberLast4: '7890' }),
+        makeBankAccount({ id: 'ba_mollie', name: 'Mollie', accountType: 'payment_provider', bankName: null }),
+      ],
+    });
+    renderWithProviders(<BankAccountsPage />);
+
+    expect(await screen.findByText('Mollie')).toBeInTheDocument();
+    // One chip, on the Mollie row: the regular account has none.
+    expect(screen.getAllByText('Payment provider')).toHaveLength(1);
+    expect(screen.getByText('Mollie').closest('[data-slot], div')?.textContent).toContain('Payment provider');
+  });
+
   it('opens an account in the bank account record panel', async () => {
     routes({ accounts: [makeBankAccount({ accountType: 'checking', accountNumberLast4: '7890' })] });
     renderWithProviders(<BankAccountsPage />);

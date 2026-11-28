@@ -5,6 +5,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { ArrowLeft } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useRouter } from '@/lib/router';
+import { withQuery } from '@/lib/with-query';
 import { ContactForm, type ContactPayload } from '../components/contact-form';
 import { contactPrefillAtom } from '../components/contact-prefill';
 import { PersonEmailConflictDialog } from '../components/person-email-conflict-dialog';
@@ -18,14 +19,16 @@ export default function AddContactPage() {
   const router = useRouter();
   const search = useSearch({ strict: false }) as { role?: string };
   const role = search.role === 'supplier' ? 'supplier' : 'customer';
-  const listPath = role === 'supplier' ? '/weldbooks/suppliers' : '/weldbooks/customers';
+  // Back to the Contacts list, narrowed to the role the contact was added as.
+  const listPath = '/weldbooks/contacts';
+  const listQuery = `role=${role}`;
   const { t } = useI18n();
   const tc = t.accounting.contacts;
   const heading = role === 'supplier' ? t.accounting.suppliersPage.newSupplier : t.accounting.customersPage.newCustomer;
   const backText = role === 'supplier' ? tc.backToSuppliers : tc.backToCustomers;
-  const openContact = (contactId: string) => router.push(`${listPath}?stack=weldbooks_contact:${contactId}`);
+  const openContact = (contactId: string) => router.push(withQuery(listPath, `${listQuery}&stack=weldbooks_contact:${contactId}`));
   const { submit, conflict, clearConflict, isPending } = useCreateContact({
-    onCreated: (contactId) => (contactId ? openContact(contactId) : router.push(listPath)),
+    onCreated: (contactId) => (contactId ? openContact(contactId) : router.push(withQuery(listPath, listQuery))),
     onOpenExisting: openContact,
   });
 
@@ -42,7 +45,7 @@ export default function AddContactPage() {
     <div className="p-4 sm:p-6 max-w-3xl space-y-6">
       <div className="flex items-center gap-4">
         <Button asChild variant="ghost" size="icon">
-          <Link to={listPath} aria-label={backText}>
+          <Link to={listPath} search={{ role }} aria-label={backText}>
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>
@@ -55,7 +58,7 @@ export default function AddContactPage() {
         prefill={prefill ?? undefined}
         isPending={isPending}
         onSubmit={onSubmit}
-        onCancel={() => router.push(listPath)}
+        onCancel={() => router.push(withQuery(listPath, listQuery))}
       />
 
       <PersonEmailConflictDialog

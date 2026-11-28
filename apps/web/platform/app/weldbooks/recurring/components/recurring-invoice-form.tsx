@@ -19,6 +19,7 @@ import {
 } from '@weldsuite/ui/components/select';
 import { useAccountingCustomer, useAccountingCustomers, useAccountingTaxRates } from '@/hooks/queries/use-accounting-queries';
 import { defaultTaxRateId, taxRateLabel, taxRatesFor } from '@/lib/weldbooks/tax-rate-options';
+import { ContactPicker } from '@/components/accounting/contact-picker';
 import { QuickAddContactDialog } from '@/app/weldbooks/customers/components/quick-add-contact-dialog';
 import {
   useCreateRecurringInvoice,
@@ -158,11 +159,11 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
   const { t } = useI18n();
   const tbd = t.weldbooksBr.document;
 
-  const { data: contactsData, isLoading: contactsLoading } = useAccountingCustomers({ role: 'customer' });
+  // The picker searches the server as you type; this one row only tells whether there is any customer at all.
+  const { data: contactsData, isLoading: contactsLoading } = useAccountingCustomers({ role: 'customer', pageSize: 1 });
   const { data: taxRatesData } = useAccountingTaxRates();
-  const contacts = contactsData?.data ?? [];
   // Customers have loaded and there are none: the picker offers to add the first one instead.
-  const noCustomers = !contactsLoading && !!contactsData && contacts.length === 0;
+  const noCustomers = !contactsLoading && !!contactsData && (contactsData.data ?? []).length === 0;
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   // A recurring invoice takes sales (and both) rates only.
   const taxRates = taxRatesFor(taxRatesData?.data ?? [], 'sales');
@@ -321,21 +322,15 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
                 </Button>
               </div>
             ) : (
-              <Select
+              <ContactPicker
+                id="recurring-contact"
+                role="customer"
                 value={watched.contactId}
-                onValueChange={(val) => form.setValue('contactId', val, { shouldValidate: true, shouldDirty: true })}
-              >
-                <SelectTrigger id="recurring-contact">
-                  <SelectValue placeholder={tr.selectCustomer} />
-                </SelectTrigger>
-                <SelectContent>
-                  {contacts.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name || c.email || c.id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onChange={(val) => form.setValue('contactId', val, { shouldValidate: true, shouldDirty: true })}
+                placeholder={tr.selectCustomer}
+                searchPlaceholder={t.accounting.customersPage.searchPlaceholder}
+                invalid={Boolean(form.formState.errors.contactId)}
+              />
             )}
             {form.formState.errors.contactId && (
               <p className="text-sm text-destructive">{form.formState.errors.contactId.message}</p>

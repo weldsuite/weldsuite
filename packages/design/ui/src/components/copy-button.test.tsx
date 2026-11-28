@@ -42,6 +42,7 @@ describe('CopyButton', () => {
 
   it('announces a failure, and a repeat differently so screen readers read it again', async () => {
     stubClipboard(() => Promise.reject(new Error('denied')));
+    Object.defineProperty(document, 'execCommand', { value: vi.fn(() => false), configurable: true });
     const button = renderButton();
 
     await click(button);
@@ -53,5 +54,29 @@ describe('CopyButton', () => {
     expect(second).not.toBe(first);
     // The button stays usable while the feedback shows.
     expect(button.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('falls back to the legacy copy command when the async clipboard refuses', async () => {
+    stubClipboard(() => Promise.reject(new Error('insecure context')));
+    const execCommand = vi.fn(() => true);
+    Object.defineProperty(document, 'execCommand', { value: execCommand, configurable: true });
+    const button = renderButton();
+
+    await click(button);
+    expect(execCommand).toHaveBeenCalledWith('copy');
+    expect(screen.getByRole('status').textContent).toBe('Copied');
+  });
+
+  it('shows its label as text with showLabel, and is named by it', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    stubClipboard(writeText);
+    render(<CopyButton value="https://x.test/d/1" label="Copy link" showLabel copiedLabel="Copied" failedLabel="Copy failed" />);
+    const button = screen.getByRole('button', { name: 'Copy link' });
+    expect(button.textContent).toBe('Copy link');
+    expect(button.hasAttribute('aria-label')).toBe(false);
+
+    await click(button);
+    expect(writeText).toHaveBeenCalledWith('https://x.test/d/1');
+    expect(screen.getByRole('status').textContent).toBe('Copied');
   });
 });

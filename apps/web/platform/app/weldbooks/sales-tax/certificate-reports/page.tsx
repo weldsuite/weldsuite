@@ -1,3 +1,4 @@
+import { useObjectPanelUrlSyncHere } from '@/components/object-panel';
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { ShieldCheck } from 'lucide-react';
@@ -258,6 +259,8 @@ function MissingCertificates() {
 
 /** The exemption certificate reports: certificates about to expire and exempt sales that still have none. */
 export default function CertificateReportsPage() {
+  // Documents stack as panels, synced to `?stack=`.
+  useObjectPanelUrlSyncHere();
   const { t } = useI18n();
   const tc = t.weldbooksUs.salesTax.center.certificates;
   const [tab, setTab] = useState<CertificateTab>('expiring');

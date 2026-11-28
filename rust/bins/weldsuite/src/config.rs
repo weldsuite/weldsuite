@@ -626,7 +626,7 @@ pub(crate) struct FilesConfig {
 impl FilesConfig {
     /// `S3_ENDPOINT` unset is no object storage; set, the bucket and keys must
     /// be too.
-    fn from_lookup(
+    pub(crate) fn from_lookup(
         lookup: &impl Fn(&str) -> Option<String>,
         problems: &mut Vec<String>,
     ) -> Option<Self> {

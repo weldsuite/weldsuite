@@ -231,22 +231,40 @@ describe('platformSyncMap — WeldBooks', () => {
       ['accounting', 'payments'],
       ['accounting', 'dashboard'],
       ['accounting', 'reports'],
+      ['accounting', 'customers', 'detail'],
+      ['accounting', 'time-billing'],
     ]);
     expect(platformSyncMap.bill?.invalidate).toEqual([
       ['accounting', 'bills'],
       ['accounting', 'payments'],
       ['accounting', 'dashboard'],
       ['accounting', 'documents'],
+      ['accounting', 'customers', 'detail'],
     ]);
     expect(platformSyncMap.payment?.invalidate).toEqual([
       ['accounting', 'payments'],
       ['accounting', 'invoices'],
       ['accounting', 'bills'],
       ['accounting', 'dashboard'],
+      ['accounting', 'customers', 'detail'],
     ]);
     for (const topic of ['invoice', 'bill', 'payment'] as const) {
       const keys = platformSyncMap[topic]?.invalidate ?? [];
       expect(keys.map((k) => JSON.stringify(k))).not.toContain(JSON.stringify(['accounting']));
+    }
+  });
+
+  it('keeps the contact page and the unbilled time in step with what changes them', () => {
+    const customers = JSON.stringify(['accounting', 'customers', 'detail']);
+    const timeBilling = JSON.stringify(['accounting', 'time-billing']);
+    for (const topic of ['invoice', 'bill', 'payment', 'quote', 'bank_transaction'] as const) {
+      const keys = (platformSyncMap[topic]?.invalidate ?? []).map((k) => JSON.stringify(k));
+      expect(keys, topic).toContain(customers);
+    }
+    // Invoicing hours takes them off the list, and logging or changing time puts them on it.
+    for (const topic of ['invoice', 'time_entry', 'project_time_entry'] as const) {
+      const keys = (platformSyncMap[topic]?.invalidate ?? []).map((k) => JSON.stringify(k));
+      expect(keys, topic).toContain(timeBilling);
     }
   });
 

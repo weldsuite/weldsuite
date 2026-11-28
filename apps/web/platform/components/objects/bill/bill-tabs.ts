@@ -1,4 +1,4 @@
-import { Banknote, History, LayoutGrid, ListOrdered, Percent } from 'lucide-react';
+import { Banknote, History, LayoutGrid, ListOrdered, MessageSquare, Percent } from 'lucide-react';
 import type { ObjectPanelTabDescriptor } from '@/components/object-panel';
 
 /**
@@ -8,12 +8,13 @@ import type { ObjectPanelTabDescriptor } from '@/components/object-panel';
  *   items    → `/bills/:id`                         (the lines and the totals)
  *   payments → `/bills/:id`                         (the payments made against it)
  *   tax      → `/bills/:id`                         (use tax / Brazil fiscal breakdown)
+ *   chat     → the bill's record chat, with the questions to the accountant (`books-questions`)
  *   history  → `/api/audit-logs?entityType=bill`
  *
  * The tax tab only exists for a bill that has such a breakdown.
  */
 export interface BillTab extends ObjectPanelTabDescriptor {
-  id: 'overview' | 'items' | 'payments' | 'tax' | 'history';
+  id: 'overview' | 'items' | 'payments' | 'tax' | 'chat' | 'history';
   defaultVisibleInPanel?: boolean;
   defaultVisibleInFullscreen?: boolean;
   required?: boolean;
@@ -25,6 +26,10 @@ export function getBillTabs(labels: {
   payments: string;
   tax: string;
   history: string;
+  /** Label of the Chat tab; with `showChat`. */
+  chat?: string;
+  /** The edition has questions to the accountant (`books-questions`). */
+  showChat?: boolean;
   itemsCount?: number;
   paymentsCount?: number;
   /** The bill has a tax breakdown worth a tab of its own. */
@@ -61,6 +66,15 @@ export function getBillTabs(labels: {
       id: 'tax',
       label: labels.tax,
       icon: Percent,
+      defaultVisibleInPanel: true,
+      defaultVisibleInFullscreen: true,
+    });
+  }
+  if (labels.showChat && labels.chat) {
+    tabs.push({
+      id: 'chat',
+      label: labels.chat,
+      icon: MessageSquare,
       defaultVisibleInPanel: true,
       defaultVisibleInFullscreen: true,
     });

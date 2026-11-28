@@ -1,5 +1,5 @@
 import { ArrowLeftRight, History, LayoutGrid, PlugZap } from 'lucide-react';
-import type { ObjectPanelTabDescriptor } from '@/components/object-panel';
+import type { ConfigurablePanelTab } from '@/components/objects/_shared/configurable-panel-tabs';
 
 /**
  * Tab descriptors for the bank account panel. Every tab is backed by a real
@@ -10,12 +10,7 @@ import type { ObjectPanelTabDescriptor } from '@/components/object-panel';
  *   feeds         → the account's bank-feed connection
  *   history       → `/api/audit-logs?entityType=bank_account`
  */
-export interface BankAccountTab extends ObjectPanelTabDescriptor {
-  id: 'overview' | 'transactions' | 'feeds' | 'history';
-  defaultVisibleInPanel?: boolean;
-  defaultVisibleInFullscreen?: boolean;
-  required?: boolean;
-}
+export type BankAccountTab = ConfigurablePanelTab<'overview' | 'transactions' | 'feeds' | 'history'>;
 
 export function getBankAccountTabs(labels: {
   details: string;
@@ -52,6 +47,7 @@ export function getBankAccountTabs(labels: {
       id: 'history',
       label: labels.history,
       icon: History,
+      defaultVisibleInPanel: true,
       defaultVisibleInFullscreen: true,
     },
   ];

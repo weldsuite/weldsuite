@@ -8,6 +8,7 @@
 
 mod body;
 mod identity;
+mod page;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,7 +17,7 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use http::HeaderMap;
 use sea_orm::sea_query::extension::postgres as pg;
 use sea_orm::sea_query::{Asterisk, Expr, Func, Query as Sql, SelectStatement};
@@ -92,9 +93,28 @@ where
             axum::routing::delete(remove)
                 .route_layer(need(&["customers:delete", "suppliers:delete"])),
         )
+        // Rust only (edition feature `books-contact-page`): the contact page.
+        .route("/by-crm", get(page::by_crm).route_layer(read()))
+        .route("/{id}/timeline", get(page::timeline).route_layer(read()))
+        .route("/{id}/summary", get(page::summary).route_layer(read()))
+        .route("/{id}/statement", get(page::statement).route_layer(read()))
+        .route("/{id}/defaults", get(page::defaults).route_layer(read()))
+        .route(
+            "/{id}/defaults",
+            patch(page::update_defaults).route_layer(need(&["invoices:update"])),
+        )
         .route("/{id}/invoices", get(invoices).route_layer(read()))
         .route("/{id}/bills", get(bills).route_layer(read()))
         .route("/{id}/balance", get(balance).route_layer(read()))
+        // Rust only (edition feature `books-bank-processing`): payments of
+        // the contact with credit left to apply (`POST /api/payments/:id/apply`).
+        .route("/{id}/credits", get(credits).route_layer(read()))
+        // Rust only (edition feature `books-receipts`): what the supplier's
+        // last posted bills book to.
+        .route(
+            "/{id}/booking-defaults",
+            get(booking_defaults_route).route_layer(read()),
+        )
         .route(
             "/{id}/archive",
             post(archive).route_layer(need(&["customers:update", "suppliers:update"])),
@@ -455,10 +475,25 @@ fn in_scope(scope: &EntityScopeCondition, column: impl ColumnTrait) -> Condition
 async fn invoices(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
         let scope = entity_scope(&caller).await?;
-        let rows = invoices::Entity::find()
+        // Opt-in paging (`page`, `pageSize`, edition feature
+        // `books-contact-page`): without either, the list is whole as ever.
+        let window = page::page_window(&caller)?;
+        let select = invoices::Entity::find()
             .filter(invoices::Column::ContactId.eq(id.as_str()))
             .filter(invoices::Column::DeletedAt.is_null())
-            .filter(in_scope(&scope, invoices::Column::EntityId))
+            .filter(in_scope(&scope, invoices::Column::EntityId));
+        if let Some(window) = window {
+            return page::page_of(
+                &orm(&caller.db),
+                select,
+                invoices::Column::IssueDate,
+                invoices::Column::Id,
+                window,
+                |row| js!(row),
+            )
+            .await;
+        }
+        let rows = select
             .order_by_desc(invoices::Column::IssueDate)
             .all(&orm(&caller.db))
             .await?;
@@ -471,10 +506,23 @@ async fn invoices(caller: Caller, Path(id): Path<String>) -> Response {
 async fn bills(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
         let scope = entity_scope(&caller).await?;
-        let rows = bills::Entity::find()
+        let window = page::page_window(&caller)?;
+        let select = bills::Entity::find()
             .filter(bills::Column::ContactId.eq(id.as_str()))
             .filter(bills::Column::DeletedAt.is_null())
-            .filter(in_scope(&scope, bills::Column::EntityId))
+            .filter(in_scope(&scope, bills::Column::EntityId));
+        if let Some(window) = window {
+            return page::page_of(
+                &orm(&caller.db),
+                select,
+                bills::Column::IssueDate,
+                bills::Column::Id,
+                window,
+                |row| js!(row),
+            )
+            .await;
+        }
+        let rows = select
             .order_by_desc(bills::Column::IssueDate)
             .all(&orm(&caller.db))
             .await?;
@@ -546,6 +594,49 @@ async fn balance(caller: Caller, Path(id): Path<String>) -> Response {
     }
     .await;
     reply(result, "Failed to fetch contact balance")
+}
+
+/// `GET /:id/credits`: the contact's payments (in the request's entity) with
+/// an unallocated remainder, newest first: `paymentId`, `type`, `date`,
+/// `currency`, `reference`, `amount`, `unallocatedAmount`, `bankTransactionId`.
+/// The contact's `/balance` is left as it was.
+async fn credits(caller: Caller, Path(id): Path<String>) -> Response {
+    let result: Reply = async {
+        if PARTIES.find_live(&caller.db, &id).await?.is_none() {
+            return Err(Refusal::not_found("Contact", &id));
+        }
+        let Some(entity_id) = resolve_entity_id(&caller).await? else {
+            return Ok(ok(Value::Array(Vec::new())));
+        };
+        let credits = weldsuite_books_domain::unapplied_credit::credits_of_contact(
+            &caller.db, &entity_id, &id,
+        )
+        .await
+        .map_err(|error| match error {
+            weldsuite_books_domain::posting::PostError::Database(error) => Refusal::Database(error),
+            other => Refusal::Internal(other.to_string()),
+        })?;
+        Ok(ok(Value::Array(credits)))
+    }
+    .await;
+    reply(result, "Failed to fetch contact credits")
+}
+
+/// `GET /:id/booking-defaults`: the supplier's usual expense account, VAT
+/// rate and project with counts, from its last ten posted bills in the
+/// request's entity (`crate::booking_defaults`).
+async fn booking_defaults_route(caller: Caller, Path(id): Path<String>) -> Response {
+    let result: Reply = async {
+        let entity_id = resolve_entity_id(&caller).await?;
+        match crate::booking_defaults::booking_defaults(&caller.db, entity_id.as_deref(), &id)
+            .await?
+        {
+            Some(defaults) => Ok(ok(defaults)),
+            None => Err(Refusal::not_found("Contact", &id)),
+        }
+    }
+    .await;
+    reply(result, "Failed to fetch the booking defaults")
 }
 
 async fn import_from_crm() -> Response {

@@ -44,6 +44,10 @@ data:
   STOREFRONT_BASE_DOMAIN: ""
   STOREFRONT_CUSTOM_DOMAINS: "false"
   STOREFRONT_APEX_ADDRESSES: "[]"
+  # WeldBooks' public document page (apps/eu/values/weldsuite.yaml, payPortal):
+  # "true" once pay.${DOMAIN} points at the ingress load balancer and the
+  # server serves /public/weldbooks (ADR BOOKS-014).
+  PAY_PORTAL_ENABLED: "false"
   # WeldForms on workspaces' own host names (apps/eu/values/weldsuite.yaml,
   # formsPortal.customDomains): they CNAME to forms.${DOMAIN}, so nothing new
   # points at the load balancer. FORMS_APEX_ADDRESSES its addresses, for apex

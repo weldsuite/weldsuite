@@ -24,6 +24,8 @@ import {
   NotebookText,
   Package,
   FileText,
+  Inbox,
+  Landmark,
   Receipt,
   Briefcase,
   CheckSquare,
@@ -33,6 +35,7 @@ import {
   ShoppingCart,
   Signature,
   SquareDashedMousePointer,
+  Users,
   CircleDot,
   GitPullRequest,
   Video,
@@ -81,6 +84,9 @@ export const RESULT_TYPE_LABEL: Record<PaletteEntityType, string> = {
   workflow: 'Workflows',
   agent: 'Agents',
   domain: 'Domains',
+  bank_transaction: 'Bank transactions',
+  accounting_contact: 'Accounting contacts',
+  accounting_document: 'Inbox documents',
 };
 
 export const RESULT_TYPE_ICON: Record<PaletteEntityType, LucideIcon | ComponentType<{ className?: string }>> = {
@@ -115,6 +121,9 @@ export const RESULT_TYPE_ICON: Record<PaletteEntityType, LucideIcon | ComponentT
   workflow: Workflow,
   agent: Bot,
   domain: Globe,
+  bank_transaction: Landmark,
+  accounting_contact: Users,
+  accounting_document: Inbox,
 };
 
 /** The record-type headings of any locale (each locale types its strings as literals). */

@@ -67,6 +67,12 @@ import { weldbooksUs } from './weldbooks-us';
 import { weldbooksIn } from './weldbooks-in';
 import { weldbooksNl } from './weldbooks-nl';
 import { weldbooksBr } from './weldbooks-br';
+import { weldbooksConnected } from './weldbooks-connected';
+import { weldbooksContactPage } from './weldbooks-contact-page';
+import { weldbooksQuestions } from './weldbooks-questions';
+import { weldbooksReceipts } from './weldbooks-receipts';
+import { weldbooksSales } from './weldbooks-sales';
+import { weldbooksPayments } from './weldbooks-payments';
 import { admin } from './admin';
 import { partner } from './partner';
 import { reach } from './reach';
@@ -157,6 +163,12 @@ export const nl = {
   weldbooksIn,
   weldbooksNl,
   weldbooksBr,
+  weldbooksConnected,
+  weldbooksContactPage,
+  weldbooksQuestions,
+  weldbooksReceipts,
+  weldbooksSales,
+  weldbooksPayments,
   admin,
   partner,
   reach,

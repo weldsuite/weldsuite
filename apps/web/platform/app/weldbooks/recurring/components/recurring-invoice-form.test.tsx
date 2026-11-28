@@ -23,6 +23,7 @@ vi.mock('@/lib/router', async () => {
 vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useAccountingCustomer: () => ({ data: { data: { id: 'cus_1', taxUse: 'personal' } } }),
   useAccountingCustomers: () => ({ data: { data: env.customers }, isLoading: false }),
+  useAccountingContactSearch: () => async () => env.customers,
   useAccountingTaxRates: () => ({ data: { data: env.taxRates } }),
   useDimensionValues: () => ({
     data: [{ id: 'dim_l1', entityId: 'e', dimension: 'location', name: 'Austin', code: null, parentId: null, isActive: true }],

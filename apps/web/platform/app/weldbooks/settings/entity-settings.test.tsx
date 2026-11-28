@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NO_JURISDICTION_FEATURES } from '@/lib/weldbooks/jurisdiction';
 
 const mocks = vi.hoisted(() => ({
+  processing: false,
   selected: null as string | null,
   setEntityId: vi.fn(),
   setWeldbooksEntityId: vi.fn(),
@@ -25,6 +26,14 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useAccountingSettings: () => ({ data: { data: { emailSettings: {} } }, isLoading: false }),
   resetEntityScopedAccountingQueries: mocks.resetQueries,
 }));
+vi.mock('@/lib/edition', () => ({ isFeatureAvailable: () => mocks.processing }));
+vi.mock('./components/entity-inbox-card', () => ({
+  EntityInboxCard: ({ entityId }: { entityId: string }) => <div data-testid="entity-inbox-card">{entityId}</div>,
+}));
+vi.mock('./components/differences-card', () => ({ DifferencesCard: () => <div data-testid="differences-card" /> }));
+vi.mock('./components/email-templates-card', () => ({ EmailTemplatesCard: () => <div data-testid="email-templates-card" /> }));
+vi.mock('./components/reminders-card', () => ({ RemindersCard: () => <div data-testid="reminders-settings-card" /> }));
+vi.mock('./components/online-payments-card', () => ({ OnlinePaymentsCard: () => <div data-testid="online-payments-card" /> }));
 vi.mock('@/lib/api/weldbooks-client', () => ({ setWeldbooksEntityId: mocks.setWeldbooksEntityId }));
 vi.mock('@/lib/api/domains/weldbooks', () => ({ accountingApi: {} }));
 vi.mock('./components/ledger-catch-up-card', () => ({ LedgerCatchUpCard: () => <div data-testid="ledger-catch-up" /> }));
@@ -50,6 +59,7 @@ function renderSettings(features = NO_JURISDICTION_FEATURES) {
 
 describe('WeldbooksEntitySettings', () => {
   beforeEach(() => {
+    mocks.processing = false;
     mocks.selected = 'ent_b';
     mocks.entities = [{ id: 'ent_b' }];
     mocks.setEntityId.mockReset();
@@ -101,5 +111,46 @@ describe('WeldbooksEntitySettings', () => {
     renderSettings({ ...NO_JURISDICTION_FEATURES, xafExport: true, fiscalDocuments: true });
     expect(screen.getByText('Auditfile (XAF 4.0)')).toBeInTheDocument();
     expect(screen.getByTestId('fiscal-settings')).toBeInTheDocument();
+  });
+
+  it('shows the e-mail texts and the reminder workflow only where the edition has them', () => {
+    renderSettings();
+    expect(screen.queryByTestId('email-templates-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('reminders-settings-card')).not.toBeInTheDocument();
+    cleanup();
+
+    mocks.processing = true;
+    renderSettings();
+    expect(screen.getByTestId('email-templates-card')).toBeInTheDocument();
+    expect(screen.getByTestId('reminders-settings-card')).toBeInTheDocument();
+  });
+
+  it('shows the online payments card only where the edition has it, and nothing on Global', () => {
+    const { unmount } = renderSettings();
+    expect(screen.queryByTestId('online-payments-card')).not.toBeInTheDocument();
+    unmount();
+    mocks.processing = true;
+    renderSettings();
+    expect(screen.getByTestId('online-payments-card')).toBeInTheDocument();
+  });
+
+  it('shows the payment differences card only where the edition has bank processing', () => {
+    const { unmount } = renderSettings();
+    expect(screen.queryByTestId('differences-card')).not.toBeInTheDocument();
+    unmount();
+    mocks.processing = true;
+    renderSettings();
+    expect(screen.getByTestId('differences-card')).toBeInTheDocument();
+  });
+
+  it('shows the inbox address of the entity where the edition has receipts, else the single scan inbox', () => {
+    const { unmount } = renderSettings();
+    expect(screen.queryByTestId('entity-inbox-card')).not.toBeInTheDocument();
+    expect(screen.getByText('Email Inbox')).toBeInTheDocument();
+    unmount();
+    mocks.processing = true;
+    renderSettings();
+    expect(screen.getByTestId('entity-inbox-card')).toHaveTextContent('ent_b');
+    expect(screen.queryByText('Email Inbox')).not.toBeInTheDocument();
   });
 });

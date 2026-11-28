@@ -996,8 +996,11 @@ fn runs_where(entity_id: &str, filter: &ListRuns<'_>) -> Condition {
     if let Some(status) = filter.status {
         condition = condition.add(payment_runs::Column::Status.eq(status));
     }
-    if let Some(method) = filter.method {
-        condition = condition.add(payment_runs::Column::Method.eq(method));
+    match filter.method {
+        Some(method) => condition = condition.add(payment_runs::Column::Method.eq(method)),
+        // SEPA batches are listed at `/api/payment-batches`, not among the
+        // runs the US screens know how to show.
+        None => condition = condition.add(payment_runs::Column::Method.ne("sepa")),
     }
     if let Some(bank_account_id) = filter.bank_account_id {
         condition = condition.add(payment_runs::Column::BankAccountId.eq(bank_account_id));

@@ -34,7 +34,7 @@ export {
   
   
 } from './use-object-panel-tab-config';
-export { useObjectPanelUrlSync } from './use-object-panel-url-sync';
+export { useObjectPanelUrlSync, useObjectPanelUrlSyncHere } from './use-object-panel-url-sync';
 ;
 export {
   useObjectPanelShell,

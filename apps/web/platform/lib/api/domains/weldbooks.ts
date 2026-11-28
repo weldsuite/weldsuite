@@ -1,4 +1,5 @@
 import { weldbooksApi } from '../weldbooks-client';
+import type { EmailHistoryEntry } from './weldbooks-sales';
 import type { PostalAddress } from '@/components/address/postal-address';
 import type { StoredAccountingAddress } from '@/lib/weldbooks/address';
 import type { BrFiscalView } from '@/lib/weldbooks/br-contact';
@@ -396,6 +397,26 @@ export interface Account {
   form1099Box?: string | null;
 }
 
+/** One posted journal line of an account (`GET /gl-accounts/:id/transactions`); the API gives no running balance. */
+export interface AccountTransaction {
+  id: string;
+  journalEntryId: string;
+  description: string | null;
+  debit: string | null;
+  credit: string | null;
+  contactId: string | null;
+  entryNumber: string | null;
+  entryDate: string;
+  entryDescription: string | null;
+  sourceType: string | null;
+}
+
+/** What a contact owes us (`receivable`) and what we owe them (`payable`), in the entity's base currency. */
+export interface ContactBalance {
+  receivable: { totalOutstanding: string; totalOverdue: string };
+  payable: { totalOutstanding: string; totalOverdue: string };
+}
+
 export interface TaxRate {
   id: string;
   name: string;
@@ -481,10 +502,28 @@ export interface Invoice {
   total: string | null;
   amountPaid: string | null;
   balanceDue: string | null;
+  /** The WeldCommerce order the invoice was made from, when it came from one. */
+  commerceOrderId?: string | null;
   reference: string | null;
   notes: string | null;
   internalNotes: string | null;
   createdAt: string;
+  /** When the invoice was sent or e-mailed. */
+  sentAt?: string | null;
+  /** When the customer first opened the public page (Rust only, `books-invoice-email`). */
+  viewedAt?: string | null;
+  /**
+   * Phase 4 fields (Rust only): left out of the JSON while they hold their default, so each is optional.
+   * The WeldCRM quote the invoice was made from.
+   */
+  quoteId?: string | null;
+  /** How many payment reminders went out (0 or absent: none). */
+  reminderLevel?: number;
+  lastRemindedAt?: string | null;
+  /** Reminders are held for this invoice. */
+  remindersPaused?: boolean;
+  /** Sends, reminders, views and bounces, oldest first. */
+  emailHistory?: EmailHistoryEntry[] | null;
   attachmentKeys?: string[] | null;
   billingAddress?: StoredAccountingAddress | null;
   shippingAddress?: StoredAccountingAddress | null;
@@ -541,6 +580,8 @@ export interface Bill {
   amountPaid: string | null;
   balanceDue: string | null;
   externalReference: string | null;
+  /** The inbox document the bill was created from, when it came from one. */
+  sourceDocumentId?: string | null;
   approvalStatus: string | null;
   notes: string | null;
   internalNotes: string | null;
@@ -582,6 +623,9 @@ export interface JournalEntry {
   /** The document that posted the entry (invoice, bill, payment…); such an entry is corrected through it. */
   sourceId?: string | null;
   isAutomatic: boolean | null;
+  /** Rust only (`books-questions`): the accountant's review mark. Absent while the entry is not reviewed. */
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
 }
 
 export interface JournalLine {
@@ -646,7 +690,8 @@ export interface BankTransaction {
 }
 
 export interface ReconciliationRuleCondition {
-  field: 'description' | 'counterpartyName' | 'counterpartyIban' | 'amount' | 'reference';
+  /** `direction` and `bankAccountId` are Rust only (`books-bank-processing`). */
+  field: 'description' | 'counterpartyName' | 'counterpartyIban' | 'amount' | 'reference' | 'direction' | 'bankAccountId';
   operator: 'contains' | 'equals' | 'starts_with' | 'ends_with' | 'greater_than' | 'less_than' | 'between';
   value: string | number;
   value2?: number;
@@ -804,6 +849,59 @@ interface CursorListResponse<T> {
   pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
 }
 
+/** What needs a person in the books, one entry per kind, most urgent first (`GET /accounting-todo`). */
+export const TODO_KINDS = [
+  'vat_return',
+  'bank_feeds',
+  /** Open questions to or from the accountant (`books-questions`; asked to the caller, or for an accountant every open one of the entity). */
+  'questions',
+  'invoices_overdue',
+  /** The last e-mail of an invoice bounced or failed (`books-invoice-email`, needs `invoices:read`). */
+  'invoices_undelivered',
+  'bills_due',
+  'bills_to_approve',
+  'documents',
+  'duplicates',
+  'bank_lines',
+  'unapplied_credit',
+  /** Bank lines booked to an expense with VAT but without a document (`books-receipts`, needs `reports:read`; not part of `total`). */
+  'missing_receipts',
+] as const;
+
+export type TodoKind = (typeof TODO_KINDS)[number];
+
+export type TodoSeverity = 'info' | 'warning' | 'danger';
+
+/** The count behind one kind; `amount` is null for kinds that count things, not money. */
+export interface TodoKindSummary {
+  count: number;
+  amount: string | null;
+  currency?: string;
+  mixedCurrency?: boolean;
+}
+
+export interface TodoSummary {
+  total: number;
+  currency: string;
+  /** A kind the caller may not read is absent. */
+  kinds: Partial<Record<TodoKind, TodoKindSummary>>;
+}
+
+/** One thing to do. `title` and `subtitle` are data (counterparty, number); `hint` is a code to translate. */
+export interface TodoItem {
+  kind: TodoKind;
+  objectType: string;
+  objectId: string;
+  title: string | null;
+  subtitle: string | null;
+  amount: string | null;
+  currency: string | null;
+  date: string | null;
+  dueDate: string | null;
+  severity: TodoSeverity;
+  hint: string | null;
+}
+
 // ============================================================================
 // API Methods
 // ============================================================================
@@ -829,6 +927,11 @@ function getReport<T>(name: ReportName, query: ReportQuery = {}) {
 export const accountingApi = {
   // Dashboard
   getDashboard: () => weldbooksApi.get<ApiResponse<Dashboard>>('/accounting-dashboard'),
+
+  // To process (edition feature `books-todo`)
+  getTodoSummary: () => weldbooksApi.get<ApiResponse<TodoSummary>>('/accounting-todo/summary'),
+  listTodo: (params: { kind: TodoKind; cursor?: string | null; limit?: number }) =>
+    weldbooksApi.get<CursorListResponse<TodoItem>>(`/accounting-todo${buildQuery(params)}`),
 
   // Settings
   getSettings: () => weldbooksApi.get<ApiResponse<Settings>>('/accounting-settings'),
@@ -901,6 +1004,9 @@ export const accountingApi = {
   getTaxLines: (year?: number) =>
     weldbooksApi.get<ApiResponse<TaxLineCatalog>>(`/gl-accounts/tax-lines${buildQuery({ year })}`),
   getAccount: (id: string) => weldbooksApi.get<ApiResponse<Account>>(`/gl-accounts/${id}`),
+  /** The posted journal lines of an account, newest entry first. */
+  listAccountTransactions: (id: string, params?: { page?: number; pageSize?: number }) =>
+    weldbooksApi.get<PaginatedResponse<AccountTransaction>>(`/gl-accounts/${id}/transactions${buildQuery(params || {})}`),
   createAccount: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<Account>>('/gl-accounts', data),
   updateAccount: (id: string, data: Record<string, unknown>) => weldbooksApi.patch<ApiResponse<Account>>(`/gl-accounts/${id}`, data),
   deleteAccount: (id: string) => weldbooksApi.delete<ApiResponse<unknown>>(`/gl-accounts/${id}`),
@@ -935,7 +1041,7 @@ export const accountingApi = {
   }) =>
     weldbooksApi.get<PaginatedResponse<Customer>>(`/accounting-contacts${buildQuery(params || {})}`),
   getCustomer: (id: string) => weldbooksApi.get<ApiResponse<Customer>>(`/accounting-contacts/${id}`),
-  getCustomerBalance: (id: string) => weldbooksApi.get<ApiResponse<unknown>>(`/accounting-contacts/${id}/balance`),
+  getCustomerBalance: (id: string) => weldbooksApi.get<ApiResponse<ContactBalance>>(`/accounting-contacts/${id}/balance`),
   createCustomer: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<Customer>>('/accounting-contacts', data),
   updateCustomer: (id: string, data: Record<string, unknown>) => weldbooksApi.patch<ApiResponse<Customer>>(`/accounting-contacts/${id}`, data),
   deleteCustomer: (id: string) => weldbooksApi.delete<ApiResponse<unknown>>(`/accounting-contacts/${id}`),
@@ -986,7 +1092,7 @@ export const accountingApi = {
   rejectBill: (id: string, reason: string) => weldbooksApi.patch<ApiResponse<Bill>>(`/bills/${id}/reject`, { reason }),
 
   // Journal Entries
-  listJournalEntries: (params?: { status?: string; sourceType?: string; from?: string; to?: string; page?: number; pageSize?: number }) =>
+  listJournalEntries: (params?: { status?: string; sourceType?: string; from?: string; to?: string; search?: string; page?: number; pageSize?: number }) =>
     weldbooksApi.get<PaginatedResponse<JournalEntry>>(`/journal-entries${buildQuery(params || {})}`),
   getJournalEntry: (id: string) => weldbooksApi.get<ApiResponse<JournalEntryDetail>>(`/journal-entries/${id}`),
   createJournalEntry: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<JournalEntry>>('/journal-entries', data),
@@ -1003,7 +1109,7 @@ export const accountingApi = {
   deleteBankAccount: (id: string) => weldbooksApi.delete<ApiResponse<unknown>>(`/bank-accounts/${id}`),
 
   // Bank Transactions
-  listBankTransactions: (params?: { bankAccountId?: string; status?: string; from?: string; to?: string; search?: string; page?: number; pageSize?: number }) =>
+  listBankTransactions: (params?: { bankAccountId?: string; contactId?: string; status?: string; from?: string; to?: string; search?: string; page?: number; pageSize?: number }) =>
     weldbooksApi.get<PaginatedResponse<BankTransaction>>(`/bank-transactions${buildQuery(params || {})}`),
   getUnreconciledTransactions: () => weldbooksApi.get<ApiResponse<BankTransaction[]>>('/bank-transactions/unreconciled'),
   getTransactionSuggestions: (id: string) => weldbooksApi.get<ApiResponse<unknown[]>>(`/bank-transactions/${id}/suggestions`),

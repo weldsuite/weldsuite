@@ -80,6 +80,17 @@ describe('a manual entry from draft to reversal', () => {
     expect(all.pagination).toMatchObject({ hasMore: false, cursor: null });
     const filtered = await call('?status=draft&sourceType=manual&from=2026-03-01&to=2026-03-31&page=1&pageSize=10');
     expect(filtered.data.map((e: { id: string }) => e.id)).toEqual([id]);
+    // `search` matches part of the description, the reference or the entry number, in any case.
+    for (const search of ['rent', 'OFFICE', 'r-1', 'JE-0001']) {
+      const found = await call(`?search=${search}`);
+      expect(found.data.map((e: { id: string }) => e.id), search).toContain(id);
+    }
+    const none = await call('?search=nothing-like-this');
+    expect(none.data).toEqual([]);
+    expect(none.pagination).toMatchObject({ totalCount: 0, hasMore: false });
+    // A `%` or `_` is the character itself, not a wildcard.
+    expect((await call('?search=%25')).data).toEqual([]);
+    expect((await call('?search=R_1')).data).toEqual([]);
     const one = await call(`/${id}`);
     expect(one.status).toBe(200);
     expect(one.data).toMatchObject({ id, status: 'draft', totalDebit: '121.00', description: 'Office rent' });

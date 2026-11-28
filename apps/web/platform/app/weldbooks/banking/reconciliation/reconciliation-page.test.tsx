@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { BankLine, MatchSuggestion, UsBankAccount } from '@/lib/api/domains/weldbooks-banking';
 
@@ -28,13 +28,23 @@ const suggestionsByLine: Record<string, MatchSuggestion[]> = {
   ],
 };
 const bankAccounts = [{ id: 'ba_1', name: 'Operating', iban: null, accountNumberLast4: '7890', currency: 'USD' }] as UsBankAccount[];
-const search: { accountId?: string } = {};
+const search: { accountId?: string; lineId?: string } = {};
+/** What the paged list of unreconciled lines reports, and the filters it was asked for. */
+const paging = {
+  totalCount: null as number | null,
+  hasNextPage: false,
+  fetchNextPage: vi.fn(),
+  filters: [] as Array<Record<string, unknown>>,
+};
+/** A line the page was asked to read by id (not on a loaded page). */
+const fetchedLine: { line: BankLine | undefined } = { line: undefined };
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a>,
   useNavigate: () => vi.fn(),
   useSearch: () => search,
 }));
+vi.mock('@/components/object-panel', () => import('@/components/objects/_shared/object-panel-test-mock'));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => permissions.has(permission) }),
 }));
@@ -61,16 +71,25 @@ vi.mock('@tanstack/react-query', async (importOriginal) => ({
 }));
 vi.mock('@/hooks/queries/use-weldbooks-banking-queries', () => ({
   useBankAccounts: () => ({ data: { data: bankAccounts } }),
-  useBankLines: (filters?: { bankAccountId?: string }) => ({
-    data: filters ? { data: lines.filter((l) => l.bankAccountId === filters.bankAccountId) } : undefined,
-    isLoading: false,
-  }),
+  useInfiniteBankLines: (filters?: { bankAccountId?: string }) => {
+    if (filters) paging.filters.push(filters);
+    const rows = filters ? lines.filter((l) => l.bankAccountId === filters.bankAccountId) : [];
+    return {
+      data: filters ? { lines: rows, totalCount: paging.totalCount ?? rows.length } : undefined,
+      isLoading: false,
+      hasNextPage: paging.hasNextPage,
+      isFetchingNextPage: false,
+      fetchNextPage: paging.fetchNextPage,
+    };
+  },
+  useBankLine: (id: string | undefined) => ({ data: id ? fetchedLine.line : undefined }),
   useBankLineSuggestions: (id: string | null) => ({ data: id ? suggestionsByLine[id] : [] }),
   useMatchBankLineToPayment: () => ({ mutate: matchPaymentMutate, isPending: false, error: null }),
   useMatchBankLineToDeposit: () => ({ mutate: matchDepositMutate, isPending: false, error: null }),
 }));
 
 import BankReconciliationPage from './page';
+import { panelOpen } from '@/components/objects/_shared/object-panel-test-mock';
 import { polyfillRadixSelect, renderWithProviders } from '../components/test-utils';
 
 async function chooseAccount() {
@@ -93,6 +112,13 @@ describe('Bank reconciliation page', () => {
     jurisdiction.code = 'US';
     bankAccounts.splice(1);
     delete search.accountId;
+    delete search.lineId;
+    paging.totalCount = null;
+    paging.hasNextPage = false;
+    paging.fetchNextPage.mockReset();
+    paging.filters.length = 0;
+    fetchedLine.line = undefined;
+    panelOpen.mockReset();
   });
 
   it('opens on the only bank account without choosing it', () => {
@@ -220,6 +246,65 @@ describe('Bank reconciliation page', () => {
     jurisdiction.code = 'NL';
     renderWithProviders(<BankReconciliationPage />);
     expect(screen.queryByRole('link', { name: /Reconcile statement/ })).not.toBeInTheDocument();
+  });
+
+  it('counts every unreconciled line, not just the ones that have loaded', () => {
+    paging.totalCount = 120;
+    renderWithProviders(<BankReconciliationPage />);
+    expect(screen.getByText('Unreconciled Transactions (120)')).toBeInTheDocument();
+  });
+
+  it('loads further pages on demand and says how many are shown', async () => {
+    const user = userEvent.setup();
+    paging.totalCount = 120;
+    paging.hasNextPage = true;
+    renderWithProviders(<BankReconciliationPage />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('3 of 120 shown');
+    await user.click(screen.getByTestId('reconcile-load-more'));
+    expect(paging.fetchNextPage).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers no Load more on the last page', () => {
+    renderWithProviders(<BankReconciliationPage />);
+    expect(screen.queryByTestId('reconcile-load-more')).not.toBeInTheDocument();
+  });
+
+  it('searches the unreconciled lines on the server, after a pause in typing', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<BankReconciliationPage />);
+    await user.type(screen.getByRole('searchbox', { name: 'Search transactions' }), 'huur');
+
+    await waitFor(() => expect(paging.filters.at(-1)).toMatchObject({ status: 'unreconciled', search: 'huur' }));
+    // Every keystroke did not ask the server.
+    expect(paging.filters.filter((f) => f.search === 'h' || f.search === 'hu')).toHaveLength(0);
+  });
+
+  it('selects the line named in the URL, even when it is not on a loaded page', async () => {
+    search.accountId = 'ba_1';
+    search.lineId = 'bt_far';
+    fetchedLine.line = { ...lines[0], id: 'bt_far', description: 'Far away line' } as BankLine;
+    renderWithProviders(<BankReconciliationPage />);
+    expect(await screen.findByTestId('open-line-details')).toBeInTheDocument();
+  });
+
+  it('opens the selected line in its panel', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<BankReconciliationPage />);
+    await user.click(screen.getByTestId('reconcile-line-bt_3'));
+    await user.click(await screen.findByTestId('open-line-details'));
+    expect(panelOpen).toHaveBeenCalledWith({ type: 'bank_transaction', id: 'bt_3' });
+  });
+
+  it('shows the suggested invoice as a chip that opens it, so it can be checked before matching', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<BankReconciliationPage />);
+    await user.click(screen.getByTestId('reconcile-line-bt_2'));
+    const chip = await screen.findByRole('link', { name: /INV-1/ });
+    await user.click(chip);
+    expect(panelOpen).toHaveBeenCalledWith({ type: 'invoice', id: 'inv_1', stack: true });
+    // Opening it does not match the line.
+    expect(reconcileMutate).not.toHaveBeenCalled();
   });
 
   it('cannot match without banking:update', async () => {

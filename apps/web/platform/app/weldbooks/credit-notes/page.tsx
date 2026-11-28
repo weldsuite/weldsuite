@@ -29,6 +29,7 @@ interface CreditNoteRow {
   id: string;
   invoiceNumber: string | null;
   contactName: string | null;
+  contactId?: string | null;
   issueDate: string | null;
   creditNoteForInvoiceId: string | null;
   // Sent by books-api with the list; absent from older deploys.
@@ -77,7 +78,7 @@ export default function CreditNotesPage() {
       id: 'contact',
       header: tcn.colContact,
       width: 'hidden shrink-0 @4xl/list:flex w-[200px]',
-      render: (cn) => <ContactCell name={cn.contactName} />,
+      render: (cn) => <ContactCell name={cn.contactName} contactId={cn.contactId} />,
     },
     {
       id: 'date',

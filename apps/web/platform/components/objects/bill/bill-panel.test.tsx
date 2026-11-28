@@ -7,6 +7,7 @@ const env = vi.hoisted(() => ({
   bill: null as unknown,
   loading: false,
   us: true,
+  questions: true,
   permissions: new Set<string>(),
   approve: vi.fn(),
   recordPayment: vi.fn(),
@@ -18,6 +19,20 @@ const env = vi.hoisted(() => ({
 }));
 
 vi.mock('sonner', () => ({ toast: env.toast }));
+vi.mock('@/lib/edition', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/edition')>();
+  return {
+    ...actual,
+    isFeatureAvailable: (feature: Parameters<typeof actual.isFeatureAvailable>[0]) =>
+      feature === 'books-questions' ? env.questions : actual.isFeatureAvailable(feature),
+  };
+});
+vi.mock('@/components/accounting/questions/record-question-chat', () => ({
+  RecordQuestionChat: ({ recordType, recordId }: { recordType: string; recordId: string }) => (
+    <div data-testid="record-question-chat" data-type={recordType} data-id={recordId} />
+  ),
+}));
+
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => env.permissions.has(permission) }),
 }));
@@ -49,6 +64,7 @@ vi.mock('@weldsuite/ui/components/entity-detail-view', () => ({
   ),
 }));
 vi.mock('@/components/object-panel', () => ({
+  useObjectPanel: () => ({ stack: [], open: vi.fn() }),
   useObjectPanelShell: () => ({ mode: 'fullscreen', setMode: vi.fn(), entityDetailViewProps: {} }),
   useObjectPanelTabConfig: () => ({
     visibility: {},
@@ -235,6 +251,7 @@ describe('BillPanel', () => {
     env.bill = bill();
     env.loading = false;
     env.us = true;
+    env.questions = true;
     env.permissions = new Set(['bills:read', 'bills:update']);
     env.approve.mockReset();
     env.recordPayment.mockReset();
@@ -588,5 +605,19 @@ describe('BillPanel', () => {
     await openTab('Line items');
     expect(screen.queryByRole('link', { name: 'Create fixed asset' })).not.toBeInTheDocument();
     expect(screen.queryByText('Sales tax paid (part of cost)')).not.toBeInTheDocument();
+  });
+
+  it('has a Chat tab with the bill\'s chat, where questions to the accountant are asked (books-questions)', async () => {
+    renderPanel();
+    await openTab('Chat');
+    const chat = screen.getByTestId('record-question-chat');
+    expect(chat).toHaveAttribute('data-type', 'bill');
+    expect(chat).toHaveAttribute('data-id', 'bil_1');
+  });
+
+  it('has no Chat tab on Global', () => {
+    env.questions = false;
+    renderPanel();
+    expect(screen.queryByRole('tab', { name: 'Chat' })).not.toBeInTheDocument();
   });
 });

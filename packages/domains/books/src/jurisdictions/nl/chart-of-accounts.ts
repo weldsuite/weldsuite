@@ -16,6 +16,8 @@ export const nlChartOfAccounts: ChartOfAccountsTemplateRow[] = [
   { code: '1001', name: 'Kas', type: 'asset', subtype: 'cash', normalSide: 'debit' },
   { code: '1100', name: 'Bank', type: 'asset', subtype: 'bank', normalSide: 'debit' },
   { code: '1200', name: 'Spaarrekening', type: 'asset', subtype: 'bank', normalSide: 'debit' },
+  // Clearing account for money moving between the entity's own bank accounts (kruisposten).
+  { code: '1250', name: 'Kruisposten', type: 'asset', subtype: 'current_assets', normalSide: 'debit', systemRole: 'transfers_in_transit' },
   { code: '1300', name: 'Debiteuren', type: 'asset', subtype: 'accounts_receivable', normalSide: 'debit', isSystemAccount: true, systemRole: 'accounts_receivable' },
   { code: '1350', name: 'Nog te ontvangen bedragen', type: 'asset', subtype: 'current_assets', normalSide: 'debit' },
   { code: '1400', name: 'Vooruitbetaalde bedragen', type: 'asset', subtype: 'current_assets', normalSide: 'debit' },
@@ -34,6 +36,8 @@ export const nlChartOfAccounts: ChartOfAccountsTemplateRow[] = [
   { code: '1800', name: 'Loonheffing te betalen', type: 'liability', subtype: 'tax', normalSide: 'credit', systemRole: 'payroll_liabilities' },
   { code: '1900', name: 'Nog te betalen bedragen', type: 'liability', subtype: 'accounts_payable', normalSide: 'credit' },
   { code: '1950', name: 'Vooruit ontvangen bedragen', type: 'liability', subtype: 'accounts_payable', normalSide: 'credit' },
+  // BV / NV: what the director-shareholder owes the company or the other way round (rekening-courant DGA).
+  { code: '1960', name: 'Rekening-courant DGA', type: 'liability', subtype: 'accounts_payable', normalSide: 'credit', systemRole: 'director_current_account' },
   { code: '2000', name: 'Langlopende leningen', type: 'liability', subtype: 'accounts_payable', normalSide: 'credit' },
 
   // Equity
@@ -41,7 +45,8 @@ export const nlChartOfAccounts: ChartOfAccountsTemplateRow[] = [
   { code: '0510', name: 'Aandelenkapitaal', type: 'equity', subtype: 'capital', normalSide: 'credit' },
   { code: '0520', name: 'Reserves', type: 'equity', subtype: 'retained_earnings', normalSide: 'credit' },
   { code: '0530', name: 'Onverdeelde winst', type: 'equity', subtype: 'retained_earnings', normalSide: 'credit', isSystemAccount: true, systemRole: 'retained_earnings' },
-  { code: '0540', name: 'Privé', type: 'equity', subtype: 'capital', normalSide: 'debit' },
+  // Sole trader / VOF: privé-opnamen en -stortingen.
+  { code: '0540', name: 'Privé', type: 'equity', subtype: 'capital', normalSide: 'debit', systemRole: 'private' },
 
   // Revenue. Operating revenue carries a sales / service_revenue subtype; only 8100-8400
   // are `other_income`, which the profit & loss shows below the operating line.
@@ -82,6 +87,8 @@ export const nlChartOfAccounts: ChartOfAccountsTemplateRow[] = [
   { code: '4630', name: 'Juridische kosten', type: 'expense', subtype: 'operating_expense', normalSide: 'debit' },
   { code: '4640', name: 'Contributies en abonnementen', type: 'expense', subtype: 'operating_expense', normalSide: 'debit' },
   { code: '4650', name: 'Bankkosten', type: 'expense', subtype: 'operating_expense', normalSide: 'debit' },
+  // Small differences between a payment and what it settles (capped per entity, ADR BOOKS-001).
+  { code: '4660', name: 'Afrondingsverschillen', type: 'expense', subtype: 'operating_expense', normalSide: 'debit', systemRole: 'rounding' },
   { code: '4690', name: 'Oninbare debiteuren', type: 'expense', subtype: 'operating_expense', normalSide: 'debit', systemRole: 'bad_debt_expense' },
   { code: '4700', name: 'Afschrijvingen', type: 'expense', subtype: 'operating_expense', normalSide: 'debit', systemRole: 'depreciation_expense' },
   { code: '4800', name: 'Financiële lasten', type: 'expense', subtype: 'other_expense', normalSide: 'debit' },

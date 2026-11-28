@@ -63,7 +63,7 @@ describe('new contact page: an email that belongs to another person', () => {
     renderWithProviders(<AddContactPage />);
 
     await user.click(screen.getByText('submit-form'));
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/weldbooks/customers'));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/weldbooks/contacts?role=customer'));
     expect(createAsync).toHaveBeenCalledTimes(1);
     expect(createAsync.mock.calls[0]?.[0]).not.toHaveProperty('linkPersonId');
   });
@@ -80,7 +80,7 @@ describe('new contact page: an email that belongs to another person', () => {
     expect(navigate).not.toHaveBeenCalled();
 
     await user.click(screen.getByTestId('person-email-link'));
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/weldbooks/customers'));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/weldbooks/contacts?role=customer'));
     expect(createAsync).toHaveBeenLastCalledWith(
       expect.objectContaining({ email: 'other@example.com', role: 'supplier', linkPersonId: 'person_1' }),
     );
@@ -123,27 +123,27 @@ describe('new contact page: an email that belongs to another person', () => {
 });
 
 describe('new contact page: where it goes after saving', () => {
-  it('opens the new customer in its panel on the customers list, with a toast', async () => {
+  it('opens the new customer in its panel on the Contacts list, with a toast', async () => {
     const user = userEvent.setup();
     createAsync.mockResolvedValueOnce({ data: { id: 'acn_new' } });
     renderWithProviders(<AddContactPage />);
 
     expect(screen.getByRole('heading', { name: 'New customer' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Back to customers' })).toHaveAttribute('href', '/weldbooks/customers');
+    expect(screen.getByRole('link', { name: 'Back to customers' })).toHaveAttribute('href', '/weldbooks/contacts');
     await user.click(screen.getByText('submit-form'));
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/weldbooks/customers?stack=weldbooks_contact:acn_new'));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/weldbooks/contacts?role=customer&stack=weldbooks_contact:acn_new'));
     expect(toast.success).toHaveBeenCalledWith(tc.supplierCreated);
   });
 
-  it('is the same screen for a supplier, which returns to the suppliers list', async () => {
+  it('is the same screen for a supplier, which returns to the Contacts list narrowed to suppliers', async () => {
     route.search = { role: 'supplier' };
     const user = userEvent.setup();
     createAsync.mockResolvedValueOnce({ data: { id: 'acn_sup' } });
     renderWithProviders(<AddContactPage />);
 
     expect(screen.getByRole('heading', { name: 'New supplier' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Back to suppliers' })).toHaveAttribute('href', '/weldbooks/suppliers');
+    expect(screen.getByRole('link', { name: 'Back to suppliers' })).toHaveAttribute('href', '/weldbooks/contacts');
     await user.click(screen.getByText('submit-form'));
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/weldbooks/suppliers?stack=weldbooks_contact:acn_sup'));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/weldbooks/contacts?role=supplier&stack=weldbooks_contact:acn_sup'));
   });
 });

@@ -10,13 +10,27 @@ const postMutate = vi.fn();
 const reverseMutate = vi.fn();
 const deleteMutate = vi.fn();
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+const panelOpen = vi.hoisted(() => vi.fn());
 const permissions = new Set(['journal:read', 'journal:update']);
+const review = vi.hoisted(() => ({ questions: true, mutate: vi.fn() }));
 const journal: { entry: JournalEntryDetail | undefined; isLoading: boolean } = {
   entry: undefined,
   isLoading: false,
 };
 
 vi.mock('sonner', () => ({ toast }));
+vi.mock('@/lib/edition', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/edition')>();
+  return {
+    ...actual,
+    isFeatureAvailable: (feature: Parameters<typeof actual.isFeatureAvailable>[0]) =>
+      feature === 'books-questions' ? review.questions : actual.isFeatureAvailable(feature),
+  };
+});
+vi.mock('@/hooks/queries/use-weldbooks-questions-queries', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/queries/use-weldbooks-questions-queries')>()),
+  useSetJournalEntryReview: () => ({ mutate: review.mutate, isPending: false }),
+}));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => permissions.has(permission) }),
 }));
@@ -45,6 +59,7 @@ vi.mock('@weldsuite/ui/components/entity-detail-view', () => ({
   ),
 }));
 vi.mock('@/components/object-panel', () => ({
+  useObjectPanel: () => ({ stack: [], open: panelOpen }),
   useObjectPanelShell: () => ({ mode: 'fullscreen', setMode: vi.fn(), entityDetailViewProps: {} }),
   useObjectPanelTabConfig: () => ({
     visibility: {},
@@ -163,11 +178,14 @@ describe('JournalEntryPanel', () => {
     toast.success.mockReset();
     toast.error.mockReset();
     panelProps.onClose.mockReset();
+    panelOpen.mockReset();
     permissions.clear();
     permissions.add('journal:read');
     permissions.add('journal:update');
     journal.entry = entry();
     journal.isLoading = false;
+    review.questions = true;
+    review.mutate.mockReset();
   });
 
   it('shows the entry number and status, with the totals, date, description and source', () => {
@@ -180,8 +198,27 @@ describe('JournalEntryPanel', () => {
     expect(screen.getByText('Credit').parentElement?.nextElementSibling).toHaveTextContent('$250.00');
     expect(screen.getByText('2026-02-03')).toBeInTheDocument();
     expect(screen.getByText('Opening balance')).toBeInTheDocument();
+    // A source without a panel (or an unknown one) is translated text, not a raw value.
     expect(screen.getByText('bank import')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'bank import' })).not.toBeInTheDocument();
     expect(screen.getByText('Auto-generated')).toBeInTheDocument();
+  });
+
+  it('shows the record that posted the entry as a chip that stacks its panel', async () => {
+    const user = userEvent.setup();
+    journal.entry = entry({ sourceType: 'invoice', sourceId: 'inv_9' });
+    renderPanel(<JournalEntryPanel {...panelProps} />);
+
+    const chip = screen.getByRole('link', { name: 'Invoice' });
+    expect(chip.getAttribute('href')).toContain('stack=invoice%3Ainv_9');
+    await user.click(chip);
+    expect(panelOpen).toHaveBeenCalledWith({ type: 'invoice', id: 'inv_9', stack: true });
+  });
+
+  it('names a manual entry as Manual entry', () => {
+    journal.entry = entry({ sourceType: 'manual', sourceId: null });
+    renderPanel(<JournalEntryPanel {...panelProps} />);
+    expect(screen.getByText('Manual entry')).toBeInTheDocument();
   });
 
   it('lists the journal lines with the account, the side of the amount and the dimensions', async () => {
@@ -189,11 +226,15 @@ describe('JournalEntryPanel', () => {
     renderPanel(<JournalEntryPanel {...panelProps} />);
     await user.click(screen.getByRole('tab', { name: /Journal lines/ }));
 
-    expect(screen.getByText('1000 — Cash')).toBeInTheDocument();
+    // The account of a line is a chip that stacks the ledger account.
+    const cash = screen.getByRole('link', { name: '1000 — Cash' });
+    await user.click(cash);
+    expect(panelOpen).toHaveBeenCalledWith({ type: 'ledger_account', id: 'acc_cash', stack: true });
     expect(screen.getByText('Cash in')).toBeInTheDocument();
     expect(screen.getByText('Class: East')).toBeInTheDocument();
-    // An account that is not in the chart falls back to its id.
-    expect(screen.getByText('acc_equity')).toBeInTheDocument();
+    // An account that is not in the chart is never shown by its id.
+    expect(screen.getByRole('link', { name: 'Ledger account' })).toBeInTheDocument();
+    expect(screen.queryByText('acc_equity')).not.toBeInTheDocument();
     expect(screen.getAllByText('$250.00').length).toBeGreaterThanOrEqual(2);
     const totals = screen.getByText('Totals').parentElement as HTMLElement;
     expect(within(totals).getByText('Debit').nextElementSibling).toHaveTextContent('$250.00');
@@ -289,5 +330,48 @@ describe('JournalEntryPanel', () => {
     journal.entry = undefined;
     renderPanel(<JournalEntryPanel {...panelProps} />);
     expect(screen.getByText('Journal entry not found.')).toBeInTheDocument();
+  });
+
+  describe('the review mark (books-questions)', () => {
+    it('shows an unreviewed posted entry with "Mark reviewed", and marks it', async () => {
+      const user = userEvent.setup();
+      journal.entry = entry({ status: 'posted' });
+      renderPanel(<JournalEntryPanel {...panelProps} />);
+      const strip = screen.getByTestId('journal-review');
+      expect(within(strip).getByTestId('review-chip')).toHaveTextContent('Not reviewed');
+      await user.click(within(strip).getByRole('button', { name: 'Mark reviewed' }));
+      expect(review.mutate).toHaveBeenCalledWith({ journalEntryId: 'je_1', reviewed: true }, expect.anything());
+    });
+
+    it('shows a reviewed entry as Reviewed with "Unmark", and takes the mark off', async () => {
+      const user = userEvent.setup();
+      journal.entry = entry({ status: 'posted', reviewedAt: '2026-11-26T10:00:00Z', reviewedBy: 'user_acc' });
+      renderPanel(<JournalEntryPanel {...panelProps} />);
+      const strip = screen.getByTestId('journal-review');
+      expect(within(strip).getByTestId('review-chip')).toHaveTextContent('Reviewed');
+      await user.click(within(strip).getByRole('button', { name: 'Unmark' }));
+      expect(review.mutate).toHaveBeenCalledWith({ journalEntryId: 'je_1', reviewed: false }, expect.anything());
+    });
+
+    it('shows the chip, but no action, without journal:update', () => {
+      journal.entry = entry({ status: 'posted' });
+      permissions.delete('journal:update');
+      renderPanel(<JournalEntryPanel {...panelProps} />);
+      expect(screen.getByTestId('review-chip')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Mark reviewed' })).not.toBeInTheDocument();
+    });
+
+    it('is left out for a draft entry, which has nothing to review', () => {
+      journal.entry = entry({ status: 'draft' });
+      renderPanel(<JournalEntryPanel {...panelProps} />);
+      expect(screen.queryByTestId('journal-review')).not.toBeInTheDocument();
+    });
+
+    it('is left out on Global', () => {
+      review.questions = false;
+      journal.entry = entry({ status: 'posted' });
+      renderPanel(<JournalEntryPanel {...panelProps} />);
+      expect(screen.queryByTestId('journal-review')).not.toBeInTheDocument();
+    });
   });
 });

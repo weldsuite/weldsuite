@@ -363,6 +363,33 @@ storefront:
     cnameTarget: shops.${DOMAIN}
     apexAddresses: ${STOREFRONT_APEX_ADDRESSES:=[]}
 
+# WeldBooks' public document page at pay.${DOMAIN} (ADR BOOKS-014): the link
+# of an invoice or quote e-mail, where the customer views, downloads, pays and
+# accepts. Its image is the `pay-portal` target of rust/Dockerfile, released
+# with the server's. It calls the server's /public/weldbooks/documents/{token}
+# (the token is the only credential: no secret). Off until the server has
+# those routes and pay.${DOMAIN} resolves (PAY_PORTAL_ENABLED, cluster settings).
+payPortal:
+  enabled: ${PAY_PORTAL_ENABLED:=false}
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-pay-portal
+    tag: ${WELDSUITE_IMAGE_TAG}
+  publicUrl: https://pay.${DOMAIN}
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    hosts:
+      - host: pay.${DOMAIN}
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: weldsuite-pay-tls
+        hosts:
+          - pay.${DOMAIN}
+
 # The staff admin console at admin.${DOMAIN} (ADR FE-018): access requests,
 # workspaces, the app catalog, warmup and outbound mail. Its image is the
 # `admin` target of rust/Dockerfile, released with the server's. Staff sign in

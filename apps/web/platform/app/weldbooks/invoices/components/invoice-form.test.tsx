@@ -47,6 +47,7 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
     data: { data: { id: 'cus_1', name: 'Globex', email: env.customerEmail, paymentTermsDays: 30, taxUse: 'personal', billingAddress: null, shippingAddress: null } },
   }),
   useAccountingCustomers: () => ({ data: { data: env.customers }, isLoading: false }),
+  useAccountingContactSearch: () => async () => env.customers,
   useAccountingTaxRates: () => ({ data: { data: env.taxRates } }),
   useDimensionValues: () => ({
     data: [
@@ -522,22 +523,22 @@ describe('InvoiceForm', { timeout: 30_000 }, () => {
       expect(env.sendMutate).not.toHaveBeenCalled();
     });
 
-    it('saves and sends the invoice to a customer with an email address', async () => {
+    it('saves the invoice and marks it as sent', async () => {
       const user = userEvent.setup();
       env.customerEmail = 'ap@globex.test';
       env.createMutate.mockResolvedValue({ data: { id: 'inv_new' } });
       await fillIn(user);
 
-      await submit(user, 'Create and send');
+      await submit(user, 'Create and mark as sent');
 
       await waitFor(() => expect(env.sendMutate).toHaveBeenCalledWith('inv_new'));
       expect(env.createMutate).toHaveBeenCalledTimes(1);
     });
 
-    it('cannot send to a customer without an email address', async () => {
+    it('marks as sent for a customer without an email address, as nothing is e-mailed', async () => {
       const user = userEvent.setup();
       await fillIn(user);
-      expect(screen.getByRole('button', { name: 'Create and send' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Create and mark as sent' })).toBeEnabled();
       expect(screen.getByRole('button', { name: 'Create draft' })).toBeEnabled();
     });
 
@@ -552,7 +553,7 @@ describe('InvoiceForm', { timeout: 30_000 }, () => {
       expect(notice).toHaveTextContent('save this invoice as a draft');
       // A draft is allowed without them (books-api only refuses to finalize or send).
       expect(screen.getByRole('button', { name: 'Create draft' })).toBeEnabled();
-      expect(screen.getByRole('button', { name: 'Create and send' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Create and mark as sent' })).toBeDisabled();
 
       await user.click(within(notice).getByRole('button', { name: 'Add business details' }));
       const dialog = await screen.findByRole('dialog');

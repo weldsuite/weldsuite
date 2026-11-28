@@ -28,12 +28,17 @@ import {
   useAccountingTaxRates,
   useAccountingCustomers,
 } from '@/hooks/queries/use-accounting-queries';
+import { useBankAccounts } from '@/hooks/queries/use-weldbooks-banking-queries';
+import { isBankProcessingAvailable } from '@/hooks/queries/use-weldbooks-processing-queries';
 import type {
   ReconciliationRule,
   ReconciliationRuleCondition,
 } from '@/lib/api/domains/weldbooks';
+import type { RuleFormPrefill } from '@/lib/api/domains/weldbooks-processing';
 
-const FIELD_VALUES: Array<{ value: ReconciliationRuleCondition['field']; type: 'text' | 'number' }> = [
+type FieldType = 'text' | 'number' | 'direction' | 'bankAccount';
+
+const BASE_FIELD_VALUES: Array<{ value: ReconciliationRuleCondition['field']; type: FieldType }> = [
   { value: 'description', type: 'text' },
   { value: 'counterpartyName', type: 'text' },
   { value: 'counterpartyIban', type: 'text' },
@@ -41,13 +46,30 @@ const FIELD_VALUES: Array<{ value: ReconciliationRuleCondition['field']; type: '
   { value: 'amount', type: 'number' },
 ];
 
+/** Conditions on the direction of the money and the bank account: the Rust backend only. */
+const PROCESSING_FIELD_VALUES: Array<{ value: ReconciliationRuleCondition['field']; type: FieldType }> = [
+  { value: 'direction', type: 'direction' },
+  { value: 'bankAccountId', type: 'bankAccount' },
+];
+
 const TEXT_OPERATORS = ['contains', 'equals', 'starts_with', 'ends_with'] as const;
 const NUMBER_OPERATORS = ['equals', 'greater_than', 'less_than', 'between'] as const;
+const EQUALS_ONLY = ['equals'] as const;
+
+function operatorsFor(type: FieldType): readonly ReconciliationRuleCondition['operator'][] {
+  if (type === 'number') return NUMBER_OPERATORS;
+  if (type === 'direction' || type === 'bankAccount') return EQUALS_ONLY;
+  return TEXT_OPERATORS;
+}
 
 interface RuleFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   rule?: ReconciliationRule | null;
+  /** A rule that is not saved yet to start from (a suggestion made from a booked line). Ignored while editing. */
+  prefill?: RuleFormPrefill | null;
+  /** Called with the saved rule once a new one was created. */
+  onCreated?: (rule: ReconciliationRule) => void;
 }
 
 /** Content-based row keys (field + operator + occurrence counter) so rows are not keyed by array index. */
@@ -69,11 +91,15 @@ export function ReconciliationRuleFormDialog({
   open,
   onOpenChange,
   rule,
+  prefill,
+  onCreated,
 }: Readonly<RuleFormDialogProps>) {
   const st = useTranslations();
   const isEdit = !!rule;
+  const processing = isBankProcessingAvailable();
+  const FIELD_VALUES = processing ? [...BASE_FIELD_VALUES, ...PROCESSING_FIELD_VALUES] : BASE_FIELD_VALUES;
 
-  const FIELDS: Array<{ value: ReconciliationRuleCondition['field']; label: string; type: 'text' | 'number' }> =
+  const FIELDS: Array<{ value: ReconciliationRuleCondition['field']; label: string; type: FieldType }> =
     FIELD_VALUES.map((f) => ({
       ...f,
       label: st(`sweep.weldbooks.reconciliationRuleForm.field.${f.value}`),
@@ -104,6 +130,8 @@ export function ReconciliationRuleFormDialog({
   const { data: accountsRes } = useAccountingAccounts();
   const { data: taxRatesRes } = useAccountingTaxRates();
   const { data: contactsRes } = useAccountingCustomers({ pageSize: 100 });
+  const { data: bankAccountsRes } = useBankAccounts(undefined, { enabled: open && processing });
+  const bankAccountOptions = bankAccountsRes?.data ?? [];
 
   const accountOptions = (accountsRes?.data ?? []).filter(
     (a) => a.type === 'expense' || a.type === 'revenue',
@@ -127,6 +155,16 @@ export function ReconciliationRuleFormDialog({
       setTaxRateId(rule.actions?.taxRateId ?? '');
       setContactId(rule.actions?.contactId ?? '');
       setDescriptionOverride(rule.actions?.description ?? '');
+    } else if (prefill) {
+      setName(prefill.name ?? '');
+      setPriority(0);
+      setMatchMode(prefill.matchMode ?? 'all');
+      setIsActive(true);
+      setConditions(prefill.conditions.length > 0 ? prefill.conditions : [newEmptyCondition()]);
+      setCategoryAccountId(prefill.actions?.categoryAccountId ?? '');
+      setTaxRateId(prefill.actions?.taxRateId ?? '');
+      setContactId(prefill.actions?.contactId ?? '');
+      setDescriptionOverride(prefill.actions?.description ?? '');
     } else {
       setName('');
       setPriority(0);
@@ -138,7 +176,7 @@ export function ReconciliationRuleFormDialog({
       setContactId('');
       setDescriptionOverride('');
     }
-  }, [open, rule]);
+  }, [open, rule, prefill]);
 
   const createMutation = useCreateReconciliationRule();
   const updateMutation = useUpdateReconciliationRule();
@@ -196,7 +234,12 @@ export function ReconciliationRuleFormDialog({
         { onSuccess: () => onOpenChange(false) },
       );
     } else {
-      createMutation.mutate(payload, { onSuccess: () => onOpenChange(false) });
+      createMutation.mutate(payload, {
+        onSuccess: (res) => {
+          onOpenChange(false);
+          if (res?.data) onCreated?.(res.data);
+        },
+      });
     }
   };
 
@@ -255,22 +298,19 @@ export function ReconciliationRuleFormDialog({
             <Label>{st('sweep.weldbooks.reconciliationRuleForm.conditionsLabel')}</Label>
             {conditions.map((c, idx) => {
               const rowKey = rowKeys[idx];
-              const fieldDef = FIELDS.find((f) => f.value === c.field)!;
-              const operators = fieldDef.type === 'number' ? NUMBER_OPERATORS : TEXT_OPERATORS;
+              const fieldDef = FIELDS.find((f) => f.value === c.field) ?? FIELDS[0]!;
+              const operators = operatorsFor(fieldDef.type);
               return (
                 <div key={rowKey} className="flex items-start gap-2">
                   <Select
                     value={c.field}
                     onValueChange={(v) => {
                       const newField = v as ReconciliationRuleCondition['field'];
-                      const newDef = FIELDS.find((f) => f.value === newField)!;
-                      const validOps =
-                        newDef.type === 'number' ? NUMBER_OPERATORS : TEXT_OPERATORS;
+                      const newDef = FIELDS.find((f) => f.value === newField) ?? FIELDS[0]!;
+                      const validOps = operatorsFor(newDef.type);
                       updateCondition(idx, {
                         field: newField,
-                        operator: (validOps as readonly string[]).includes(c.operator)
-                          ? c.operator
-                          : validOps[0],
+                        operator: validOps.includes(c.operator) ? c.operator : validOps[0]!,
                         value: '',
                         value2: undefined,
                       });
@@ -311,16 +351,44 @@ export function ReconciliationRuleFormDialog({
                       ))}
                     </SelectContent>
                   </Select>
-                  <Input
-                    type={fieldDef.type === 'number' ? 'number' : 'text'}
-                    value={String(c.value ?? '')}
-                    onChange={(e) =>
-                      updateCondition(idx, { value: e.target.value })
-                    }
-                    placeholder={st('sweep.weldbooks.reconciliationRuleForm.valuePlaceholder')}
-                    aria-label={st('sweep.weldbooks.reconciliationRuleForm.conditionValueLabel').replace('{n}', String(idx + 1))}
-                    className="flex-1"
-                  />
+                  {fieldDef.type === 'direction' || fieldDef.type === 'bankAccount' ? (
+                    <Select
+                      value={String(c.value ?? '')}
+                      onValueChange={(v) => updateCondition(idx, { value: v })}
+                    >
+                      <SelectTrigger
+                        className="flex-1"
+                        aria-label={st('sweep.weldbooks.reconciliationRuleForm.conditionValueLabel').replace('{n}', String(idx + 1))}
+                      >
+                        <SelectValue placeholder={st('sweep.weldbooks.reconciliationRuleForm.chooseValuePlaceholder')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {fieldDef.type === 'direction' ? (
+                          <>
+                            <SelectItem value="in">{st('sweep.weldbooks.reconciliationRuleForm.directionIn')}</SelectItem>
+                            <SelectItem value="out">{st('sweep.weldbooks.reconciliationRuleForm.directionOut')}</SelectItem>
+                          </>
+                        ) : (
+                          bankAccountOptions.map((ba) => (
+                            <SelectItem key={ba.id} value={ba.id}>
+                              {ba.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      type={fieldDef.type === 'number' ? 'number' : 'text'}
+                      value={String(c.value ?? '')}
+                      onChange={(e) =>
+                        updateCondition(idx, { value: e.target.value })
+                      }
+                      placeholder={st('sweep.weldbooks.reconciliationRuleForm.valuePlaceholder')}
+                      aria-label={st('sweep.weldbooks.reconciliationRuleForm.conditionValueLabel').replace('{n}', String(idx + 1))}
+                      className="flex-1"
+                    />
+                  )}
                   {c.operator === 'between' ? (
                     <Input
                       type="number"

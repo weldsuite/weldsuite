@@ -57,6 +57,10 @@ pub(crate) const PORTED: [&str; 6] = [
 /// served.
 pub(crate) const MONEYBIRD_SYNC: &str = "moneybird-sync";
 
+/// OCR on arrival (WeldBooks, Rust only): a consumer of its own on the hub
+/// for `accounting_document:created`, when the Rust backend serves WeldBooks.
+pub(crate) const BOOKS_OCR: &str = "books-ocr";
+
 /// The inbound mail subscriber (MAIL-010): not on the hub but on its own
 /// stream, which Haraka publishes to.
 pub(crate) const MAIL_INBOUND: &str = "mail-inbound";
@@ -321,6 +325,14 @@ fn core_served() -> bool {
         .any(|m| m.id == "core" && m.rust)
 }
 
+/// Whether the Rust backend serves WeldBooks (`api-modules.json`), whose
+/// documents are read on arrival by the `books-ocr` consumer here.
+fn books_served() -> bool {
+    weldsuite_catalogs::api_modules()
+        .iter()
+        .any(|m| m.id == "books" && m.rust)
+}
+
 #[derive(Clone)]
 pub(crate) struct EmbeddingsConfig {
     pub(crate) url: String,
@@ -364,6 +376,10 @@ pub(crate) struct ConsumeConfig {
     /// Restate's ingress, for the `weldconnect` subscriber's runs.
     pub(crate) restate_ingress_url: Option<String>,
     pub(crate) drain: Duration,
+    /// The file buckets (`S3_ENDPOINT`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`)
+    /// the `books-ocr` consumer reads documents from; `None` without them
+    /// (the consumer then reads nothing).
+    pub(crate) files: Option<crate::config::FilesConfig>,
     /// The `mail-inbound` subscriber's settings (`S3_BUCKET_MAIL` set).
     pub(crate) mail_inbound: Option<MailInboundConfig>,
     /// The `mail-sending-events` subscriber's stream.
@@ -520,6 +536,13 @@ impl ConsumeConfig {
         let subject_prefix = lookup("NATS_ENTITY_EVENTS_SUBJECT")
             .unwrap_or_else(|| weldsuite_events::DEFAULT_SUBJECT_PREFIX.to_owned());
         let mail_inbound = MailInboundConfig::from_lookup(&lookup, &mut problems);
+        // The file buckets, only when they are all there: a consume pod with
+        // just the mail settings simply has no documents to read.
+        let files = {
+            let mut missing = Vec::new();
+            let files = crate::config::FilesConfig::from_lookup(&lookup, &mut missing);
+            files.filter(|_| missing.is_empty())
+        };
         let panel = PanelWriterConfig::from_lookup(&lookup, &mut problems);
         let reach_send = match lookup("REACH_SEND_QUEUE").as_deref() {
             None | Some("inline") => false,
@@ -544,6 +567,7 @@ impl ConsumeConfig {
                 .chain(mail_inbound.is_some().then_some(MAIL_INBOUND))
                 .chain(mail_served().then_some(MAIL_SENDING_EVENTS))
                 .chain(core_served().then_some(MONEYBIRD_SYNC))
+                .chain(books_served().then_some(BOOKS_OCR))
                 .chain(reach_send.then_some(REACH_SEND))
                 .chain(reach_warmup.then_some(REACH_WARMUP_SEND))
                 .chain(reach_warmup.then_some(REACH_WARMUP_ENGAGE))
@@ -579,6 +603,7 @@ impl ConsumeConfig {
             }
             if id == MAIL_SENDING_EVENTS
                 || id == MONEYBIRD_SYNC
+                || id == BOOKS_OCR
                 || id == REACH_SEND
                 || id == REACH_WARMUP_SEND
                 || id == REACH_WARMUP_ENGAGE
@@ -675,6 +700,7 @@ impl ConsumeConfig {
             webhook_retry_sweep,
             restate_ingress_url: lookup("RESTATE_INGRESS_URL").filter(|url| !url.is_empty()),
             drain: Duration::from_secs(drain),
+            files,
             mail_inbound,
             mail_sending_events: MailSendingEventsConfig::from_lookup(&lookup),
             master_db_flags: flags_master_db.then(|| Duration::from_secs(flags_refresh)),
@@ -771,6 +797,9 @@ mod tests {
         }
         if core_served() {
             expected.push(MONEYBIRD_SYNC);
+        }
+        if books_served() {
+            expected.push(BOOKS_OCR);
         }
         assert_eq!(config.subscribers, expected);
         assert_eq!(config.stream, "ENTITY_EVENTS");

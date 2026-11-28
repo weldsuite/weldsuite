@@ -14,6 +14,7 @@ use axum::routing::{get, post};
 use http::HeaderMap;
 use sea_orm::{
     ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    QueryTrait,
 };
 use serde_json::{Map, Value, json};
 use time::PrimitiveDateTime;
@@ -27,7 +28,10 @@ use weldsuite_books_domain::payments::{
     AllocationInput, RecordPaymentInput, record_payment, void_payment,
 };
 use weldsuite_books_domain::posting::PostError;
-use weldsuite_catalogs::entity_events::{PAYMENT_CREATED, PAYMENT_DELETED};
+use weldsuite_books_domain::unapplied_credit::{Target, apply_credit};
+use weldsuite_catalogs::entity_events::{
+    BILL_UPDATED, INVOICE_UPDATED, PAYMENT_CREATED, PAYMENT_DELETED, PAYMENT_UPDATED,
+};
 use weldsuite_db::orm;
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, Presence};
@@ -47,6 +51,12 @@ where
     Router::new()
         .route("/", get(list).route_layer(need("banking:read")))
         .route("/", post(create).route_layer(need("banking:create")))
+        // Rust only (edition feature `books-bank-processing`): apply credit a
+        // payment left on a contact to an open document of that contact.
+        .route(
+            "/{id}/apply",
+            post(apply).route_layer(need("banking:update")),
+        )
         .route("/{id}", get(detail).route_layer(need("banking:read")))
         .route(
             "/{id}",
@@ -82,6 +92,9 @@ struct PaymentFilters<'a> {
     payment_method: Option<&'a str>,
     check_status: Option<&'a str>,
     bank_account_id: Option<&'a str>,
+    invoice_id: Option<&'a str>,
+    bill_id: Option<&'a str>,
+    bank_transaction_id: Option<&'a str>,
     deposited: Option<bool>,
     term: Option<&'a str>,
     from: Option<PrimitiveDateTime>,
@@ -98,6 +111,10 @@ impl PaymentFilters<'_> {
             (payments::Column::PaymentMethod, self.payment_method),
             (payments::Column::CheckStatus, self.check_status),
             (payments::Column::BankAccountId, self.bank_account_id),
+            (
+                payments::Column::BankTransactionId,
+                self.bank_transaction_id,
+            ),
         ];
         let mut condition = Condition::all()
             .add(payments::Column::DeletedAt.is_null())
@@ -105,6 +122,33 @@ impl PaymentFilters<'_> {
         for (column, value) in equal {
             if let Some(value) = value {
                 condition = condition.add(column.eq(value));
+            }
+        }
+        // A document's payments: its own single link, or an allocation.
+        for (direct, allocated, document) in [
+            (
+                payments::Column::InvoiceId,
+                payment_allocations::Column::InvoiceId,
+                self.invoice_id,
+            ),
+            (
+                payments::Column::BillId,
+                payment_allocations::Column::BillId,
+                self.bill_id,
+            ),
+        ] {
+            if let Some(document) = document {
+                let allocations = payment_allocations::Entity::find()
+                    .select_only()
+                    .column(payment_allocations::Column::PaymentId)
+                    .filter(allocated.eq(document))
+                    .filter(payment_allocations::Column::DeletedAt.is_null())
+                    .into_query();
+                condition = condition.add(
+                    Condition::any()
+                        .add(direct.eq(document))
+                        .add(payments::Column::Id.in_subquery(allocations)),
+                );
             }
         }
         match self.deposited {
@@ -161,6 +205,9 @@ async fn list_payments(caller: &Caller) -> Reply {
         payment_method: q.present("paymentMethod"),
         check_status: q.present("checkStatus"),
         bank_account_id: q.present("bankAccountId"),
+        invoice_id: q.present("invoiceId"),
+        bill_id: q.present("billId"),
+        bank_transaction_id: q.present("bankTransactionId"),
         deposited,
         term: term.as_deref(),
         from,
@@ -441,6 +488,120 @@ async fn create_payment(caller: &Caller, state: &BooksState, data: CreateInput) 
     })))
 }
 
+// ── POST /:id/apply ─────────────────────────────────────────────────────────
+
+/// `{ invoiceId | billId, amount }`.
+struct ApplyBody {
+    invoice_id: Option<String>,
+    bill_id: Option<String>,
+    amount: f64,
+}
+
+fn read_apply(issues: &mut Issues, body: &Map<String, Value>) -> ApplyBody {
+    let mut optional = |key: &str| {
+        issues
+            .text(body, key, Presence::Nullish, None, Some(30))
+            .into_option()
+            .filter(|v| !v.is_empty())
+    };
+    let invoice_id = optional("invoiceId");
+    let bill_id = optional("billId");
+    let amount = issues.number(
+        body,
+        "amount",
+        Presence::Required,
+        weldsuite_kit::validation::Number {
+            coerce: true,
+            ..weldsuite_kit::validation::Number::default()
+        },
+    );
+    ApplyBody {
+        invoice_id,
+        bill_id,
+        amount: amount.into_option().unwrap_or(0.0),
+    }
+}
+
+async fn apply(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let data = match validate(&headers, &body, read_apply) {
+        Ok(data) => data,
+        Err(refusal) => return refusal.respond("Failed to apply the credit"),
+    };
+    reply(
+        apply_to_document(&caller, &state, &id, data).await,
+        "Failed to apply the credit",
+    )
+}
+
+async fn apply_to_document(
+    caller: &Caller,
+    state: &BooksState,
+    id: &str,
+    data: ApplyBody,
+) -> Reply {
+    let target = match (data.invoice_id, data.bill_id) {
+        (Some(invoice), None) => Target::Invoice(invoice),
+        (None, Some(bill)) => Target::Bill(bill),
+        _ => {
+            return Err(Refusal::bad_request(
+                "Pick an invoice or a bill (one of them) to apply the credit to",
+            ));
+        }
+    };
+    let (invoice, document_id) = match &target {
+        Target::Invoice(document) => (true, document.clone()),
+        Target::Bill(document) => (false, document.clone()),
+    };
+    let applied = match apply_credit(&caller.db, id, &target, data.amount).await {
+        Ok(applied) => applied,
+        Err(PostError::Posting(message)) if message == "Payment not found" => {
+            return Err(Refusal::not_found("Payment", id));
+        }
+        Err(error) => return Err(posting_refusal(error)),
+    };
+    let amount = js::to_fixed(applied.amount, 2);
+    let unapplied = js::to_fixed(applied.remaining, 2);
+    let key = if invoice { "invoiceId" } else { "billId" };
+    let mut allocation = json!({ "amount": amount });
+    allocation[key] = json!(document_id);
+    let mut changes = Map::new();
+    changes.insert("allocation".into(), change(Value::Null, allocation));
+    write_accounting_audit(
+        caller,
+        &caller.db,
+        AuditInput {
+            accounting_entity_id: applied.payment["entityId"].as_str(),
+            entity_type: "payment",
+            entity_id: id,
+            action: "credit_applied",
+            changes: Some(changes),
+        },
+    )
+    .await;
+    let mut event = json!({ "id": id, "amount": amount, "unallocatedAmount": unapplied });
+    event[key] = json!(document_id);
+    caller.publish(state, PAYMENT_UPDATED, id, event);
+    caller.publish(
+        state,
+        if invoice {
+            INVOICE_UPDATED
+        } else {
+            BILL_UPDATED
+        },
+        &document_id,
+        json!({ "id": document_id, "paymentId": id }),
+    );
+    let mut answer = json!({ "paymentId": id, "amount": amount, "unallocatedAmount": unapplied });
+    answer[key] = json!(document_id);
+    Ok(ok(answer))
+}
+
 async fn remove(
     caller: Caller,
     State(state): State<BooksState>,
@@ -490,4 +651,161 @@ async fn remove(
         .await,
         "Failed to delete payment",
     )
+}
+
+/// Against the real tenant schema (`WELDSUITE_TEST_TENANT_URL`, built by
+/// `scripts/rust-test-db.ts`); each test returns early without it. Rows
+/// carry a fresh id, so runs share the database with other tests.
+#[cfg(test)]
+#[allow(
+    clippy::disallowed_methods,
+    clippy::unwrap_used,
+    reason = "test fixtures are written in SQL"
+)]
+mod db_tests {
+    use sea_orm::{EntityTrait, QueryFilter};
+    use sqlx::PgPool;
+    use weldsuite_db::orm;
+    use weldsuite_kit::generate_id;
+    use weldsuite_schema::tenant::payments;
+
+    use super::PaymentFilters;
+
+    async fn tenant() -> Option<PgPool> {
+        let Ok(url) = std::env::var("WELDSUITE_TEST_TENANT_URL") else {
+            eprintln!("WELDSUITE_TEST_TENANT_URL is not set; skipping");
+            return None;
+        };
+        Some(
+            sqlx::postgres::PgPoolOptions::new()
+                .max_connections(2)
+                .connect(&url)
+                .await
+                .unwrap(),
+        )
+    }
+
+    async fn payment(db: &PgPool, entity: &str, columns: &str, values: &[&str]) -> String {
+        let id = generate_id("pay_");
+        let marks: Vec<String> = (0..values.len()).map(|i| format!("${}", i + 4)).collect();
+        let sql = format!(
+            "insert into payments (id, entity_id, type, amount, date, contact_id{comma}{columns}) \
+             values ($1, $2, 'received', 10, now(), $3{comma}{marks})",
+            comma = if columns.is_empty() { "" } else { ", " },
+            marks = marks.join(", "),
+        );
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(&id)
+            .bind(entity)
+            .bind("party_x");
+        for value in values {
+            query = query.bind(*value);
+        }
+        query.execute(db).await.unwrap();
+        id
+    }
+
+    async fn allocate(db: &PgPool, entity: &str, payment: &str, column: &str, document: &str) {
+        let sql = format!(
+            "insert into payment_allocations (id, entity_id, payment_id, {column}, amount) \
+             values ($1, $2, $3, $4, 5)"
+        );
+        sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(generate_id("pal_"))
+            .bind(entity)
+            .bind(payment)
+            .bind(document)
+            .execute(db)
+            .await
+            .unwrap();
+    }
+
+    fn filters(entity: &str) -> PaymentFilters<'_> {
+        PaymentFilters {
+            entity_id: entity,
+            kind: None,
+            contact_id: None,
+            check_number: None,
+            payment_method: None,
+            check_status: None,
+            bank_account_id: None,
+            invoice_id: None,
+            bill_id: None,
+            bank_transaction_id: None,
+            deposited: None,
+            term: None,
+            from: None,
+            to: None,
+        }
+    }
+
+    async fn ids(db: &PgPool, filters: &PaymentFilters<'_>) -> Vec<String> {
+        let mut ids: Vec<String> = payments::Entity::find()
+            .filter(filters.condition())
+            .all(&orm(db))
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|payment| payment.id)
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    fn sorted(mut ids: Vec<String>) -> Vec<String> {
+        ids.sort();
+        ids
+    }
+
+    #[tokio::test]
+    async fn invoice_and_bill_filters_match_the_direct_link_or_an_allocation() {
+        let Some(db) = tenant().await else { return };
+        let entity = generate_id("ent_");
+        let invoice = generate_id("inv_");
+        let bill = generate_id("bill_");
+        // Paid through the old single link, through an allocation, to
+        // another invoice, and to the bill.
+        let direct = payment(&db, &entity, "invoice_id", &[&invoice]).await;
+        let allocated = payment(&db, &entity, "", &[]).await;
+        allocate(&db, &entity, &allocated, "invoice_id", &invoice).await;
+        let other = payment(&db, &entity, "invoice_id", &["inv_other"]).await;
+        let bill_payment = payment(&db, &entity, "", &[]).await;
+        allocate(&db, &entity, &bill_payment, "bill_id", &bill).await;
+        let direct_bill = payment(&db, &entity, "bill_id", &[&bill]).await;
+
+        let mut by_invoice = filters(&entity);
+        by_invoice.invoice_id = Some(&invoice);
+        assert_eq!(
+            ids(&db, &by_invoice).await,
+            sorted(vec![direct.clone(), allocated.clone()])
+        );
+        let mut by_bill = filters(&entity);
+        by_bill.bill_id = Some(&bill);
+        assert_eq!(
+            ids(&db, &by_bill).await,
+            sorted(vec![bill_payment.clone(), direct_bill.clone()])
+        );
+        // No filter: every payment of the entity, as before.
+        assert_eq!(
+            ids(&db, &filters(&entity)).await,
+            sorted(vec![direct, allocated, other, bill_payment, direct_bill])
+        );
+        // The same ids under another entity match nothing.
+        let mut foreign = filters("ent_elsewhere");
+        foreign.invoice_id = Some(&invoice);
+        assert_eq!(ids(&db, &foreign).await, Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    async fn the_bank_transaction_filter_matches_the_payment_of_that_line() {
+        let Some(db) = tenant().await else { return };
+        let entity = generate_id("ent_");
+        let line = generate_id("btx_");
+        let paid = payment(&db, &entity, "bank_transaction_id", &[&line]).await;
+        payment(&db, &entity, "bank_transaction_id", &["btx_other"]).await;
+        payment(&db, &entity, "", &[]).await;
+        let mut by_line = filters(&entity);
+        by_line.bank_transaction_id = Some(&line);
+        assert_eq!(ids(&db, &by_line).await, vec![paid]);
+    }
 }

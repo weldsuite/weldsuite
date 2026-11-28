@@ -295,6 +295,97 @@ export const EDITION_FEATURES = [
    */
   'books-bank-links',
   /**
+   * WeldBooks "to process": one list and one set of counts for everything that
+   * needs the bookkeeper's attention (bank lines to book, documents to
+   * process, bills to approve or pay, overdue invoices, a VAT return to file,
+   * bank connections to renew, duplicates, unapplied credit):
+   * `/api/accounting-todo` and `/api/accounting-todo/summary`. Built only in
+   * Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES` and Global keeps the
+   * dashboard's own counts.
+   */
+  'books-todo',
+  /**
+   * WeldBooks "processing bank lines": book a line to one or several
+   * categories, mark a transfer between own accounts or a private payment,
+   * attach a receipt, one undo for every kind of processing, rule
+   * suggestions, lines booked automatically with the reason, differences
+   * (bank costs, discount, rounding) and applying a contact's unapplied
+   * credit. Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`
+   * and Global keeps today's reconcile screen.
+   */
+  'books-bank-processing',
+  /**
+   * WeldBooks "inbox and receipts": an inbox address per legal entity, OCR
+   * when a document arrives, booking a document as a bill, receipt or credit
+   * note (paid with a bank line, cash or privately) in one call, the bank
+   * lines that could have paid it, duplicate checks, a supplier's usual
+   * category and VAT rate, and the missing-receipts list. Built only in Rust,
+   * so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-receipts',
+  /**
+   * WeldBooks "pay bills": a SEPA credit-transfer file (pain.001) for
+   * approved supplier bills, which show "payment pending" until their bank
+   * lines arrive. Built only in Rust, so it is in
+   * `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-sepa-batches',
+  /**
+   * WeldBooks "send by e-mail": e-mailing invoices, credit notes and quotes
+   * from the entity (templates per entity, delivery history, a failed
+   * delivery in To process) and the public document page the e-mail links to
+   * (`/public/weldbooks/documents/{token}`, served to the pay portal). Built
+   * only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-invoice-email',
+  /**
+   * WeldBooks quotes: the list of WeldCRM quotes, creating and editing them,
+   * e-mailing them, the customer accepting on the public page and an invoice
+   * (or an advance invoice for a share) made from a quote. Built only in
+   * Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-quotes',
+  /**
+   * WeldBooks payment reminders: a workflow per legal entity, reminders sent
+   * by hand, in bulk or by the daily sweep, paused per invoice, and (NL,
+   * optional) the statutory collection costs and interest on the final
+   * notice. Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-reminders',
+  /**
+   * WeldBooks online payment: each legal entity connects its own Mollie
+   * account (`/api/accounting-payment-connections`), customers pay an invoice on
+   * its public page, Mollie's webhook records the payment on a "Mollie" money
+   * account and the settlements book the fees and the payout as a transfer.
+   * Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-online-payments',
+  /**
+   * WeldBooks contact page: one page per customer or supplier with a timeline
+   * of everything about them, a summary (to receive, to pay, overdue, credit,
+   * quotes, unbilled hours), a statement of open items as PDF, stored defaults
+   * (expense account, VAT rate, payment terms, reminders paused), the contact's
+   * bank lines, paged invoice and bill lists, and the contact behind a WeldCRM
+   * company or person. Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-contact-page',
+  /**
+   * WeldBooks time billing: billable WeldFlow time per customer and project
+   * (`/api/accounting-time/unbilled`), invoiced once on a new or an existing
+   * draft invoice (`/api/invoices/from-time`), read-only in WeldFlow from then
+   * on, and a project's finance. Built only in Rust, so it is in
+   * `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-time-billing',
+  /**
+   * WeldBooks working with the accountant: questions on invoices, bills, bank
+   * lines, documents, VAT returns and contacts (record chats of WeldChat, with
+   * an open, answered or resolved status and a place in To process), the VAT
+   * return's Check step, a suggested lock date and the accountant's review
+   * marks on bookings. Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-questions',
+  /**
    * WeldForms on a workspace's own domains (`/api/forms/domains`): form links
    * on forms.acme.com, with a certificate from the install's cert-manager.
    * Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES` and Global

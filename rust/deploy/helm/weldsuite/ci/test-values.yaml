@@ -103,6 +103,10 @@ networkPolicy:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: traefik
+  payPortalFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: traefik
   adminFrom:
     - namespaceSelector:
         matchLabels:
@@ -123,6 +127,10 @@ formsPortal:
   customDomains:
     enabled: true
     cnameTarget: forms.example.org
+payPortal:
+  enabled: true
+  ingress:
+    enabled: true
 # WeldCommerce's online stores: the edge's port, the renderer (its HPA and
 # PDB), the wildcard Ingress and custom shop domains. STOREFRONT_RENDERER_SECRET
 # is left out of secret.values on purpose: it comes from the generated Secret.

@@ -9,13 +9,14 @@
  * accounts with this panel open in fullscreen. Editing stays on the
  * `/weldbooks/accounts/:id/edit` page.
  *
- * Tabs: Details · History.
+ * Tabs: Details · Transactions (the posted journal lines) · History.
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import {
   Ban,
+  BookOpen,
   CheckCircle2,
   Coins,
   Edit,
@@ -35,7 +36,6 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
-import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import {
   DropdownMenu,
@@ -43,12 +43,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import {
-  ObjectPanelTabs,
-  useObjectPanelShell,
-  useObjectPanelTabConfig,
-  type ObjectPanelComponentProps,
-} from '@/components/object-panel';
+import { useObjectPanelShell, type ObjectPanelComponentProps } from '@/components/object-panel';
+import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { PropertyRow } from '@/components/objects/_shared/property-row';
 import {
@@ -65,7 +61,8 @@ import { form1099BoxName, FORM_1099_OMIT } from '@/lib/weldbooks/form-1099';
 import { taxLineLabel } from '@/lib/weldbooks/tax-lines';
 import { balanceOnNormalSide } from '@/lib/weldbooks/account-balance';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
-import { getLedgerAccountTabs, type LedgerAccountTab } from './ledger-account-tabs';
+import { LedgerAccountTransactionsTab } from './ledger-account-transactions-tab';
+import { getLedgerAccountTabs, type LedgerAccountTabId } from './ledger-account-tabs';
 
 const LEDGER_ACCOUNT_PANEL_WIDTH = 480;
 
@@ -171,78 +168,18 @@ function LedgerAccountActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuItem asChild>
+            <Link to="/weldbooks/reports/general-ledger" search={{ accountId: account.id }}>
+              <BookOpen />
+              {ta.transactionList.openLedger}
+            </Link>
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => void handleCopyLink()}>
             <LinkIcon />
             {st('sweep.entities.copyLink')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
-  );
-}
-
-// ─── Tab bar ───────────────────────────────────────────────────────────────
-
-function LedgerAccountTabsBar({
-  tabs,
-  activeTab,
-  setActiveTab,
-  mode,
-}: Readonly<{
-  tabs: LedgerAccountTab[];
-  activeTab: LedgerAccountTab['id'];
-  setActiveTab: (id: LedgerAccountTab['id']) => void;
-  mode: 'panel' | 'fullscreen';
-}>) {
-  const st = useTranslations();
-  const configEntries = useMemo(
-    () =>
-      tabs.map((tab) => ({
-        id: tab.id,
-        label: tab.label,
-        required: tab.required,
-        defaultVisible:
-          mode === 'panel' ? (tab.defaultVisibleInPanel ?? false) : (tab.defaultVisibleInFullscreen ?? false),
-      })),
-    [tabs, mode],
-  );
-
-  const { visibility, isVisible, toggle, resetToDefaults } = useObjectPanelTabConfig({
-    objectType: 'ledger_account',
-    mode,
-    tabs: configEntries,
-  });
-
-  useEffect(() => {
-    if (isVisible(activeTab)) return;
-    const fallback = tabs.find((tab) => isVisible(tab.id));
-    if (fallback && fallback.id !== activeTab) setActiveTab(fallback.id);
-  }, [activeTab, isVisible, setActiveTab, tabs]);
-
-  const visibleTabs = useMemo(
-    () =>
-      tabs
-        .filter((tab) => isVisible(tab.id))
-        .map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, count: tab.count })),
-    [tabs, isVisible],
-  );
-
-  return (
-    <div className="group/tabs-header relative">
-      <ObjectPanelTabs
-        tabs={visibleTabs}
-        activeTab={activeTab}
-        onChange={(id) => setActiveTab(id as LedgerAccountTab['id'])}
-      />
-      <div className="absolute top-0 right-2 h-full flex items-center opacity-0 group-hover/tabs-header:opacity-100 focus-within:opacity-100 transition-opacity">
-        <DrawerFieldSettings
-          fields={configEntries}
-          fieldVisibility={visibility}
-          onToggle={toggle}
-          onReset={resetToDefaults}
-          label={st('sweep.entities.visibleTabs')}
-        />
-      </div>
     </div>
   );
 }
@@ -385,16 +322,17 @@ export function LedgerAccountPanel(props: Readonly<ObjectPanelComponentProps>) {
     () =>
       getLedgerAccountTabs({
         details: st('sweep.entities.detailsTab'),
+        transactions: ta.transactionsTab,
         history: st('sweep.entities.auditLogTab'),
       }),
-    [st],
+    [st, ta.transactionsTab],
   );
 
-  const initial = useMemo<LedgerAccountTab['id']>(() => {
+  const initial = useMemo<LedgerAccountTabId>(() => {
     const match = tabs.find((tab) => tab.id === initialTab);
     return match?.id ?? 'overview';
   }, [initialTab, tabs]);
-  const [activeTab, setActiveTab] = useState<LedgerAccountTab['id']>(initial);
+  const [activeTab, setActiveTab] = useState<LedgerAccountTabId>(initial);
 
   const isInactive = account?.isActive === false;
   // A system account can not be deactivated, only reactivated.
@@ -434,7 +372,13 @@ export function LedgerAccountPanel(props: Readonly<ObjectPanelComponentProps>) {
           />
         }
         tabs={
-          <LedgerAccountTabsBar tabs={tabs} activeTab={activeTab} setActiveTab={setActiveTab} mode={mode} />
+          <ConfigurablePanelTabs
+            objectType="ledger_account"
+            tabs={tabs}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            mode={mode}
+          />
         }
       >
         {!accountQuery.isLoading && accountQuery.isError && (
@@ -445,6 +389,7 @@ export function LedgerAccountPanel(props: Readonly<ObjectPanelComponentProps>) {
         )}
 
         {account && activeTab === 'overview' && <LedgerAccountDetailsTab account={account} t={t} />}
+        {account && activeTab === 'transactions' && <LedgerAccountTransactionsTab accountId={account.id} />}
         {account && activeTab === 'history' && <EntityAuditPanel entityType="account" entityId={account.id} />}
       </EntityDetailView>
 

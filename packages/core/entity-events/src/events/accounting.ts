@@ -7,14 +7,35 @@
 export const ACCOUNTING_ENTITY_EVENTS = {
   account: ['created', 'updated', 'deleted', 'archived'],
   accounting_contact: ['created', 'updated', 'deleted', 'archived'],
-  accounting_document: ['created', 'updated', 'deleted'],
+  // `booked`: the document became a bill, receipt or credit note (Rust backend only,
+  // edition feature `books-receipts`).
+  accounting_document: ['created', 'updated', 'deleted', 'booked'],
   accounting_settings: ['updated'],
+  // A question on a record, as a thread of its record chat (Rust backend only, edition feature
+  // `books-questions`). `created` is asking; `updated` is a change of status (`from`, `status`):
+  // answered by a reply or a receipt, resolved, re-opened. The id is the thread's first message.
+  accounting_question: ['created', 'updated'],
   bank_account: ['created', 'updated', 'deleted'],
-  bank_transaction: ['created', 'updated', 'deleted', 'apply_reconciliation_rules'],
-  bill: ['created', 'updated', 'deleted', 'approved', 'rejected', 'paid'],
-  invoice: ['created', 'updated', 'deleted', 'paid', 'overdue', 'sent'],
-  journal_entry: ['created', 'updated', 'deleted'],
+  // `processed` carries `how` (category, transfer, private, ignore, rule, auto, link);
+  // `unprocessed` is the undo. Both Rust backend only (edition feature `books-bank-processing`).
+  bank_transaction: ['created', 'updated', 'deleted', 'apply_reconciliation_rules', 'processed', 'unprocessed'],
+  // `overdue`: the daily books sweep marked an approved bill past its due date (Rust backend only).
+  bill: ['created', 'updated', 'deleted', 'approved', 'rejected', 'paid', 'overdue'],
+  // `emailed`, `viewed` and `reminded` come from the Rust backend (edition features
+  // `books-invoice-email` and `books-reminders`): the invoice went out by e-mail, its public
+  // page was opened, a payment reminder went out.
+  invoice: ['created', 'updated', 'deleted', 'paid', 'overdue', 'sent', 'emailed', 'viewed', 'reminded'],
+  // A WeldCRM quote as WeldBooks sends and converts it (Rust backend only, edition feature
+  // `books-quotes`). `accepted` is the customer accepting on the public page.
+  quote: ['created', 'updated', 'deleted', 'accepted', 'emailed'],
+  // `reviewed` and `unreviewed`: the accountant's review mark on a booking (Rust backend only,
+  // edition feature `books-questions`). The mark is not a ledger change.
+  journal_entry: ['created', 'updated', 'deleted', 'reviewed', 'unreviewed'],
   payment: ['created', 'updated', 'deleted'],
+  // A legal entity's own Mollie account for online invoice payments (Rust backend only, edition
+  // feature `books-online-payments`). `created` is connecting (OAuth or API key), `updated` the
+  // enabled methods, `deleted` disconnecting. Events never carry a token or key.
+  payment_connection: ['created', 'updated', 'deleted'],
   // `ordered`, `received`, `cancelled` and `closed` come from WeldStash's
   // purchase-order actions on the Rust backend (rust/modules/stash).
   purchase_order: ['created', 'updated', 'deleted', 'approved', 'ordered', 'received', 'cancelled', 'closed'],
@@ -39,6 +60,9 @@ export const ACCOUNTING_ENTITY_EVENTS = {
   bank_deposit: ['created', 'updated', 'deleted'],
   bank_reconciliation: ['created', 'updated', 'deleted', 'completed', 'undone'],
   payment_run: ['created', 'updated', 'deleted', 'approved', 'exported'],
+  // A SEPA credit-transfer batch for supplier bills (Rust backend only, edition feature
+  // `books-sepa-batches`).
+  payment_batch: ['created', 'cancelled'],
   w9_request: ['created', 'updated', 'deleted', 'completed'],
   fixed_asset: ['created', 'updated', 'deleted', 'disposed'],
   accounting_dimension: ['created', 'updated', 'deleted'],

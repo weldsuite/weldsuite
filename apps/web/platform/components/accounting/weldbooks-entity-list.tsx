@@ -19,6 +19,9 @@
 import type { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { Button } from '@weldsuite/ui/components/button';
+import { Checkbox } from '@weldsuite/ui/components/checkbox';
+import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import { RowOverlayButton, ROW_CELL_PASSTHROUGH } from '@/components/shared/row-overlay-button';
 import {
@@ -29,6 +32,18 @@ import {
   type GroupConfig,
   type SortState,
 } from '@/components/entity-list';
+
+/** Multi-select for a list: a checkbox per row, "select all" and a bar with the bulk actions. */
+export interface WeldbooksListSelection<T> {
+  selectedIds: ReadonlySet<string>;
+  onToggle: (id: string) => void;
+  /** Selects every selectable row that is shown, or clears the selection. */
+  onToggleAll: (checked: boolean) => void;
+  /** A row that cannot be selected (an invoice that is already paid) shows no checkbox. Default: every row. */
+  isSelectable?: (item: T) => boolean;
+  /** The bulk actions, shown in the bar while something is selected. */
+  actions?: ReactNode;
+}
 
 interface WeldbooksEntityListProps<T extends { id: string }> {
   items: T[];
@@ -67,7 +82,7 @@ interface WeldbooksEntityListProps<T extends { id: string }> {
   sortState?: SortState | null;
   onSort?: (columnId: string) => void;
 
-  createButton?: { label: string; onClick: () => void };
+  createButton?: { label: string; onClick: () => void; more?: Array<{ label: string; onClick: () => void }> };
   actionButtons?: ReactNode;
   leftActionButtons?: ReactNode;
 
@@ -81,6 +96,76 @@ interface WeldbooksEntityListProps<T extends { id: string }> {
   noResultsState?: { icon?: ReactNode; title: string; description: string };
   /** Classes of the empty state's box, e.g. a compact one for a list that shares its page with another. */
   emptyStateClassName?: string;
+  /** Checkboxes and a bulk-action bar. */
+  selection?: WeldbooksListSelection<T>;
+}
+
+/** The tri-state of the select-all box. */
+function selectAllState(all: boolean, count: number): boolean | 'indeterminate' {
+  if (all) return true;
+  return count > 0 ? 'indeterminate' : false;
+}
+
+/**
+ * The bar above a selectable list: "select all", how many are selected (a status message, so a
+ * screen reader hears it change), the bulk actions and "Clear".
+ */
+function SelectionBar<T extends { id: string }>({
+  items,
+  selection,
+}: Readonly<{ items: readonly T[]; selection: WeldbooksListSelection<T> }>) {
+  const { t } = useI18n();
+  const copy = t.weldbooksSales.selection;
+  const selectable = items.filter((item) => selection.isSelectable?.(item) ?? true);
+  if (selectable.length === 0 && selection.selectedIds.size === 0) return null;
+  const count = selection.selectedIds.size;
+  const all = selectable.length > 0 && selectable.every((item) => selection.selectedIds.has(item.id));
+  return (
+    <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/70 px-4 py-1.5" data-testid="selection-bar">
+      <label className="flex min-h-6 items-center gap-2 text-[13px] text-muted-foreground">
+        <Checkbox
+          checked={selectAllState(all, count)}
+          onCheckedChange={(checked) => selection.onToggleAll(checked === true)}
+          aria-label={copy.selectAll}
+        />
+        {copy.selectAll}
+      </label>
+      <span role="status" className="text-[13px] font-medium tabular-nums">
+        {count > 0 ? copy.selected.replace('{count}', String(count)) : ''}
+      </span>
+      {count > 0 ? (
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {selection.actions}
+          <Button type="button" variant="ghost" size="sm" onClick={() => selection.onToggleAll(false)}>
+            {copy.clear}
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** The leading checkbox column of a selectable list. */
+function selectColumn<T extends { id: string }>(
+  selection: WeldbooksListSelection<T>,
+  rowName: (item: T) => string,
+  label: string,
+): ColumnDef<T> {
+  return {
+    id: '__select',
+    header: '',
+    width: 'shrink-0 w-[20px]',
+    render: (item) =>
+      (selection.isSelectable?.(item) ?? true) ? (
+        <Checkbox
+          checked={selection.selectedIds.has(item.id)}
+          onCheckedChange={() => selection.onToggle(item.id)}
+          aria-label={label.replace('{name}', rowName(item))}
+        />
+      ) : (
+        <span className="size-4" aria-hidden />
+      ),
+  };
 }
 
 /** The column header of a WeldBooks list, the same row EntityList draws above its items (not sticky). */
@@ -183,16 +268,22 @@ export function WeldbooksEntityList<T extends { id: string }>({
   emptyState,
   noResultsState,
   emptyStateClassName,
+  selection,
 }: Readonly<WeldbooksEntityListProps<T>>) {
+  const { t } = useI18n();
+  const shownColumns = selection
+    ? [selectColumn(selection, (item) => getRowLabel?.(item) ?? item.id, t.weldbooksSales.selection.selectRow), ...columns]
+    : columns;
   return (
     // Container for the `@…/list` column breakpoints: columns hide by the width the
     // list really has, not the viewport (which stays wide while a panel is open).
     <div className="@container/list min-w-0">
+    {selection ? <SelectionBar items={items} selection={selection} /> : null}
     <EntityList<T>
       items={items}
       isLoading={isLoading}
       error={error}
-      columns={columns}
+      columns={shownColumns}
       groups={groups}
       filters={filters}
       applyFilters={applyFilters}
@@ -220,7 +311,7 @@ export function WeldbooksEntityList<T extends { id: string }>({
         <WeldbooksListRow
           key={item.id}
           item={item}
-          columns={columns}
+          columns={shownColumns}
           onRowClick={onRowClick}
           getRowLabel={getRowLabel}
           getRowClassName={getRowClassName}

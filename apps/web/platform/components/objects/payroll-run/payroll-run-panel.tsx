@@ -11,7 +11,6 @@
  */
 
 import { useMemo, useState } from 'react';
-import { Link } from '@tanstack/react-router';
 import {
   BookOpen,
   CalendarDays,
@@ -33,7 +32,8 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
-import { useObjectPanelShell, type ObjectPanelComponentProps } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelShell, type ObjectPanelComponentProps } from '@/components/object-panel';
+import { RecordLink } from '@/components/object-panel/record-link';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
@@ -98,6 +98,7 @@ function PayrollRunActions({
 }>) {
   const st = useTranslations();
   const copyLink = useCopyPanelLink('/weldbooks/payroll', PAYROLL_RUN_TYPE, payroll?.id ?? '');
+  const { open: openPanel } = useObjectPanel();
   if (!payroll) return null;
   const td = t.weldbooksUs.assets.payroll.detail;
   const showReverse = payroll.status === 'posted' && canReverse;
@@ -117,11 +118,13 @@ function PayrollRunActions({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {payroll.journalEntryId ? (
-            <DropdownMenuItem asChild>
-              <Link to="/weldbooks/journal/$id" params={{ id: payroll.journalEntryId }}>
-                <BookOpen />
-                {td.viewEntry}
-              </Link>
+            <DropdownMenuItem
+              onClick={() => {
+                if (payroll.journalEntryId) openPanel({ type: 'journal_entry', id: payroll.journalEntryId, stack: true });
+              }}
+            >
+              <BookOpen />
+              {td.viewEntry}
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuItem onClick={() => void copyLink()}>
@@ -191,15 +194,7 @@ function PayrollRunDetailsTab({
           icon={BookOpen}
           label={td.lines}
           value={payroll.journalEntryId}
-          renderValue={(entryId) => (
-            <Link
-              to="/weldbooks/journal/$id"
-              params={{ id: entryId ?? '' }}
-              className="text-primary hover:underline"
-            >
-              {td.viewEntry}
-            </Link>
-          )}
+          renderValue={(entryId) => <RecordLink type="journal_entry" id={entryId ?? ''} label={td.viewEntry} />}
         />
       </div>
 
@@ -229,13 +224,7 @@ function JournalLineRow({ line }: Readonly<{ line: PayrollJournalLine }>) {
   return (
     <TabListRow label={title}>
       <div className="min-w-0 flex-1">
-        <Link
-          to="/weldbooks/accounts/$id"
-          params={{ id: line.accountId }}
-          className="block truncate text-sm underline-offset-2 hover:underline"
-        >
-          {title}
-        </Link>
+        <RecordLink type="ledger_account" id={line.accountId} label={title} />
         {line.description ? (
           <div className="truncate text-xs text-muted-foreground">{line.description}</div>
         ) : null}

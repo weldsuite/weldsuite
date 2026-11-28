@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 weldsuite-books-domain = { workspace = true }
+weldsuite-chat-domain = { workspace = true }
 weldsuite-catalogs = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-digipoort = { workspace = true }

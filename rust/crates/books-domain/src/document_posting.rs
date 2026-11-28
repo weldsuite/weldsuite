@@ -1707,6 +1707,13 @@ pub async fn find_default_bank_account(
         .filter(bank_accounts::Column::EntityId.eq(entity_id))
         .filter(bank_accounts::Column::DeletedAt.is_null())
         .filter(bank_accounts::Column::LedgerAccountId.is_not_null())
+        // A payment provider's balance (Mollie) is never the bank a payment
+        // falls back to.
+        .filter(
+            sea_orm::Condition::any()
+                .add(bank_accounts::Column::AccountType.is_null())
+                .add(bank_accounts::Column::AccountType.ne("payment_provider")),
+        )
         .order_by_with_nulls(
             bank_accounts::Column::IsDefault,
             Order::Desc,

@@ -114,7 +114,10 @@ TypeScript worker.
   `project-portal` (3024), `forms-portal` (3025).
 - TanStack Start on Node, Kubernetes only: `storefront` (3031, WeldCommerce's
   online store renderer: shops built in the platform's editor, served on the
-  shop's own host through the Rust server's storefront edge).
+  shop's own host through the Rust server's storefront edge) and `pay-portal`
+  (3033, WeldBooks' public page for invoices and quotes at `pay.<domain>`: a
+  customer views, downloads, pays (Mollie) and accepts, by the token in the
+  link from the e-mail; ADR BOOKS-014).
 - Next.js: `api-docs` (3009), `docs` (3010,
   help.weldsuite.org), `booking-portal` (3019), `meeting-portal` (3020),
   `commerce-starter` (3030, the MIT-licensed WeldCommerce starter shop on

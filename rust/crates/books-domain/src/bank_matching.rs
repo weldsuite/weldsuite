@@ -1812,13 +1812,43 @@ pub async fn auto_reconcile_batch(
         None,
     )
     .await?;
+    // What is certain without a document: a transfer to an own account, a
+    // payment to the tax authority that names a VAT return.
+    let context =
+        match crate::bank_processing::auto_context(db, text(first, "entityId").unwrap_or_default())
+            .await
+        {
+            Ok(context) => context,
+            Err(error) => {
+                tracing::warn!(%error, "[auto-reconcile] own accounts unknown, no transfers");
+                crate::bank_processing::AutoContext::default()
+            }
+        };
     for txn in &lines {
+        if let Some(applied) =
+            crate::bank_processing::auto_transfer(db, txn, &context, user_id).await
+        {
+            count += 1;
+            results.push(AutoResult {
+                transaction_id: text(txn, "id").unwrap_or_default().to_owned(),
+                suggestions: Vec::new(),
+                reconciled: Some(applied),
+            });
+            continue;
+        }
         let suggestions = find_matches(db, txn, Some(&pool)).await?;
         let applied =
             match auto_match_document(db, http, txn, suggestions.first(), &mut pool, user_id).await
             {
                 Some(applied) => Some(applied),
-                None => auto_apply_rule(db, txn, &suggestions, &pool, user_id).await,
+                None => {
+                    match crate::bank_processing::auto_tax_authority(db, txn, &context, user_id)
+                        .await
+                    {
+                        Some(applied) => Some(applied),
+                        None => auto_apply_rule(db, txn, &suggestions, &pool, user_id).await,
+                    }
+                }
             };
         if applied.is_some() {
             count += 1;

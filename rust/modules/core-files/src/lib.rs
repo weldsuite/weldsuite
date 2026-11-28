@@ -26,6 +26,7 @@ mod files;
 mod folders;
 mod names;
 mod search;
+mod search_scope;
 mod storage;
 mod trash_purge;
 mod understanding;

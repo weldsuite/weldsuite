@@ -81,6 +81,17 @@ pub struct Model {
     pub location: Option<String>,
     #[serde(rename = "isRemote")]
     pub is_remote: Option<bool>,
+    // WeldBooks phase 6 (plan weldbooks-connected-ux, M4). Rust only, so each
+    // is left out of the JSON while unset and the routes a TypeScript worker
+    // also serves answer as they always did.
+    /// The WeldBooks invoice these hours were billed on (`invoices.id`).
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "invoiceId", skip_serializing_if = "Option::is_none")]
+    pub invoice_id: Option<String>,
+    /// The invoice line they went into (`invoice_items.id`).
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "invoiceItemId", skip_serializing_if = "Option::is_none")]
+    pub invoice_item_id: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -194,6 +205,17 @@ pub const DDL: Table = Table {
             name: "time_entries_status_idx",
             columns: &[IndexColumn {
                 expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "time_entries_invoice_idx",
+            columns: &[IndexColumn {
+                expression: "invoice_id",
                 is_expression: false,
                 asc: true,
             }],

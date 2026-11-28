@@ -181,7 +181,7 @@ function HoldFix({ hold }: Readonly<{ hold: RunHoldView }>) {
       {toChart ? (
         <Link to="/weldbooks/accounts">{th.fixChart}</Link>
       ) : (
-        <Link to="/weldbooks/suppliers">{th.fixVendor}</Link>
+        <Link to="/weldbooks/contacts" search={{ role: 'supplier' }}>{th.fixVendor}</Link>
       )}
     </Button>
   );

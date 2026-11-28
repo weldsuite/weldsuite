@@ -313,3 +313,14 @@ describe('India seeded rate table', () => {
     expect(codes).toEqual(expect.arrayContaining(['zero', 'exempt', 'export_goods', 'reverse_charge']));
   });
 });
+
+describe('India chart: bank-line processing accounts', () => {
+  const chart = inAdapter.getChartOfAccountsTemplate({});
+  const byRole = (role: string) => chart.find((a) => a.systemRole === role);
+
+  it('has a clearing account for transfers, drawings, and the director loan account', () => {
+    expect(byRole('transfers_in_transit')).toMatchObject({ code: '1250', type: 'asset', normalSide: 'debit' });
+    expect(byRole('private')).toMatchObject({ code: '0540', name: 'Drawings', type: 'equity', normalSide: 'debit' });
+    expect(byRole('director_current_account')).toMatchObject({ code: '1950', type: 'liability', normalSide: 'credit' });
+  });
+});

@@ -123,7 +123,7 @@ pub(crate) fn normalize_ocr_result(parsed: &Value) -> Value {
         })
         .unwrap_or_default();
     let confidence = get("confidence");
-    json!({
+    let mut result = json!({
         "vendor": {
             "name": field("name"),
             "address": field("address"),
@@ -148,7 +148,68 @@ pub(crate) fn normalize_ocr_result(parsed: &Value) -> Value {
             "fields": confidence.and_then(|c| c.get("fields")).filter(|v| !v.is_null()).cloned().unwrap_or_else(|| json!({})),
         },
         "rawText": or_null(get("rawText")),
-    })
+    });
+    // What the document is and whether it is already paid (phase 3). Kept
+    // only when the model answered them: a result stored before, or read by
+    // a model that skipped them, stays as it was.
+    if let Some(object) = result.as_object_mut() {
+        if let Some(kind) = get("documentKind").and_then(Value::as_str) {
+            object.insert("documentKind".to_owned(), json!(document_kind_of(kind)));
+        }
+        if let Some(paid) = get("paid").and_then(as_bool) {
+            object.insert("paid".to_owned(), json!(paid));
+            object.insert(
+                "paymentMethod".to_owned(),
+                if paid {
+                    json!(payment_method_of(
+                        get("paymentMethod").and_then(Value::as_str)
+                    ))
+                } else {
+                    Value::Null
+                },
+            );
+        }
+    }
+    result
+}
+
+/// `invoice`, `receipt` or `credit_note`: what the model said, anything
+/// else (and Dutch or English synonyms) read as one of them.
+pub(crate) fn document_kind_of(raw: &str) -> &'static str {
+    match raw.trim().to_lowercase().replace([' ', '-'], "_").as_str() {
+        "receipt" | "kassabon" | "till_receipt" | "bon" => "receipt",
+        "credit_note" | "creditnote" | "credit" | "creditnota" | "credit_invoice" => "credit_note",
+        _ => "invoice",
+    }
+}
+
+/// `card`, `cash`, `transfer` or `unknown`: how a document says it was paid.
+pub(crate) fn payment_method_of(raw: Option<&str>) -> &'static str {
+    match raw
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase()
+        .replace([' ', '-'], "_")
+        .as_str()
+    {
+        "card" | "pin" | "debit_card" | "credit_card" | "creditcard" | "contactless" => "card",
+        "cash" | "contant" => "cash",
+        "transfer" | "bank_transfer" | "ideal" | "sepa" | "wire" | "overschrijving" => "transfer",
+        _ => "unknown",
+    }
+}
+
+/// A JSON boolean, or the text `true`/`false`.
+fn as_bool(value: &Value) -> Option<bool> {
+    match value {
+        Value::Bool(b) => Some(*b),
+        Value::String(s) => match s.trim().to_lowercase().as_str() {
+            "true" | "yes" | "ja" => Some(true),
+            "false" | "no" | "nee" => Some(false),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 fn num(value: &Value, key: &str) -> Option<f64> {
@@ -314,8 +375,12 @@ Rules:
 - If a field is not visible or you are unsure, use null (or [] for lists).
 - confidence.overall is 0–1 for the extraction as a whole.
 - Do not invent line items. If you can only see a total, leave lineItems empty.
+- documentKind is "receipt" for a till receipt or kassabon (a shop, restaurant or fuel receipt), "credit_note" for a credit note (creditnota: money back from the supplier, often negative amounts), else "invoice".
+- paid is true only when the document itself says it was paid ("Betaald per pin", "Paid by card", "Pinbetaling", "Contant betaald", a till receipt with a payment line, a PAID stamp); else false. A due date or a request to pay means false.
+- paymentMethod, when paid is true: "card" (pin, debit or credit card, contactless), "cash" (contant), "transfer" (bank transfer, iDEAL) or "unknown". Null when paid is false.
+- vendor.iban is the supplier's IBAN as printed (the account to pay). paymentReference is the reference or structured remittance to put on the transfer.
 - Reply with one JSON object only. No markdown fences. Shape:
-{"vendor":{"name":null,"address":null,"taxNumber":null,"kvkNumber":null,"iban":null,"bic":null},"invoiceNumber":null,"invoiceDate":null,"dueDate":null,"currency":"EUR","lineItems":[{"description":"","quantity":null,"unitPrice":null,"taxRate":null,"total":null}],"subtotal":null,"taxBreakdown":[{"rate":21,"taxableAmount":0,"taxAmount":0}],"totalTax":null,"total":null,"paymentReference":null,"iban":null,"confidence":{"overall":0}}"#;
+{"vendor":{"name":null,"address":null,"taxNumber":null,"kvkNumber":null,"iban":null,"bic":null},"invoiceNumber":null,"invoiceDate":null,"dueDate":null,"currency":"EUR","lineItems":[{"description":"","quantity":null,"unitPrice":null,"taxRate":null,"total":null}],"subtotal":null,"taxBreakdown":[{"rate":21,"taxableAmount":0,"taxAmount":0}],"totalTax":null,"total":null,"paymentReference":null,"iban":null,"documentKind":"invoice","paid":false,"paymentMethod":null,"confidence":{"overall":0}}"#;
 
 /// The user turn of the worker's request.
 const USER_PROMPT: &str = "Extract the invoice / receipt fields from this document.";
@@ -375,6 +440,9 @@ pub(crate) fn extraction_schema() -> Value {
             "total": number(),
             "paymentReference": text(),
             "iban": text(),
+            "documentKind": { "type": "string", "enum": ["invoice", "receipt", "credit_note"] },
+            "paid": { "type": "boolean" },
+            "paymentMethod": { "type": ["string", "null"], "enum": ["card", "cash", "transfer", "unknown", null] },
             "confidence": {
                 "type": "object",
                 "properties": { "overall": { "type": "number" } },
@@ -384,7 +452,7 @@ pub(crate) fn extraction_schema() -> Value {
         "required": [
             "vendor", "invoiceNumber", "invoiceDate", "dueDate", "currency", "lineItems",
             "subtotal", "taxBreakdown", "totalTax", "total", "paymentReference", "iban",
-            "confidence",
+            "documentKind", "paid", "paymentMethod", "confidence",
         ],
     })
 }
@@ -620,6 +688,77 @@ mod tests {
         );
         assert_eq!(escape_like("a_b\\c"), "a\\_b\\\\c");
         assert_eq!(escape_like("Paper Supplier"), "Paper Supplier");
+    }
+
+    #[test]
+    fn a_result_without_the_new_fields_is_what_it_was() {
+        // The conformance answer: nothing is added when the model said nothing.
+        let ocr = normalize_ocr_result(&json!({ "vendor": { "name": "Shop" }, "total": 12 }));
+        for key in ["documentKind", "paid", "paymentMethod"] {
+            assert!(ocr.get(key).is_none(), "{key}");
+        }
+    }
+
+    #[test]
+    fn reads_the_kind_and_how_it_was_paid() {
+        let receipt = normalize_ocr_result(&json!({
+            "vendor": { "name": "Albert Heijn", "iban": "NL91ABNA0417164300" },
+            "documentKind": "Kassabon",
+            "paid": true,
+            "paymentMethod": "PIN",
+            "paymentReference": "AH-1",
+            "iban": "NL91ABNA0417164300",
+            "total": 12.5,
+        }));
+        assert_eq!(receipt["documentKind"], json!("receipt"));
+        assert_eq!(receipt["paid"], json!(true));
+        assert_eq!(receipt["paymentMethod"], json!("card"));
+        // The supplier's IBAN and the payment reference stay in the result.
+        assert_eq!(receipt["vendor"]["iban"], json!("NL91ABNA0417164300"));
+        assert_eq!(receipt["iban"], json!("NL91ABNA0417164300"));
+        assert_eq!(receipt["paymentReference"], json!("AH-1"));
+
+        let credit = normalize_ocr_result(
+            &json!({ "documentKind": "credit_note", "paid": "false", "paymentMethod": "card" }),
+        );
+        assert_eq!(credit["documentKind"], json!("credit_note"));
+        // Not paid: no method, whatever the model said.
+        assert_eq!(credit["paid"], json!(false));
+        assert_eq!(credit["paymentMethod"], Value::Null);
+
+        let odd = normalize_ocr_result(
+            &json!({ "documentKind": "something", "paid": true, "paymentMethod": "gold" }),
+        );
+        assert_eq!(odd["documentKind"], json!("invoice"));
+        assert_eq!(odd["paymentMethod"], json!("unknown"));
+        assert_eq!(payment_method_of(Some("Contant")), "cash");
+        assert_eq!(payment_method_of(Some("iDEAL")), "transfer");
+        assert_eq!(payment_method_of(None), "unknown");
+    }
+
+    #[test]
+    fn the_schema_and_prompt_ask_for_the_new_fields() {
+        let schema = extraction_schema();
+        for key in ["documentKind", "paid", "paymentMethod"] {
+            assert!(schema["properties"].get(key).is_some(), "{key}");
+            assert!(
+                schema["required"]
+                    .as_array()
+                    .is_some_and(|r| r.iter().any(|k| k == key))
+            );
+        }
+        assert_eq!(
+            schema["properties"]["documentKind"]["enum"],
+            json!(["invoice", "receipt", "credit_note"])
+        );
+        for needle in [
+            "documentKind",
+            "Betaald per pin",
+            "paymentMethod",
+            "vendor.iban",
+        ] {
+            assert!(SYSTEM_PROMPT.contains(needle), "{needle}");
+        }
     }
 
     #[test]

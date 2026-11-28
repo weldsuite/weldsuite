@@ -25,6 +25,8 @@ import {
 } from '@/components/object-panel';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
+import { RecordQuestionChat } from '@/components/accounting/questions/record-question-chat';
+import { isQuestionsAvailable } from '@/hooks/queries/use-weldbooks-questions-queries';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import { tabBodyClassName } from '@/components/objects/_shared/tab-empty-state';
 import { useAccountingEntity, useAccountingInvoice, useDeleteInvoice } from '@/hooks/queries/use-accounting-queries';
@@ -39,6 +41,7 @@ import { RecordPaymentDialog } from '@/app/weldbooks/invoices/components/record-
 import { SalesTaxErrorNotice, useDescribeError } from '@/app/weldbooks/invoices/components/sales-tax-error-notice';
 import { SendInvoiceDialog } from '@/app/weldbooks/invoices/components/send-invoice-dialog';
 import { getInvoiceCapabilities, hasSalesTaxInfoOf, type InvoiceCapabilities } from './invoice-capabilities';
+import { InvoiceSalesSections } from './invoice-activity-sections';
 import { InvoiceCreditNotesTab } from './invoice-credit-notes-tab';
 import { InvoiceDetailsTab } from './invoice-details-tab';
 import {
@@ -57,7 +60,7 @@ import { useInvoiceWorkflow } from './use-invoice-workflow';
 
 const INVOICE_PANEL_WIDTH = 480;
 
-const TAB_IDS: readonly InvoiceTabId[] = ['overview', 'items', 'payments', 'creditNotes', 'tax', 'history'];
+const TAB_IDS: readonly InvoiceTabId[] = ['overview', 'items', 'payments', 'creditNotes', 'tax', 'chat', 'history'];
 
 function isTabId(value: string | undefined): value is InvoiceTabId {
   return TAB_IDS.includes(value as InvoiceTabId);
@@ -78,6 +81,7 @@ interface InvoiceTabBodyProps {
   documents: ReturnType<typeof useInvoiceDocuments>;
   workflow: ReturnType<typeof useInvoiceWorkflow>;
   onOpenInvoice: (id: string) => void;
+  onOpenPayments: () => void;
 }
 
 function InvoiceTabBody({
@@ -90,18 +94,27 @@ function InvoiceTabBody({
   documents,
   workflow,
   onOpenInvoice,
+  onOpenPayments,
 }: Readonly<InvoiceTabBodyProps>) {
   const { t } = useI18n();
   switch (tab) {
     case 'overview':
       return (
-        <InvoiceDetailsTab
-          invoice={invoice}
-          isCreditMemo={caps.isCreditMemo}
-          openingAttachment={documents.openingAttachment}
-          onOpenAttachment={documents.openAttachment}
-          onOpenInvoice={onOpenInvoice}
-        />
+        <>
+          {/* Connections, online link, reminders and the timeline: only where the edition has them. */}
+          <InvoiceSalesSections
+            invoice={invoice}
+            isCreditMemo={caps.isCreditMemo}
+            onOpenPayments={onOpenPayments}
+          />
+          <InvoiceDetailsTab
+            invoice={invoice}
+            isCreditMemo={caps.isCreditMemo}
+            openingAttachment={documents.openingAttachment}
+            onOpenAttachment={documents.openAttachment}
+            onOpenInvoice={onOpenInvoice}
+          />
+        </>
       );
     case 'items':
       return <InvoiceLinesTab invoice={invoice} isCreditMemo={caps.isCreditMemo} />;
@@ -129,6 +142,8 @@ function InvoiceTabBody({
           onRetryCommit={workflow.retryCommit}
         />
       );
+    case 'chat':
+      return <RecordQuestionChat recordType="invoice" recordId={invoice.id} name={invoice.invoiceNumber ?? undefined} />;
     case 'history':
       return <EntityAuditPanel entityType="invoice" entityId={invoice.id} />;
   }
@@ -174,7 +189,9 @@ function InvoiceDialogs({
     <>
       <SendInvoiceDialog
         invoiceId={invoice.id}
+        invoiceNumber={invoice.invoiceNumber}
         contactEmail={invoice.contactEmail}
+        creditNote={caps.isCreditMemo}
         isDraft={caps.isDraft}
         open={workflow.sendOpen}
         onOpenChange={workflow.setSendOpen}
@@ -275,6 +292,7 @@ export function InvoicePanel(props: Readonly<ObjectPanelComponentProps>) {
           payments: ti.panel.paymentsTab,
           creditNotes: ti.creditNotesTitle,
           tax: td.detail.taxTitle,
+          chat: t.weldbooksQuestions.chat.tab,
           history: st('sweep.entities.auditLogTab'),
         },
         counts: {
@@ -284,8 +302,9 @@ export function InvoicePanel(props: Readonly<ObjectPanelComponentProps>) {
         },
         hasCreditNotes: creditNoteCount > 0,
         hasTaxDetails,
+        showChat: isQuestionsAvailable(),
       }),
-    [st, ti, td, invoice?.items?.length, invoice?.payments?.length, creditNoteCount, hasTaxDetails],
+    [st, t.weldbooksQuestions.chat.tab, ti, td, invoice?.items?.length, invoice?.payments?.length, creditNoteCount, hasTaxDetails],
   );
 
   const [activeTab, setActiveTab] = useState<InvoiceTabId>(isTabId(initialTab) ? initialTab : 'overview');
@@ -374,6 +393,7 @@ export function InvoicePanel(props: Readonly<ObjectPanelComponentProps>) {
             documents={documents}
             workflow={workflow}
             onOpenInvoice={openInvoice}
+            onOpenPayments={() => setActiveTab('payments')}
           />
         )}
       </EntityDetailView>

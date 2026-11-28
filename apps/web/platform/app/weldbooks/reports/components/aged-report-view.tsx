@@ -1,6 +1,6 @@
-import { Link } from '@tanstack/react-router';
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
+import { RecordLink } from '@/components/object-panel/record-link';
 import { useI18n } from '@/lib/i18n/provider';
 import { AGING_BUCKETS, type AgedReport, type AgingBucket } from '@/lib/weldbooks/report-types';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
@@ -33,6 +33,11 @@ export function AgedReportView({ report, kind }: Readonly<AgedReportViewProps>) 
   };
   const contactLabel = receivables ? tb.colContact : labels.supplier;
   const documentLabel = receivables ? tb.colInvoice : tb.colBill;
+  const documentType = receivables ? 'invoice' : 'bill';
+  const tl = t.accounting.recordLinks;
+  const contactFallback = tl.contactFallback;
+  const contactChip = (id: string | null | undefined, name: string | null | undefined) =>
+    id ? <RecordLink type="weldbooks_contact" id={id} label={name ?? contactFallback} /> : (name ?? contactFallback);
 
   if (report.documents.length === 0) {
     return (
@@ -82,7 +87,7 @@ export function AgedReportView({ report, kind }: Readonly<AgedReportViewProps>) 
             <TableBody>
               {report.contacts.map((contact) => (
                 <TableRow key={contact.contactId}>
-                  <TableCell>{contact.contactName ?? contact.contactId}</TableCell>
+                  <TableCell>{contactChip(contact.contactId, contact.contactName)}</TableCell>
                   {AGING_BUCKETS.map((bucket) => (
                     <TableCell key={bucket} className="text-right tabular-nums">
                       {Number(contact[bucket]) !== 0 ? formatMoney(contact[bucket]) : '-'}
@@ -123,17 +128,13 @@ export function AgedReportView({ report, kind }: Readonly<AgedReportViewProps>) 
               {report.documents.map((doc) => (
                 <TableRow key={doc.id}>
                   <TableCell className="whitespace-nowrap">
-                    {receivables ? (
-                      <Link to="/weldbooks/invoices/$id" params={{ id: doc.id }} className="hover:underline">
-                        {doc.number ?? doc.id}
-                      </Link>
-                    ) : (
-                      <Link to="/weldbooks/bills/$id" params={{ id: doc.id }} className="hover:underline">
-                        {doc.number ?? doc.id}
-                      </Link>
-                    )}
+                    <RecordLink
+                      type={documentType}
+                      id={doc.id}
+                      label={doc.number ?? (receivables ? tl.invoiceFallback : tl.billFallback)}
+                    />
                   </TableCell>
-                  <TableCell>{doc.contactName ?? doc.contactId}</TableCell>
+                  <TableCell>{contactChip(doc.contactId, doc.contactName)}</TableCell>
                   <TableCell className="whitespace-nowrap tabular-nums">{formatDate(doc.dueDate)}</TableCell>
                   <TableCell className="text-right tabular-nums">{Math.max(doc.daysPastDue, 0)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatMoney(doc.balance)}</TableCell>

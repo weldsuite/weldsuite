@@ -23,7 +23,22 @@ const env = vi.hoisted(() => ({
   certificates: new Map<string, { id: string; certificateNumber: string | null; reason: string; states: string[] }>(),
 }));
 
+const questionsEdition = vi.hoisted(() => ({ on: true }));
 vi.mock('sonner', () => ({ toast: env.toast }));
+vi.mock('@/lib/edition', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/edition')>();
+  return {
+    ...actual,
+    isFeatureAvailable: (feature: Parameters<typeof actual.isFeatureAvailable>[0]) =>
+      feature === 'books-questions' ? questionsEdition.on : actual.isFeatureAvailable(feature),
+  };
+});
+vi.mock('@/components/accounting/questions/record-question-chat', () => ({
+  RecordQuestionChat: ({ recordType, recordId }: { recordType: string; recordId: string }) => (
+    <div data-testid="record-question-chat" data-type={recordType} data-id={recordId} />
+  ),
+}));
+
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => true }));
 vi.mock('@/hooks/use-workspace-url', () => ({ useWorkspaceUrl: () => (path: string) => `https://app.test${path}` }));
 vi.mock('@weldsuite/ui/components/drawer-field-settings', () => ({ DrawerFieldSettings: () => null }));
@@ -212,6 +227,7 @@ describe('InvoicePanel', () => {
   beforeEach(() => {
     env.invoice = invoice();
     env.loading = false;
+    questionsEdition.on = true;
     env.salesTax = true;
     env.missingDetails = [];
     env.certificates = new Map();
@@ -276,7 +292,7 @@ describe('InvoicePanel', () => {
 
       expect(screen.queryByRole('button', { name: 'Finalize' })).not.toBeInTheDocument();
       await user.click(screen.getByRole('button', { name: 'More actions' }));
-      expect(await screen.findByRole('menuitem', { name: 'Send' })).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: 'Mark as sent' })).toBeInTheDocument();
       expect(screen.getByRole('menuitem', { name: 'Record payment' })).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
     });
@@ -284,20 +300,20 @@ describe('InvoicePanel', () => {
     it('shows Send and Record payment as buttons on a finalized invoice, next to the menu', () => {
       env.invoice = invoice({ status: 'finalized' });
       renderPanel();
-      expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Mark as sent' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Record payment' })).toBeInTheDocument();
     });
 
     it('shows no Send or Record payment button on a draft or a settled invoice', () => {
       env.invoice = invoice({ status: 'draft', taxBreakdown: [], taxTotal: '0.00' });
       const { unmount } = renderPanel();
-      expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Mark as sent' })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Record payment' })).not.toBeInTheDocument();
       unmount();
 
       env.invoice = invoice({ status: 'paid', balanceDue: '0.00', amountPaid: '108.25' });
       renderPanel();
-      expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Mark as sent' })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Record payment' })).not.toBeInTheDocument();
     });
 
@@ -357,7 +373,7 @@ describe('InvoicePanel', () => {
       env.invoice = invoice({ status: 'sent' });
       renderPanel();
       await user.click(screen.getByRole('button', { name: 'More actions' }));
-      expect(await screen.findByRole('menuitem', { name: 'Send' })).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: 'Mark as sent' })).toBeInTheDocument();
       expect(screen.queryByRole('menuitem', { name: 'Discard draft' })).not.toBeInTheDocument();
     });
 
@@ -366,7 +382,7 @@ describe('InvoicePanel', () => {
       env.invoice = invoice({ status: 'sent' });
       renderPanel();
       await user.click(screen.getByRole('button', { name: 'More actions' }));
-      expect(await screen.findByRole('menuitem', { name: 'Send' })).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: 'Mark as sent' })).toBeInTheDocument();
     });
 
     it('asks before finalizing, and does nothing when the user keeps the draft', async () => {
@@ -777,6 +793,23 @@ describe('InvoicePanel', () => {
       expect(screen.getByText('BTW 21%')).toBeInTheDocument();
       expect(screen.queryByTestId('sales-tax-card')).not.toBeInTheDocument();
       expect(screen.queryByTestId('tax-breakdown-row')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('chat (books-questions)', () => {
+    it('has a Chat tab with the invoice\'s chat, where questions to the accountant are asked', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await openTab(user, 'Chat');
+      const chat = screen.getByTestId('record-question-chat');
+      expect(chat).toHaveAttribute('data-type', 'invoice');
+      expect(chat).toHaveAttribute('data-id', 'inv_1');
+    });
+
+    it('has no Chat tab on Global', () => {
+      questionsEdition.on = false;
+      renderPanel();
+      expect(screen.queryByRole('tab', { name: 'Chat' })).not.toBeInTheDocument();
     });
   });
 });

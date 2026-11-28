@@ -68,3 +68,36 @@ describe('TodaySection cash balance', () => {
     expect(within(lastYear).getByText('€0.00')).toBeInTheDocument();
   });
 });
+
+describe('TodaySection tiles open filtered lists', () => {
+  const tile = (name: RegExp) => screen.getByRole('link', { name });
+  const withBalances = () =>
+    dashboard({
+      receivables: { outstanding: '900.00', outstandingCount: 3, overdue: '221.00', overdueCount: 2 },
+      payables: { outstanding: '400.00', outstandingCount: 2, overdue: '0', overdueCount: 0 },
+      pendingDocuments: 4,
+    });
+
+  it('opens the bank for the balance, the open invoices for To receive and the open bills for To pay', () => {
+    render(<TodaySection dashboard={withBalances()} />);
+    expect(tile(/^Cash balance$/i)).toHaveAttribute('href', '/weldbooks/banking');
+    expect(tile(/^To receive$/i)).toHaveAttribute('href', '/weldbooks/invoices?show=open');
+    expect(tile(/^To pay$/i)).toHaveAttribute('href', '/weldbooks/bills?show=open');
+    expect(tile(/^Documents to process$/i)).toHaveAttribute('href', '/weldbooks/documents');
+  });
+
+  it('opens the overdue invoices from the overdue figure', () => {
+    render(<TodaySection dashboard={withBalances()} />);
+    expect(tile(/overdue/i)).toHaveAttribute('href', '/weldbooks/invoices?show=overdue');
+  });
+
+  it('is plain text, not a link, when nothing is overdue', () => {
+    render(
+      <TodaySection
+        dashboard={dashboard({ receivables: { outstanding: '900.00', outstandingCount: 3, overdue: '0', overdueCount: 0 } })}
+      />,
+    );
+    expect(screen.queryByRole('link', { name: /overdue/i })).not.toBeInTheDocument();
+    expect(screen.getByText('3 open invoices')).toBeInTheDocument();
+  });
+});

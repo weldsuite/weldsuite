@@ -118,7 +118,7 @@ export function NachaPanel({ run, canManage }: Readonly<NachaPanelProps>) {
                     </ul>
                   ) : null}
                   {code === 'BANK_DETAILS_CHANGED' ? (
-                    <Link to="/weldbooks/suppliers" className="mt-1 inline-block font-medium underline underline-offset-2">
+                    <Link to="/weldbooks/contacts" search={{ role: 'supplier' }} className="mt-1 inline-block font-medium underline underline-offset-2">
                       {tp.holds.fixVendor}
                     </Link>
                   ) : null}

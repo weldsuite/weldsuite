@@ -13,6 +13,7 @@ import {
 import { useTranslations } from '@weldsuite/i18n/client';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { EmptyStateIllustration, type ActiveFilter, type ColumnDef, type FilterConfig, type GroupConfig } from '@/components/entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
   ContactCell,
@@ -49,6 +50,9 @@ export default function BankTransactionsPage() {
   const { can } = usePermissions();
   const paging = useLoadMorePages<BankLine, number>(1);
   const navigate = useNavigate();
+  // A line opens in the bank transaction panel, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/banking/transactions');
   const { t } = useI18n();
   const st = useTranslations();
   const { formatMoney, formatDate } = useWeldbooksFormat();
@@ -147,7 +151,7 @@ export default function BankTransactionsPage() {
       id: 'counterparty',
       header: st('sweep.weldbooks.bankTransactionsTable.counterparty'),
       width: 'hidden shrink-0 @4xl/list:flex w-[200px]',
-      render: (line) => <ContactCell name={line.counterpartyName} />,
+      render: (line) => <ContactCell name={line.counterpartyName} contactId={line.contactId} />,
     },
     {
       id: 'reference',
@@ -242,6 +246,8 @@ export default function BankTransactionsPage() {
         columns={columns}
         groups={groups}
         renderRowMenu={renderRowMenu}
+        onRowClick={(line) => openPanel({ type: 'bank_transaction', id: line.id })}
+        getRowLabel={(line) => line.description || line.counterpartyName || t.accounting.bankTransactionPanel.rowLabel}
         filters={filterConfigs}
         activeFilters={activeFilters}
         onFiltersChange={(next) => {

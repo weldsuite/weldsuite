@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import { Building2, Mail, User } from "lucide-react";
 
@@ -195,6 +195,40 @@ export const AsyncSearch: Story = {
           value={value}
           onValueChange={setValue}
           onSearch={onSearch}
+        />
+      </div>
+    );
+  },
+};
+
+/**
+ * A list the server searches page by page: it lists the first results as soon as it opens
+ * (`minSearchLength: 0`) and the chosen one stays in the trigger when a search no longer lists it
+ * (`selectedOption`). `onSearch` must be stable between renders (`useCallback`).
+ */
+export const ServerSearchWithSelection: Story = {
+  args: {
+    placeholder: "Select a contact...",
+    searchPlaceholder: "Search contacts...",
+    minSearchLength: 0,
+    debounceMs: 200,
+    clearable: false,
+  },
+  render: (args) => {
+    const [value, setValue] = useState("3");
+    const onSearch = useCallback(async (query: string): Promise<AutocompleteOption[]> => {
+      await new Promise((r) => setTimeout(r, 300));
+      const q = query.toLowerCase();
+      return CONTACTS.filter((c) => c.label.toLowerCase().includes(q));
+    }, []);
+    return (
+      <div className="w-[340px]">
+        <Autocomplete
+          {...args}
+          value={value}
+          onValueChange={setValue}
+          onSearch={onSearch}
+          selectedOption={CONTACTS.find((c) => c.value === value)}
         />
       </div>
     );

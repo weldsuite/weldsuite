@@ -83,6 +83,49 @@ where
             "/{id}/status",
             patch(actions::status).route_layer(need("invoices:update")),
         )
+        // Rust only (edition feature `books-invoice-email`): e-mail the
+        // invoice with its public link and PDF; revoke the link.
+        .route(
+            "/{id}/email",
+            post(crate::delivery::email::invoice).route_layer(need("invoices:update")),
+        )
+        .route(
+            "/{id}/public-link",
+            axum::routing::delete(crate::delivery::email::revoke_invoice_link)
+                .route_layer(need("invoices:update")),
+        )
+        // Rust only (edition feature `books-contact-page`): the link as it is,
+        // never a new one.
+        .route(
+            "/{id}/public-link",
+            get(crate::delivery::email::invoice_link).route_layer(need("invoices:read")),
+        )
+        // Rust only (edition feature `books-reminders`).
+        .route(
+            "/{id}/remind",
+            post(crate::reminders::remind).route_layer(need("invoices:update")),
+        )
+        .route(
+            "/remind-bulk",
+            post(crate::reminders::remind_bulk).route_layer(need("invoices:update")),
+        )
+        .route(
+            "/{id}/reminders",
+            patch(crate::reminders::pause).route_layer(need("invoices:update")),
+        )
+        // Rust only (edition feature `books-time-billing`): invoice hours from
+        // WeldFlow, on a new draft or on a draft of the same customer.
+        .route(
+            "/from-time",
+            post(crate::time_billing::from_time)
+                .route_layer(need("time:read"))
+                .route_layer(need("invoices:create")),
+        )
+        // Rust only (edition feature `books-quotes`).
+        .route(
+            "/from-quote/{quote_id}",
+            post(crate::quotes::from_quote).route_layer(need("invoices:create")),
+        )
         .route(
             "/{id}/finalize",
             post(actions::finalize).route_layer(need("invoices:update")),

@@ -1,7 +1,15 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
 import {
   bankingApi,
   type BankAccountType,
+  type BankLine,
   type BankLineFilters,
   type CompleteReconciliationInput,
   type CreateDepositInput,
@@ -31,6 +39,8 @@ export const bankingKeys = {
   lines: {
     all: [...accountingKeys.bankTransactions.all, 'lines'] as const,
     list: (filters?: BankLineFilters) => [...accountingKeys.bankTransactions.all, 'lines', filters] as const,
+    detail: (id: string) => [...accountingKeys.bankTransactions.all, 'detail', id] as const,
+    links: (id: string) => [...accountingKeys.bankTransactions.all, 'links', id] as const,
     suggestions: (id: string) => [...accountingKeys.bankTransactions.all, 'suggestions', id] as const,
     openDocuments: (id: string, search: string) =>
       [...accountingKeys.bankTransactions.all, 'open-documents', id, search] as const,
@@ -201,6 +211,62 @@ export function useBankLines(filters?: BankLineFilters) {
   return useQuery({
     queryKey: bankingKeys.lines.list(filters),
     queryFn: () => bankingApi.listBankLines(filters),
+  });
+}
+
+/** Lines a page of the infinite list asks for (the server allows up to 100). */
+export const BANK_LINES_PAGE_SIZE = 50;
+
+/**
+ * Bank lines page by page, for lists that load more as you scroll or press "Load more".
+ * `totalCount` is the server's real total, not what has loaded so far.
+ */
+export function useInfiniteBankLines(filters: Omit<BankLineFilters, 'page' | 'pageSize'> | undefined) {
+  return useInfiniteQuery({
+    queryKey: [...bankingKeys.lines.all, 'infinite', filters] as const,
+    queryFn: ({ pageParam }) =>
+      bankingApi.listBankLines({ ...filters, page: pageParam, pageSize: BANK_LINES_PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) => (last.pagination?.hasMore ? pages.length + 1 : undefined),
+    enabled: !!filters,
+    select: (data) => {
+      // A line that moved between pages while loading would show twice.
+      const byId = new Map<string, BankLine>();
+      for (const page of data.pages) for (const line of page.data) if (!byId.has(line.id)) byId.set(line.id, line);
+      const lines = [...byId.values()];
+      const totalCount = data.pages.at(-1)?.pagination?.totalCount ?? lines.length;
+      return { lines, totalCount };
+    },
+  });
+}
+
+/** One bank line. The Global fallback of `useBankLineLinks`, which needs the Rust-only route. */
+export function useBankLine(id: string | undefined, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: bankingKeys.lines.detail(id ?? ''),
+    queryFn: async () => (await bankingApi.getBankLine(id!)).data,
+    enabled: !!id && (options.enabled ?? true),
+  });
+}
+
+/** A bank line with everything it is connected to. Only where the edition offers `books-bank-links`. */
+export function useBankLineLinks(id: string | undefined, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: bankingKeys.lines.links(id ?? ''),
+    queryFn: async () => (await bankingApi.getBankLineLinks(id!)).data,
+    enabled: !!id && (options.enabled ?? true),
+  });
+}
+
+/** Ignore a bank line. */
+export function useExcludeBankLine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (lineId: string) => bankingApi.excludeBankLine(lineId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: accountingKeys.bankTransactions.all });
+      void qc.invalidateQueries({ queryKey: accountingKeys.bankAccounts.all });
+    },
   });
 }
 

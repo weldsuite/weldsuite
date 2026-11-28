@@ -135,6 +135,27 @@ fn to_number(value: Option<&Value>) -> f64 {
 pub fn condition_matches(txn: &Value, condition: &Value) -> bool {
     let field = text(condition, "field").unwrap_or_default();
     let operator = text(condition, "operator").unwrap_or_default();
+    // Rust only: the money's direction (`in` or `out`) and the bank account
+    // the line is on. Both only compare with `equals`.
+    if field == "direction" {
+        let amount = parse_float(text(txn, "amount").filter(|a| !a.is_empty()).unwrap_or("0"));
+        let side = if amount > 0.0 {
+            "in"
+        } else if amount < 0.0 {
+            "out"
+        } else {
+            return false;
+        };
+        let wanted = js_trim(&js_string(condition.get("value"))).to_lowercase();
+        return operator == "equals" && wanted == side;
+    }
+    if field == "bankAccountId" {
+        let given = js_string(condition.get("value"));
+        let wanted = js_trim(&given);
+        return operator == "equals"
+            && !wanted.is_empty()
+            && text(txn, "bankAccountId") == Some(wanted);
+    }
     if field == "amount" {
         let amount =
             parse_float(text(txn, "amount").filter(|a| !a.is_empty()).unwrap_or("0")).abs();
@@ -255,6 +276,58 @@ mod tests {
         };
         assert!(between(json!(1000)));
         assert!(!between(Value::Null));
+    }
+
+    #[test]
+    fn direction_and_bank_account_conditions() {
+        let direction = |value: &str, txn: &Value| {
+            condition_matches(
+                txn,
+                &json!({ "field": "direction", "operator": "equals", "value": value }),
+            )
+        };
+        // The fixture's line is money out.
+        assert!(direction("out", &line()));
+        assert!(direction(" OUT ", &line()));
+        assert!(!direction("in", &line()));
+        let mut incoming = line();
+        incoming["amount"] = json!("35.00");
+        assert!(direction("in", &incoming));
+        assert!(!direction("out", &incoming));
+        let mut nothing = line();
+        nothing["amount"] = json!("0");
+        assert!(!direction("in", &nothing) && !direction("out", &nothing));
+        // Only `equals` reads them.
+        assert!(!condition_matches(
+            &line(),
+            &json!({ "field": "direction", "operator": "contains", "value": "out" })
+        ));
+
+        let mut on_account = line();
+        on_account["bankAccountId"] = json!("ba_1");
+        let account = |value: &str, txn: &Value| {
+            condition_matches(
+                txn,
+                &json!({ "field": "bankAccountId", "operator": "equals", "value": value }),
+            )
+        };
+        assert!(account("ba_1", &on_account));
+        assert!(!account("ba_2", &on_account));
+        assert!(!account("ba_1", &line()));
+        assert!(!account("", &on_account));
+        // They combine with the other conditions like any condition.
+        let rule = rule(
+            "rr_out",
+            &json!([
+                { "field": "direction", "operator": "equals", "value": "out" },
+                { "field": "bankAccountId", "operator": "equals", "value": "ba_1" },
+                { "field": "description", "operator": "contains", "value": "huur" },
+            ]),
+            "all",
+        );
+        assert!(rule_matches(&on_account, &rule));
+        assert!(!rule_matches(&line(), &rule));
+        assert!(!rule_matches(&incoming, &rule));
     }
 
     #[test]

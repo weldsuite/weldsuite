@@ -64,7 +64,8 @@ use weldsuite_schema::tenant::{
     bill_items, bills, documents, parties, payment_allocations, payments,
 };
 
-use body::{BillBody, BillLine, read_bill, read_bill_payment};
+pub(crate) use body::{BillBody, BillLine};
+use body::{read_bill, read_bill_payment};
 
 use crate::ocr::{line_items_for_bill, normalize_ocr_result};
 use crate::rows::{js, js_rows, money_text, timestamp_or_err};
@@ -145,7 +146,7 @@ fn post_refusal(error: PostError) -> Refusal {
 }
 
 /// The live bill `id`.
-async fn find_bill(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+pub(crate) async fn find_bill(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     bills::Entity::find()
         .filter(bills::Column::Id.eq(id))
         .filter(bills::Column::DeletedAt.is_null())
@@ -155,7 +156,11 @@ async fn find_bill(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
         .transpose()
 }
 
-async fn live_items(db: &PgPool, bill_id: &str, sorted: bool) -> Result<Vec<Value>, DbErr> {
+pub(crate) async fn live_items(
+    db: &PgPool,
+    bill_id: &str,
+    sorted: bool,
+) -> Result<Vec<Value>, DbErr> {
     let mut items = bill_items::Entity::find()
         .filter(bill_items::Column::BillId.eq(bill_id))
         .filter(bill_items::Column::DeletedAt.is_null());
@@ -738,13 +743,19 @@ async fn create(
         Err(refusal) => return refusal.respond(""),
     };
     reply(
-        create_bill(&caller, &state, data).await,
+        create_bill(&caller, &state, data).await.map(created),
         "Failed to create bill",
     )
 }
 
+/// `POST /`: the new draft bill (with its `items`), written and announced.
+/// Booking a document calls it too.
 #[allow(clippy::too_many_lines)] // the route's steps, as TypeScript has them
-async fn create_bill(caller: &Caller, state: &BooksState, data: BillBody) -> Reply {
+pub(crate) async fn create_bill(
+    caller: &Caller,
+    state: &BooksState,
+    data: BillBody,
+) -> Result<Value, Refusal> {
     let db = &caller.db;
     let Some(entity_id) = resolve_requested_entity_id(caller, data.entity_id.as_deref()).await?
     else {
@@ -835,7 +846,10 @@ async fn create_bill(caller: &Caller, state: &BooksState, data: BillBody) -> Rep
     bill.insert("id".into(), json!(bill_id));
     bill.insert("entityId".into(), json!(entity_id));
     bill.insert("billNumber".into(), json!(bill_number));
-    bill.insert("type".into(), json!("standard"));
+    bill.insert(
+        "type".into(),
+        json!(data.bill_type.as_deref().unwrap_or("standard")),
+    );
     bill.insert("status".into(), json!("draft"));
     bill.insert("contactId".into(), json!(data.contact_id));
     bill.insert("contactName".into(), json!(contact.name));
@@ -932,7 +946,7 @@ async fn create_bill(caller: &Caller, state: &BooksState, data: BillBody) -> Rep
         }),
     );
     bill.insert("items".into(), Value::Array(records));
-    Ok(created(Value::Object(bill)))
+    Ok(Value::Object(bill))
 }
 
 // ── POST /from-document/:documentId ─────────────────────────────────────────
@@ -1016,6 +1030,15 @@ async fn approve(
     State(state): State<BooksState>,
     Path(id): Path<String>,
 ) -> Response {
+    reply(
+        approve_bill(&caller, &state, &id).await,
+        "Failed to approve bill",
+    )
+}
+
+/// `PATCH /:id/approve`: post the bill. Booking a document calls it too.
+pub(crate) async fn approve_bill(caller: &Caller, state: &BooksState, id: &str) -> Reply {
+    let (caller, state, id) = (caller, state, id.to_owned());
     let result: Reply = async {
         let db = &caller.db;
         let Some(bill) = find_bill(db, &id).await? else {
@@ -1033,11 +1056,11 @@ async fn approve(
             ));
         }
         let items = live_items(db, &id, false).await?;
-        let ready = refresh_bill_use_tax(db, &bill, &items, &runtime(&caller, &state)).await?;
+        let ready = refresh_bill_use_tax(db, &bill, &items, &runtime(caller, state)).await?;
         let user = caller.user().map(str::to_owned);
         let posted = post_bill(
             db,
-            caller.http(&state).as_ref(),
+            caller.http(state).as_ref(),
             &ready,
             &items,
             user.clone(),
@@ -1059,7 +1082,7 @@ async fn approve(
             json!({ "old": null, "new": posted.journal_entry_id }),
         );
         write_accounting_audit(
-            &caller,
+            caller,
             db,
             AuditInput {
                 accounting_entity_id: text(&bill, "entityId"),
@@ -1071,7 +1094,7 @@ async fn approve(
         )
         .await;
         caller.publish(
-            &state,
+            state,
             BILL_UPDATED,
             &id,
             json!({
@@ -1087,7 +1110,7 @@ async fn approve(
             && !posted.already_posted
         {
             caller.publish(
-                &state,
+                state,
                 JOURNAL_ENTRY_CREATED,
                 entry,
                 json!({ "id": entry, "sourceType": "bill", "sourceId": id }),
@@ -1101,7 +1124,7 @@ async fn approve(
         Ok(ok(Value::Object(view)))
     }
     .await;
-    reply(result, "Failed to approve bill")
+    result
 }
 
 // ── PATCH /:id/reject ───────────────────────────────────────────────────────
@@ -1120,6 +1143,22 @@ async fn reject(
         Ok(reason) => reason.unwrap_or_default(),
         Err(refusal) => return refusal.respond(""),
     };
+    reply(
+        reject_bill(&caller, &state, &id, &reason).await,
+        "Failed to reject bill",
+    )
+}
+
+/// `PATCH /:id/reject`: cancel the bill, reversing its posting. Booking a
+/// document that fails after the bill was posted takes the bill back with it.
+#[allow(clippy::too_many_lines)] // the route's steps, as TypeScript has them
+pub(crate) async fn reject_bill(
+    caller: &Caller,
+    state: &BooksState,
+    id: &str,
+    reason: &str,
+) -> Reply {
+    let (id, reason) = (id.to_owned(), reason.to_owned());
     let result: Reply = async {
         let db = &caller.db;
         let Some(bill) = find_bill(db, &id).await? else {
@@ -1182,7 +1221,7 @@ async fn reject(
             );
         }
         write_accounting_audit(
-            &caller,
+            caller,
             db,
             AuditInput {
                 accounting_entity_id: text(&bill, "entityId"),
@@ -1194,7 +1233,7 @@ async fn reject(
         )
         .await;
         caller.publish(
-            &state,
+            state,
             BILL_UPDATED,
             &id,
             json!({
@@ -1212,7 +1251,7 @@ async fn reject(
         Ok(ok(Value::Object(view)))
     }
     .await;
-    reply(result, "Failed to reject bill")
+    result
 }
 
 // ── PUT/PATCH /:id ──────────────────────────────────────────────────────────
@@ -1565,7 +1604,7 @@ async fn update_bill(caller: &Caller, state: &BooksState, id: &str, data: BillBo
 
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
 
-async fn remove(
+pub(crate) async fn remove(
     caller: Caller,
     State(state): State<BooksState>,
     Path(id): Path<String>,
@@ -1585,6 +1624,7 @@ async fn remove(
             .filter(bills::Column::Id.eq(id.as_str()))
             .exec(&orm(db))
             .await?;
+        release_documents(db, &id).await?;
         write_accounting_audit(
             &caller,
             db,
@@ -1612,4 +1652,32 @@ async fn remove(
     }
     .await;
     reply(result, "Failed to delete bill")
+}
+
+/// A bill that is gone no longer holds its document: any document linked to
+/// it (the inbox document it was made from, `source_document_id`, is linked
+/// when the bill is made) goes back to `processed` (`pending` if it was never
+/// read) with the link cleared, ready to be booked again. A document linked
+/// to something else is left alone.
+pub(crate) async fn release_documents(db: &PgPool, bill_id: &str) -> Result<(), DbErr> {
+    documents::Entity::update_many()
+        .col_expr(
+            documents::Column::Status,
+            Expr::cust("CASE WHEN ocr_result IS NULL THEN 'pending' ELSE 'processed' END"),
+        )
+        .col_expr(
+            documents::Column::LinkedEntityType,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(
+            documents::Column::LinkedEntityId,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(documents::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(documents::Column::DeletedAt.is_null())
+        .filter(documents::Column::LinkedEntityType.eq("bill"))
+        .filter(documents::Column::LinkedEntityId.eq(bill_id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
 }

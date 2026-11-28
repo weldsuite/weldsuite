@@ -19,12 +19,17 @@
   "accounting_document": [
     "created",
     "updated",
-    "deleted"
+    "deleted",
+    "booked"
   ],
   "accounting_entity": [
     "created",
     "updated",
     "deleted"
+  ],
+  "accounting_question": [
+    "created",
+    "updated"
   ],
   "accounting_settings": [
     "updated"
@@ -108,7 +113,9 @@
     "created",
     "updated",
     "deleted",
-    "apply_reconciliation_rules"
+    "apply_reconciliation_rules",
+    "processed",
+    "unprocessed"
   ],
   "bill": [
     "created",
@@ -116,7 +123,8 @@
     "deleted",
     "approved",
     "rejected",
-    "paid"
+    "paid",
+    "overdue"
   ],
   "board": [
     "created",
@@ -739,7 +747,10 @@
     "deleted",
     "paid",
     "overdue",
-    "sent"
+    "sent",
+    "emailed",
+    "viewed",
+    "reminded"
   ],
   "invoice_template": [
     "created",
@@ -749,7 +760,9 @@
   "journal_entry": [
     "created",
     "updated",
-    "deleted"
+    "deleted",
+    "reviewed",
+    "unreviewed"
   ],
   "knowledge_page": [
     "created",
@@ -1103,6 +1116,15 @@
     "updated",
     "deleted"
   ],
+  "payment_batch": [
+    "created",
+    "cancelled"
+  ],
+  "payment_connection": [
+    "created",
+    "updated",
+    "deleted"
+  ],
   "payment_run": [
     "created",
     "updated",
@@ -1345,6 +1367,13 @@
     "updated",
     "deleted",
     "completed"
+  ],
+  "quote": [
+    "created",
+    "updated",
+    "deleted",
+    "accepted",
+    "emailed"
   ],
   "reach_campaign": [
     "created",

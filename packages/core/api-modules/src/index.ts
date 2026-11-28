@@ -154,6 +154,40 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   // WeldBooks: matching bank transactions and documents either way round
   // (several documents per transaction, search, booking the difference).
   'books-bank-links',
+  // WeldBooks: the "to process" list and its counts (`/api/accounting-todo`).
+  'books-todo',
+  // WeldBooks: processing bank lines (split categories, transfers, private,
+  // one undo, rule suggestions, differences, unapplied credit).
+  'books-bank-processing',
+  // WeldBooks: the inbox per legal entity, OCR on arrival, booking a document
+  // (bill, receipt, credit note) in one call, bank line candidates, duplicate
+  // checks and a supplier's booking defaults.
+  'books-receipts',
+  // WeldBooks: paying approved bills with a SEPA credit-transfer file
+  // (`/api/payment-batches`).
+  'books-sepa-batches',
+  // WeldBooks: invoices, credit notes and quotes sent by e-mail, with a public
+  // document page (`/public/weldbooks`).
+  'books-invoice-email',
+  // WeldBooks: quotes (`/api/accounting-quotes`), their acceptance and the
+  // invoice made from one (`/api/invoices/from-quote/:quoteId`).
+  'books-quotes',
+  // WeldBooks: payment reminders (workflow per entity, bulk, paused, the NL
+  // statutory costs).
+  'books-reminders',
+  // WeldBooks: online invoice payments through the entity's own Mollie account
+  // (`/api/accounting-payment-connections`, `/public/weldbooks/mollie`).
+  'books-online-payments',
+  // WeldBooks: the contact page (timeline, summary, statement, stored defaults,
+  // the CRM finance tab, the contact's bank lines and paging of its lists).
+  'books-contact-page',
+  // WeldBooks: billable hours from WeldFlow invoiced once, and a project's
+  // finance (`/api/accounting-time`, `/api/invoices/from-time`).
+  'books-time-billing',
+  // WeldBooks: working with the accountant (questions on records as record
+  // chats, the VAT return check, a suggested lock date, review marks on
+  // bookings).
+  'books-questions',
   // WeldForms on a workspace's own domains (`/api/forms/domains`, cert-manager).
   'forms-custom-domains',
 ];
@@ -365,6 +399,12 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/accounting-exports',
     '/api/accounting-reports',
     '/api/accounting-settings',
+    // The "to process" list and its counts, served by the Rust backend only
+    // (rust/modules/books-reports).
+    '/api/accounting-todo',
+    // Questions on WeldBooks records, threads of their record chats (WeldChat), served by the
+    // Rust backend only (rust/modules/chat, mounted with the books routes).
+    '/api/accounting-questions',
     // The KvK jaarrekening, served by the Rust backend only (rust/modules/books-reports).
     '/api/annual-reports',
     '/api/bank-accounts',
@@ -391,6 +431,19 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/fixed-assets',
     '/api/form-1099',
     '/api/payment-runs',
+    // SEPA credit-transfer batches for supplier bills, served by the Rust backend only
+    // (rust/modules/books-purchases).
+    '/api/payment-batches',
+    // Quotes (WeldCRM's `crm_quotes` as WeldBooks lists, sends and converts them), served by
+    // the Rust backend only (rust/modules/books-sales).
+    '/api/accounting-quotes',
+    // The entity's own Mollie account for online invoice payments, served by the Rust backend
+    // only (rust/modules/books-sales).
+    '/api/accounting-payment-connections',
+    // Billable hours from WeldFlow to invoice lines and a project's finance, served by the
+    // Rust backend only (rust/modules/books-sales).
+    '/api/accounting-time',
+    '/api/accounting-projects',
     '/api/payroll',
     '/api/sales-tax',
     '/api/sales-tax-agencies',
@@ -401,6 +454,9 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/tax-returns',
     '/api/w9-requests',
     '/public/w9',
+    // The public invoice and quote page's documents (apps/web/pay-portal), served by the Rust
+    // backend only (rust/modules/books-sales).
+    '/public/weldbooks',
     // Brazil (weldsuite-documentation/plans/weldbooks-br.md)
     '/api/br-tax',
     '/api/fiscal-documents',

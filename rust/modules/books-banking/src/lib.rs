@@ -11,14 +11,19 @@
 mod bank_accounts;
 mod bank_connections;
 mod bank_deposits;
+mod bank_line_links;
 mod bank_links;
+mod bank_processing;
 mod bank_reconciliations;
 mod bank_transactions;
 mod common;
 mod csv_format;
 mod import;
 mod parsers;
+#[cfg(test)]
+mod processing_tests;
 mod reconciliation_rules;
+mod rule_suggestions;
 
 use std::sync::Arc;
 

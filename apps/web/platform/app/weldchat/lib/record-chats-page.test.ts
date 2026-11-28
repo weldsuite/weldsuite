@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { RecordChatTypeSummary } from '@weldsuite/app-api-client/schemas/chat-entity-channels';
 import { en } from '@weldsuite/i18n/locales/en';
 import { nl } from '@weldsuite/i18n/locales/nl';
@@ -12,6 +12,16 @@ import {
   resolveRecordChatsType,
 } from './record-chats-page';
 import { getRecordChatTypeInfo, RECORD_CHAT_TYPES, recordChatsPageHref } from './record-chat-types';
+
+const edition = vi.hoisted(() => ({ questions: true }));
+vi.mock('@/lib/edition', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/edition')>();
+  return {
+    ...actual,
+    isFeatureAvailable: (feature: Parameters<typeof actual.isFeatureAvailable>[0]) =>
+      feature === 'books-questions' ? edition.questions : actual.isFeatureAvailable(feature),
+  };
+});
 
 const summaryRow = (type: string): RecordChatTypeSummary => ({ type, label: type, followed: 0, unread: 0, mentions: 0 });
 

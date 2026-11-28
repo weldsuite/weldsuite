@@ -182,6 +182,13 @@ pub struct Model {
     #[sea_orm(column_type = "String(StringLen::N(255))")]
     #[serde(rename = "bankDetailsVerifiedBy")]
     pub bank_details_verified_by: Option<String>,
+    // WeldBooks phase 5 (plan weldbooks-connected-ux, M5). Rust only, so it is
+    // left out of the JSON while unset and the routes a TypeScript worker also
+    // serves answer as they always did.
+    /// The supplier's stored default VAT rate (`tax_rates.id`) for purchase bookings.
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "defaultTaxRateId", skip_serializing_if = "Option::is_none")]
+    pub default_tax_rate_id: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

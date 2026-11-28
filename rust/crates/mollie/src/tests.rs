@@ -584,6 +584,97 @@ async fn revoking_a_token_mollie_forgot_is_fine() {
     assert!(form.contains("token_type_hint=access_token"));
 }
 
+#[tokio::test]
+async fn reads_the_methods_a_profile_has_active() {
+    let (recorded, http) = http(vec![Ok(answer(
+        200,
+        &json!({ "_embedded": { "methods": [
+            { "id": "ideal", "description": "iDEAL" },
+            { "id": "creditcard", "description": "Credit card" },
+            { "nothing": true },
+        ] } }),
+    ))]);
+    let mollie = Mollie::new("https://api.mollie.com/v2", "access-token").with_profile("pfl_1");
+    let methods = mollie.methods(&http).await.expect("methods");
+    assert_eq!(
+        methods.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["ideal", "creditcard"]
+    );
+    let requests = recorded.requests.lock().expect("lock");
+    assert_eq!(
+        requests[0].url,
+        "https://api.mollie.com/v2/methods?resource=payments&profileId=pfl_1"
+    );
+}
+
+#[tokio::test]
+async fn reads_a_settlement_with_its_costs_and_its_items() {
+    let (recorded, http) = http(vec![
+        Ok(answer(
+            200,
+            &json!({ "_embedded": { "settlements": [{
+                "id": "stl_jDk30akdN",
+                "reference": "1234567.2601.03",
+                "status": "paidout",
+                "createdAt": "2026-01-04T00:00:00+00:00",
+                "settledAt": "2026-01-05T08:00:00+00:00",
+                "amount": { "currency": "EUR", "value": "178.34" },
+                "periods": { "2026": { "01": { "costs": [
+                    { "amountGross": { "currency": "EUR", "value": "0.24" } },
+                    { "amountGross": { "currency": "EUR", "value": "2.42" } },
+                ], "revenue": [] } } },
+            }] } }),
+        )),
+        Ok(answer(
+            200,
+            &json!({ "_embedded": { "refunds": [{
+                "id": "re_4qqhO89gsT", "paymentId": "tr_x", "createdAt": "2026-01-02T10:00:00+00:00",
+                "amount": { "currency": "EUR", "value": "5.00" },
+            }] } }),
+        )),
+    ]);
+    let mollie = Mollie::new("https://api.mollie.com/v2", "access-token");
+    let settlements = mollie.settlements(&http).await.expect("settlements");
+    assert_eq!(settlements.len(), 1);
+    let settlement = &settlements[0];
+    assert_eq!(settlement.status, "paidout");
+    assert_eq!(settlement.amount_cents, 17834);
+    assert_eq!(settlement.costs_cents, 266);
+    assert_eq!(settlement.reference.as_deref(), Some("1234567.2601.03"));
+    let refunds = mollie
+        .settlement_items(&http, "stl_jDk30akdN", "refunds")
+        .await
+        .expect("refunds");
+    assert_eq!(refunds[0].cents, 500);
+    assert_eq!(refunds[0].payment_id.as_deref(), Some("tr_x"));
+    let urls: Vec<String> = recorded
+        .requests
+        .lock()
+        .expect("lock")
+        .iter()
+        .map(|r| r.url.clone())
+        .collect();
+    assert_eq!(urls[0], "https://api.mollie.com/v2/settlements?limit=250");
+    assert_eq!(
+        urls[1],
+        "https://api.mollie.com/v2/settlements/stl_jDk30akdN/refunds?limit=250"
+    );
+    // Ids and kinds are checked before they reach a path.
+    assert!(
+        mollie
+            .settlement_items(&http, "stl_../x", "refunds")
+            .await
+            .is_err()
+    );
+    assert!(
+        mollie
+            .settlement_items(&http, "stl_ok", "../x")
+            .await
+            .is_err()
+    );
+    assert!(is_settlement_id("stl_jDk30akdN") && !is_settlement_id("tr_x"));
+}
+
 #[test]
 fn a_401_is_unauthorized() {
     let refused = |status| MollieError::Refused {

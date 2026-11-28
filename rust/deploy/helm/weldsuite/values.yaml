@@ -566,7 +566,12 @@ config:
 #   MOLLIE_CONNECT_CLIENT_SECRET its secret (both or neither; optional): lets a workspace
 #                                connect its own Mollie account by OAuth. Its redirect URI is
 #                                https://app.<domain>/api/commerce-payments/connection/mollie/callback.
-#                                Unset: a workspace connects with its own API key instead
+#                                Unset: a workspace connects with its own API key instead.
+#                                WeldBooks' entities connect the same way with this app: register
+#                                https://app.<domain>/public/weldbooks/mollie/callback as well
+#                                (both redirect URIs on the Connect app)
+#   BOOKS_DOCUMENT_TOKEN_SECRET  WeldBooks' document links and Mollie webhook references are signed
+#                                with it (optional: unset, derived from the field encryption key)
 #   APNS_KEY_ID / APNS_TEAM_ID / APNS_PRIVATE_KEY  WeldChat's call ring on iPhones: an APNs auth
 #                                key of the Apple team that owns the WeldChat app (its key id, the
 #                                team id and the .p8 PEM), for Apple's VoIP push that makes CallKit
@@ -985,6 +990,46 @@ formsPortal:
     dnsResolver: ""
     admissionPolicy:
       enabled: true
+    tls: []
+
+# WeldBooks' public document page (ADR BOOKS-014): a Node container
+# (ghcr.io/weldsuite/weldsuite-pay-portal, `--target pay-portal` of
+# rust/Dockerfile) where customers open the link of an invoice or quote
+# e-mail, download the PDF, pay it (Mollie) and accept a quote. Its server
+# functions call this server's /public/weldbooks/documents/{token}. The link's
+# token is the only credential: no shared secret, nothing in the Secret. The
+# links the server e-mails point at the portal's public URL (https://pay.<domain>).
+payPortal:
+  enabled: false
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-pay-portal
+    # Defaults to the chart's appVersion.
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  # Where the portal calls the server; defaults to the server's Service.
+  backendUrl: ""
+  # The portal's own origin (https://pay.<domain>): where Mollie sends the
+  # customer back to, and the address in the links WeldBooks e-mails (the
+  # server gets it as PAY_PORTAL_PUBLIC_URL; without it no invoice can be
+  # e-mailed with a link). Empty: the portal takes it from the request's Host
+  # and X-Forwarded-Proto, which the ingress sets.
+  publicUrl: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 256Mi
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: pay.example.org
+        paths:
+          - path: /
+            pathType: Prefix
     tls: []
 
 # WeldCommerce's online stores (weldsuite-documentation/plans/weldcommerce-storefronts.md),
@@ -1578,6 +1623,8 @@ networkPolicy:
   signPortalFrom: []
   # Who may call the forms portal (the ingress controller); empty allows any peer.
   formsPortalFrom: []
+  # Who may call the pay portal (the ingress controller); empty allows any peer.
+  payPortalFrom: []
   # Who may call the admin console (the ingress controller); empty allows any
   # peer. The console's own pods may always call the server.
   adminFrom: []

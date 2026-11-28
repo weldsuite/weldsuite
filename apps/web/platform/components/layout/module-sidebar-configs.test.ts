@@ -21,6 +21,65 @@ describe('module sidebars', () => {
   });
 });
 
+describe('the WeldBooks menu', () => {
+  const groups = () => MODULE_CONFIGS.weldbooks!.getMenuItems(en);
+  const hrefs = () => groups().flatMap((group) => group.items.map((item) => item.href));
+
+  it('leads with Overview and To process, with no heading over them', () => {
+    const [first] = groups();
+    expect(first?.group).toBe('');
+    expect(first?.items.map((item) => item.href)).toEqual(['/weldbooks', '/weldbooks/to-process']);
+  });
+
+  it('follows the owner-first order and names the accountant\'s books last before tax', () => {
+    const g = en.navigation.moduleSidebar.groups;
+    expect(groups().map((group) => group.group)).toEqual(['', g.sales, g.purchases, g.bank, g.contacts, g.reports, g.accountant, g.tax]);
+  });
+
+  it('turns credit notes into a filter of Invoices and customers and suppliers into one list', () => {
+    expect(hrefs()).not.toContain('/weldbooks/credit-notes');
+    expect(hrefs()).not.toContain('/weldbooks/customers');
+    expect(hrefs()).not.toContain('/weldbooks/suppliers');
+    expect(hrefs()).toContain('/weldbooks/contacts');
+  });
+
+  it('lists Quotes and Unbilled time under Sales, and leaves out what does not exist yet: pay bills', () => {
+    const sales = groups().find((group) => group.group === en.navigation.moduleSidebar.groups.sales);
+    expect(sales?.items.map((item) => item.href)).toContain('/weldbooks/quotes');
+    expect(sales?.items.map((item) => item.href)).toContain('/weldbooks/time/unbilled');
+    for (const later of ['/weldbooks/pay-bills']) {
+      expect(hrefs()).not.toContain(later);
+    }
+  });
+
+  it('adds Cash flow and General ledger, which no menu reached before', () => {
+    expect(hrefs()).toContain('/weldbooks/reports/cash-flow');
+    expect(hrefs()).toContain('/weldbooks/reports/general-ledger');
+  });
+
+  it('keeps the US tax group as it was', () => {
+    const tax = groups().find((group) => group.group === en.navigation.moduleSidebar.groups.tax);
+    expect(tax?.items.map((item) => item.href)).toEqual([
+      '/weldbooks/sales-tax',
+      '/weldbooks/sales-tax/certificates',
+      '/weldbooks/sales-tax/nexus',
+      '/weldbooks/form-1099',
+      '/weldbooks/tax-calendar',
+    ]);
+  });
+
+  it('names the Dutch menu in the glossary words', async () => {
+    const { nl } = await import('@weldsuite/i18n/locales/nl');
+    const titles = MODULE_CONFIGS.weldbooks!.getMenuItems(nl as unknown as typeof en).flatMap((group) => group.items.map((item) => item.title));
+    for (const word of ['Te verwerken', 'Inbox', 'Inkoopfacturen en bonnen', 'Contacten', 'Grootboekrekeningen', 'Memoriaal']) {
+      expect(titles).toContain(word);
+    }
+    const dutchGroups = MODULE_CONFIGS.weldbooks!.getMenuItems(nl as unknown as typeof en).map((group) => group.group);
+    expect(dutchGroups).toContain('Bank');
+    expect(dutchGroups).toContain('Boekhouder');
+  });
+});
+
 describe('getModuleKey', () => {
   it('maps module paths to their module', () => {
     expect(getModuleKey('/weldcrm/companies')).toBe('weldcrm');

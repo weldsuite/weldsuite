@@ -90,6 +90,10 @@ pub struct BooksState {
     /// `None` with AI off. A request's own (conformance) wins
     /// ([`Caller::ai`]).
     pub ai: Option<weldsuite_ai::Ai>,
+    /// System mail (`SMTP_URL`), for the invoices, quotes and reminders
+    /// WeldBooks e-mails (edition feature `books-invoice-email`). `None`
+    /// without a transport; never set in conformance builds.
+    pub mail: Option<Arc<dyn weldsuite_ports::DynSystemMail>>,
 }
 
 impl std::fmt::Debug for BooksState {
@@ -103,6 +107,7 @@ impl std::fmt::Debug for BooksState {
             .field("jobs", &self.jobs.is_some())
             .field("digipoort", &self.digipoort.is_some())
             .field("ai", &self.ai.is_some())
+            .field("mail", &self.mail.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -126,6 +131,7 @@ impl BooksState {
             second_factor_step_up: true,
             digipoort: None,
             ai: None,
+            mail: None,
         }
     }
 }
@@ -214,6 +220,14 @@ impl Caller {
             entity_access: OnceCell::new(),
             outbox: std::sync::Mutex::default(),
         }
+    }
+
+    /// The same caller for a request with this query string (tests and
+    /// in-process callers that list with filters).
+    #[must_use]
+    pub fn with_query(mut self, query: &str) -> Self {
+        self.raw_query = Some(query.to_owned());
+        self
     }
 
     /// `hasContextPermission(c, key)`.

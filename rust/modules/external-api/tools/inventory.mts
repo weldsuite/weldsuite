@@ -256,4 +256,10 @@ export const RUST_ONLY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // Agile delivery in WeldFlow (ADRs FLOW-023, FLOW-024).
   tasks: ['epic_id'],
   sprints: ['report'],
+  // WeldBooks connected bookkeeping (ADRs BOOKS-012 to BOOKS-015): quotes,
+  // reminders, a supplier's VAT rate, hours invoiced once, review marks.
+  invoices: ['quote_id', 'reminder_level', 'last_reminded_at', 'reminders_paused'],
+  parties: ['default_tax_rate_id'],
+  time_entries: ['invoice_id', 'invoice_item_id'],
+  journal_entries: ['reviewed_at', 'reviewed_by'],
 };

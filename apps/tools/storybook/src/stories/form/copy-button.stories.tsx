@@ -26,3 +26,12 @@ export const BesideValue: Story = {
     </div>
   ),
 };
+
+/** `showLabel` puts the label on the button as text (an outline button by default), as next to a document's public link. */
+export const WithVisibleLabel: Story = {
+  args: {
+    value: 'https://pay.example.test/d/abc123',
+    label: 'Copy link',
+    showLabel: true,
+  },
+};

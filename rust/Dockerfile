@@ -22,6 +22,7 @@
 #
 #   docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .
 #   docker build -f rust/Dockerfile --target forms-portal -t weldsuite-forms-portal:dev .
+#   docker build -f rust/Dockerfile --target pay-portal -t weldsuite-pay-portal:dev .
 #   docker build -f rust/Dockerfile --target storefront -t weldsuite-storefront:dev .
 #   docker build -f rust/Dockerfile --target admin -t weldsuite-admin:dev .
 #   docker build -f rust/Dockerfile --target collab-rooms -t weldsuite-collab-rooms:dev .
@@ -32,7 +33,7 @@ ARG NODE_VERSION=22
 # ── The frontends' dependencies ─────────────────────────────────────────────
 # The manifests alone first, so the install stays cached until a dependency
 # changes. Only the platform's, the portals', the admin console's, the
-# storefront renderer's and the helpdesk widget's (`--filter <app>...`).
+# storefront renderer's, the pay portal's and the helpdesk widget's (`--filter <app>...`).
 FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim AS web-deps
 ENV CI=true \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
@@ -41,11 +42,11 @@ RUN corepack enable
 WORKDIR /repo
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY patches patches
-COPY --parents apps/web/platform/package.json apps/web/sign-portal/package.json apps/web/forms-portal/package.json apps/web/admin/package.json apps/web/storefront/package.json apps/web/helpdesk-widget/package.json packages/*/*/package.json ./
+COPY --parents apps/web/platform/package.json apps/web/sign-portal/package.json apps/web/forms-portal/package.json apps/web/admin/package.json apps/web/storefront/package.json apps/web/pay-portal/package.json apps/web/helpdesk-widget/package.json packages/*/*/package.json ./
 RUN --mount=type=cache,id=weldsuite-pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts --store-dir /pnpm/store \
       --filter platform... --filter sign-portal... --filter forms-portal... --filter admin... \
-      --filter storefront... --filter helpdesk-widget... --filter @weldsuite/panel-sdk
+      --filter storefront... --filter pay-portal... --filter helpdesk-widget... --filter @weldsuite/panel-sdk
 COPY packages packages
 
 # ── The platform SPA, built for Kubernetes ──────────────────────────────────
@@ -189,6 +190,32 @@ LABEL org.opencontainers.image.title="weldsuite-storefront" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 WORKDIR /app
 COPY --from=storefront-build /storefront /app
+ENV NODE_ENV=production \
+    PORT=3000
+USER nonroot:nonroot
+EXPOSE 3000
+CMD ["node/server.mjs"]
+
+# ── WeldBooks' pay portal (public invoice and quote page), TanStack Start's Node build ──
+FROM web-deps AS pay-portal-build
+COPY apps/web/pay-portal apps/web/pay-portal
+RUN set -eux; \
+    cd apps/web/pay-portal; \
+    pnpm build:node; \
+    echo '{"type":"module"}' > dist/package.json; \
+    mkdir /portal; \
+    mv dist node /portal/
+
+# Node, the build and nothing else (every dependency is bundled). Configured
+# by PAY_PORTAL_BACKEND_URL and PAY_PORTAL_PUBLIC_URL (the Helm chart sets
+# them). The link's token is the only credential: no secret.
+FROM gcr.io/distroless/nodejs22-debian12:nonroot AS pay-portal
+LABEL org.opencontainers.image.title="weldsuite-pay-portal" \
+      org.opencontainers.image.description="WeldBooks' public invoice and quote page for the Kubernetes editions" \
+      org.opencontainers.image.source="https://github.com/weldsuite/weldsuite" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
+WORKDIR /app
+COPY --from=pay-portal-build /portal /app
 ENV NODE_ENV=production \
     PORT=3000
 USER nonroot:nonroot

@@ -17,9 +17,15 @@ import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Link as HrefLink } from '@/lib/router';
 import { useAccountingSettings } from '@/hooks/queries/use-accounting-queries';
 import { useAccountingEntities } from '@/hooks/use-current-entity-currency';
+import { isFeatureAvailable } from '@/lib/edition';
 import { accountingApi, type AccountingEntity } from '@/lib/api/domains/weldbooks';
 import type { JurisdictionFeatures } from '@/lib/weldbooks/jurisdiction';
 import { useI18n } from '@/lib/i18n/provider';
+import { DifferencesCard } from './components/differences-card';
+import { EmailTemplatesCard } from './components/email-templates-card';
+import { EntityInboxCard } from './components/entity-inbox-card';
+import { OnlinePaymentsCard } from './components/online-payments-card';
+import { RemindersCard } from './components/reminders-card';
 import { LedgerCatchUpCard } from './components/ledger-catch-up-card';
 import { FiscalSettingsCard } from './components/fiscal-settings-card';
 import { useSelectWeldbooksEntity } from './entity-scope';
@@ -281,9 +287,20 @@ export function WeldbooksEntitySettings({
         }
       />
 
+      {/* Rust only: the e-mail texts invoices, quotes and reminders go out with, and the reminder workflow. */}
+      {isFeatureAvailable('books-invoice-email') && <EmailTemplatesCard />}
+      {isFeatureAvailable('books-reminders') && <RemindersCard />}
+
+      {/* Rust only: the entity's own Mollie account, so customers can pay invoices online. */}
+      {isFeatureAvailable('books-online-payments') && <OnlinePaymentsCard />}
+
       <LedgerCatchUpCard />
 
-      <EmailInboxCard emailSettings={emailSettings} />
+      {/* Rust only: the Global backend has no payment-difference settings. */}
+      {isFeatureAvailable('books-bank-processing') && <DifferencesCard />}
+
+      {/* Rust: an inbox address per entity, read when documents arrive. Global keeps the one registered scan inbox. */}
+      {isFeatureAvailable('books-receipts') ? <EntityInboxCard entityId={entity.id} /> : <EmailInboxCard emailSettings={emailSettings} />}
 
       <SeedDataCard />
 

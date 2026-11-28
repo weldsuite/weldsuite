@@ -54,26 +54,42 @@ impl Can<'_> {
             Self::Context(permissions) => Ok(permissions.has_any(&[permission])),
             Self::Denied => Ok(false),
             Self::User(user) => {
-                let cached = user
-                    .resolved
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .clone();
-                let resolved = if let Some(resolved) = cached {
-                    resolved
-                } else {
-                    let queries = TenantPermissionQueries::new(user.db.clone());
-                    let resolved = resolve_effective_permissions(&queries, &user.user_id).await?;
-                    *user
-                        .resolved
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner) =
-                        Some(resolved.clone());
-                    resolved
-                };
+                let resolved = user.resolve().await?;
                 Ok(has_app_permission(&resolved, permission, None))
             }
         }
+    }
+
+    /// The permissions the checks run on (the workspace role's, before any
+    /// legal-entity role); `None` for [`Can::Denied`]. For the record chats of
+    /// WeldBooks' records, whose entity rule starts from them.
+    pub async fn resolved(&self) -> Result<Option<ResolvedPermissions>, DbErr> {
+        match self {
+            Self::Context(permissions) => Ok(Some(permissions.resolved().clone())),
+            Self::Denied => Ok(None),
+            Self::User(user) => Ok(Some(user.resolve().await?)),
+        }
+    }
+}
+
+impl UserPermissions {
+    /// The user's permissions, resolved from the database on first use.
+    async fn resolve(&self) -> Result<ResolvedPermissions, DbErr> {
+        let cached = self
+            .resolved
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        if let Some(resolved) = cached {
+            return Ok(resolved);
+        }
+        let queries = TenantPermissionQueries::new(self.db.clone());
+        let resolved = resolve_effective_permissions(&queries, &self.user_id).await?;
+        *self
+            .resolved
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(resolved.clone());
+        Ok(resolved)
     }
 }
 

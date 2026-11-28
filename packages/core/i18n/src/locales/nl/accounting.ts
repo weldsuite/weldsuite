@@ -43,6 +43,20 @@ export const accounting = {
 
     accounts: {
       title: 'Rekeningschema',
+      transactionsTab: 'Transacties',
+      transactionList: {
+        empty: 'Nog geen geboekte transacties op deze rekening.',
+        failed: 'De transacties konden niet worden geladen.',
+        colDate: 'Datum',
+        colEntry: 'Post',
+        colDescription: 'Omschrijving',
+        colDebit: 'Debet',
+        colCredit: 'Credit',
+        loadMore: 'Meer laden',
+        openEntry: 'Journaalpost {entry} openen',
+        openLedger: 'Grootboek',
+        noRunningBalance: 'Nieuwste eerst. Open het grootboek voor een doorlopend saldo.',
+      },
       pageDescription: 'Beheer uw grootboekrekeningen en rekeninghiërarchie',
       account: 'Rekening',
       accountCode: 'Rekeningcode',
@@ -259,8 +273,15 @@ export const accounting = {
       noBankAccounts: 'Geen bankrekeningen geconfigureerd.',
       upcomingDue: 'Aankomende vervaldatums',
       noUpcomingInvoices: 'Geen aankomende facturen.',
+      dueThisWeek: 'Vervalt deze week',
+      noDueThisWeek: 'Er vervalt deze week niets.',
       recentPayments: 'Recente betalingen',
       noRecentPayments: 'Geen recente betalingen.',
+      latestPayments: 'Laatste betalingen',
+      paymentTypes: {
+        received: 'Ontvangen',
+        sent: 'Betaald',
+      },
       loadingMessage: 'Dashboard wordt geladen. Als dit aanhoudt, probeer dan te vernieuwen.',
       table: {
         invoice: 'Factuur',
@@ -553,10 +574,10 @@ export const accounting = {
     },
 
     bills: {
-      title: 'Facturen',
-      createBill: 'Factuur Aanmaken',
-      editBill: 'Factuur Bewerken',
-      backToBills: 'Terug naar Facturen',
+      title: 'Inkoopfacturen',
+      createBill: 'Inkoopfactuur aanmaken',
+      editBill: 'Inkoopfactuur bewerken',
+      backToBills: 'Terug naar inkoopfacturen',
 
       // Sections
       billInformation: 'Factuurinformatie',
@@ -1974,6 +1995,102 @@ export const accounting = {
       deleted: 'Betaling verwijderd',
     },
 
+    // Het banktransactiepaneel (objecttype `bank_transaction`): één bankregel en waar die aan gekoppeld is
+    bankTransactionPanel: {
+      rowLabel: 'Banktransactie',
+      notFound: 'Banktransactie niet gevonden.',
+      processedAs: {
+        payment: 'Gekoppeld',
+        deposit: 'Gestort',
+        category: 'Geboekt',
+        excluded: 'Genegeerd',
+        unprocessed: 'Te verwerken',
+        transfer: 'Overboeking',
+        private: 'Privé',
+      },
+      fields: {
+        counterparty: 'Tegenpartij',
+        date: 'Datum',
+        bankAccount: 'Bankrekening',
+        reference: 'Kenmerk',
+        description: 'Omschrijving',
+        counterpartyAccount: 'Rekening tegenpartij',
+        source: 'Bron',
+        notes: 'Notities',
+      },
+      sources: {
+        import: 'Afschriftimport',
+        feed: 'Bankkoppeling',
+        manual: 'Handmatig ingevoerd',
+      },
+      detailsTitle: 'Details',
+      connections: {
+        title: 'Koppelingen',
+        none: 'Aan deze transactie is nog niets gekoppeld.',
+        payment: 'Betaling',
+        journalEntry: 'Journaalpost',
+        category: 'Categorie',
+        vatRate: 'Btw-tarief',
+        deposit: 'Storting',
+        contact: 'Contact',
+        documents: 'Documenten',
+        invoiceFallback: 'Factuur',
+        billFallback: 'Inkoopfactuur',
+        accountFallback: 'Grootboekrekening',
+        contactFallback: 'Contact',
+      },
+      actions: {
+        match: 'Koppelen',
+        ignore: 'Negeren',
+        undo: 'Ongedaan maken',
+        openDetails: 'Details openen',
+      },
+      confirmUndo: {
+        title: 'Deze transactie ongedaan maken?',
+        description:
+          'De transactie gaat terug naar Te verwerken. Een betaling of journaalpost die ze aanmaakte wordt teruggedraaid en de documenten die ze betaalde staan weer open.',
+        confirm: 'Ongedaan maken',
+      },
+      confirmIgnore: {
+        title: 'Deze transactie negeren?',
+        description: 'Ze verdwijnt uit Te verwerken en boekt niets. Je kunt dit later ongedaan maken vanuit de transactie.',
+        confirm: 'Negeren',
+      },
+      toasts: {
+        undone: 'Transactie staat weer bij Te verwerken',
+        ignored: 'Transactie genegeerd',
+        failed: 'Die actie is niet gelukt',
+      },
+    },
+
+    // De lijst met nog te verwerken regels op het afstemscherm
+    bankReconcileList: {
+      searchLabel: 'Transacties zoeken',
+      searchPlaceholder: 'Naam, omschrijving of kenmerk',
+      noSearchResults: 'Geen transacties gevonden voor je zoekopdracht.',
+      shownOfTotal: '{shown} van {total} getoond',
+      loadMore: 'Meer laden',
+    },
+
+    // Extra acties van het bankrekeningpaneel
+    bankAccountPanel: {
+      reconcile: 'Afstemmen',
+    },
+
+    // Chips die het ene WeldBooks-record aan het andere koppelen
+    recordLinks: {
+      // Wat een journaalpost boekte (zijn `sourceType`)
+      invoiceFallback: 'Factuur',
+      billFallback: 'Inkoopfactuur',
+      contactFallback: 'Contact',
+      accountFallback: 'Grootboekrekening',
+      commerceOrderField: 'Webshopbestelling',
+      inboxDocument: 'Inboxdocument',
+      linkedTo: 'Gekoppeld aan',
+      orderFallback: 'Bestelling',
+      paymentBankLine: 'Banktransactie',
+    },
+
     // Banking pages
     bankingPages: {
       accountCreated: 'Bankrekening aangemaakt',
@@ -2327,6 +2444,23 @@ export const accounting = {
       personEmailDesc: 'Er bestaat al een persoon met dit e-mailadres: {name}. Koppel dit contact aan die persoon, of maak een apart contact aan.',
       personEmailLink: 'Koppelen aan {name}',
       personEmailSeparate: 'Apart contact aanmaken',
+      pickerSearching: 'Zoeken...',
+      pickerNoResults: 'Geen contacten gevonden',
+      // Documenten, saldo en snelkoppelingen in het contactpaneel
+      connected: {
+        tabInvoices: 'Facturen',
+        tabBills: 'Inkoopfacturen',
+        noInvoices: 'Nog geen facturen voor dit contact.',
+        noBills: 'Nog geen inkoopfacturen voor dit contact.',
+        loadFailed: 'De documenten konden niet worden geladen.',
+        loadMore: 'Meer laden',
+        creditNote: 'Creditnota',
+        toReceive: 'Te ontvangen',
+        overdue: 'Achterstallig',
+        toPay: 'Te betalen',
+        newInvoice: 'Nieuwe factuur',
+        newBill: 'Nieuwe inkoopfactuur',
+      },
       contactCreated: 'Contact aangemaakt',
       contactUpdated: 'Contact bijgewerkt',
       createFailed: 'Contact aanmaken mislukt',
@@ -2339,7 +2473,7 @@ export const accounting = {
       downloadPdf: 'PDF downloaden',
       generatingPdf: 'Genereren...',
       edit: 'Bewerken',
-      send: 'Versturen',
+      send: 'Markeren als verzonden',
       finalizing: 'Afronden...',
       finalize: 'Afronden',
       recordPayment: 'Betaling registreren',
@@ -2504,16 +2638,16 @@ export const accounting = {
 
     // Send invoice dialog
     sendInvoice: {
-      title: 'Factuur versturen',
-      sendToEmail: 'Factuur versturen naar {email}?',
-      noEmailFound: 'Geen e-mailadres gevonden voor dit contact. Weet u zeker dat u deze factuur als verzonden wilt markeren?',
+      title: 'Factuur markeren als verzonden',
       cancel: 'Annuleren',
-      sending: 'Versturen...',
-      send: 'Versturen',
+      sending: 'Markeren...',
+      send: 'Markeren als verzonden',
+      notEmailed:
+        'WeldBooks verstuurt facturen nog niet per e-mail. Download de pdf en verstuur deze zelf; hiermee markeert u de factuur als verzonden.',
       draftWillFinalize:
         'Dit concept wordt gefinaliseerd en in het grootboek geboekt voordat het wordt verstuurd. Daarna kan het niet meer worden bewerkt.',
-      sent: 'Factuur verstuurd',
-      sendFailed: 'Factuur versturen mislukt',
+      sent: 'Factuur gemarkeerd als verzonden',
+      sendFailed: 'Factuur markeren als verzonden mislukt',
     },
 
     // Invoice form (edit)
@@ -2521,9 +2655,8 @@ export const accounting = {
       preview: 'Voorbeeld van de factuur',
       numberOnSave: 'Volgt bij opslaan',
       createDraft: 'Concept aanmaken',
-      createAndSend: 'Aanmaken en versturen',
-      customerHasNoEmail: 'Deze klant heeft geen e-mailadres om de factuur naartoe te sturen',
-      createdNotSent: 'De factuur is als concept opgeslagen, maar kon niet worden verstuurd',
+      createAndSend: 'Aanmaken en als verzonden markeren',
+      createdNotSent: 'De factuur is als concept opgeslagen, maar kon niet als verzonden worden gemarkeerd',
       editInvoice: 'Factuur bewerken',
       newInvoice: 'Nieuwe factuur',
       invoiceNotFound: 'Factuur niet gevonden.',
@@ -2666,6 +2799,8 @@ export const accounting = {
       colDebit: 'Debet',
       colCredit: 'Credit',
       colStatus: 'Status',
+      searchPlaceholder: 'Posten zoeken...',
+      colSource: 'Bron',
       noEntries: 'Geen journaalposten gevonden',
     },
 
@@ -3009,6 +3144,21 @@ export const accounting = {
       colFileName: 'Bestandsnaam',
       colType: 'Type',
       colSource: 'Bron',
+      typeLabels: {
+        purchase_invoice: 'Inkoopfactuur',
+        receipt: 'Bonnetje',
+        bank_statement: 'Bankafschrift',
+        contract: 'Contract',
+        expense_report: 'Onkostendeclaratie',
+        tax_form: 'Belastingformulier',
+        other: 'Overig',
+      },
+      sourceLabels: {
+        upload: 'Upload',
+        email: 'E-mail',
+        scan: 'Scan',
+        api: 'API',
+      },
       colSupplierDetected: 'Leverancier (gedetecteerd)',
       colAmountDetected: 'Bedrag (gedetecteerd)',
       colStatus: 'Status',
@@ -3340,6 +3490,32 @@ export const accounting = {
         reversed: 'Teruggedraaid',
         fallback: 'Journaalpost',
         sourceManual: 'Handmatig',
+      },
+      // Waar een journaalpost vandaan komt (journal_entries.source_type)
+      journalEntrySource: {
+        manual: 'Handmatige boeking',
+        invoice: 'Factuur',
+        credit_note: 'Creditnota',
+        bill: 'Inkoopfactuur',
+        payment: 'Betaling',
+        unapplied_payment: 'Niet toegewezen betaling',
+        payment_fx_adjustment: 'Koersverschil',
+        bank_transaction: 'Banktransactie',
+        bank_reconciliation: 'Bankafstemming',
+        bank_deposit: 'Storting',
+        write_off: 'Afboeking',
+        write_off_recovery: 'Afboeking teruggedraaid',
+        payroll: 'Salaris',
+        fixed_asset: 'Vast actief',
+        fixed_asset_depreciation: 'Afschrijving',
+        tax_return: 'Belastingaangifte',
+        journal: 'Journaal',
+        account: 'Rekening',
+        transfer: 'Overboeking',
+        purchase_order: 'Inkooporder',
+        pick_list: 'Pickbon',
+        bill_credit_note: 'Inkoopcreditnota',
+        bad_debt: 'Oninbare vordering',
       },
       // BTW-aangiftestatussen die nog niet gedekt worden door vat.statuses
       vatReturn: {

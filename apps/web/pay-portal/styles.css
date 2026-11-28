@@ -1,0 +1,137 @@
+@import "@weldsuite/ui/globals.css";
+@import "@fontsource-variable/inter";
+
+/* Tailwind finds class names by scanning this folder, minus what .gitignore
+   lists. The image build (rust/Dockerfile) has no .gitignore, so the server
+   build would also scan the client build's output in dist/, make different
+   CSS, and link a stylesheet under a hash the client never wrote. */
+@source not "./dist";
+
+body {
+  font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Lines of the document: a table from tablet width, a stack of labelled rows on a phone. */
+table.lines {
+  border-collapse: collapse;
+}
+table.lines th,
+table.lines td {
+  padding: 0.5rem 0.5rem;
+  vertical-align: top;
+}
+table.lines thead th {
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+table.lines tbody tr + tr > * {
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 39.99rem) {
+  table.lines thead {
+    position: absolute;
+    clip-path: inset(50%);
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+  }
+  table.lines,
+  table.lines tbody,
+  table.lines tr {
+    display: block;
+  }
+  table.lines tr {
+    padding-block: 0.75rem;
+  }
+  table.lines tr + tr {
+    border-top: 1px solid var(--border);
+  }
+  table.lines tbody tr + tr > * {
+    border-top: 0;
+  }
+  table.lines th,
+  table.lines td {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.125rem 0;
+  }
+  table.lines th {
+    font-weight: 600;
+  }
+  table.lines td::before {
+    content: attr(data-label);
+    color: var(--muted-foreground);
+  }
+}
+
+/* A loading spinner on the native <progress>: indeterminate, announced as busy, still under reduced motion. */
+progress.loading-spinner {
+  appearance: none;
+  inline-size: 1rem;
+  block-size: 1rem;
+  flex: none;
+  border: 2px solid color-mix(in oklab, currentColor 25%, transparent);
+  border-block-start-color: currentColor;
+  border-radius: 50%;
+  background: none;
+  animation: spinner-turn 1s linear infinite;
+}
+progress.loading-spinner::-webkit-progress-bar,
+progress.loading-spinner::-webkit-progress-value {
+  background: none;
+}
+progress.loading-spinner::-moz-progress-bar {
+  background: none;
+}
+@keyframes spinner-turn {
+  to {
+    rotate: 1turn;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  progress.loading-spinner {
+    animation-duration: 6s;
+  }
+}
+@media (forced-colors: active) {
+  progress.loading-spinner {
+    forced-color-adjust: none;
+    border-color: GrayText;
+    border-block-start-color: CanvasText;
+  }
+}
+
+/* On paper: the document alone, in black on white, rows kept whole. */
+@page {
+  margin: 14mm;
+}
+@media print {
+  body {
+    background: #fff;
+    color: #000;
+  }
+  .document {
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+    background: #fff;
+    color: #000;
+  }
+  table.lines tr,
+  .totals {
+    break-inside: avoid;
+  }
+  table.lines thead {
+    display: table-header-group;
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+}

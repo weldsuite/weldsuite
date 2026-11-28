@@ -15,12 +15,13 @@ import { Label } from '@weldsuite/ui/components/label';
 import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
 import { SearchInput } from '@weldsuite/ui/components/search-input';
 import { toast } from 'sonner';
+import { RecordLink } from '@/components/object-panel/record-link';
 import { ledgerCategoryAccounts } from '@/components/accounting/categorize-bank-transaction-panel';
 import { GapChoiceFieldset } from '@/components/accounting/gap-choice-fieldset';
 import { useDebounce } from '@/hooks/use-debounce';
 import { useMatchBankLineToDocuments, useOpenDocumentsForLine } from '@/hooks/queries/use-weldbooks-banking-queries';
 import type { Account } from '@/lib/api/domains/weldbooks';
-import type { OpenDocument } from '@/lib/api/domains/weldbooks-banking';
+import type { MatchDocumentsResult, OpenDocument } from '@/lib/api/domains/weldbooks-banking';
 import { useI18n } from '@/lib/i18n/provider';
 import {
   defaultShare,
@@ -48,7 +49,8 @@ interface MatchDocumentsPanelProps {
   currency: string;
   ledgerAccounts: Account[];
   readOnly: boolean;
-  onMatched: () => void;
+  /** Called with the server's answer, which names a rounding difference it booked on its own. */
+  onMatched: (result: MatchDocumentsResult) => void;
 }
 
 /** A refused submit, and the document it is about. */
@@ -97,21 +99,35 @@ function OpenDocumentList({
             <Checkbox
               id={id}
               className="mt-0.5"
+              aria-label={numberOf(doc, tl)}
               checked={pickedIds.has(doc.id)}
               disabled={readOnly}
               onCheckedChange={(value) => onToggle(doc, value === true)}
             />
-            <label htmlFor={id} className="grid min-w-0 flex-1 cursor-pointer grid-cols-[minmax(0,1fr)_auto] gap-x-2">
-              <span className="truncate text-sm font-medium">
-                {numberOf(doc, tl)}
-                <span className="ml-1.5 text-xs font-normal text-muted-foreground">{tl.types[doc.type]}</span>
+            <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1">
+              {/* The document and its contact open as panels, so they can be checked before matching. */}
+              <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <RecordLink
+                  type={doc.type === 'bill' ? 'bill' : 'invoice'}
+                  id={doc.id}
+                  label={numberOf(doc, tl)}
+                  secondary={tl.types[doc.type]}
+                />
               </span>
-              <span className="text-right text-sm tabular-nums">{formatMoney(doc.openAmount, doc.currency)}</span>
-              <span className="truncate text-xs text-muted-foreground">{doc.contactName}</span>
-              <span className="text-right text-xs tabular-nums text-muted-foreground">
+              <label htmlFor={id} className="cursor-pointer text-right text-sm tabular-nums">
+                {formatMoney(doc.openAmount, doc.currency)}
+              </label>
+              <span className="flex min-w-0 items-center">
+                {doc.contactId && doc.contactName ? (
+                  <RecordLink type="weldbooks_contact" id={doc.contactId} label={doc.contactName} />
+                ) : (
+                  <span className="truncate text-xs text-muted-foreground">{doc.contactName}</span>
+                )}
+              </span>
+              <label htmlFor={id} className="cursor-pointer text-right text-xs tabular-nums text-muted-foreground">
                 {doc.dueDate ? tl.due.replace('{date}', formatDate(doc.dueDate)) : null}
-              </span>
-            </label>
+              </label>
+            </div>
           </li>
         );
       })}
@@ -268,9 +284,9 @@ export function MatchDocumentsPanel({
     match.mutate(
       { lineId, data: plan.body },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
           toast.success(tl.matched);
-          onMatched();
+          onMatched(result.data);
         },
       },
     );

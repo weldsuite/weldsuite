@@ -56,6 +56,7 @@ import {
 } from '@/lib/weldbooks/document-tax-form';
 import { NO_TAX_RATE } from '@/lib/weldbooks/document-tax';
 import { defaultTaxRateId, taxRateLabel, taxRatesFor } from '@/lib/weldbooks/tax-rate-options';
+import { ContactPicker } from '@/components/accounting/contact-picker';
 import { DocumentCurrencyFields } from '@/components/accounting/document-currency-fields';
 import { isValidHsnSac } from '@/lib/weldbooks/gst';
 import {
@@ -265,28 +266,24 @@ function previewCustomerOf(
 }
 
 /**
- * "Create and send": held back while the company details an invoice needs are missing, or the
- * picked customer has no email address to send to.
+ * "Create and mark as sent": held back while the company details an invoice needs are missing.
+ * Nothing is e-mailed (the invoice is only finalized and marked sent), so a customer without an
+ * email address is no reason to hold it back.
  */
-function createAndSendAction(
-  customer: PreviewCustomer,
-  texts: {
-    label: string;
-    pendingText: string;
-    noEmail: string;
-    /** Why the company details hold it back; undefined when they are complete. */
-    detailsMissing: string | undefined;
-    pending: boolean;
-    onClick: () => void;
-  },
-) {
-  const noEmail = customer !== null && !customer.email;
+function createAndSendAction(texts: {
+  label: string;
+  pendingText: string;
+  /** Why the company details hold it back; undefined when they are complete. */
+  detailsMissing: string | undefined;
+  pending: boolean;
+  onClick: () => void;
+}) {
   return {
     label: texts.label,
     pendingText: texts.pendingText,
     pending: texts.pending,
-    disabled: noEmail || texts.detailsMissing !== undefined,
-    title: texts.detailsMissing ?? (noEmail ? texts.noEmail : undefined),
+    disabled: texts.detailsMissing !== undefined,
+    title: texts.detailsMissing,
     onClick: texts.onClick,
   };
 }
@@ -315,6 +312,8 @@ function useInvoiceDetailsGate(mode: 'add' | 'edit') {
 interface InvoiceFormProps {
   mode: 'add' | 'edit';
   invoice?: InvoiceDetail;
+  /** A new invoice starts with this customer picked (the contact panel's "New invoice"). */
+  initialContactId?: string;
 }
 
 /** A line with a product picked: the product names it and prices it when the line has no price yet. */
@@ -475,14 +474,12 @@ function addressNeededNotice(salesTax: boolean, addressIncomplete: boolean | und
 
 /** The customer picker, or the offer to add the first customer when there are none. */
 function CustomerSelectField({
-  contacts,
   noCustomers,
   value,
   onChange,
   onAddCustomer,
   error,
 }: Readonly<{
-  contacts: ReadonlyArray<{ id: string; name?: string | null; email?: string | null }>;
   noCustomers: boolean;
   value: string;
   onChange: (contactId: string) => void;
@@ -502,18 +499,15 @@ function CustomerSelectField({
           </Button>
         </div>
       ) : (
-        <Select value={value} onValueChange={onChange}>
-          <SelectTrigger id="contactId" className="shadow-none">
-            <SelectValue placeholder={tf.selectCustomer} />
-          </SelectTrigger>
-          <SelectContent>
-            {contacts.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name || c.email || c.id}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <ContactPicker
+          id="contactId"
+          role="customer"
+          value={value}
+          onChange={onChange}
+          placeholder={tf.selectCustomer}
+          searchPlaceholder={t.accounting.customersPage.searchPlaceholder}
+          invalid={Boolean(error)}
+        />
       )}
       <FormFieldError message={error} />
     </div>
@@ -553,6 +547,7 @@ function buildInvoiceDefaultValues(
   stored: InvoiceWithTax | undefined,
   templateId: string | null | undefined,
   issueDate: string,
+  initialContactId = '',
 ) {
   if (mode === 'edit' && stored) {
     const billing = normalizeAccountingAddress(stored.billingAddress);
@@ -583,7 +578,7 @@ function buildInvoiceDefaultValues(
     };
   }
   return {
-    contactId: '',
+    contactId: initialContactId,
     issueDate,
     dueDate: addDaysToIsoDate(issueDate, DEFAULT_PAYMENT_TERMS_DAYS),
     reference: '',
@@ -605,7 +600,7 @@ function buildInvoiceDefaultValues(
   };
 }
 
-export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
+export function InvoiceForm({ mode, invoice, initialContactId }: Readonly<InvoiceFormProps>) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   /** "Create and send" is running (as opposed to a plain save). */
@@ -646,12 +641,12 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
 
   // Invoices only go to customers — exclude suppliers. Backend expands
   // role=customer to include "both"-role contacts, so dual-role parties qualify.
-  const { data: contactsData, isLoading: contactsLoading } = useAccountingCustomers({ role: 'customer' });
+  // The picker searches the server as you type; this one row only tells whether there is any customer at all.
+  const { data: contactsData, isLoading: contactsLoading } = useAccountingCustomers({ role: 'customer', pageSize: 1 });
   const { data: taxRatesData } = useAccountingTaxRates();
 
-  const contacts = useMemo(() => contactsData?.data ?? [], [contactsData]);
   // Customers have loaded and there are none: the picker offers to add the first one instead.
-  const noCustomers = !contactsLoading && !!contactsData && contacts.length === 0;
+  const noCustomers = !contactsLoading && !!contactsData && (contactsData.data ?? []).length === 0;
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   // An invoice takes sales (and both) rates only.
   const taxRates = useMemo(() => taxRatesFor(taxRatesData?.data ?? [], 'sales'), [taxRatesData]);
@@ -667,8 +662,8 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
 
   // Build default values
   const defaultValues = useMemo(
-    () => buildInvoiceDefaultValues(mode, stored, invoice?.templateId, today()),
-    [mode, stored, invoice?.templateId, today],
+    () => buildInvoiceDefaultValues(mode, stored, invoice?.templateId, today(), initialContactId),
+    [mode, stored, invoice?.templateId, today, initialContactId],
   );
 
   const form = useForm({
@@ -828,7 +823,8 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   // Selected contact label
   // ---------------------------------------------------------------------------
 
-  const selectedContact = contacts.find((c) => c.id === watchedContactId);
+  // The picked customer is read by its own id: the picker's list is only a page of them.
+  const selectedContact = selectedContactData?.data;
   const contactLabel = selectedContact?.name ?? selectedContact?.email ?? '';
 
   const entityAddress = normalizeAccountingAddress(entity?.address);
@@ -852,7 +848,6 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
           />
           {isCreditMemo && <InfoBanner variant="info">{td.form.creditMemoNote}</InfoBanner>}
           <CustomerSelectField
-            contacts={contacts}
             noCustomers={noCustomers}
             value={form.watch('contactId')}
             onChange={(val) => {
@@ -1204,10 +1199,9 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   // A new invoice is saved as a draft, or saved and sent in one go.
   const canCreateAndSend = canCreateAndSendInvoice(mode, isCreditMemo);
   const sendAction = onlyWhen(canCreateAndSend, () =>
-    createAndSendAction(previewCustomer, {
+    createAndSendAction({
       label: tf.createAndSend,
       pendingText: t.accounting.sendInvoice.sending,
-      noEmail: tf.customerHasNoEmail,
       detailsMissing: sendBlocked,
       pending: isPending && sending,
       onClick: () => void form.handleSubmit((values) => onSubmit(values, 'send'))(),

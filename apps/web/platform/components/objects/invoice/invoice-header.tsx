@@ -30,10 +30,17 @@ import {
 import { useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
 import { StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import type { InvoiceWithTax } from '@/lib/api/domains/weldbooks-sales-tax-preview';
+import { isInvoiceEmailAvailable } from '@/hooks/queries/use-weldbooks-sales-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 import type { InvoiceCapabilities } from './invoice-capabilities';
 import type { InvoiceStatusDialog } from './use-invoice-workflow';
+
+/** "Send" where the edition e-mails invoices, else "Mark as sent". */
+export function useSendLabel(): string {
+  const { t } = useI18n();
+  return isInvoiceEmailAvailable() ? t.weldbooksSales.send.button : t.accounting.invoiceDetail.send;
+}
 
 export function InvoiceTitle({ invoice }: Readonly<{ invoice?: InvoiceWithTax }>) {
   const { t } = useI18n();
@@ -82,6 +89,7 @@ export function InvoiceHeaderActions({
   const ti = t.accounting.invoiceDetail;
   const { labels } = useJurisdictionLabels();
   const copyLink = useCopyPanelLink('/weldbooks/invoices', 'invoice', invoice?.id ?? '');
+  const sendLabel = useSendLabel();
   if (!invoice || !caps) return null;
   const hasStateActions = caps.canCreateCreditMemo || caps.canWriteOff || caps.canCancel || caps.canDelete;
 
@@ -134,7 +142,7 @@ export function InvoiceHeaderActions({
           {caps.canSend ? (
             <DropdownMenuItem onClick={onSend}>
               <SendHorizontal />
-              {ti.send}
+              {sendLabel}
             </DropdownMenuItem>
           ) : null}
           {hasStateActions ? <DropdownMenuSeparator /> : null}
@@ -207,6 +215,7 @@ export function InvoiceActionBar({
 }>) {
   const { t } = useI18n();
   const ti = t.accounting.invoiceDetail;
+  const sendLabel = useSendLabel();
   const showSend = !caps.isDraft && caps.canSend;
   const showRecord = !caps.isDraft && caps.canRecordPayment;
   // Nothing to do from a settled invoice: no empty bar under the title.
@@ -216,7 +225,7 @@ export function InvoiceActionBar({
       {showSend ? (
         <Button variant="outline" size="sm" onClick={onSend}>
           <SendHorizontal className="mr-1 h-4 w-4" />
-          {ti.send}
+          {sendLabel}
         </Button>
       ) : null}
       {showRecord ? (

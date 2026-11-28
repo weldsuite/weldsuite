@@ -248,6 +248,10 @@ export type BankLine = BankTransaction & {
   source?: BankLineSource | null;
   depositId?: string | null;
   reconciledPaymentId?: string | null;
+  notes?: string | null;
+  /** Rust only (`books-questions`): the accountant's review mark on the line's booking, on the automatic lists. */
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
 };
 
 export interface BankLineFilters {
@@ -259,11 +263,91 @@ export interface BankLineFilters {
   checkNumber?: string;
   source?: BankLineSource;
   depositId?: string;
+  /** Rust only (`books-bank-processing`): lines a rule or auto-link booked (`true`). */
+  processedAutomatically?: boolean;
+  /** Rust only (`books-questions`), with `processedAutomatically`: the lines whose booking is reviewed (`true`) or not (`false`). */
+  reviewed?: boolean;
   page?: number;
   pageSize?: number;
 }
 
 export type BankLinePage = CursorPage<BankLine>;
+
+/** How a bank line was processed (`GET /bank-transactions/:id/links` → `processedAs`). */
+export type BankLineProcessedAs =
+  | 'payment'
+  | 'deposit'
+  | 'category'
+  | 'transfer'
+  | 'private'
+  | 'excluded'
+  | 'unprocessed';
+
+/** Why a line was booked automatically (`books-bank-processing`). */
+export type BankLineAutoReason = 'document_match' | 'own_account_transfer' | 'tax_authority' | 'rule';
+
+/**
+ * What one bank line is connected to, everything expanded
+ * (`GET /bank-transactions/:id/links`, Rust only: edition feature `books-bank-links`).
+ * Every key is always present. Amounts are numeric strings, dates are ISO.
+ */
+export interface BankLineLinks {
+  transaction: BankLine;
+  processedAs: BankLineProcessedAs;
+  payment: {
+    id: string;
+    type: string;
+    amount: string;
+    currency: string | null;
+    date: string;
+    method: string | null;
+    reference: string | null;
+    journalEntryId: string | null;
+  } | null;
+  /** Can be filled while `payment` is null: lines reconciled by the Moneybird or Stripe import. */
+  allocations: Array<{
+    documentType: 'invoice' | 'bill';
+    documentId: string;
+    number: string | null;
+    contactId: string | null;
+    contactName: string | null;
+    amount: string;
+    status: string | null;
+  }>;
+  journalEntry: {
+    id: string;
+    entryNumber: string | null;
+    date: string;
+    description: string | null;
+    sourceType: string | null;
+    sourceId: string | null;
+  } | null;
+  deposit: { id: string; date: string; amount: string; reference: string | null } | null;
+  category: {
+    accountId: string;
+    accountCode: string | null;
+    accountName: string | null;
+    taxRateId: string | null;
+    taxRateName: string | null;
+  } | null;
+  contact: { id: string; name: string | null } | null;
+  documents: Array<{ id: string; fileName: string; type: string | null; status: string | null }>;
+  /** Rust only (`books-bank-processing`): booked without a person. Absent elsewhere. */
+  automatic?: boolean;
+  reason?: BankLineAutoReason | null;
+  /** The rule that booked it, when `reason` is `rule`. */
+  rule?: { id: string; name: string } | null;
+  /** A transfer between own accounts: the line on the other account, once it has arrived. */
+  transfer?: {
+    counterpart: {
+      id: string;
+      bankAccountId: string;
+      date: string;
+      amount: string;
+      description: string | null;
+    } | null;
+  } | null;
+}
 
 export type SuggestionType = 'invoice' | 'bill' | 'payment' | 'deposit' | 'rule';
 
@@ -319,6 +403,8 @@ export interface MatchDocumentsResult {
   status: string;
   paymentId: string;
   journalEntryId: string | null;
+  /** Rust only: a gap within the entity's rounding cap was booked to the rounding account. */
+  roundingDifference?: { accountId: string; amount: string } | null;
 }
 
 /** An unmatched bank line that could have paid a document (`GET /bank-transactions/for-document`). */
@@ -673,6 +759,10 @@ export const bankingApi = {
   unreconcileLine: (id: string) =>
     weldbooksApi.post<Envelope<{ id: string; status: string }>>(`/bank-transactions/${id}/unreconcile`),
   getBankLine: (id: string) => weldbooksApi.get<Envelope<BankLine>>(`/bank-transactions/${id}`),
+  /** Rust only (`books-bank-links`): the line with everything it is connected to. */
+  getBankLineLinks: (id: string) => weldbooksApi.get<Envelope<BankLineLinks>>(`/bank-transactions/${id}/links`),
+  /** Ignore a line: it leaves the to-process list and books nothing. */
+  excludeBankLine: (id: string) => weldbooksApi.post<Envelope<unknown>>(`/bank-transactions/${id}/exclude`),
   openDocuments: (id: string, search?: string) =>
     weldbooksApi.get<Envelope<OpenDocument[]>>(
       `/bank-transactions/${id}/open-documents${buildQuery({ search: search || undefined })}`,

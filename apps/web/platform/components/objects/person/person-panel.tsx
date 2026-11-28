@@ -115,7 +115,9 @@ import {
 import { LinkCompanyPopover } from './link-company-popover';
 import { PersonChat } from './person-chat';
 import { WebsiteActivityCard } from './website-activity-card';
-import { PERSON_TABS, type PersonTab } from './person-tabs';
+import { type PersonTab } from './person-tabs';
+import { usePersonTabList } from './use-person-tab-list';
+import { CrmFinanceTab } from '@/components/objects/_shared/crm-finance-tab';
 import type { Person } from '@weldsuite/core-api-client/schemas/people';
 
 const PERSON_PANEL_WIDTH = 400;
@@ -328,9 +330,11 @@ function PersonPanelTabsBar({
   companyCount,
   isTabVisible,
   extraTabs,
+  tabList,
 }: Readonly<{
   activeTab: string;
   setActiveTab: (id: string) => void;
+  tabList: readonly PersonTab[];
   companyCount: number;
   isTabVisible: (id: string) => boolean;
   extraTabs?: readonly PersonPanelExtraTab[];
@@ -338,14 +342,14 @@ function PersonPanelTabsBar({
   const tabs = useMemo(
     () => [
       ...(extraTabs ?? []).map((t) => ({ id: t.id, label: t.label, icon: t.icon })),
-      ...PERSON_TABS.filter((t) => isTabVisible(t.id)).map((t) => ({
+      ...tabList.filter((t) => isTabVisible(t.id)).map((t) => ({
         id: t.id,
         label: t.label,
         icon: t.icon,
         count: t.id === 'companies' ? companyCount : undefined,
       })),
     ],
-    [extraTabs, isTabVisible, companyCount],
+    [extraTabs, isTabVisible, companyCount, tabList],
   );
 
   return <ObjectPanelTabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />;
@@ -744,12 +748,13 @@ export function PersonPanel({ extraTabs, ...props }: Readonly<PersonPanelProps>)
     });
   }, [person, archiveMut, unarchiveMut, st]);
 
+  const panelTabs = usePersonTabList();
   const initial: string = useMemo(() => {
-    if (initialTab && PERSON_TABS.some((t) => t.id === initialTab)) {
+    if (initialTab && panelTabs.some((t) => t.id === initialTab)) {
       return initialTab;
     }
     return extraTabs?.[0]?.id ?? 'overview';
-  }, [initialTab, extraTabs]);
+  }, [initialTab, extraTabs, panelTabs]);
   const [activeTab, setActiveTab] = useState<string>(initial);
   const isExtraTab = (extraTabs ?? []).some((t) => t.id === activeTab);
 
@@ -758,7 +763,7 @@ export function PersonPanel({ extraTabs, ...props }: Readonly<PersonPanelProps>)
   // strip stays a presentational consumer.
   const tabConfigEntries = useMemo<TabConfigEntry[]>(
     () =>
-      PERSON_TABS.map((t) => ({
+      panelTabs.map((t) => ({
         id: t.id,
         label: t.label,
         required: t.required,
@@ -767,7 +772,7 @@ export function PersonPanel({ extraTabs, ...props }: Readonly<PersonPanelProps>)
             ? (t.defaultVisibleInPanel ?? false)
             : (t.defaultVisibleInFullscreen ?? false),
       })),
-    [mode],
+    [mode, panelTabs],
   );
 
   const {
@@ -782,9 +787,9 @@ export function PersonPanel({ extraTabs, ...props }: Readonly<PersonPanelProps>)
 
   useEffect(() => {
     if (isExtraTab || isTabVisible(activeTab)) return;
-    const fallback = extraTabs?.[0] ?? PERSON_TABS.find((t) => isTabVisible(t.id));
+    const fallback = extraTabs?.[0] ?? panelTabs.find((t) => isTabVisible(t.id));
     if (fallback && fallback.id !== activeTab) setActiveTab(fallback.id);
-  }, [activeTab, isExtraTab, isTabVisible, extraTabs]);
+  }, [activeTab, isExtraTab, isTabVisible, extraTabs, panelTabs]);
 
   const chatSidebar = (
     <PersonChat personId={id} personName={person?.displayName} />
@@ -828,6 +833,7 @@ export function PersonPanel({ extraTabs, ...props }: Readonly<PersonPanelProps>)
           companyCount={employments.length}
           isTabVisible={isTabVisible}
           extraTabs={extraTabs}
+          tabList={panelTabs}
         />
       }
       sidebarFitContent={chatIsEmpty}
@@ -854,6 +860,19 @@ export function PersonPanel({ extraTabs, ...props }: Readonly<PersonPanelProps>)
           personId={person.id}
           employments={employments}
           onOpenCompany={(companyId) => openPanel({ type: 'company', id: companyId, stack: true })}
+        />
+      )}
+      {person && activeTab === 'finance' && (
+        <CrmFinanceTab
+          target={{
+            kind: 'person',
+            id: person.id,
+            name: person.displayName,
+            firstName: person.firstName,
+            lastName: person.lastName,
+            email: person.email,
+            phone: person.directPhone || person.mobilePhone,
+          }}
         />
       )}
       {person && activeTab === 'notes' && (

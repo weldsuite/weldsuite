@@ -1,6 +1,7 @@
 import { useEffect, useState, type ComponentProps, type ReactNode } from 'react';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { InlineSpinner, PageLoader } from '@weldsuite/ui/components/page-loader';
+import { SearchInput } from '@weldsuite/ui/components/search-input';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
@@ -11,13 +12,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import { ArrowLeft, CheckCircle2, ClipboardCheck, XCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, ClipboardCheck, PanelRightOpen, XCircle } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useAccountingAccounts } from '@/hooks/queries/use-accounting-queries';
+import { useDebounce } from '@/hooks/use-debounce';
 import {
   useBankAccounts,
-  useBankLines,
+  useBankLine,
   useBankLineSuggestions,
+  useInfiniteBankLines,
   useMatchBankLineToDeposit,
   useMatchBankLineToPayment,
 } from '@/hooks/queries/use-weldbooks-banking-queries';
@@ -116,6 +120,7 @@ function MatchSuggestionsCard({
   onCategorize,
   excludePending,
   onExclude,
+  onOpenDetails,
   matchDocuments,
 }: Readonly<{
   /** Searching any open document and matching several at once, where the edition offers it. */
@@ -134,15 +139,23 @@ function MatchSuggestionsCard({
   onCategorize: (categoryAccountId: string) => void;
   excludePending: boolean;
   onExclude: () => void;
+  /** Opens the selected line's panel, to see everything it is connected to. */
+  onOpenDetails: () => void;
 }>) {
   const { t } = useI18n();
   const tbp = t.accounting.bankingPages;
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
         <CardTitle className="text-base">
           {selectedTxnId ? tbp.matchSuggestions : tbp.selectTransaction}
         </CardTitle>
+        {selectedTxnId ? (
+          <Button variant="outline" size="sm" onClick={onOpenDetails} data-testid="open-line-details">
+            <PanelRightOpen className="mr-1 h-4 w-4" />
+            {t.accounting.bankTransactionPanel.actions.openDetails}
+          </Button>
+        ) : null}
       </CardHeader>
       <CardContent>
         {!selectedTxnId ? (
@@ -198,46 +211,13 @@ function MatchSuggestionsCard({
   );
 }
 
-export default function BankReconciliationPage() {
-  const navigate = useNavigate();
-  const search = useSearch({ strict: false }) as { accountId?: string };
-  const { data: bankAccountsData } = useBankAccounts();
-  const bankAccounts = bankAccountsData?.data ?? [];
-  const [selectedAccountId, setSelectedAccountId] = useState(search.accountId ?? '');
-
-  // Nothing to choose with a single bank account.
-  const onlyAccountId = bankAccounts.length === 1 ? bankAccounts[0].id : '';
-  useEffect(() => {
-    if (!selectedAccountId && onlyAccountId) setSelectedAccountId(onlyAccountId);
-  }, [selectedAccountId, onlyAccountId]);
-  const [selectedTxnId, setSelectedTxnId] = useState<string | null>(null);
+/** The mutations of the page, and the errors they leave to show. */
+function useReconcileActions(
+  selectedAccountId: string,
+  selectedTxnId: string | null,
+  setSelectedTxnId: (id: string | null) => void,
+) {
   const qc = useQueryClient();
-  const { t } = useI18n();
-  const tbp = t.accounting.bankingPages;
-  const tsl = t.accounting.statusLabels;
-  const tl = t.weldbooksUs.banking.lines;
-  const tr = t.weldbooksUs.banking.reconciliationPage;
-  const { can } = usePermissions();
-  const { code: jurisdictionCode } = useCurrentJurisdiction();
-  const isUs = isUsJurisdictionCode(jurisdictionCode);
-  const bankLinks = isFeatureAvailable('books-bank-links');
-  const { formatMoney: fmt, formatDate, currency: entityCurrency } = useWeldbooksFormat();
-
-  const { data: txnData, isLoading } = useBankLines(
-    selectedAccountId ? { bankAccountId: selectedAccountId, status: 'unreconciled' } : undefined,
-  );
-  const { data: accountsData } = useAccountingAccounts();
-  const ledgerAccounts = (accountsData?.data ?? []) as Account[];
-  const transactions = txnData?.data ?? [];
-
-  // Suggestions for the selected bank line
-  const { data: suggestions = [] } = useBankLineSuggestions(selectedTxnId);
-  const selectedAccount = bankAccounts.find((ba) => ba.id === selectedAccountId);
-  // Money out is not a customer payment: the categorize box speaks of bank fees and tax, not of invoices.
-  const selectedTxn = transactions.find((txn) => txn.id === selectedTxnId);
-  const moneyOut = selectedTxn ? Number(selectedTxn.amount) < 0 : false;
-  const displayCurrency = selectedAccount?.currency || entityCurrency;
-
   const reconcileMutation = useMutation({
     mutationFn: ({ txnId, data }: { txnId: string; data: Record<string, unknown> }) =>
       accountingApi.reconcileTransaction(txnId, data),
@@ -292,33 +272,150 @@ export default function BankReconciliationPage() {
     }
   };
 
-  const accountLabel = (ba: (typeof bankAccounts)[number]) =>
-    `${ba.name} — ${ba.accountNumberLast4 ? maskedAccountNumber(ba.accountNumberLast4) : (ba.iban ?? '')}`;
+  return { reconcileMutation, excludeMutation, autoReconcileMutation, matching, categorizeError, matchError, handleMatch };
+}
 
+/** The unreconciled lines: loading, empty, or the list with Load more. */
+function TransactionList({
+  transactions,
+  isLoading,
+  search,
+  selectedTxnId,
+  onSelect,
+  totalCount,
+  currency,
+  linesQuery,
+}: Readonly<{
+  transactions: BankLine[];
+  isLoading: boolean;
+  search: string;
+  selectedTxnId: string | null;
+  onSelect: (id: string) => void;
+  totalCount: number;
+  currency: string | null | undefined;
+  linesQuery: Pick<ReturnType<typeof useInfiniteBankLines>, 'hasNextPage' | 'isFetchingNextPage' | 'fetchNextPage'>;
+}>) {
+  const { t } = useI18n();
+  const tbp = t.accounting.bankingPages;
+  const tsl = t.accounting.statusLabels;
+  const tl = t.weldbooksUs.banking.lines;
+  const { formatMoney: fmt, formatDate } = useWeldbooksFormat();
   let transactionList: ReactNode;
   if (isLoading) {
     transactionList = <div className="p-4"><PageLoader fullScreen={false} /></div>;
   } else if (transactions.length === 0) {
-    transactionList = <p className="p-4 text-sm text-muted-foreground">{tbp.allReconciled}</p>;
+    transactionList = (
+      <p className="p-4 text-sm text-muted-foreground">
+        {search ? t.accounting.bankReconcileList.noSearchResults : tbp.allReconciled}
+      </p>
+    );
   } else {
     transactionList = (
-      <div className="max-h-[60vh] overflow-y-auto">
+      <div className="max-h-[60vh] overflow-y-auto" data-testid="reconcile-lines">
         {transactions.map((txn) => (
           <ReconcileLineButton
             key={txn.id}
             txn={txn}
             selected={selectedTxnId === txn.id}
             unknownLabel={tsl.counterpartyUnknown}
-            amountLabel={fmt(txn.amount, displayCurrency)}
+            amountLabel={fmt(txn.amount, currency)}
             dateLabel={formatDate(txn.date)}
             checkNumberLabel={txn.checkNumber ? tl.checkNumberBadge.replace('{number}', txn.checkNumber) : null}
             sourceLabel={txn.source ? tl.sources[txn.source] : null}
-            onSelect={() => setSelectedTxnId(txn.id)}
+            onSelect={() => onSelect(txn.id)}
           />
         ))}
+        {linesQuery.hasNextPage ? (
+          <div className="flex flex-col items-center gap-1 p-3">
+            <p className="text-xs text-muted-foreground" role="status">
+              {t.accounting.bankReconcileList.shownOfTotal
+                .replace('{shown}', String(transactions.length))
+                .replace('{total}', String(totalCount))}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void linesQuery.fetchNextPage()}
+              disabled={linesQuery.isFetchingNextPage}
+              data-testid="reconcile-load-more"
+            >
+              {linesQuery.isFetchingNextPage ? <InlineSpinner className="mr-1" /> : null}
+              {t.accounting.bankReconcileList.loadMore}
+            </Button>
+          </div>
+        ) : null}
       </div>
     );
   }
+  return transactionList;
+}
+
+export default function BankReconciliationPage() {
+  const navigate = useNavigate();
+  const search = useSearch({ strict: false }) as { accountId?: string; lineId?: string };
+  const { data: bankAccountsData } = useBankAccounts();
+  const bankAccounts = bankAccountsData?.data ?? [];
+  const [selectedAccountId, setSelectedAccountId] = useState(search.accountId ?? '');
+
+  // Nothing to choose with a single bank account.
+  const onlyAccountId = bankAccounts.length === 1 ? bankAccounts[0].id : '';
+  useEffect(() => {
+    if (!selectedAccountId && onlyAccountId) setSelectedAccountId(onlyAccountId);
+  }, [selectedAccountId, onlyAccountId]);
+  // `?lineId=` comes from the bank transaction panel's Match: that line is selected on arrival.
+  const [selectedTxnId, setSelectedTxnId] = useState<string | null>(search.lineId ?? null);
+  const [lineSearch, setLineSearch] = useState('');
+  const debouncedSearch = useDebounce(lineSearch.trim(), 300);
+  // Lines open in the shared panel, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/banking/reconciliation');
+  const { t } = useI18n();
+  const tbp = t.accounting.bankingPages;
+  const tr = t.weldbooksUs.banking.reconciliationPage;
+  const { can } = usePermissions();
+  const { code: jurisdictionCode } = useCurrentJurisdiction();
+  const isUs = isUsJurisdictionCode(jurisdictionCode);
+  const bankLinks = isFeatureAvailable('books-bank-links');
+  const { formatMoney: fmt, currency: entityCurrency } = useWeldbooksFormat();
+
+  // Every unreconciled line, page by page; the count is the server's total, not what has loaded.
+  const linesQuery = useInfiniteBankLines(
+    selectedAccountId
+      ? { bankAccountId: selectedAccountId, status: 'unreconciled', search: debouncedSearch || undefined }
+      : undefined,
+  );
+  const isLoading = linesQuery.isLoading;
+  const { data: accountsData } = useAccountingAccounts();
+  const ledgerAccounts = (accountsData?.data ?? []) as Account[];
+  const transactions = linesQuery.data?.lines ?? [];
+  const totalCount = linesQuery.data?.totalCount ?? 0;
+
+  // Suggestions for the selected bank line
+  const { data: suggestions = [] } = useBankLineSuggestions(selectedTxnId);
+  const selectedAccount = bankAccounts.find((ba) => ba.id === selectedAccountId);
+  // Money out is not a customer payment: the categorize box speaks of bank fees and tax, not of invoices.
+  // The selected line may not be among the loaded pages (a link from its panel): read it by id.
+  const listedTxn = transactions.find((txn) => txn.id === selectedTxnId);
+  const { data: fetchedTxn } = useBankLine(selectedTxnId && !listedTxn ? selectedTxnId : undefined);
+  const selectedTxn = listedTxn ?? fetchedTxn;
+  useEffect(() => {
+    if (!selectedAccountId && fetchedTxn) setSelectedAccountId(fetchedTxn.bankAccountId);
+  }, [selectedAccountId, fetchedTxn]);
+  const moneyOut = selectedTxn ? Number(selectedTxn.amount) < 0 : false;
+  const displayCurrency = selectedAccount?.currency || entityCurrency;
+
+  const {
+    reconcileMutation,
+    excludeMutation,
+    autoReconcileMutation,
+    matching,
+    categorizeError,
+    matchError,
+    handleMatch,
+  } = useReconcileActions(selectedAccountId, selectedTxnId, setSelectedTxnId);
+
+  const accountLabel = (ba: (typeof bankAccounts)[number]) =>
+    `${ba.name} — ${ba.accountNumberLast4 ? maskedAccountNumber(ba.accountNumberLast4) : (ba.iban ?? '')}`;
 
   return (
     <div className="p-6 space-y-4">
@@ -379,11 +476,29 @@ export default function BankReconciliationPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">
-                {tbp.unreconciledTransactions.replace('{count}', String(transactions.length))}
+                {tbp.unreconciledTransactions.replace('{count}', String(totalCount))}
               </CardTitle>
+              <SearchInput
+                type="search"
+                aria-label={t.accounting.bankReconcileList.searchLabel}
+                placeholder={t.accounting.bankReconcileList.searchPlaceholder}
+                value={lineSearch}
+                onChange={(event) => setLineSearch(event.target.value)}
+                autoComplete="off"
+                className="mt-2"
+              />
             </CardHeader>
             <CardContent className="p-0">
-              {transactionList}
+              <TransactionList
+                transactions={transactions}
+                isLoading={isLoading}
+                search={debouncedSearch}
+                selectedTxnId={selectedTxnId}
+                onSelect={setSelectedTxnId}
+                totalCount={totalCount}
+                currency={displayCurrency}
+                linesQuery={linesQuery}
+              />
             </CardContent>
           </Card>
 
@@ -405,6 +520,9 @@ export default function BankReconciliationPage() {
             excludePending={excludeMutation.isPending}
             onExclude={() => {
               if (selectedTxnId) excludeMutation.mutate(selectedTxnId);
+            }}
+            onOpenDetails={() => {
+              if (selectedTxnId) openPanel({ type: 'bank_transaction', id: selectedTxnId });
             }}
             matchDocuments={
               bankLinks && selectedTxn ? (

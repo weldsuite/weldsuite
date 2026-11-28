@@ -3,6 +3,7 @@
 //!
 //! | Router | Prefix | TypeScript |
 //! |---|---|---|
+//! | [`accounting_questions`] | `/api/accounting-questions` | none (Rust only) |
 //! | [`channel_members`] | `/api/channel-members` | `routes/channel-members` |
 //! | [`channels`] | `/api/channels` | `routes/channels` |
 //! | [`bookmarks`] | `/api/chat-bookmarks` | `routes/chat-bookmarks` |
@@ -127,6 +128,12 @@ macro_rules! group_router {
     };
 }
 
+group_router!(
+    /// `/api/accounting-questions`: questions on WeldBooks records, threads of
+    /// the records' chats (Rust only, edition feature `books-questions`; the
+    /// books routes mount it, behind the books gate and prefix).
+    accounting_questions
+);
 group_router!(
     /// `/api/channel-members`: single-row membership CRUD.
     channel_members

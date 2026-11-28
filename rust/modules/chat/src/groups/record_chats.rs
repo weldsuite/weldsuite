@@ -84,7 +84,7 @@ fn unknown_type(entity_type: &str) -> ChatError {
 }
 
 /// `resolveAccess`: the provider, when the caller may see the record.
-async fn resolve_access(
+pub(super) async fn resolve_access(
     caller: &Caller,
     entity_type: &str,
     entity_id: &str,
@@ -171,14 +171,14 @@ async fn initial_followers(
     Ok(ids)
 }
 
-struct GetOrCreate {
-    channel: Value,
-    created: bool,
-    new_followers: Vec<String>,
+pub(super) struct GetOrCreate {
+    pub(super) channel: Value,
+    pub(super) created: bool,
+    pub(super) new_followers: Vec<String>,
 }
 
 /// `getOrCreateEntityChannel`.
-async fn get_or_create(
+pub(super) async fn get_or_create(
     caller: &Caller,
     provider: Provider,
     entity_id: &str,
@@ -263,7 +263,7 @@ async fn get_or_create(
 }
 
 /// `publishEntityEvent(chat_channel, action, { id, name, type })`.
-fn publish_channel_event(
+pub(super) fn publish_channel_event(
     state: &ChatState,
     caller: &Caller,
     event: weldsuite_catalogs::entity_events::EventName,

@@ -290,7 +290,9 @@ export const sweep = {
         "counterpartyName": "Counterparty name",
         "counterpartyIban": "Counterparty IBAN",
         "reference": "Reference",
-        "amount": "Amount"
+        "amount": "Amount",
+        "direction": "Direction",
+        "bankAccountId": "Bank account"
       },
       "operator": {
         "contains": "contains",
@@ -302,6 +304,9 @@ export const sweep = {
         "between": "between"
       },
       "valuePlaceholder": "value",
+      "directionIn": "Money in",
+      "directionOut": "Money out",
+      "chooseValuePlaceholder": "Choose…",
       "andPlaceholder": "and",
       "addCondition": "Add condition",
       "actionsLabel": "Actions",
@@ -562,7 +567,13 @@ export const sweep = {
         "person": "People",
         "project": "Projects",
         "sheet": "Spreadsheets",
-        "task": "Tasks"
+        "task": "Tasks",
+        "invoice": "Invoices",
+        "bill": "Bills",
+        "bank_transaction": "Bank lines",
+        "accounting_document": "Accounting documents",
+        "vat_return": "VAT returns",
+        "accounting_contact": "Accounting contacts"
       },
       "hideGroup": "Hide this group",
       "muteAllFailed": "Couldn't update these chats",
@@ -574,7 +585,13 @@ export const sweep = {
         "person": "Open person",
         "project": "Open project",
         "sheet": "Open spreadsheet",
-        "task": "Open task"
+        "task": "Open task",
+        "invoice": "Open invoice",
+        "bill": "Open bill",
+        "bank_transaction": "Open bank line",
+        "accounting_document": "Open document",
+        "vat_return": "Open VAT return",
+        "accounting_contact": "Open contact"
       },
       "openInWeldChat": "Open in WeldChat",
       "openRecord": "Open record",
@@ -627,7 +644,13 @@ export const sweep = {
         "person": "Person",
         "project": "Project",
         "sheet": "Spreadsheet",
-        "task": "Task"
+        "task": "Task",
+        "invoice": "Invoice",
+        "bill": "Bill",
+        "bank_transaction": "Bank line",
+        "accounting_document": "Accounting document",
+        "vat_return": "VAT return",
+        "accounting_contact": "Accounting contact"
       },
       "undo": "Undo",
       "unfollow": "Unfollow",
@@ -976,6 +999,8 @@ export const sweep = {
         "invoice": "Create invoice",
         "bill": "Create bill",
         "journalEntry": "Create journal entry",
+        "contact": "New contact",
+        "uploadDocument": "Upload document",
         "employee": "Add employee",
         "registerDomain": "Register domain",
         "addDomain": "Add domain",
@@ -1022,7 +1047,10 @@ export const sweep = {
         "panel_project": "Analytics projects",
         "workflow": "Workflows",
         "agent": "Agents",
-        "domain": "Domains"
+        "domain": "Domains",
+        "bank_transaction": "Bank transactions",
+        "accounting_contact": "Accounting contacts",
+        "accounting_document": "Inbox documents"
       }
     },
     "recent": "Recent",

@@ -9,20 +9,31 @@ const mocks = vi.hoisted(() => ({
   can: new Set<string>(),
   toast: { success: vi.fn(), error: vi.fn() },
   jurisdiction: { code: 'NL', features: { form1099: false } },
+  transactions: {
+    data: { rows: [] as unknown[], totalCount: 0 },
+    isLoading: false,
+    isError: false,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+  },
+  openPanel: vi.fn(),
 }));
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
     to,
+    search,
     params: _params,
     children,
     ...rest
   }: {
     to: string;
+    search?: Record<string, string>;
     params?: Record<string, string>;
     children: React.ReactNode;
   }) => (
-    <a href={to} {...rest}>
+    <a href={search ? `${to}?${new URLSearchParams(search).toString()}` : to} {...rest}>
       {children}
     </a>
   ),
@@ -33,6 +44,7 @@ vi.mock('@weldsuite/permissions/react', () => ({
 }));
 vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useAccountingAccount: () => mocks.account,
+  useInfiniteAccountingAccountTransactions: () => mocks.transactions,
   useTaxLineCatalog: () => ({ data: undefined }),
   useUpdateAccount: () => ({
     isPending: false,
@@ -48,6 +60,16 @@ vi.mock('@/hooks/use-current-entity-currency', () => ({
 }));
 vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
   useCurrentJurisdiction: () => mocks.jurisdiction,
+}));
+vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
+  useWeldbooksFormat: () => ({
+    formatDate: (value: string | null | undefined) => `date:${value ?? ''}`,
+    formatMoney: (value: string) => `$${value}`,
+  }),
+}));
+vi.mock('@/components/object-panel', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/components/object-panel')>()),
+  useObjectPanel: () => ({ open: mocks.openPanel }),
 }));
 vi.mock('@/hooks/use-workspace-url', () => ({ useWorkspaceUrl: () => (path: string) => `https://app.test${path}` }));
 // Tab visibility is a per-user setting; the defaults are all these tests need.
@@ -85,9 +107,9 @@ function show(overrides: Record<string, unknown> = {}) {
   mocks.account = { data: { data: { ...account, ...overrides } }, isLoading: false, isError: false };
 }
 
-function renderPanel() {
+function renderPanel(mode: 'panel' | 'fullscreen' = 'fullscreen') {
   return renderWithProviders(
-    <LedgerAccountPanel id="acc_1" isOpen onClose={vi.fn()} mode="fullscreen" onModeChange={vi.fn()} />,
+    <LedgerAccountPanel id="acc_1" isOpen onClose={vi.fn()} mode={mode} onModeChange={vi.fn()} />,
   );
 }
 
@@ -99,6 +121,15 @@ beforeEach(() => {
   mocks.toast.error.mockReset();
   mocks.can = new Set(['accounts:update']);
   mocks.jurisdiction = { code: 'NL', features: { form1099: false } };
+  mocks.openPanel.mockReset();
+  mocks.transactions.fetchNextPage.mockReset();
+  mocks.transactions = {
+    ...mocks.transactions,
+    data: { rows: [], totalCount: 0 },
+    isLoading: false,
+    isError: false,
+    hasNextPage: false,
+  };
   show();
 });
 
@@ -211,5 +242,119 @@ describe('ledger account panel: deactivate and reactivate', () => {
     show({ isSystemAccount: true, isActive: false });
     renderPanel();
     expect(screen.getByTestId('account-toggle-active')).toBeInTheDocument();
+  });
+});
+
+describe('ledger account panel: transactions', () => {
+  const tl = ta.transactionList;
+  const lines = [
+    {
+      id: 'jl_1',
+      journalEntryId: 'je_10',
+      description: null,
+      debit: '40.00',
+      credit: null,
+      contactId: null,
+      entryNumber: 'JE-0010',
+      entryDate: '2026-11-02',
+      entryDescription: 'Printer paper',
+      sourceType: 'bill',
+    },
+    {
+      id: 'jl_2',
+      journalEntryId: 'je_11',
+      description: 'Refund',
+      debit: null,
+      credit: '15.00',
+      contactId: null,
+      entryNumber: 'JE-0011',
+      entryDate: '2026-11-05',
+      entryDescription: null,
+      sourceType: 'payment_fx_adjustment',
+    },
+  ];
+
+  function withTransactions(rows: unknown[], extra: Record<string, unknown> = {}) {
+    mocks.transactions = { ...mocks.transactions, data: { rows, totalCount: rows.length }, ...extra };
+  }
+
+  async function openTransactions() {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(screen.getByRole('tab', { name: ta.transactionsTab }));
+    return user;
+  }
+
+  it('lists the posted lines with date, entry, source, description, debit and credit', async () => {
+    withTransactions(lines);
+    await openTransactions();
+
+    expect(screen.getByText('JE-0010')).toBeInTheDocument();
+    expect(screen.getByText('date:2026-11-02')).toBeInTheDocument();
+    expect(screen.getByText('$40.00')).toBeInTheDocument();
+    expect(screen.getByText('$15.00')).toBeInTheDocument();
+    // The source is a translated name, not the raw code, and the line's own description wins.
+    expect(screen.getByText(`${en.accounting.statusLabels.journalEntrySource.bill} · Printer paper`)).toBeInTheDocument();
+    expect(
+      screen.getByText(`${en.accounting.statusLabels.journalEntrySource.payment_fx_adjustment} · Refund`),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/payment_fx_adjustment/)).not.toBeInTheDocument();
+  });
+
+  it('opens a line\'s journal entry as a stacked panel', async () => {
+    withTransactions(lines);
+    const user = await openTransactions();
+
+    await user.click(screen.getByRole('button', { name: tl.openEntry.replace('{entry}', 'JE-0011') }));
+    expect(mocks.openPanel).toHaveBeenCalledWith({ type: 'journal_entry', id: 'je_11', stack: true });
+  });
+
+  it('links to the General ledger report for the account', async () => {
+    withTransactions(lines);
+    await openTransactions();
+
+    const links = screen.getAllByRole('link', { name: tl.openLedger });
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link).toHaveAttribute('href', '/weldbooks/reports/general-ledger?accountId=acc_1');
+    }
+  });
+
+  it('loads the next page on request', async () => {
+    withTransactions(lines, { hasNextPage: true });
+    const user = await openTransactions();
+
+    await user.click(screen.getByRole('button', { name: tl.loadMore }));
+    expect(mocks.transactions.fetchNextPage).toHaveBeenCalledTimes(1);
+  });
+
+  it('says so when nothing is posted on the account', async () => {
+    await openTransactions();
+    expect(screen.getByText(tl.empty)).toBeInTheDocument();
+  });
+
+  it('says so when the lines cannot be loaded', async () => {
+    withTransactions([], { isError: true });
+    await openTransactions();
+    expect(screen.getByText(tl.failed)).toBeInTheDocument();
+  });
+});
+
+describe('ledger account panel: tabs', () => {
+  it('keeps the Transactions and History tabs in the side panel, not only in fullscreen', () => {
+    renderPanel('panel');
+    const tablist = screen.getByRole('tablist');
+    expect(within(tablist).getByRole('tab', { name: ta.transactionsTab })).toBeInTheDocument();
+    expect(within(tablist).getByRole('tab', { name: en.sweep.entities.auditLogTab })).toBeInTheDocument();
+  });
+
+  it('links to the General ledger from the header menu', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(screen.getByRole('button', { name: en.accounting.invoiceDetail.moreActions }));
+    expect(await screen.findByRole('menuitem', { name: ta.transactionList.openLedger })).toHaveAttribute(
+      'href',
+      '/weldbooks/reports/general-ledger?accountId=acc_1',
+    );
   });
 });

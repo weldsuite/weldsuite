@@ -31,6 +31,7 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::reconciliation_rules;
 
 use crate::common::text;
+use crate::rule_suggestions;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -41,6 +42,12 @@ where
     Router::new()
         .route("/", get(list).route_layer(need("banking:read")))
         .route("/", post(create).route_layer(need("banking:create")))
+        // Rust only (edition feature `books-bank-processing`): a rule
+        // pre-filled from how a bank line was booked (not saved).
+        .route(
+            "/from-transaction/{id}",
+            post(rule_suggestions::from_transaction).route_layer(need("banking:read")),
+        )
         .route("/{id}", get(detail).route_layer(need("banking:read")))
         .route("/{id}", put(update).route_layer(need("banking:update")))
         .route("/{id}", patch(update).route_layer(need("banking:update")))
@@ -57,6 +64,10 @@ where
         .with_state(state)
 }
 
+/// The fields a condition reads. `direction` (`in` or `out`) and
+/// `bankAccountId` are Rust only (edition feature `books-bank-processing`):
+/// the TypeScript schema doesn't know them, and a payload it accepts reads
+/// the same here.
 const FIELDS: [&str; 5] = [
     "description",
     "counterpartyName",
@@ -64,6 +75,9 @@ const FIELDS: [&str; 5] = [
     "amount",
     "reference",
 ];
+/// The Rust-only fields. They are not in [`FIELDS`] so that the message for
+/// an unknown field lists exactly what the TypeScript schema's does.
+const RUST_ONLY_FIELDS: [&str; 2] = ["direction", "bankAccountId"];
 const OPERATORS: [&str; 7] = [
     "contains",
     "equals",
@@ -118,7 +132,15 @@ fn read_fields(
         let fields = issues.object(item)?;
         let start = issues.count();
         let mut condition = Map::new();
-        if let Field::Set(field) = issues.choice(fields, "field", Presence::Required, &FIELDS) {
+        let rust_only = fields
+            .get("field")
+            .and_then(Value::as_str)
+            .filter(|field| RUST_ONLY_FIELDS.contains(field));
+        if let Some(field) = rust_only {
+            condition.insert("field".to_owned(), Value::String(field.to_owned()));
+        } else if let Field::Set(field) =
+            issues.choice(fields, "field", Presence::Required, &FIELDS)
+        {
             condition.insert("field".to_owned(), Value::String(field));
         }
         if let Field::Set(operator) =
@@ -139,6 +161,24 @@ fn read_fields(
             && let Some(value2) = fields.get("value2")
         {
             condition.insert("value2".to_owned(), value2.clone());
+        }
+        // The two Rust-only conditions only compare for equality, and
+        // direction is `in` or `out`.
+        let field = condition.get("field").and_then(Value::as_str);
+        if matches!(field, Some("direction" | "bankAccountId")) {
+            if condition.get("operator").and_then(Value::as_str) != Some("equals") {
+                issues.custom_at(
+                    &[json!("operator")],
+                    "Direction and bank account conditions use 'equals'",
+                );
+            }
+            let direction_ok = condition
+                .get("value")
+                .and_then(Value::as_str)
+                .is_some_and(|v| matches!(v.trim().to_lowercase().as_str(), "in" | "out"));
+            if field == Some("direction") && !direction_ok {
+                issues.custom_at(&[json!("value")], "Direction must be 'in' or 'out'");
+            }
         }
         (issues.count() == start).then_some(Value::Object(condition))
     });
@@ -352,4 +392,49 @@ async fn remove(
     }
     .await;
     reply(result, "Failed to delete rule")
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use weldsuite_books_domain::http::validate_value;
+
+    use super::*;
+
+    fn body(condition: &Value) -> Value {
+        json!({
+            "name": "Rule",
+            "conditions": [condition],
+            "actions": { "categoryAccountId": "acc_1" },
+        })
+    }
+
+    fn read(condition: &Value) -> Result<Map<String, Value>, Refusal> {
+        validate_value(&body(condition), |issues, body| {
+            read_body(issues, body, false)
+        })
+    }
+
+    #[test]
+    fn direction_and_bank_account_conditions_are_accepted() {
+        for condition in [
+            json!({ "field": "direction", "operator": "equals", "value": "out" }),
+            json!({ "field": "direction", "operator": "equals", "value": "IN" }),
+            json!({ "field": "bankAccountId", "operator": "equals", "value": "bac_1" }),
+        ] {
+            let read = read(&condition).unwrap_or_default();
+            assert_eq!(read["conditions"][0], condition);
+        }
+    }
+
+    #[test]
+    fn the_new_conditions_only_compare_for_equality_and_direction_is_in_or_out() {
+        for condition in [
+            json!({ "field": "direction", "operator": "equals", "value": "sideways" }),
+            json!({ "field": "direction", "operator": "contains", "value": "out" }),
+            json!({ "field": "bankAccountId", "operator": "starts_with", "value": "bac" }),
+        ] {
+            assert!(read(&condition).is_err(), "{condition}");
+        }
+    }
 }

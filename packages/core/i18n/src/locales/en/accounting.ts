@@ -47,8 +47,15 @@ export const accounting = {
       noBankAccounts: 'No bank accounts configured.',
       upcomingDue: 'Upcoming due invoices',
       noUpcomingInvoices: 'No upcoming invoices.',
+      dueThisWeek: 'Due this week',
+      noDueThisWeek: 'Nothing falls due this week.',
       recentPayments: 'Recent payments',
       noRecentPayments: 'No recent payments.',
+      latestPayments: 'Latest payments',
+      paymentTypes: {
+        received: 'Received',
+        sent: 'Paid',
+      },
       loadingMessage: 'Dashboard is loading. If this persists, try refreshing.',
       table: {
         invoice: 'Invoice',
@@ -152,6 +159,20 @@ export const accounting = {
     },
     accounts: {
       title: 'Chart of accounts',
+      transactionsTab: 'Transactions',
+      transactionList: {
+        empty: 'No posted transactions on this account yet.',
+        failed: 'Could not load the transactions.',
+        colDate: 'Date',
+        colEntry: 'Entry',
+        colDescription: 'Description',
+        colDebit: 'Debit',
+        colCredit: 'Credit',
+        loadMore: 'Load more',
+        openEntry: 'Open journal entry {entry}',
+        openLedger: 'General ledger',
+        noRunningBalance: 'Shown newest first. Open the general ledger for a running balance.',
+      },
       pageDescription: 'Manage your general ledger accounts and account hierarchy',
       account: 'Account',
       accountCode: 'Account code',
@@ -1939,6 +1960,101 @@ export const accounting = {
       deleted: 'Payment deleted',
     },
 
+    // The bank transaction panel (object type `bank_transaction`): one bank line and what it is connected to
+    bankTransactionPanel: {
+      rowLabel: 'Bank transaction',
+      notFound: 'Bank transaction not found.',
+      processedAs: {
+        payment: 'Matched',
+        deposit: 'Deposited',
+        category: 'Booked',
+        excluded: 'Ignored',
+        unprocessed: 'To process',
+        transfer: 'Transfer',
+        private: 'Private',
+      },
+      fields: {
+        counterparty: 'Counterparty',
+        date: 'Date',
+        bankAccount: 'Bank account',
+        reference: 'Reference',
+        description: 'Description',
+        counterpartyAccount: 'Counterparty account',
+        source: 'Source',
+        notes: 'Notes',
+      },
+      sources: {
+        import: 'Statement import',
+        feed: 'Bank feed',
+        manual: 'Entered by hand',
+      },
+      detailsTitle: 'Details',
+      connections: {
+        title: 'Connections',
+        none: 'Nothing is connected to this transaction yet.',
+        payment: 'Payment',
+        journalEntry: 'Journal entry',
+        category: 'Category',
+        vatRate: 'VAT rate',
+        deposit: 'Deposit',
+        contact: 'Contact',
+        documents: 'Documents',
+        invoiceFallback: 'Invoice',
+        billFallback: 'Bill',
+        accountFallback: 'Ledger account',
+        contactFallback: 'Contact',
+      },
+      actions: {
+        match: 'Match',
+        ignore: 'Ignore',
+        undo: 'Undo',
+        openDetails: 'Open details',
+      },
+      confirmUndo: {
+        title: 'Undo this transaction?',
+        description:
+          'The transaction goes back to To process. A payment or journal entry it created is reversed, and the documents it paid are open again.',
+        confirm: 'Undo',
+      },
+      confirmIgnore: {
+        title: 'Ignore this transaction?',
+        description: 'It leaves To process and books nothing. You can undo this later from the transaction.',
+        confirm: 'Ignore',
+      },
+      toasts: {
+        undone: 'Transaction is back in To process',
+        ignored: 'Transaction ignored',
+        failed: 'Could not complete that action',
+      },
+    },
+
+    // The reconcile screen's list of lines still to process
+    bankReconcileList: {
+      searchLabel: 'Search transactions',
+      searchPlaceholder: 'Name, description or reference',
+      noSearchResults: 'No transactions match your search.',
+      shownOfTotal: '{shown} of {total} shown',
+      loadMore: 'Load more',
+    },
+
+    // Extra actions of the bank account panel
+    bankAccountPanel: {
+      reconcile: 'Reconcile',
+    },
+
+    // Chips that link one WeldBooks record to another
+    recordLinks: {
+      invoiceFallback: 'Invoice',
+      billFallback: 'Bill',
+      contactFallback: 'Contact',
+      accountFallback: 'Ledger account',
+      commerceOrderField: 'Online order',
+      inboxDocument: 'Inbox document',
+      linkedTo: 'Linked to',
+      orderFallback: 'Order',
+      paymentBankLine: 'Bank transaction',
+    },
+
     // Banking pages
     bankingPages: {
       accountCreated: 'Bank account created',
@@ -2296,6 +2412,23 @@ export const accounting = {
       personEmailDesc: 'A person with this email exists: {name}. Link this contact to them, or create a separate contact.',
       personEmailLink: 'Link to {name}',
       personEmailSeparate: 'Create a separate contact',
+      pickerSearching: 'Searching...',
+      pickerNoResults: 'No contacts found',
+      // The contact panel's documents, balance and shortcuts
+      connected: {
+        tabInvoices: 'Invoices',
+        tabBills: 'Bills',
+        noInvoices: 'No invoices for this contact yet.',
+        noBills: 'No bills for this contact yet.',
+        loadFailed: 'Could not load the documents.',
+        loadMore: 'Load more',
+        creditNote: 'Credit note',
+        toReceive: 'To receive',
+        overdue: 'Overdue',
+        toPay: 'To pay',
+        newInvoice: 'New invoice',
+        newBill: 'New bill',
+      },
     },
 
     // Invoice detail page
@@ -2304,7 +2437,7 @@ export const accounting = {
       downloadPdf: 'Download PDF',
       generatingPdf: 'Generating...',
       edit: 'Edit',
-      send: 'Send',
+      send: 'Mark as sent',
       finalizing: 'Finalizing...',
       finalize: 'Finalize',
       recordPayment: 'Record payment',
@@ -2469,16 +2602,16 @@ export const accounting = {
 
     // Send invoice dialog
     sendInvoice: {
-      title: 'Send invoice',
-      sendToEmail: 'Send invoice to {email}?',
-      noEmailFound: 'No email address found for this contact. Are you sure you want to mark this invoice as sent?',
+      title: 'Mark invoice as sent',
       cancel: 'Cancel',
-      sending: 'Sending...',
-      send: 'Send',
+      sending: 'Marking...',
+      send: 'Mark as sent',
+      notEmailed:
+        "WeldBooks doesn't e-mail invoices yet. Download the PDF and send it yourself; this marks the invoice as sent.",
       draftWillFinalize:
         'This draft is finalized and posted to the ledger before it is sent. It cannot be edited afterwards.',
-      sent: 'Invoice sent',
-      sendFailed: 'Could not send the invoice',
+      sent: 'Invoice marked as sent',
+      sendFailed: 'Could not mark the invoice as sent',
     },
 
     // Invoice form (edit)
@@ -2486,9 +2619,8 @@ export const accounting = {
       preview: 'Invoice preview',
       numberOnSave: 'Assigned on save',
       createDraft: 'Create draft',
-      createAndSend: 'Create and send',
-      customerHasNoEmail: 'This customer has no email address to send the invoice to',
-      createdNotSent: 'The invoice is saved as a draft, but it could not be sent',
+      createAndSend: 'Create and mark as sent',
+      createdNotSent: 'The invoice is saved as a draft, but it could not be marked as sent',
       editInvoice: 'Edit invoice',
       newInvoice: 'New invoice',
       invoiceNotFound: 'Invoice not found.',
@@ -2631,6 +2763,8 @@ export const accounting = {
       colDebit: 'Debit',
       colCredit: 'Credit',
       colStatus: 'Status',
+      searchPlaceholder: 'Search entries...',
+      colSource: 'Source',
       noEntries: 'No journal entries found',
     },
 
@@ -2974,6 +3108,21 @@ export const accounting = {
       colFileName: 'File name',
       colType: 'Type',
       colSource: 'Source',
+      typeLabels: {
+        purchase_invoice: 'Purchase invoice',
+        receipt: 'Receipt',
+        bank_statement: 'Bank statement',
+        contract: 'Contract',
+        expense_report: 'Expense report',
+        tax_form: 'Tax form',
+        other: 'Other',
+      },
+      sourceLabels: {
+        upload: 'Upload',
+        email: 'Email',
+        scan: 'Scan',
+        api: 'API',
+      },
       colSupplierDetected: 'Supplier (detected)',
       colAmountDetected: 'Amount (detected)',
       colStatus: 'Status',
@@ -3306,6 +3455,32 @@ export const accounting = {
         reversed: 'Reversed',
         fallback: 'Journal Entry',
         sourceManual: 'Manual',
+      },
+      // Where a journal entry came from (journal_entries.source_type)
+      journalEntrySource: {
+        manual: 'Manual entry',
+        invoice: 'Invoice',
+        credit_note: 'Credit note',
+        bill: 'Bill',
+        payment: 'Payment',
+        unapplied_payment: 'Unapplied payment',
+        payment_fx_adjustment: 'Exchange difference',
+        bank_transaction: 'Bank transaction',
+        bank_reconciliation: 'Bank reconciliation',
+        bank_deposit: 'Deposit',
+        write_off: 'Write-off',
+        write_off_recovery: 'Write-off recovery',
+        payroll: 'Payroll',
+        fixed_asset: 'Fixed asset',
+        fixed_asset_depreciation: 'Depreciation',
+        tax_return: 'Tax return',
+        journal: 'Journal',
+        account: 'Account',
+        transfer: 'Transfer',
+        purchase_order: 'Purchase order',
+        pick_list: 'Pick list',
+        bill_credit_note: 'Bill credit note',
+        bad_debt: 'Bad debt',
       },
       // VAT return statuses not already covered by vat.statuses
       vatReturn: {

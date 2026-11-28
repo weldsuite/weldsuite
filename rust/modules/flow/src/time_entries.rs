@@ -58,6 +58,8 @@ use crate::tasks::{Written, cast_as, cast_text, count_int, query_boolean, writte
 use crate::{Caller, FlowState, Query, Refusal, Reply, reply, row_json, validate, validate_value};
 
 /// Approved hours are final until a manager rejects the entry.
+/// Rust only: the entry is on a WeldBooks invoice.
+const INVOICED_LOCKED: &str = "This time entry is on an invoice and cannot be changed. Remove it from the draft invoice first.";
 const APPROVED_LOCKED: &str = "Approved time entries are locked. A project manager has to reject the entry before it can change.";
 const TEAM_DENIED: &str = "You cannot view the team timesheet for this project";
 /// A calendar day only has 24 hours.
@@ -167,6 +169,16 @@ fn js_string(value: &Value) -> String {
         Value::Number(n) => number_text(n.as_f64().unwrap_or(f64::NAN)),
         other => other.to_string(),
     }
+}
+
+/// An entry that is on a WeldBooks invoice (`invoice_id`, set only by the
+/// Rust backend's "invoice hours" and left out of the row until then) can no
+/// longer change or go: its hours are billed.
+fn refuse_invoiced(entry: &Value) -> Result<(), Refusal> {
+    if entry.get("invoiceId").is_some_and(|id| !id.is_null()) {
+        return Err(Refusal::conflict(INVOICED_LOCKED));
+    }
+    Ok(())
 }
 
 /// `computeCost(rate, duration)`: `String((duration / 60) * rate)`.
@@ -1576,6 +1588,7 @@ async fn update_entry(
     let Some(existing) = own_entry(caller, id).await? else {
         return Err(Refusal::not_found("Time entry", id));
     };
+    refuse_invoiced(&existing)?;
     if existing["status"] == "approved" {
         return Err(Refusal::conflict(APPROVED_LOCKED));
     }
@@ -1751,6 +1764,7 @@ async fn review(state: &FlowState, caller: &Caller, id: &str, approved: bool) ->
     if let Some(denial) = review_denial(caller, &existing).await? {
         return Err(Refusal::forbidden(denial));
     }
+    refuse_invoiced(&existing)?;
     apply_review(state, caller, id, &existing, approved).await?;
     let status = if approved { "approved" } else { "rejected" };
     Ok(Data(json!({ "id": id, "status": status })).into_response())
@@ -1849,6 +1863,7 @@ async fn remove(
             let Some(existing) = own_entry(&caller, &id).await? else {
                 return Err(Refusal::not_found("Time entry", &id));
             };
+            refuse_invoiced(&existing)?;
             if existing["status"] == "approved" {
                 return Err(Refusal::conflict(APPROVED_LOCKED));
             }
@@ -1870,4 +1885,24 @@ async fn remove(
         .await,
         "Failed to delete time entry",
     )
+}
+
+#[cfg(test)]
+mod invoiced_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn an_invoiced_entry_is_refused_with_a_409_and_a_free_one_is_not() {
+        // Rows from the Global worker never carry an invoice: the key is left out.
+        assert!(refuse_invoiced(&json!({ "id": "te_1", "status": "draft" })).is_ok());
+        assert!(refuse_invoiced(&json!({ "id": "te_1", "invoiceId": null })).is_ok());
+        let Err(refused) = refuse_invoiced(
+            &json!({ "id": "te_1", "invoiceId": "inv_1", "invoiceItemId": "ili_1" }),
+        ) else {
+            panic!("an invoiced entry is refused");
+        };
+        assert_eq!(refused.respond("x").status().as_u16(), 409);
+    }
 }

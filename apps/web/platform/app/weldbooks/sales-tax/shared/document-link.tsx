@@ -1,5 +1,6 @@
-import { Link } from '@tanstack/react-router';
+import { RecordLink } from '@/components/object-panel/record-link';
 import { useI18n } from '@/lib/i18n/provider';
+import { documentRecord } from '@/lib/weldbooks/record-links';
 
 interface DocumentLinkProps {
   /** `invoice`, `credit_note`, `bill`, `bill_credit_note`, `journal_entry`, or a raw source type. */
@@ -11,36 +12,18 @@ interface DocumentLinkProps {
   className?: string;
 }
 
-const LINK_CLASS = 'text-primary hover:underline';
+const LINK_CLASS = 'min-h-0 border-transparent bg-transparent px-0 py-0 text-primary hover:bg-transparent hover:underline';
 
-/** A document of the books by its number, linking to it when it has a page of its own. */
+/**
+ * A document of the books by its number. It stacks the document's panel over
+ * the page (Cmd/Ctrl-click opens it in a new tab) when the document has one.
+ */
 export function DocumentLink({ type, id, number, label, className }: Readonly<DocumentLinkProps>) {
   const { t } = useI18n();
   const types = t.weldbooksUs.salesTax.center.documentTypes as Record<string, string>;
   const text = label ?? number ?? types[type] ?? t.weldbooksUs.salesTax.center.common.unknownDocument;
-  const cls = className ?? LINK_CLASS;
 
-  if (!id) return <span className={className}>{text}</span>;
-  if (type === 'invoice' || type === 'credit_note' || type === 'write_off' || type === 'bad_debt') {
-    return (
-      <Link to="/weldbooks/invoices/$id" params={{ id }} className={cls}>
-        {text}
-      </Link>
-    );
-  }
-  if (type === 'bill' || type === 'bill_credit_note') {
-    return (
-      <Link to="/weldbooks/bills/$id" params={{ id }} className={cls}>
-        {text}
-      </Link>
-    );
-  }
-  if (type === 'journal_entry') {
-    return (
-      <Link to="/weldbooks/journal/$id" params={{ id }} className={cls}>
-        {text}
-      </Link>
-    );
-  }
-  return <span className={className}>{text}</span>;
+  const record = documentRecord(type, id);
+  if (!record) return <span className={className}>{text}</span>;
+  return <RecordLink type={record.type} id={record.id} label={text} icon={null} className={className ?? LINK_CLASS} />;
 }

@@ -17,6 +17,7 @@
 //! `DELETE` only switches WeldBooks off, until it holds documents.
 
 mod body;
+mod lock_suggestion;
 mod locks;
 mod numbering;
 mod registrations;
@@ -121,6 +122,21 @@ where
         .route(
             "/{id}/lock-exceptions/{exception_id}/revoke",
             post(locks::revoke_exception).route_layer(need("entities:update")),
+        )
+        // Rust only (edition feature `books-receipts`): the entity's own inbox address.
+        .route(
+            "/{id}/inbox",
+            get(crate::accounting_settings::entity_inbox).route_layer(need("accounts:read")),
+        )
+        .route(
+            "/{id}/inbox",
+            post(crate::accounting_settings::register_entity_inbox)
+                .route_layer(need("accounts:update")),
+        )
+        // Rust only (edition feature `books-questions`): where a period could be locked.
+        .route(
+            "/{id}/lock-date-suggestion",
+            get(lock_suggestion::lock_date_suggestion).route_layer(need("entities:update")),
         )
         .route(
             "/{id}/number-sequences",
@@ -1605,6 +1621,30 @@ async fn update_entity(caller: &Caller, state: &BooksState, id: &str, body: Enti
         }
     }
 
+    // The differences settings (phase 2) live in `jurisdictionSettings`; an
+    // update that replaces or normalises the settings keeps them.
+    if let Some(settings) = patch.get("jurisdictionSettings").cloned()
+        && settings.is_object()
+    {
+        let stored = weldsuite_books_domain::differences::stored(db, id).await?;
+        patch.insert(
+            "jurisdictionSettings".to_owned(),
+            weldsuite_books_domain::differences::keep_stored(settings, stored.as_ref()),
+        );
+        // So do the Rust-only delivery settings (e-mail templates, reminders).
+        let all = weldsuite_books_domain::entity_settings::load(db, id).await?;
+        if let Some(current) = patch.get("jurisdictionSettings").cloned() {
+            patch.insert(
+                "jurisdictionSettings".to_owned(),
+                weldsuite_books_domain::entity_settings::keep_keys(
+                    current,
+                    all.as_ref(),
+                    &weldsuite_books_domain::entity_settings::DELIVERY_KEYS,
+                ),
+            );
+        }
+    }
+
     // 1. The company's own fields go through core.
     if let Some(core_patch) = core_patch_of(&patch, data.get("branding")) {
         update_legal_entity(db, id, &core_patch)
@@ -1930,4 +1970,106 @@ async fn remove(
 #[allow(dead_code)]
 fn plain(response: impl IntoResponse) -> Response {
     response.into_response()
+}
+
+/// An entity update against the real schema (`WELDSUITE_TEST_TENANT_URL`; the
+/// test returns early without it): the differences settings phase 2 keeps in
+/// `jurisdictionSettings` survive an update that replaces the settings.
+#[cfg(test)]
+#[allow(
+    clippy::disallowed_methods,
+    clippy::unwrap_used,
+    reason = "test fixtures are written in SQL"
+)]
+mod settings_tests {
+    use std::sync::Arc;
+
+    use weldsuite_events::{EntityEventPublisher, TaskTracker};
+    use weldsuite_ports::{DynEventBus, RecordingEventBus};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn an_update_keeps_the_differences_in_the_jurisdiction_settings() {
+        let Ok(url) = std::env::var("WELDSUITE_TEST_TENANT_URL") else {
+            eprintln!("WELDSUITE_TEST_TENANT_URL is not set; skipping");
+            return;
+        };
+        let db = weldsuite_db::master_pool(&url, 2).unwrap();
+        let id = generate_id("ent");
+        sqlx::query(
+            "insert into entities (id, name, jurisdiction_code, base_currency, is_active, \
+               jurisdiction_settings) \
+             values ($1, 'Keeps its differences', 'NL', 'EUR', true, \
+               '{\"stateCode\": \"X\", \"differences\": {\"roundingCap\": \"2.00\", \"bankCostsAccountId\": \"acc_bank\"}}'::jsonb)",
+        )
+        .bind(&id)
+        .execute(&db)
+        .await
+        .unwrap();
+        sqlx::query("insert into accounting_entity_settings (entity_id) values ($1)")
+            .bind(&id)
+            .execute(&db)
+            .await
+            .unwrap();
+        let state = BooksState::new(EntityEventPublisher::new(
+            Some(Arc::new(RecordingEventBus::new()) as Arc<dyn DynEventBus>),
+            TaskTracker::new(),
+        ));
+        let caller = Caller::in_process(
+            db.clone(),
+            "ws_p3_entity",
+            "ws_p3_entity",
+            "user_p3",
+            &id,
+            None,
+        );
+        let update = |body: Value| {
+            let (caller, state, id) = (&caller, &state, id.clone());
+            async move {
+                let data = weldsuite_books_domain::http::validate_value(&body, |issues, fields| {
+                    body::read(issues, fields, true)
+                })
+                .unwrap();
+                update_entity(caller, state, &id, data).await
+            }
+        };
+        let settings = || async {
+            let stored: Value =
+                sqlx::query_scalar("select jurisdiction_settings from entities where id = $1")
+                    .bind(&id)
+                    .fetch_one(&db)
+                    .await
+                    .unwrap();
+            stored
+        };
+
+        // The body replaces the settings and says nothing of the differences.
+        let answer = update(json!({ "jurisdictionSettings": { "stateCode": "Y" } })).await;
+        assert!(answer.is_ok(), "{answer:?}");
+        let stored = settings().await;
+        assert_eq!(stored["stateCode"], json!("Y"), "the update is applied");
+        assert_eq!(stored["differences"]["roundingCap"], json!("2.00"));
+        assert_eq!(
+            stored["differences"]["bankCostsAccountId"],
+            json!("acc_bank")
+        );
+
+        // A body that names its own differences wins.
+        let answer =
+            update(json!({ "jurisdictionSettings": { "differences": { "roundingCap": "0.50" } } }))
+                .await;
+        assert!(answer.is_ok(), "{answer:?}");
+        let stored = settings().await;
+        assert_eq!(stored["differences"]["roundingCap"], json!("0.50"));
+        assert!(stored.get("stateCode").is_none());
+
+        // An update that leaves the settings alone does not touch them.
+        let answer = update(json!({ "name": "Renamed" })).await;
+        assert!(answer.is_ok(), "{answer:?}");
+        assert_eq!(
+            settings().await["differences"]["roundingCap"],
+            json!("0.50")
+        );
+    }
 }

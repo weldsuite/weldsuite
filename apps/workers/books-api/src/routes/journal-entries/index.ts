@@ -16,7 +16,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, isNull, lte, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -106,6 +106,13 @@ app.get('/', requirePermission('journal:read'), async (c) => {
     if (q.sourceType) conditions.push(eq(t.sourceType, q.sourceType));
     if (q.from) conditions.push(gte(t.date, new Date(q.from)));
     if (q.to) conditions.push(lte(t.date, new Date(q.to)));
+    if (q.search) {
+      // Part of the entry number, the reference or the description; `%`, `_` and `\` are taken literally.
+      const escaped = q.search.replace(/[\\%_]/g, (c) => `\\${c}`);
+      const pattern = `%${escaped}%`;
+      const matches = or(ilike(t.entryNumber, pattern), ilike(t.reference, pattern), ilike(t.description, pattern));
+      if (matches) conditions.push(matches);
+    }
 
     const where = and(...conditions);
     const [rows, countRes] = await Promise.all([

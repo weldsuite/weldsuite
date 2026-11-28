@@ -11,7 +11,7 @@
  * Tabs: Details · Lines · History.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   AlignLeft,
   ArrowDownLeft,
@@ -28,7 +28,6 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
-import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import {
   DropdownMenu,
@@ -37,13 +36,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import {
-  ObjectPanelTabs,
-  useObjectPanelShell,
-  useObjectPanelTabConfig,
-  type ObjectPanelComponentProps,
-} from '@/components/object-panel';
+import { useObjectPanelShell, type ObjectPanelComponentProps } from '@/components/object-panel';
+import { RecordLink } from '@/components/object-panel/record-link';
+import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
+import { ReviewChip, ReviewMarkButton } from '@/components/accounting/questions/review-mark';
+import { isQuestionsAvailable } from '@/hooks/queries/use-weldbooks-questions-queries';
 import { PropertyRow } from '@/components/objects/_shared/property-row';
 import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';
 import { NotesIllustration, TabEmptyState, tabBodyClassName } from '@/components/objects/_shared/tab-empty-state';
@@ -59,6 +57,8 @@ import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 import type { JournalEntryDetail, JournalLine } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
+import { journalSourceRecord } from '@/lib/weldbooks/record-links';
+import { journalSourceLabel } from '@/lib/weldbooks/journal-source';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { getJournalEntryTabs, type JournalEntryTab } from './journal-entry-tabs';
@@ -198,80 +198,15 @@ function JournalEntryActions({
   );
 }
 
-// ─── Tab bar ───────────────────────────────────────────────────────────────
-
-function JournalEntryTabsBar({
-  tabs,
-  activeTab,
-  setActiveTab,
-  mode,
-}: Readonly<{
-  tabs: JournalEntryTab[];
-  activeTab: JournalEntryTab['id'];
-  setActiveTab: (id: JournalEntryTab['id']) => void;
-  mode: 'panel' | 'fullscreen';
-}>) {
-  const st = useTranslations();
-  const configEntries = useMemo(
-    () =>
-      tabs.map((tab) => ({
-        id: tab.id,
-        label: tab.label,
-        required: tab.required,
-        defaultVisible:
-          mode === 'panel' ? (tab.defaultVisibleInPanel ?? false) : (tab.defaultVisibleInFullscreen ?? false),
-      })),
-    [tabs, mode],
-  );
-
-  const { visibility, isVisible, toggle, resetToDefaults } = useObjectPanelTabConfig({
-    objectType: 'journal_entry',
-    mode,
-    tabs: configEntries,
-  });
-
-  useEffect(() => {
-    if (isVisible(activeTab)) return;
-    const fallback = tabs.find((tab) => isVisible(tab.id));
-    if (fallback && fallback.id !== activeTab) setActiveTab(fallback.id);
-  }, [activeTab, isVisible, setActiveTab, tabs]);
-
-  const visibleTabs = useMemo(
-    () =>
-      tabs
-        .filter((tab) => isVisible(tab.id))
-        .map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, count: tab.count })),
-    [tabs, isVisible],
-  );
-
-  return (
-    <div className="group/tabs-header relative">
-      <ObjectPanelTabs
-        tabs={visibleTabs}
-        activeTab={activeTab}
-        onChange={(id) => setActiveTab(id as JournalEntryTab['id'])}
-      />
-      <div className="absolute top-0 right-2 h-full flex items-center opacity-0 group-hover/tabs-header:opacity-100 focus-within:opacity-100 transition-opacity">
-        <DrawerFieldSettings
-          fields={configEntries}
-          fieldVisibility={visibility}
-          onToggle={toggle}
-          onReset={resetToDefaults}
-          label={st('sweep.entities.visibleTabs')}
-          title={st('sweep.entities.visibleTabs')}
-        />
-      </div>
-    </div>
-  );
-}
-
 // ─── Details tab ───────────────────────────────────────────────────────────
 
 function JournalEntryDetailsTab({ entry, t }: Readonly<{ entry: JournalEntryDetail; t: Translations }>) {
   const st = useTranslations();
   const { formatMoney, formatDate } = useWeldbooksFormat();
   const tj = t.accounting.journalEntry;
-  const source = entry.sourceType?.replace('_', ' ') || t.accounting.statusLabels.journalEntry.sourceManual;
+  const source = journalSourceLabel(entry.sourceType, t.accounting.statusLabels.journalEntrySource);
+  // The record that posted the entry opens as a stacked panel when it has one.
+  const sourceRecord = journalSourceRecord(entry.sourceType, entry.sourceId);
 
   return (
     <div className="@container p-4 space-y-4">
@@ -293,12 +228,29 @@ function JournalEntryDetailsTab({ entry, t }: Readonly<{ entry: JournalEntryDeta
           readOnly
           renderValue={(value) => (
             <span className="flex min-w-0 flex-wrap items-center gap-2">
-              <span className="capitalize">{value}</span>
+              {sourceRecord ? (
+                <RecordLink type={sourceRecord.type} id={sourceRecord.id} label={value ?? ''} />
+              ) : (
+                <span>{value}</span>
+              )}
               {entry.isAutomatic ? <span className={cn(PILL, PILL_GRAY)}>{tj.autoGenerated}</span> : null}
             </span>
           )}
         />
       </div>
+
+      {/* The accountant's review mark (edition feature `books-questions`). */}
+      {isQuestionsAvailable() && entry.status === 'posted' ? (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2"
+          role="group"
+          aria-label={t.weldbooksQuestions.review.chipAria}
+          data-testid="journal-review"
+        >
+          <ReviewChip reviewedAt={entry.reviewedAt} />
+          <ReviewMarkButton journalEntryId={entry.id} reviewed={!!entry.reviewedAt} />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -307,7 +259,8 @@ function JournalEntryDetailsTab({ entry, t }: Readonly<{ entry: JournalEntryDeta
 
 interface LineView {
   line: JournalLine;
-  account: string;
+  /** `code — name`, or null while the chart of accounts has not loaded. */
+  account: string | null;
   dimensions: string;
 }
 
@@ -315,15 +268,16 @@ function JournalLineRow({ view, t }: Readonly<{ view: LineView; t: Translations 
   const { formatMoney } = useWeldbooksFormat();
   const tj = t.accounting.journalEntry;
   const { line, account, dimensions } = view;
+  const accountLabel = account ?? t.accounting.recordLinks.accountFallback;
   const amounts = [
     Number(line.debit) > 0 ? { label: tj.debit, value: formatMoney(line.debit, line.currency) } : null,
     Number(line.credit) > 0 ? { label: tj.credit, value: formatMoney(line.credit, line.currency) } : null,
   ].filter((amount): amount is { label: string; value: string } => amount !== null);
 
   return (
-    <TabListRow label={account}>
+    <TabListRow label={accountLabel}>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium">{account}</div>
+        <RecordLink type="ledger_account" id={line.accountId} label={accountLabel} />
         <div className="truncate text-xs text-muted-foreground">{line.description || '-'}</div>
         {dimensions ? <div className="truncate text-xs text-muted-foreground">{dimensions}</div> : null}
       </div>
@@ -347,9 +301,9 @@ function JournalEntryLinesTab({ entry, t }: Readonly<{ entry: JournalEntryDetail
   const { data: accountsData } = useAccountingAccounts({ includeInactive: true });
   const { data: dimensionValues } = useDimensionValues();
 
-  const accountName = (accountId: string): string => {
+  const accountName = (accountId: string): string | null => {
     const account = accountsData?.data.find((item) => item.id === accountId);
-    return account ? `${account.code} — ${account.name}` : accountId;
+    return account ? `${account.code} — ${account.name}` : null;
   };
   const dimensionName = (valueId: string | null | undefined) =>
     valueId ? (dimensionValues ?? []).find((value) => value.id === valueId)?.name : undefined;
@@ -531,7 +485,13 @@ export function JournalEntryPanel(props: Readonly<ObjectPanelComponentProps>) {
         />
       }
       tabs={
-        <JournalEntryTabsBar tabs={tabs} activeTab={activeTab} setActiveTab={setActiveTab} mode={mode} />
+        <ConfigurablePanelTabs
+          objectType="journal_entry"
+          tabs={tabs}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          mode={mode}
+        />
       }
     >
       {!entryQuery.isLoading && entryQuery.isError && (

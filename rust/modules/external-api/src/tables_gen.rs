@@ -836,7 +836,7 @@ pub(crate) const TIME_ENTRIES: Table = Table {
         Column { prop: "location", name: "location", kind: Kind::Text, default_fn: false, on_update: false },
         Column { prop: "isRemote", name: "is_remote", kind: Kind::Bool, default_fn: false, on_update: false },
     ],
-    omitted: &[],
+    omitted: &["invoice_id", "invoice_item_id"],
     soft_delete: true,
 };
 
@@ -1467,7 +1467,7 @@ pub(crate) const INVOICES: Table = Table {
         Column { prop: "journalEntryId", name: "journal_entry_id", kind: Kind::Text, default_fn: false, on_update: false },
         Column { prop: "createdBy", name: "created_by", kind: Kind::Text, default_fn: false, on_update: false },
     ],
-    omitted: &[],
+    omitted: &["quote_id", "reminder_level", "last_reminded_at", "reminders_paused"],
     soft_delete: true,
 };
 
@@ -1553,7 +1553,7 @@ pub(crate) const JOURNAL_ENTRIES: Table = Table {
         Column { prop: "isAutomatic", name: "is_automatic", kind: Kind::Bool, default_fn: false, on_update: false },
         Column { prop: "createdBy", name: "created_by", kind: Kind::Text, default_fn: false, on_update: false },
     ],
-    omitted: &[],
+    omitted: &["reviewed_at", "reviewed_by"],
     soft_delete: true,
 };
 
@@ -2007,7 +2007,7 @@ pub(crate) const PARTIES: Table = Table {
         Column { prop: "bankDetailsVerifiedAt", name: "bank_details_verified_at", kind: Kind::Date, default_fn: false, on_update: false },
         Column { prop: "bankDetailsVerifiedBy", name: "bank_details_verified_by", kind: Kind::Text, default_fn: false, on_update: false },
     ],
-    omitted: &["sensitive_encrypted"],
+    omitted: &["sensitive_encrypted", "default_tax_rate_id"],
     soft_delete: true,
 };
 

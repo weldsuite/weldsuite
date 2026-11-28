@@ -116,7 +116,7 @@ describe('PreFileCheckResult', () => {
     // The sentence is ours, built from the comparison, not the server's English.
     expect(within(net).getByText(/shipped to WA \(\$10250\.00\) differs from the net sales on the return \(\$9750\.00\)/)).toBeInTheDocument();
     // Links go to the document, with the income and what the return counts side by side.
-    expect(within(net).getByRole('link', { name: 'INV-0042' })).toHaveAttribute('href', '/weldbooks/invoices/inv_1');
+    expect(within(net).getByRole('link', { name: 'INV-0042' })).toHaveAttribute('href', expect.stringContaining('stack=invoice%3Ainv_1'));
     expect(within(net).getByText('Acme Corp')).toBeInTheDocument();
     expect(within(net).getByText('Income differs from the sales the return counts')).toBeInTheDocument();
     expect(within(net).getByText('No tax-ledger rows for this agency: its income is not on the return')).toBeInTheDocument();
@@ -126,7 +126,7 @@ describe('PreFileCheckResult', () => {
     const shipTo = screen.getByTestId('finding-missing_ship_to');
     expect(within(shipTo).getByText('Invoices without a ship-to state')).toBeInTheDocument();
     expect(within(shipTo).getByText('Warning')).toBeInTheDocument();
-    expect(within(shipTo).getByRole('link', { name: 'CM-0003' })).toHaveAttribute('href', '/weldbooks/invoices/cn_1');
+    expect(within(shipTo).getByRole('link', { name: 'CM-0003' })).toHaveAttribute('href', expect.stringContaining('stack=invoice%3Acn_1'));
     expect(within(shipTo).getByText('More documents are not listed.')).toBeInTheDocument();
     // No "On the return" column when no document carries that amount.
     expect(within(shipTo).queryByText('On the return')).not.toBeInTheDocument();
@@ -151,7 +151,7 @@ describe('PreFileCheckResult', () => {
     };
     renderWithProviders(<PreFileCheckResult check={makeCheck({ ok: false, comparison: null, findings: [finding] })} />);
 
-    expect(screen.getByRole('link', { name: 'JE-0009' })).toHaveAttribute('href', '/weldbooks/journal/je_9');
+    expect(screen.getByRole('link', { name: 'JE-0009' })).toHaveAttribute('href', expect.stringContaining('stack=journal_entry%3Aje_9'));
     // A reason we have no translation for (the entry's own description) is shown as the server sent it.
     expect(screen.getByText('Accrual correction')).toBeInTheDocument();
     expect(screen.queryByTestId('pre-file-comparison')).not.toBeInTheDocument();

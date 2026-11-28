@@ -45,6 +45,9 @@ const RECORD_NOUN: Record<SearchEntityType, string> = {
   chat_channel: 'chat channel',
   data_list: 'lead list',
   panel_project: 'analytics project',
+  bank_transaction: 'bank transaction',
+  accounting_contact: 'accounting contact',
+  accounting_document: 'inbox document',
 };
 
 export interface TaggedRecord {

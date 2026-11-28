@@ -87,6 +87,11 @@ where
             get(status).route_layer(need("reports:read")),
         )
         .route("/{id}/xml", get(xml).route_layer(need("reports:read")))
+        // Rust only (edition feature `books-questions`): the Check step's warnings.
+        .route(
+            "/{id}/checks",
+            get(crate::vat_checks::checks).route_layer(need("reports:read")),
+        )
         // A record of an entity the request may not touch answers 404
         // (per-entity access; books-api `guardEntityRecords`).
         .route_layer(

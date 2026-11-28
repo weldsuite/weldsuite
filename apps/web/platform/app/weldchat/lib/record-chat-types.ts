@@ -12,13 +12,25 @@
  */
 
 import {
-  RECORD_CHAT_TYPES,
-  type RecordChatType,
+  BOOKS_RECORD_CHAT_TYPES,
+  RECORD_CHAT_TYPES as BASE_RECORD_CHAT_TYPES,
+  type BooksRecordChatType,
+  type RecordChatType as BaseRecordChatType,
 } from '@weldsuite/app-api-client/schemas/chat-entity-channels';
+import { isFeatureAvailable } from '@/lib/edition';
 import { RECORD_GROUP_PREFIX } from './group-filter';
 import { appLogoIcon, type AppLogoIconComponent } from './app-logo-icon';
 
-export { RECORD_CHAT_TYPES, type RecordChatType };
+export { BOOKS_RECORD_CHAT_TYPES, type BooksRecordChatType };
+
+/**
+ * Every record type this client knows how to show: the base ones, then
+ * WeldBooks' six (invoice, bill, bank line, inbox document, VAT return,
+ * contact). The WeldBooks ones are offered only where the edition has
+ * `books-questions` (the Rust backend), see {@link isRecordChatType}.
+ */
+export const RECORD_CHAT_TYPES = [...BASE_RECORD_CHAT_TYPES, ...BOOKS_RECORD_CHAT_TYPES] as const;
+export type RecordChatType = BaseRecordChatType | BooksRecordChatType;
 
 export interface RecordChatTypeInfo {
   type: RecordChatType;
@@ -103,15 +115,78 @@ const RECORD_CHAT_TYPE_INFO: Record<RecordChatType, RecordChatTypeInfo> = {
     icon: appLogoIcon('weldboard'),
     href: (id) => `/weldboard/${encodeURIComponent(id)}`,
   },
+  // WeldBooks' records (edition feature `books-questions`, ADR BOOKS-015). Their chats hold the
+  // questions to the accountant; the panel types are the ones the WeldBooks lists stack.
+  invoice: {
+    type: 'invoice',
+    groupLabelKey: `${K}.groups.invoice`,
+    labelKey: `${K}.types.invoice`,
+    openLabelKey: `${K}.open.invoice`,
+    icon: appLogoIcon('weldbooks'),
+    panelType: 'invoice',
+  },
+  bill: {
+    type: 'bill',
+    groupLabelKey: `${K}.groups.bill`,
+    labelKey: `${K}.types.bill`,
+    openLabelKey: `${K}.open.bill`,
+    icon: appLogoIcon('weldbooks'),
+    panelType: 'bill',
+  },
+  bank_transaction: {
+    type: 'bank_transaction',
+    groupLabelKey: `${K}.groups.bank_transaction`,
+    labelKey: `${K}.types.bank_transaction`,
+    openLabelKey: `${K}.open.bank_transaction`,
+    icon: appLogoIcon('weldbooks'),
+    panelType: 'bank_transaction',
+  },
+  // An inbox document has no panel: it opens on the documents page.
+  accounting_document: {
+    type: 'accounting_document',
+    groupLabelKey: `${K}.groups.accounting_document`,
+    labelKey: `${K}.types.accounting_document`,
+    openLabelKey: `${K}.open.accounting_document`,
+    icon: appLogoIcon('weldbooks'),
+    href: (id) => `/weldbooks/documents?document=${encodeURIComponent(id)}`,
+  },
+  vat_return: {
+    type: 'vat_return',
+    groupLabelKey: `${K}.groups.vat_return`,
+    labelKey: `${K}.types.vat_return`,
+    openLabelKey: `${K}.open.vat_return`,
+    icon: appLogoIcon('weldbooks'),
+    panelType: 'vat_return',
+  },
+  accounting_contact: {
+    type: 'accounting_contact',
+    groupLabelKey: `${K}.groups.accounting_contact`,
+    labelKey: `${K}.types.accounting_contact`,
+    openLabelKey: `${K}.open.accounting_contact`,
+    icon: appLogoIcon('weldbooks'),
+    panelType: 'weldbooks_contact',
+  },
 };
 
+const BOOKS_TYPES: readonly string[] = BOOKS_RECORD_CHAT_TYPES;
+
+/**
+ * A type WeldChat lists. WeldBooks' types count only where the edition has
+ * `books-questions`: Global's chat has no provider for them.
+ */
 export function isRecordChatType(type: string | null | undefined): type is RecordChatType {
-  return !!type && (RECORD_CHAT_TYPES as readonly string[]).includes(type);
+  if (!type || !(RECORD_CHAT_TYPES as readonly string[]).includes(type)) return false;
+  return !BOOKS_TYPES.includes(type) || isFeatureAvailable('books-questions');
 }
 
 /** How to show a record chat type, or null for a type WeldChat does not list (legacy `contact`, …). */
 export function getRecordChatTypeInfo(type: string | null | undefined): RecordChatTypeInfo | null {
   return isRecordChatType(type) ? RECORD_CHAT_TYPE_INFO[type] : null;
+}
+
+/** The record types WeldChat lists on this deployment, in the sidebar's fixed order. */
+export function offeredRecordChatTypes(): RecordChatType[] {
+  return RECORD_CHAT_TYPES.filter((type) => isRecordChatType(type));
 }
 
 /** Sidebar group key of a record type, `record:<type>`. */

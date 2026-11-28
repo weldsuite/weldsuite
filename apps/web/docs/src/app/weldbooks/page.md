@@ -20,7 +20,15 @@ WeldBooks is accounting for your workspace — sales documents, expenses, ledger
 - **Moneybird** — optional sync of contacts, sales invoices, products, and purchase invoices. Changes in Moneybird arrive within seconds, and you can choose per object to also send what you create in WeldBooks to Moneybird (see [Connectors](/weldconnect)). Imported documents keep Moneybird’s numbers and do not create journal entries.
 - **Stripe** — import paid Stripe invoices, payments, fees and payouts, and [send them on to Moneybird](/weldconnect/stripe-to-moneybird).
 
-Navigation groups sales, purchases, banking, and reporting in the module sidebar.
+The module sidebar starts with **Overview** and **To process**, then groups **Sales**, **Purchases**, **Bank**, **Contacts** and **Reports**. The **Accountant** group holds the books themselves: journal entries, ledger accounts, fiscal periods, the trial balance, annual report, fixed assets and payroll. **Credit notes** are a filter on the **Invoices** list, and customers and suppliers are one **Contacts** list with a role filter.
+
+---
+
+## To process
+
+**To process** collects everything in your books that needs a person: bank lines to book, documents to check, bills to approve or pay, overdue invoices, a tax return to file, bank connections to renew, possible duplicates and unapplied credit. Each kind has its own card with a count, the first items and one action ("Process 12 lines", "Check 3 documents"). Open an item to see its record next to the page, or choose **Show all** to page through the rest. The menu shows how many items wait, and the overview links here when something does.
+
+To process is available on the EU and self-hosted editions.
 
 ---
 

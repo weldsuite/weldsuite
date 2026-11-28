@@ -186,6 +186,42 @@ pub struct Model {
     #[sea_orm(column_type = "String(StringLen::N(255))")]
     #[serde(rename = "createdBy")]
     pub created_by: Option<String>,
+    // WeldBooks phase 4 (ADR BOOKS-012, plan weldbooks-connected-ux, M2). Rust
+    // only, so each is left out of the JSON while it holds its default and the
+    // routes a TypeScript worker also serves answer as they always did.
+    /// The WeldCRM quote (`crm_quotes.id`) this invoice was made from.
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "quoteId", skip_serializing_if = "Option::is_none")]
+    pub quote_id: Option<String>,
+    /// How many payment reminders have gone out (0 = none).
+    #[serde(rename = "reminderLevel", skip_serializing_if = "is_zero")]
+    pub reminder_level: i32,
+    /// When the last reminder went out.
+    #[serde(
+        rename = "lastRemindedAt",
+        with = "crate::js::timestamptz::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub last_reminded_at: Option<TimeDateTimeWithTimeZone>,
+    /// Reminders are held for this invoice.
+    #[serde(rename = "remindersPaused", skip_serializing_if = "is_false")]
+    pub reminders_paused: bool,
+}
+
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if signature"
+)]
+fn is_zero(value: &i32) -> bool {
+    *value == 0
+}
+
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if signature"
+)]
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -301,6 +337,22 @@ pub const DDL: Table = Table {
             default_fn: false,
             on_update: false,
         },
+        DdlColumn {
+            name: "reminder_level",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "reminders_paused",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
     ],
     primary_key: None,
     indexes: &[
@@ -396,6 +448,17 @@ pub const DDL: Table = Table {
             name: "acct_invoices_type_idx",
             columns: &[IndexColumn {
                 expression: "type",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_invoices_quote_idx",
+            columns: &[IndexColumn {
+                expression: "quote_id",
                 is_expression: false,
                 asc: true,
             }],
