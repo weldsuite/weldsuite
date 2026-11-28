@@ -85,13 +85,13 @@ struct NewMessageView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Text(recipient.label).lineLimit(1)
-                            Image(systemName: "xmark").font(.caption2.weight(.bold))
+                            Image(systemName: "xmark").font(.inter(.caption2, weight: .bold))
                         }
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Tokens.Brand.weldchat)
+                        .font(.inter(.subheadline, weight: .medium))
+                        .foregroundStyle(Tokens.Palette.primary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
-                        .background(Tokens.Brand.weldchat.opacity(0.12), in: Capsule())
+                        .background(Tokens.Palette.primary.opacity(0.12), in: Capsule())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(ChatStrings.newMessageRemoveRecipient(name: recipient.name))
@@ -171,8 +171,8 @@ struct NewMessageView: View {
                 Text(recipient.label).lineLimit(1).foregroundStyle(Color.primary)
                 Spacer(minLength: 0)
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(selected ? Tokens.Brand.weldchat : Color.secondary)
+                    .font(.inter(.title3))
+                    .foregroundStyle(selected ? Tokens.Palette.primary : Color.secondary)
             }
             .contentShape(Rectangle())
         }
@@ -241,7 +241,7 @@ struct NewMessageView: View {
                             }
                             .frame(width: 36, height: 36)
                             .foregroundStyle(.white)
-                            .background(Tokens.Brand.weldchat, in: Circle())
+                            .background(Tokens.Palette.primary, in: Circle())
                         }
                         .buttonStyle(.plain)
                         .disabled(!canSend)

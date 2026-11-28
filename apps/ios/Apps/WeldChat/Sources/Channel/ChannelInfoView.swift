@@ -78,12 +78,12 @@ struct ChannelInfoView: View {
                         renameRow(channel)
                     } else {
                         Text("#\(displayName)")
-                            .font(.title2.weight(.bold))
+                            .font(.inter(.title2, weight: .bold))
                             .multilineTextAlignment(.center)
                             .lineLimit(2)
                     }
                     Text(channel.isPrivate ? ChatStrings.channelInfoPrivateChannel : ChatStrings.channelInfoPublicChannel)
-                        .font(.subheadline)
+                        .font(.inter(.subheadline))
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
@@ -177,7 +177,7 @@ struct ChannelInfoView: View {
                 Button {
                     Task { await submitRename(channel) }
                 } label: {
-                    Image(systemName: "checkmark").foregroundStyle(canSave ? Tokens.Brand.weldchat : Color.secondary)
+                    Image(systemName: "checkmark").foregroundStyle(canSave ? Tokens.Palette.primary : Color.secondary)
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSave)

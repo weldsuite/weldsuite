@@ -113,7 +113,7 @@ struct SearchView: View {
                         Button {
                             setRecent(recent.filter { $0 != term })
                         } label: {
-                            Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
+                            Image(systemName: "xmark").font(.inter(.caption)).foregroundStyle(.secondary)
                         }
                         .buttonStyle(.borderless)
                         .accessibilityLabel(ChatStrings.searchRemoveRecent(term: term))
@@ -124,7 +124,7 @@ struct SearchView: View {
                     Text(ChatStrings.searchRecentSearches)
                     Spacer()
                     Button(ChatStrings.searchClearAll) { setRecent([]) }
-                        .font(.footnote)
+                        .font(.inter(.footnote))
                         .accessibilityIdentifier("search-clear-recent")
                 }
             }
@@ -140,7 +140,7 @@ struct SearchView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(member.displayName).lineLimit(1)
                     if let email = member.email, !email.isEmpty, member.name != nil {
-                        Text(email).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(email).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
                 Spacer(minLength: 0)
@@ -158,28 +158,28 @@ struct SearchView: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 4) {
                     Image(systemName: hit.channelType == "dm" ? "bubble.left" : "number")
-                        .font(.caption2)
+                        .font(.inter(.caption2))
                         .foregroundStyle(.secondary)
                     Text(hit.channelName.flatMap { $0.isEmpty ? nil : $0 } ?? ChatStrings.searchUnknownChannel)
-                        .font(.caption)
+                        .font(.inter(.caption))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Spacer(minLength: Tokens.Spacing.s)
                     if let date = WeldDate.parse(hit.createdAt) {
                         Text(date.formatted(.dateTime.day().month(.abbreviated)))
-                            .font(.caption)
+                            .font(.inter(.caption))
                             .foregroundStyle(.secondary)
                     }
                 }
-                Text(hit.authorName).font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text(hit.authorName).font(.inter(.subheadline, weight: .semibold)).lineLimit(1)
                 let text = MentionText.plainText(hit.content, names: store.memberNames).trimmingCharacters(in: .whitespacesAndNewlines)
                 if !text.isEmpty {
-                    Text(text).font(.subheadline).lineLimit(2)
+                    Text(text).font(.inter(.subheadline)).lineLimit(2)
                 }
                 if let file = SearchRules.attachmentLabel(hit) {
                     HStack(spacing: 4) {
-                        Image(systemName: "paperclip").font(.caption2)
-                        Text(file).font(.caption).lineLimit(1)
+                        Image(systemName: "paperclip").font(.inter(.caption2))
+                        Text(file).font(.inter(.caption)).lineLimit(1)
                     }
                     .foregroundStyle(.secondary)
                 }

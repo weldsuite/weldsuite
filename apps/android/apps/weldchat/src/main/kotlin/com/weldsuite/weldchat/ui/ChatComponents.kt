@@ -85,7 +85,7 @@ val MentionColor = Color(0xFF5865F2)
 /** A person's picture or initials, in WeldChat's colour. */
 @Composable
 fun ChatAvatar(name: String?, url: String?, size: Dp = 36.dp, modifier: Modifier = Modifier) {
-    Avatar(name = name, url = url, size = size, tint = MaterialTheme.colorScheme.primary, modifier = modifier)
+    Avatar(name = name, url = url, size = size, modifier = modifier)
 }
 
 /** A group conversation: two avatars overlapping. */

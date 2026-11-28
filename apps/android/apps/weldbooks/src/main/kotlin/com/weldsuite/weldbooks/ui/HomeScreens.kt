@@ -31,7 +31,7 @@ import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.automirrored.outlined.MergeType
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.automirrored.outlined.TrendingUp
-import androidx.compose.material3.Card
+import org.weldsuite.ui.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api

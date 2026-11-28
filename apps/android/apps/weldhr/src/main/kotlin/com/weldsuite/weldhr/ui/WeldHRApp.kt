@@ -20,13 +20,13 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.Button
+import org.weldsuite.ui.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import org.weldsuite.ui.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.NavigationBar
+import org.weldsuite.ui.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -395,5 +395,5 @@ private fun describe(action: AddAction, sick: Boolean): Triple<String, String?, 
 
 /** The tint for text on the brand. */
 @Composable
-fun brand() = Tokens.Brand.weldhr.current()
+fun brand() = Tokens.Palette.primary.current()
 

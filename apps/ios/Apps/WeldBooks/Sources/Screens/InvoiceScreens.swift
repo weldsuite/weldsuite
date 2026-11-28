@@ -195,11 +195,11 @@ private struct InvoiceNavTitle: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(title)
-                .font(.headline)
+                .font(.inter(.headline))
                 .lineLimit(1)
             if let subtitle {
                 Text(subtitle)
-                    .font(.caption)
+                    .font(.inter(.caption))
                     .foregroundStyle(Color.secondary)
                     .lineLimit(1)
             }
@@ -333,7 +333,7 @@ private struct InvoiceBodyView: View {
         if let notes = invoice.notes {
             SectionCard(title: BooksStrings.invoiceDetailNotes) {
                 Text(notes)
-                    .font(.subheadline)
+                    .font(.inter(.subheadline))
                     .foregroundStyle(Color.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -755,7 +755,7 @@ struct InvoiceFormView: View {
         switch previewState {
         case .idle:
             Text(BooksStrings.salesTaxNeedsAddress)
-                .font(.footnote)
+                .font(.inter(.footnote))
                 .foregroundStyle(Color.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, Tokens.Spacing.xl)

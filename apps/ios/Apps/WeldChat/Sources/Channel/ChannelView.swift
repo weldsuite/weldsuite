@@ -314,10 +314,10 @@ struct ChannelView: View {
                 ProgressView()
             } else {
                 Text(ChannelRules.welcome(kind: kind, name: name))
-                    .font(.title3.weight(.bold))
+                    .font(.inter(.title3, weight: .bold))
                     .multilineTextAlignment(.center)
                 Text(ChatStrings.channelStartOfConversation)
-                    .font(.subheadline)
+                    .font(.inter(.subheadline))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
@@ -334,30 +334,30 @@ struct ChannelView: View {
             VStack(spacing: 2) {
                 ForEach(0..<count, id: \.self) { index in
                     Capsule()
-                        .fill(index == position ? Tokens.Brand.weldchat : Color.secondary.opacity(0.3))
+                        .fill(index == position ? Tokens.Palette.primary : Color.secondary.opacity(0.3))
                         .frame(width: 3)
                 }
             }
             .frame(height: 32)
-            Image(systemName: "pin.fill").font(.caption).foregroundStyle(Tokens.Brand.weldchat)
+            Image(systemName: "pin.fill").font(.inter(.caption)).foregroundStyle(Tokens.Palette.primary)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: Tokens.Spacing.s) {
-                    Text(current.authorName).font(.caption.weight(.semibold)).lineLimit(1)
+                    Text(current.authorName).font(.inter(.caption, weight: .semibold)).lineLimit(1)
                     if count > 1 {
                         Text(ChatStrings.channelPinPosition(position: "\(position + 1)", count: count))
-                            .font(.caption2)
+                            .font(.inter(.caption2))
                             .foregroundStyle(.secondary)
                     }
                 }
                 Text(MentionText.plainText(current.content, names: names))
-                    .font(.subheadline)
+                    .font(.inter(.subheadline))
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
             Button {
                 unpinTarget = current
             } label: {
-                Image(systemName: "xmark").font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                Image(systemName: "xmark").font(.inter(.caption, weight: .bold)).foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(ChatStrings.channelUnpin)
@@ -444,11 +444,11 @@ struct ChannelView: View {
             headerIcon
             VStack(alignment: .leading, spacing: 0) {
                 Text(name.isEmpty ? ChatStrings.channelLoadingTitle : name)
-                    .font(.headline)
+                    .font(.inter(.headline))
                     .foregroundStyle(Color.primary)
                     .lineLimit(1)
                 if let subtitle = headerSubtitle {
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(subtitle).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
         }
@@ -504,10 +504,10 @@ struct ChannelView: View {
                     toggleFollow()
                 } label: {
                     Text(following ? ChatStrings.recordChatsFollowing : ChatStrings.recordChatsFollow)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.inter(.subheadline, weight: .semibold))
                 }
                 .buttonStyle(.bordered)
-                .tint(following ? Color.secondary : Tokens.Brand.weldchat)
+                .tint(following ? Color.secondary : Tokens.Palette.primary)
                 .controlSize(.small)
                 .accessibilityAddTraits(following ? .isSelected : [])
                 .accessibilityIdentifier("channel-follow")
@@ -520,7 +520,7 @@ struct ChannelView: View {
                     } label: {
                         Label(ChatStrings.channelJoinCall, systemImage: join.callType == .video ? "video.fill" : "phone.fill")
                             .labelStyle(.titleAndIcon)
-                            .font(.subheadline.weight(.semibold))
+                            .font(.inter(.subheadline, weight: .semibold))
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(Tokens.Status.success)
@@ -802,7 +802,7 @@ struct SystemMessageRow: View {
 
     var body: some View {
         Text(text)
-            .font(.caption)
+            .font(.inter(.caption))
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)

@@ -1,15 +1,16 @@
 import SwiftUI
 import WeldCore
 
-/// A person's picture, or their initials on a tinted circle when there is
-/// none (or it doesn't load).
+/// A person's picture, or their initials when there is none (or it doesn't
+/// load): white on the colour the web platform gives that name, or in `tint`
+/// on a light wash of it when one is passed.
 public struct AvatarView: View {
     let name: String?
     let url: URL?
     var size: CGFloat
-    var tint: Color
+    var tint: Color?
 
-    public init(name: String?, url: URL? = nil, size: CGFloat = 36, tint: Color = .accentColor) {
+    public init(name: String?, url: URL? = nil, size: CGFloat = 36, tint: Color? = nil) {
         self.name = name
         self.url = url
         self.size = size
@@ -37,10 +38,10 @@ public struct AvatarView: View {
 
     private var initials: some View {
         Text(Self.initials(of: name))
-            .font(.system(size: size * 0.38, weight: .semibold))
-            .foregroundStyle(tint)
+            .font(.inter(size: size * 0.38, weight: .semibold))
+            .foregroundStyle(tint ?? .white)
             .frame(width: size, height: size)
-            .background(tint.opacity(0.15))
+            .background(tint?.opacity(0.15) ?? PlatformColors.avatar(name ?? ""))
     }
 
     /// "Ann de Vries" → "AV", "ann@example.com" → "A".
@@ -66,11 +67,11 @@ public struct StatusBadge: View {
 
     public var body: some View {
         Text(text)
-            .font(.caption.weight(.semibold))
+            .font(.inter(.caption, weight: .medium))
             .foregroundStyle(color)
             .padding(.horizontal, Tokens.Spacing.s)
             .padding(.vertical, 2)
-            .background(color.opacity(0.14), in: Capsule())
+            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: Tokens.Radius.small))
     }
 }
 
@@ -128,7 +129,7 @@ extension View {
             .overlay(alignment: .bottom) {
                 if let message = toaster.message {
                     Text(message)
-                        .font(.subheadline)
+                        .font(.inter(.subheadline))
                         .padding(.horizontal, Tokens.Spacing.l)
                         .padding(.vertical, Tokens.Spacing.m)
                         .background(.thinMaterial, in: Capsule())

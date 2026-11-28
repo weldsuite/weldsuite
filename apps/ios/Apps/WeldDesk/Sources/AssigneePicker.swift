@@ -83,18 +83,18 @@ private struct MemberRow: View {
 
     var body: some View {
         HStack(spacing: Tokens.Spacing.m) {
-            AvatarView(name: member.name, url: member.picture.flatMap(URL.init(string:)), size: 32, tint: Tokens.Brand.welddesk)
+            AvatarView(name: member.name, url: member.picture.flatMap(URL.init(string:)), size: 32)
             VStack(alignment: .leading, spacing: 1) {
                 Text(isMe ? "\(member.name) (\(DeskStrings.conversationAssignedToYou))" : member.name)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 if !member.email.isEmpty, member.email != member.name {
-                    Text(member.email).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(member.email).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             Spacer(minLength: 0)
             if selected {
-                Image(systemName: "checkmark").foregroundStyle(Tokens.Brand.welddesk)
+                Image(systemName: "checkmark").foregroundStyle(Tokens.Palette.primary)
             }
         }
     }

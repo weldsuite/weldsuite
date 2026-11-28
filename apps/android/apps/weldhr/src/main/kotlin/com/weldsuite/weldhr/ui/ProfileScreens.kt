@@ -22,16 +22,16 @@ import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.Badge
-import androidx.compose.material3.Card
+import org.weldsuite.ui.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
+import org.weldsuite.ui.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
+import org.weldsuite.ui.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Button
+import org.weldsuite.ui.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -118,7 +118,7 @@ fun ProfileScreen() {
                 val profile = ready.profile
                 item("profile") {
                     HrRow(
-                        leading = { Avatar(profile.displayName, profile.avatarUrl, size = 40.dp, tint = brand()) },
+                        leading = { Avatar(profile.displayName, profile.avatarUrl, size = 40.dp) },
                         title = profile.displayName,
                         subtitle = listOfNotNull(profile.jobTitle, employeeStatusLabel(profile.status)).joinToString(" • "),
                     )
@@ -595,7 +595,7 @@ fun DirectoryScreen() {
             if (rows.isEmpty()) item("empty") { EmptyState(stringResource(R.string.weldhr_directory_empty), stringResource(R.string.weldhr_directory_empty_description)) }
             items(rows, key = { it.id }) { employee ->
                 HrRow(
-                    leading = { Avatar(employee.displayName, employee.avatarUrl, tint = brand()) },
+                    leading = { Avatar(employee.displayName, employee.avatarUrl) },
                     title = employee.displayName,
                     subtitle = listOfNotNull(employee.jobTitle, employee.departmentName).joinToString(" • ").ifEmpty { employee.email },
                     tag = "employee-${employee.id}",
@@ -618,7 +618,7 @@ fun EmployeeScreen(id: String) {
         query(state, onRetry = { employee.refresh() }) { data ->
             item("card") {
                 Column(Modifier.fillMaxWidth().padding(Tokens.Spacing.l), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Avatar(data.displayName, data.avatarUrl, size = 84.dp, tint = brand())
+                    Avatar(data.displayName, data.avatarUrl, size = 84.dp)
                     data.jobTitle?.let { Text(it, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center) }
                     Text(listOfNotNull(employeeStatusLabel(data.status), data.pronouns).joinToString(" • "), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -649,7 +649,7 @@ fun EmployeeScreen(id: String) {
                     SectionHead(stringResource(R.string.weldhr_directory_reports))
                     data.directReports.forEach { report ->
                         HrRow(
-                            leading = { Avatar(report.displayName, report.avatarUrl, tint = brand()) },
+                            leading = { Avatar(report.displayName, report.avatarUrl) },
                             title = report.displayName,
                             subtitle = report.jobTitle,
                             onClick = { hr.open(Routes.employee(report.id)) },

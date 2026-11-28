@@ -94,7 +94,7 @@ struct HealthView: View {
         } else {
             List {
                 Section {
-                    Text(PassStrings.healthSummary(healthy: report.healthy, checked: report.checked)).font(.headline)
+                    Text(PassStrings.healthSummary(healthy: report.healthy, checked: report.checked)).font(.inter(.headline))
                     LabeledContent(PassStrings.healthWeak, value: "\(report.weak)")
                     LabeledContent(PassStrings.healthReused, value: "\(report.reused)")
                     LabeledContent(PassStrings.healthOld, value: "\(report.old)")
@@ -113,7 +113,7 @@ struct HealthView: View {
                                     ItemIcon(kind: .login)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(entry.item.title).lineLimit(1)
-                                        Text(issueText(entry)).font(.subheadline).foregroundStyle(Tokens.Status.danger)
+                                        Text(issueText(entry)).font(.inter(.subheadline)).foregroundStyle(Tokens.Status.danger)
                                     }
                                 }
                             }

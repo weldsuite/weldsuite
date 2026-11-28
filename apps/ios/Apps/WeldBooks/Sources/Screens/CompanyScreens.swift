@@ -546,11 +546,11 @@ struct EntityEmptyStateView: View {
         VStack(spacing: Tokens.Spacing.s) {
             IconTile(systemImage: "building.2", color: Accents.brand, size: 96)
             Text(BooksStrings.entitySetupEmptyTitle)
-                .font(.title3.weight(.semibold))
+                .font(.inter(.title3, weight: .semibold))
                 .multilineTextAlignment(.center)
                 .padding(.top, Tokens.Spacing.m)
             Text(BooksStrings.entitySetupEmptyDescription)
-                .font(.subheadline)
+                .font(.inter(.subheadline))
                 .foregroundStyle(Color.secondary)
                 .multilineTextAlignment(.center)
             Button {
@@ -563,7 +563,7 @@ struct EntityEmptyStateView: View {
             .tagged("create-company-open")
             .padding(.top, Tokens.Spacing.l)
             Text(BooksStrings.entitySetupEmptyWebHint)
-                .font(.footnote)
+                .font(.inter(.footnote))
                 .foregroundStyle(Color.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.top, Tokens.Spacing.l)
@@ -630,10 +630,10 @@ struct AdministrationSheet: View {
                                 .accessibilityHidden(true)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(BooksStrings.administrationsAdd)
-                                    .font(.body.weight(.semibold))
+                                    .font(.inter(.body, weight: .semibold))
                                     .foregroundStyle(Accents.brand)
                                 Text(BooksStrings.administrationsAddHint)
-                                    .font(.footnote)
+                                    .font(.inter(.footnote))
                                     .foregroundStyle(Color.secondary)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -679,18 +679,18 @@ private struct AdministrationRow: View {
             IconTile(systemImage: "building.2", color: Accents.settings)
             VStack(alignment: .leading, spacing: 2) {
                 Text(entity.name)
-                    .font(.body.weight(.semibold))
+                    .font(.inter(.body, weight: .semibold))
                     .foregroundStyle(Color.primary)
                     .lineLimit(1)
                 Text(entity.isDefault ? "\(entityMeta(entity)) · \(BooksStrings.commonDefault)" : entityMeta(entity))
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(Color.secondary)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if selected {
                 Image(systemName: "checkmark")
-                    .font(.body.weight(.semibold))
+                    .font(.inter(.body, weight: .semibold))
                     .foregroundStyle(Accents.brand)
                     .accessibilityHidden(true)
             }
@@ -904,15 +904,15 @@ private struct CompanySettingsSection: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(BooksStrings.settingsAdministration)
-                                .font(.footnote)
+                                .font(.inter(.footnote))
                                 .foregroundStyle(Color.secondary)
                             Text(name)
-                                .font(.body.weight(.semibold))
+                                .font(.inter(.body, weight: .semibold))
                                 .foregroundStyle(Color.primary)
                         }
                         Spacer()
                         Image(systemName: "chevron.right")
-                            .font(.footnote.weight(.semibold))
+                            .font(.inter(.footnote, weight: .semibold))
                             .foregroundStyle(Color(uiColor: .tertiaryLabel))
                     }
                     .contentShape(Rectangle())

@@ -24,15 +24,15 @@ struct DocumentSummary: View {
         SectionCard {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(hasBalance ? balanceLabel : totalLabel).font(.footnote).foregroundStyle(Color.secondary)
-                    Text(books.money(hasBalance ? balanceDue : total, currency: currency)).font(.title2.bold())
+                    Text(hasBalance ? balanceLabel : totalLabel).font(.inter(.footnote)).foregroundStyle(Color.secondary)
+                    Text(books.money(hasBalance ? balanceDue : total, currency: currency)).font(.inter(.title2, weight: .bold))
                 }
                 Spacer()
                 StatusPill(status)
             }
             if hasBalance, let days = due {
                 Text(dueText(days))
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(days < 0 ? Tokens.Status.danger : Color.secondary)
                     .padding(.top, Tokens.Spacing.s)
             }
@@ -65,13 +65,13 @@ struct DocumentLines: View {
                 ForEach(lines.indices, id: \.self) { index in
                     let line = lines[index]
                     if index > 0 { Divider().padding(.vertical, Tokens.Spacing.s) }
-                    Text(line.description).font(.subheadline)
+                    Text(line.description).font(.inter(.subheadline))
                     HStack(alignment: .firstTextBaseline, spacing: Tokens.Spacing.m) {
                         Text(detail(line))
-                            .font(.footnote)
+                            .font(.inter(.footnote))
                             .foregroundStyle(Color.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        Text(books.money(line.lineTotal, currency: currency)).font(.subheadline.weight(.semibold))
+                        Text(books.money(line.lineTotal, currency: currency)).font(.inter(.subheadline, weight: .semibold))
                     }
                     .padding(.top, 4)
                 }

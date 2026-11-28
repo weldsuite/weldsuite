@@ -61,7 +61,7 @@ struct ThreadView: View {
                             HStack(spacing: Tokens.Spacing.s) {
                                 VStack { Divider() }
                                 Text(ChatStrings.channelReplyCount(rows.count))
-                                    .font(.caption.weight(.semibold))
+                                    .font(.inter(.caption, weight: .semibold))
                                     .foregroundStyle(.secondary)
                                 VStack { Divider() }
                             }
@@ -150,7 +150,7 @@ struct ThreadView: View {
                     }
                     .frame(width: 36, height: 36)
                     .foregroundStyle(.white)
-                    .background(canSend ? Tokens.Brand.weldchat : Color.secondary.opacity(0.4), in: Circle())
+                    .background(canSend ? Tokens.Palette.primary : Color.secondary.opacity(0.4), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend)

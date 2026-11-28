@@ -173,10 +173,10 @@ struct CallsView: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(isVideo ? ChatStrings.callsOngoingVideoCall : ChatStrings.callsOngoingVoiceCall)
-                    .font(.body.weight(.semibold))
+                    .font(.inter(.body, weight: .semibold))
                     .lineLimit(1)
                 Text(subtitle)
-                    .font(.subheadline)
+                    .font(.inter(.subheadline))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -207,15 +207,15 @@ struct CallsView: View {
             avatar(entry, title: title)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.body.weight(.semibold))
+                    .font(.inter(.body, weight: .semibold))
                     .lineLimit(1)
                 HStack(spacing: Tokens.Spacing.xs) {
                     Image(systemName: incoming ? "arrow.down.left" : "arrow.up.right")
-                        .font(.caption.weight(.semibold))
+                        .font(.inter(.caption, weight: .semibold))
                         .foregroundStyle(missed ? Tokens.Status.danger : Color.secondary)
                         .accessibilityHidden(true)
                     Text(CallRules.subtitle(entry))
-                        .font(.subheadline)
+                        .font(.inter(.subheadline))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -223,7 +223,7 @@ struct CallsView: View {
             Spacer(minLength: 0)
             if let date = WeldDate.parse(entry.createdAt) {
                 Text(CallRules.time(date))
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(.secondary)
             }
             Button {
@@ -233,8 +233,8 @@ struct CallsView: View {
                     ProgressView()
                 } else {
                     Image(systemName: entry.callType == .video ? "video" : "phone")
-                        .font(.title3)
-                        .foregroundStyle(Tokens.Brand.weldchat)
+                        .font(.inter(.title3))
+                        .foregroundStyle(Tokens.Palette.primary)
                 }
             }
             .buttonStyle(.borderless)
@@ -259,24 +259,24 @@ struct CallsView: View {
     private func avatar(_ entry: CallHistoryEntry, title: String) -> some View {
         if !CallRules.isDM(entry) {
             Image(systemName: "number")
-                .font(.title3.weight(.semibold))
+                .font(.inter(.title3, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: 44, height: 44)
                 .background(Color.secondary.opacity(0.14), in: Circle())
                 .accessibilityHidden(true)
         } else if CallRules.isGroupDM(entry) {
             Image(systemName: "person.2.fill")
-                .font(.body)
+                .font(.inter(.body))
                 .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
-                .background(Tokens.Brand.weldchat, in: Circle())
+                .background(Tokens.Palette.primary, in: Circle())
                 .accessibilityHidden(true)
         } else {
             AvatarView(
                 name: title,
                 url: entry.counterpart?.avatar.flatMap(URL.init(string:)),
                 size: 44,
-                tint: Tokens.Brand.weldchat
+                tint: Tokens.Palette.primary
             )
         }
     }

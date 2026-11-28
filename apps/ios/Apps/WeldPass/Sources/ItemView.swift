@@ -122,9 +122,9 @@ struct ItemView: View {
                 HStack(spacing: 14) {
                     ItemIcon(kind: item.kind, size: 56)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(item.title).font(.title2.bold()).lineLimit(2)
+                        Text(item.title).font(.inter(.title2, weight: .bold)).lineLimit(2)
                         Text([typeLabel(item.kind), vault.map(vaultLabel)].compactMap { $0 }.joined(separator: " · "))
-                            .font(.subheadline)
+                            .font(.inter(.subheadline))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -192,7 +192,7 @@ struct ItemView: View {
 
             Section {
                 Text(PassStrings.itemUpdated(date: formatDate(item.updatedAt)))
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
             }
@@ -279,7 +279,7 @@ private struct FieldRow: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(label).font(.caption).foregroundStyle(.secondary)
+                Text(label).font(.inter(.caption)).foregroundStyle(.secondary)
                 Text(display)
                     .font(monospace && shown ? .body.monospaced() : .body)
                     .textSelection(.disabled)
@@ -328,14 +328,14 @@ private struct TotpRow: View {
             } label: {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(PassStrings.itemTotp).font(.caption).foregroundStyle(.secondary)
+                        Text(PassStrings.itemTotp).font(.inter(.caption)).foregroundStyle(.secondary)
                         Text(code.map { PassLogic.formatTotpCode($0.code) } ?? PassStrings.commonDash)
                             .font(.system(size: 26, weight: .semibold).monospacedDigit())
                             .foregroundStyle(.primary)
                         if code != nil {
-                            Text(PassStrings.itemTotpExpires(left)).font(.caption).foregroundStyle(.secondary)
+                            Text(PassStrings.itemTotpExpires(left)).font(.inter(.caption)).foregroundStyle(.secondary)
                         } else if offline {
-                            Text(PassStrings.itemTotpOffline).font(.caption).foregroundStyle(.secondary)
+                            Text(PassStrings.itemTotpOffline).font(.inter(.caption)).foregroundStyle(.secondary)
                         }
                     }
                     Spacer()

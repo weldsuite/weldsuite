@@ -188,16 +188,16 @@ private struct HomeKpiCard: View {
     private var card: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .font(.footnote.weight(.medium))
+                .font(.inter(.footnote, weight: .medium))
                 .foregroundStyle(Color.secondary)
                 .lineLimit(1)
             Text(value)
-                .font(.title3.bold())
+                .font(.inter(.title3, weight: .bold))
                 .foregroundStyle(warn ? Tokens.Status.danger : Color.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
             Text(sub)
-                .font(.caption)
+                .font(.inter(.caption))
                 .foregroundStyle(Color.secondary)
                 .lineLimit(1)
         }
@@ -239,7 +239,7 @@ private struct HomeQuickActions: View {
                     VStack(spacing: Tokens.Spacing.s) {
                         IconTile(systemImage: action.systemImage, color: Accents.brand, size: 52)
                         Text(action.label)
-                            .font(.footnote.weight(.medium))
+                            .font(.inter(.footnote, weight: .medium))
                             .foregroundStyle(Color.secondary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
@@ -676,18 +676,18 @@ private struct HomeMenuLabel: View {
             IconTile(systemImage: systemImage, color: color)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.body.weight(.semibold))
+                    .font(.inter(.body, weight: .semibold))
                     .foregroundStyle(Color.primary)
                     .lineLimit(1)
                 Text(subtitle)
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(Color.secondary)
                     .lineLimit(2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if chevron {
                 Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
+                    .font(.inter(.footnote, weight: .semibold))
                     .foregroundStyle(Color(uiColor: .tertiaryLabel))
                     .accessibilityHidden(true)
             }

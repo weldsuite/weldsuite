@@ -132,7 +132,7 @@ struct ComposeView: View {
                     }
                     if recipientMissing {
                         Text(MailStrings.composeRecipientRequired)
-                            .font(.footnote)
+                            .font(.inter(.footnote))
                             .foregroundStyle(.red)
                             .padding(.horizontal, Tokens.Spacing.l)
                     }
@@ -257,11 +257,11 @@ struct ComposeView: View {
                 }
             } label: {
                 VStack(spacing: 0) {
-                    Text(title).font(.headline).foregroundStyle(.primary)
+                    Text(title).font(.inter(.headline)).foregroundStyle(.primary)
                     if let from {
                         HStack(spacing: 2) {
-                            Text(from.email).font(.caption).lineLimit(1)
-                            if store.sendableAccounts.count > 1 { Image(systemName: "chevron.down").font(.caption2) }
+                            Text(from.email).font(.inter(.caption)).lineLimit(1)
+                            if store.sendableAccounts.count > 1 { Image(systemName: "chevron.down").font(.inter(.caption2)) }
                         }
                         .foregroundStyle(.secondary)
                     }
@@ -305,9 +305,9 @@ struct ComposeView: View {
                         } label: {
                             HStack(spacing: 4) {
                                 Text(email).lineLimit(1)
-                                Image(systemName: "xmark").font(.caption2)
+                                Image(systemName: "xmark").font(.inter(.caption2))
                             }
-                            .font(.subheadline)
+                            .font(.inter(.subheadline))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(Color(.secondarySystemBackground), in: Capsule())
@@ -388,7 +388,7 @@ struct ComposeView: View {
                             SenderAvatar(name: person.name ?? email, size: 32)
                             VStack(alignment: .leading) {
                                 Text(person.name ?? email).lineLimit(1).foregroundStyle(.primary)
-                                if person.name != nil { Text(email).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                                if person.name != nil { Text(email).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1) }
                             }
                             Spacer()
                         }
@@ -428,7 +428,7 @@ struct ComposeView: View {
                     self.scheduledAt = nil
                 } label: {
                     Label(MailStrings.sendLaterScheduledFor(time: momentText(scheduledAt)), systemImage: "xmark.circle.fill")
-                        .font(.subheadline)
+                        .font(.inter(.subheadline))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .background(Color.accentColor.opacity(0.12), in: Capsule())
@@ -447,9 +447,9 @@ struct ComposeView: View {
                             HStack(spacing: 4) {
                                 Image(systemName: "paperclip")
                                 Text(file.name).lineLimit(1).frame(maxWidth: 200)
-                                Image(systemName: "xmark").font(.caption2)
+                                Image(systemName: "xmark").font(.inter(.caption2))
                             }
-                            .font(.subheadline)
+                            .font(.inter(.subheadline))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(Color(.secondarySystemBackground), in: Capsule())
@@ -476,11 +476,11 @@ struct ComposeView: View {
                     .accessibilityIdentifier("compose-show-quote")
                     if showQuote {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("---------- \(quoteLabel) ---------").font(.caption)
-                            Text(quoteFrom).font(.footnote)
-                            Text(MailStrings.composeQuotedDate(date: fullTime(prefill.quotedDate))).font(.footnote)
-                            Text(quoteSubject).font(.footnote)
-                            Text(prefill.quotedBody).font(.footnote).padding(.top, Tokens.Spacing.s)
+                            Text("---------- \(quoteLabel) ---------").font(.inter(.caption))
+                            Text(quoteFrom).font(.inter(.footnote))
+                            Text(MailStrings.composeQuotedDate(date: fullTime(prefill.quotedDate))).font(.inter(.footnote))
+                            Text(quoteSubject).font(.inter(.footnote))
+                            Text(prefill.quotedBody).font(.inter(.footnote)).padding(.top, Tokens.Spacing.s)
                         }
                         .padding(Tokens.Spacing.m)
                         .frame(maxWidth: .infinity, alignment: .leading)

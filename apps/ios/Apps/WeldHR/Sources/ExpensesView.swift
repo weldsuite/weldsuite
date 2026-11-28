@@ -72,7 +72,7 @@ private struct MyExpenses: View {
         }
         let totals = data.open.filter { $0.pending > 0 || $0.approved > 0 }
         if !canClaim {
-            Section { Text(HRStrings.expensesTurnedOff).font(.subheadline).foregroundStyle(.secondary) }
+            Section { Text(HRStrings.expensesTurnedOff).font(.inter(.subheadline)).foregroundStyle(.secondary) }
         }
         if rows.isEmpty {
             ContentUnavailableView {
@@ -139,8 +139,8 @@ struct DeclarationRowView: View {
             CategoryTile(category: row.category)
         } value: {
             HStack(spacing: 4) {
-                if row.hasReceipt { Image(systemName: "paperclip").font(.caption).foregroundStyle(.secondary) }
-                Text(Fmt.money(row.amount, row.currency)).font(.subheadline).monospacedDigit()
+                if row.hasReceipt { Image(systemName: "paperclip").font(.inter(.caption)).foregroundStyle(.secondary) }
+                Text(Fmt.money(row.amount, row.currency)).font(.inter(.subheadline)).monospacedDigit()
             }
         }
         .accessibilityIdentifier("expense-\(row.id)")
@@ -222,7 +222,7 @@ struct AnnouncementsView: View {
                                     IconTile(symbol: announcement.pinned ? "pin" : "megaphone")
                                         .overlay(alignment: .topTrailing) {
                                             if announcement.readAt == nil {
-                                                Circle().fill(Tokens.Brand.weldhr).frame(width: 9, height: 9)
+                                                Circle().fill(Tokens.Palette.primary).frame(width: 9, height: 9)
                                                     .accessibilityLabel(HRStrings.announcementsUnread)
                                             }
                                         }

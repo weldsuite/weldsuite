@@ -10,7 +10,7 @@ import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
+import org.weldsuite.ui.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text

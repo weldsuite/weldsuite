@@ -30,7 +30,7 @@ struct StateBadge: View {
 
     var body: some View {
         switch state {
-        case .open: StatusBadge(DeskStrings.inboxOpen, color: Tokens.Brand.welddesk)
+        case .open: StatusBadge(DeskStrings.inboxOpen, color: Tokens.Palette.primary)
         case .closed: StatusBadge(DeskStrings.inboxClosed, color: .secondary)
         }
     }
@@ -44,9 +44,9 @@ struct MessageRow: View {
     var body: some View {
         if message.kind == .event {
             VStack(spacing: 2) {
-                Text(eventLabel).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Text(eventLabel).font(.inter(.caption, weight: .medium)).foregroundStyle(.secondary)
                 if let date = message.createdAt {
-                    Text(WeldDate.short(date)).font(.caption2).foregroundStyle(.secondary)
+                    Text(WeldDate.short(date)).font(.inter(.caption2)).foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -67,7 +67,7 @@ struct MessageRow: View {
             if fromAgent { Spacer(minLength: 48) }
             VStack(alignment: .leading, spacing: 2) {
                 Text(isNote ? "\(authorLabel) · \(DeskStrings.conversationNote)" : authorLabel)
-                    .font(.caption2.weight(.semibold))
+                    .font(.inter(.caption2, weight: .semibold))
                     .foregroundStyle(onBrand ? Color.white.opacity(0.8) : Color.secondary)
                 if let body = message.body, !body.isEmpty {
                     Text(body).foregroundStyle(onBrand ? Color.white : Color.primary)
@@ -79,7 +79,7 @@ struct MessageRow: View {
                 }
                 if let date = message.createdAt {
                     Text(WeldDate.short(date))
-                        .font(.caption2)
+                        .font(.inter(.caption2))
                         .foregroundStyle(onBrand ? Color.white.opacity(0.7) : Color.secondary)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
@@ -96,7 +96,7 @@ struct MessageRow: View {
 
     private var background: Color {
         if isNote { return Tokens.Status.warning.opacity(0.15) }
-        return fromAgent ? Tokens.Brand.welddesk : Color(.secondarySystemBackground)
+        return fromAgent ? Tokens.Palette.primary : Color(.secondarySystemBackground)
     }
 
     private var authorLabel: String {
@@ -160,10 +160,10 @@ private struct AttachmentView: View {
                 HStack(spacing: Tokens.Spacing.s) {
                     Image(systemName: "doc.text").accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(name).font(.subheadline.weight(.medium)).lineLimit(1)
+                        Text(name).font(.inter(.subheadline, weight: .medium)).lineLimit(1)
                         let size = DeskLogic.formatFileSize(attachment.size)
                         if !size.isEmpty {
-                            Text(size).font(.caption2).opacity(0.75)
+                            Text(size).font(.inter(.caption2)).opacity(0.75)
                         }
                     }
                 }

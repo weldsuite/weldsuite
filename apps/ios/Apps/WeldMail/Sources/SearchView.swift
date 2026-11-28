@@ -287,15 +287,15 @@ private struct ResultRow: View {
                 HStack(spacing: Tokens.Spacing.xs) {
                     Text(highlighted(sender)).fontWeight(message.isRead ? .regular : .semibold).lineLimit(1)
                     Spacer(minLength: 0)
-                    Text(rowTime(message.listDate)).font(.caption).foregroundStyle(.secondary)
-                    if message.hasAttachments { Image(systemName: "paperclip").font(.caption).foregroundStyle(.secondary) }
-                    if message.isStarred { Image(systemName: "star.fill").font(.caption).foregroundStyle(MailColors.star) }
+                    Text(rowTime(message.listDate)).font(.inter(.caption)).foregroundStyle(.secondary)
+                    if message.hasAttachments { Image(systemName: "paperclip").font(.inter(.caption)).foregroundStyle(.secondary) }
+                    if message.isStarred { Image(systemName: "star.fill").font(.inter(.caption)).foregroundStyle(MailColors.star) }
                 }
                 Text(highlighted(message.subject.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } ?? MailStrings.commonNoSubject))
                     .fontWeight(message.isRead ? .regular : .semibold)
                     .lineLimit(1)
                 Text(highlighted(message.preview ?? ""))
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }

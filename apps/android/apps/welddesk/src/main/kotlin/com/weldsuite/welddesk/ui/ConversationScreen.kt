@@ -539,7 +539,7 @@ private fun ConversationHeader(
 
 @Composable
 private fun AssignChip(label: Int, icon: androidx.compose.ui.graphics.vector.ImageVector, tag: String, enabled: Boolean, onClick: () -> Unit) {
-    val brand = Tokens.Brand.welddesk.current()
+    val brand = Tokens.Palette.primary.current()
     AssistChip(
         onClick = onClick,
         enabled = enabled,

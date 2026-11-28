@@ -62,7 +62,7 @@ private struct ShiftDetail: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
                         Text(shift.map { Fmt.timeRange($0.startsAt, $0.endsAt) } ?? Fmt.timeRange(loose?.clockIn, loose?.clockOut))
-                            .font(.title2.weight(.bold))
+                            .font(.inter(.title2, weight: .bold))
                         Spacer()
                         Text(shift.map { Fmt.hm(Double(ShiftMath.plannedMinutes($0))) } ?? Fmt.hm(workedMinutes)).foregroundStyle(.secondary)
                     }
@@ -585,13 +585,13 @@ struct AnnouncementView: View {
                     Section {
                         VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
                             if item.pinned {
-                                Label(HRStrings.announcementsPinned, systemImage: "pin").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+                                Label(HRStrings.announcementsPinned, systemImage: "pin").font(.inter(.footnote, weight: .semibold)).foregroundStyle(.secondary)
                             }
-                            Text(item.title).font(.title2.weight(.bold)).accessibilityIdentifier("announcement-title")
+                            Text(item.title).font(.inter(.title2, weight: .bold)).accessibilityIdentifier("announcement-title")
                             Text([item.createdByName.map { HRStrings.announcementsBy(name: $0) }, "\(Fmt.date(item.publishedAt)), \(Fmt.time(item.publishedAt))"].compactMap { $0 }.joined(separator: " · "))
-                                .font(.subheadline)
+                                .font(.inter(.subheadline))
                                 .foregroundStyle(.secondary)
-                            Text(item.body).font(.body).textSelection(.enabled).padding(.top, Tokens.Spacing.s)
+                            Text(item.body).font(.inter(.body)).textSelection(.enabled).padding(.top, Tokens.Spacing.s)
                         }
                         .padding(.vertical, Tokens.Spacing.s)
                     }

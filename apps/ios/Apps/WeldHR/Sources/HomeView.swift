@@ -19,8 +19,8 @@ struct HomeView: View {
                     HStack(spacing: Tokens.Spacing.m) {
                         PersonAvatar(name: workspace.name, size: 32)
                         VStack(alignment: .leading) {
-                            Text(workspace.name).font(.headline).foregroundStyle(.primary)
-                            Text(HRStrings.homeProfileAndSettings).font(.footnote).foregroundStyle(.secondary)
+                            Text(workspace.name).font(.inter(.headline)).foregroundStyle(.primary)
+                            Text(HRStrings.homeProfileAndSettings).font(.inter(.footnote)).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Image(systemName: "chevron.right").foregroundStyle(.tertiary)
@@ -147,15 +147,15 @@ private struct ShiftHero: View {
                     .frame(width: 5)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
-                        Text(title(since: since)).font(.title2.weight(.bold)).monospacedDigit().lineLimit(1)
+                        Text(title(since: since)).font(.inter(.title2, weight: .bold)).monospacedDigit().lineLimit(1)
                             .accessibilityIdentifier("home-hero-title")
                         Spacer()
                         if running {
-                            Label(HRStrings.homeSince(time: Fmt.time(overview.since)), systemImage: "clock").font(.subheadline).foregroundStyle(.secondary)
+                            Label(HRStrings.homeSince(time: Fmt.time(overview.since)), systemImage: "clock").font(.inter(.subheadline)).foregroundStyle(.secondary)
                         }
                     }
                     ForEach(lines(running: running), id: \.self) { line in
-                        Text(line).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                        Text(line).font(.inter(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
             }
@@ -183,7 +183,7 @@ private struct ShiftHero: View {
                     }
                 }
                 if features.clockInRequiresLocation {
-                    Label(HRStrings.locationRequired, systemImage: "mappin").font(.footnote).foregroundStyle(.secondary)
+                    Label(HRStrings.locationRequired, systemImage: "mappin").font(.inter(.footnote)).foregroundStyle(.secondary)
                 }
             }
         }
@@ -192,7 +192,7 @@ private struct ShiftHero: View {
             NavigationStack {
                 List {
                     Section {
-                        Text(HRStrings.homeSwitchHint).font(.subheadline).foregroundStyle(.secondary)
+                        Text(HRStrings.homeSwitchHint).font(.inter(.subheadline)).foregroundStyle(.secondary)
                     }
                     Section {
                         if switchable.isEmpty {

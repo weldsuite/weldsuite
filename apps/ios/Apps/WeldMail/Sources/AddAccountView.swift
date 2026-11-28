@@ -89,7 +89,7 @@ struct AddAccountView: View {
             MailEmptyView(title: MailStrings.addAccountNothingToAdd, systemImage: "envelope")
         } else {
             Section {
-                Text(MailStrings.addAccountIntro).font(.subheadline)
+                Text(MailStrings.addAccountIntro).font(.inter(.subheadline))
                 if freeAddresses {
                     Button {
                         step = .free
@@ -117,7 +117,7 @@ struct AddAccountView: View {
             Image(systemName: systemImage).foregroundStyle(Color.accentColor).frame(width: 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).foregroundStyle(.primary)
-                Text(hint).font(.footnote).foregroundStyle(.secondary)
+                Text(hint).font(.inter(.footnote)).foregroundStyle(.secondary)
             }
             Spacer()
             Image(systemName: "chevron.forward").foregroundStyle(.tertiary)
@@ -129,7 +129,7 @@ struct AddAccountView: View {
         let suffix = (step == .free ? freeDomain : domain) ?? ""
         Section {
             Text("\(address.isEmpty ? MailStrings.addAccountAddressPlaceholder : address)@\(suffix)")
-                .font(.headline)
+                .font(.inter(.headline))
                 .accessibilityIdentifier("add-account-preview")
             HStack {
                 TextField(MailStrings.addAccountAddressPlaceholder, text: Binding(get: { address }, set: { address = AddAccountLogic.cleanAddress($0) }))
@@ -174,18 +174,18 @@ struct AddAccountView: View {
     @ViewBuilder
     private var availabilityLine: some View {
         if address.count < 3 {
-            Text(MailStrings.addAccountMinLength).font(.footnote)
+            Text(MailStrings.addAccountMinLength).font(.inter(.footnote))
         } else if checking {
             HStack {
                 ProgressView()
-                Text(MailStrings.addAccountChecking).font(.footnote)
+                Text(MailStrings.addAccountChecking).font(.inter(.footnote))
             }
         } else if let availability {
             switch availability {
             case .available:
-                Label(MailStrings.addAccountAvailable, systemImage: "checkmark.circle").font(.footnote).foregroundStyle(Tokens.Status.success)
+                Label(MailStrings.addAccountAvailable, systemImage: "checkmark.circle").font(.inter(.footnote)).foregroundStyle(Tokens.Status.success)
             case let .unavailable(reason):
-                Label(unavailableText(reason), systemImage: "exclamationmark.circle").font(.footnote).foregroundStyle(.red)
+                Label(unavailableText(reason), systemImage: "exclamationmark.circle").font(.inter(.footnote)).foregroundStyle(.red)
             }
         }
     }

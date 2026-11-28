@@ -60,13 +60,13 @@ struct PickPersonRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(name).lineLimit(1).foregroundStyle(Color.primary)
                 if let email, !email.isEmpty, email != name {
-                    Text(email).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(email).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             Spacer(minLength: 0)
             Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                .font(.title3)
-                .foregroundStyle(selected ? Tokens.Brand.weldchat : Color.secondary)
+                .font(.inter(.title3))
+                .foregroundStyle(selected ? Tokens.Palette.primary : Color.secondary)
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
@@ -104,7 +104,7 @@ struct InlineError: View {
 
     var body: some View {
         Text(text)
-            .font(.footnote)
+            .font(.inter(.footnote))
             .foregroundStyle(Tokens.Status.danger)
             .accessibilityIdentifier("inline-error")
     }

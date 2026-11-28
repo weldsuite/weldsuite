@@ -57,15 +57,15 @@ struct FormField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.caption)
+                .font(.inter(.caption))
                 .foregroundStyle(error == nil ? Color.secondary : Tokens.Status.danger)
             field
                 .keyboardType(keyboard)
                 .tagged(tag)
             if let error {
-                Text(error).font(.caption).foregroundStyle(Tokens.Status.danger)
+                Text(error).font(.inter(.caption)).foregroundStyle(Tokens.Status.danger)
             } else if let helper {
-                Text(helper).font(.caption).foregroundStyle(Color.secondary)
+                Text(helper).font(.inter(.caption)).foregroundStyle(Color.secondary)
             }
         }
         .padding(.vertical, 2)
@@ -121,7 +121,7 @@ struct Dropdown: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.caption)
+                .font(.inter(.caption))
                 .foregroundStyle(error == nil ? Color.secondary : Tokens.Status.danger)
             Menu {
                 ForEach(options) { option in
@@ -142,7 +142,7 @@ struct Dropdown: View {
                         .lineLimit(1)
                     Spacer(minLength: Tokens.Spacing.s)
                     Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption)
+                        .font(.inter(.caption))
                         .foregroundStyle(Color.secondary)
                 }
                 .padding(.vertical, 6)
@@ -151,7 +151,7 @@ struct Dropdown: View {
             .disabled(!enabled)
             .tagged(tag)
             if let error {
-                Text(error).font(.caption).foregroundStyle(Tokens.Status.danger)
+                Text(error).font(.inter(.caption)).foregroundStyle(Tokens.Status.danger)
             }
         }
         .padding(.vertical, 2)
@@ -204,7 +204,7 @@ struct DateField: View {
             .environment(\.locale, books.locale)
             .tagged(tag)
             if let error {
-                Text(error).font(.caption).foregroundStyle(Tokens.Status.danger)
+                Text(error).font(.inter(.caption)).foregroundStyle(Tokens.Status.danger)
             }
         }
         .padding(.vertical, 2)
@@ -356,7 +356,7 @@ struct LineItemsEditor: View {
                     lines.append(LineItems.empty(taxRate: defaultTaxRate))
                 } label: {
                     Label(BooksStrings.lineItemsAdd, systemImage: "plus")
-                        .font(.subheadline.weight(.medium))
+                        .font(.inter(.subheadline, weight: .medium))
                 }
                 .tagged("add-line")
             } content: {
@@ -368,7 +368,7 @@ struct LineItemsEditor: View {
                 }
                 if let error {
                     Text(error)
-                        .font(.footnote)
+                        .font(.inter(.footnote))
                         .foregroundStyle(Tokens.Status.danger)
                         .padding(.top, Tokens.Spacing.s)
                 }
@@ -388,7 +388,7 @@ struct LineItemsEditor: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(BooksStrings.lineItemsItem(index: number))
-                    .font(.caption.weight(.medium))
+                    .font(.inter(.caption, weight: .medium))
                     .foregroundStyle(Color.secondary)
                 Spacer()
                 if lines.count > 1 {
@@ -431,7 +431,7 @@ struct LineItemsEditor: View {
                 }
             }
             Text(BooksStrings.lineItemsLineTotal(amount: books.money(LineItems.lineTotal(line, decimalPoint: books.decimalPoint), currency: currency)))
-                .font(.footnote)
+                .font(.inter(.footnote))
                 .foregroundStyle(Color.secondary)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.top, 4)
@@ -544,18 +544,18 @@ struct TaxBreakdownCard: View {
                 } label: {
                     HStack(alignment: .center) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(title ?? BooksStrings.salesTaxTitle).font(.subheadline.weight(.semibold))
+                            Text(title ?? BooksStrings.salesTaxTitle).font(.inter(.subheadline, weight: .semibold))
                             if canExpand {
                                 Text(expanded ? BooksStrings.salesTaxHideBreakdown : BooksStrings.salesTaxShowBreakdown)
-                                    .font(.footnote)
+                                    .font(.inter(.footnote))
                                     .foregroundStyle(Color.secondary)
                             }
                         }
                         Spacer()
-                        Text(headline(charged: charged, used: used)).font(.subheadline.weight(.semibold))
+                        Text(headline(charged: charged, used: used)).font(.inter(.subheadline, weight: .semibold))
                         if canExpand {
                             Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                                .font(.caption)
+                                .font(.inter(.caption))
                                 .foregroundStyle(Color.secondary)
                         }
                     }
@@ -619,13 +619,13 @@ private struct JurisdictionRow: View {
         let line = [taxLevelLabel(group.level), detail].compactMap { $0 }.joined(separator: " · ")
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(group.name).font(.subheadline)
+                Text(group.name).font(.inter(.subheadline))
                 if !line.isEmpty {
-                    Text(line).font(.footnote).foregroundStyle(Color.secondary)
+                    Text(line).font(.inter(.footnote)).foregroundStyle(Color.secondary)
                 }
             }
             Spacer()
-            Text(books.money(group.tax, currency: currency)).font(.subheadline)
+            Text(books.money(group.tax, currency: currency)).font(.inter(.subheadline))
         }
         .padding(.vertical, 4)
     }
@@ -669,15 +669,15 @@ struct TreatmentBreakdownCard: View {
         let color = informational ? Color.secondary : Color.primary
         return HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(tax.name).font(.subheadline).foregroundStyle(color)
+                Text(tax.name).font(.inter(.subheadline)).foregroundStyle(color)
                 if tax.rate > 0 {
                     Text(BooksStrings.salesTaxRateOn(rate: Amounts.percent(tax.rate), amount: books.money(tax.base, currency: currency)))
-                        .font(.footnote)
+                        .font(.inter(.footnote))
                         .foregroundStyle(Color.secondary)
                 }
             }
             Spacer()
-            Text(group.treatment == "withheld" ? "−\(amount)" : amount).font(.subheadline).foregroundStyle(color)
+            Text(group.treatment == "withheld" ? "−\(amount)" : amount).font(.inter(.subheadline)).foregroundStyle(color)
         }
         .padding(.vertical, 4)
     }
@@ -726,8 +726,8 @@ struct PaymentSheet: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(BooksStrings.paymentsOpenBalance).font(.footnote).foregroundStyle(Color.secondary)
-                        Text(books.money(balanceDue, currency: currency)).font(.title2.weight(.semibold))
+                        Text(BooksStrings.paymentsOpenBalance).font(.inter(.footnote)).foregroundStyle(Color.secondary)
+                        Text(books.money(balanceDue, currency: currency)).font(.inter(.title2, weight: .semibold))
                     }
                 }
                 Section {

@@ -164,7 +164,7 @@ struct EventFormFields: View {
                     .focused($titleFocused)
                     .accessibilityIdentifier("event-title")
                 if showProblems, issues.titleMissing {
-                    Text(CalendarStrings.eventFormTitleRequired).font(.footnote).foregroundStyle(Tokens.Status.danger)
+                    Text(CalendarStrings.eventFormTitleRequired).font(.inter(.footnote)).foregroundStyle(Tokens.Status.danger)
                 }
                 Picker(CalendarStrings.eventFormCalendarLabel, selection: $draft.calendarID) {
                     ForEach(calendars) { option in
@@ -213,7 +213,7 @@ struct EventFormFields: View {
                 )
                 .accessibilityIdentifier("event-end")
                 if showProblems, issues.endBeforeStart {
-                    Text(CalendarStrings.eventFormEndBeforeStart).font(.footnote).foregroundStyle(Tokens.Status.danger)
+                    Text(CalendarStrings.eventFormEndBeforeStart).font(.inter(.footnote)).foregroundStyle(Tokens.Status.danger)
                 }
                 // A stored rule a preset writes differently (no `RRULE:` prefix) selects that preset.
                 Picker(CalendarStrings.eventFormRepeatLabel, selection: Binding(
@@ -242,7 +242,7 @@ struct EventFormFields: View {
                     .autocorrectionDisabled()
                     .accessibilityIdentifier("event-meeting-url")
                 if showProblems, issues.badMeetingURL {
-                    Text(CalendarStrings.eventFormMeetingUrlInvalid).font(.footnote).foregroundStyle(Tokens.Status.danger)
+                    Text(CalendarStrings.eventFormMeetingUrlInvalid).font(.inter(.footnote)).foregroundStyle(Tokens.Status.danger)
                 }
             } header: {
                 Text(CalendarStrings.eventFormLocationLabel)
@@ -269,7 +269,7 @@ struct EventFormFields: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(guest.label).lineLimit(1)
                             if guest.name != nil {
-                                Text(guest.email).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                                Text(guest.email).font(.inter(.footnote)).foregroundStyle(.secondary).lineLimit(1)
                             }
                         }
                         Spacer()
@@ -294,7 +294,7 @@ struct EventFormFields: View {
                         .accessibilityIdentifier("attendee-add")
                 }
                 if let problem = guestProblemShown {
-                    Text(guestProblemText(problem)).font(.footnote).foregroundStyle(Tokens.Status.danger)
+                    Text(guestProblemText(problem)).font(.inter(.footnote)).foregroundStyle(Tokens.Status.danger)
                 }
             } header: {
                 Text(CalendarStrings.eventFormAttendeesLabel)

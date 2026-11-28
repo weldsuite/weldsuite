@@ -20,7 +20,7 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(ChatStrings.profileYourProfile)
                             if let detail = person.name ?? person.email {
-                                Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                Text(detail).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
                             }
                         }
                     }
@@ -59,9 +59,9 @@ struct ProfileView: View {
             Section {
                 VStack(spacing: Tokens.Spacing.s) {
                     ChatAvatar(name: name, url: profile?.picture, size: 84)
-                    Text(name).font(.title2.weight(.semibold)).multilineTextAlignment(.center)
+                    Text(name).font(.inter(.title2, weight: .semibold)).multilineTextAlignment(.center)
                     if let title = profile?.title, !title.isEmpty {
-                        Text(title).font(.subheadline).foregroundStyle(.secondary)
+                        Text(title).font(.inter(.subheadline)).foregroundStyle(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity)

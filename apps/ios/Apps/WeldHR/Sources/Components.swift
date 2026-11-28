@@ -41,7 +41,7 @@ struct LeaveTypeTile: View {
         if let rgb = Swatches.hex(color) {
             IconTile(symbol: "airplane", background: Color(hrRGB: rgb), tint: Swatches.prefersDarkText(rgb) ? .black : .white)
         } else {
-            IconTile(symbol: "airplane", background: Tokens.Brand.weldhr, tint: .white)
+            IconTile(symbol: "airplane", background: Tokens.Palette.primary, tint: .white)
         }
     }
 }
@@ -90,8 +90,8 @@ struct DateTile: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(Fmt.weekdayShort(day).uppercased()).font(.caption2).foregroundStyle(.secondary)
-            Text(HRDays.parse(day).map { String(Calendar.current.component(.day, from: $0)) } ?? "").font(.callout.weight(.bold))
+            Text(Fmt.weekdayShort(day).uppercased()).font(.inter(.caption2)).foregroundStyle(.secondary)
+            Text(HRDays.parse(day).map { String(Calendar.current.component(.day, from: $0)) } ?? "").font(.inter(.callout, weight: .bold))
         }
         .frame(width: rowTile, height: rowTile)
         .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -118,18 +118,18 @@ struct HRRow<Leading: View, Value: View>: View {
             leading()
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.body.weight(.semibold))
+                    .font(.inter(.body, weight: .semibold))
                     .foregroundStyle(muted ? .secondary : .primary)
                     .strikethrough(strike)
                     .lineLimit(2)
                 if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle).font(.subheadline).foregroundStyle(subtitleColor).lineLimit(subtitleLines)
+                    Text(subtitle).font(.inter(.subheadline)).foregroundStyle(subtitleColor).lineLimit(subtitleLines)
                 }
             }
             Spacer(minLength: Tokens.Spacing.s)
             VStack(alignment: .trailing, spacing: 2) {
                 value()
-                if let detail { Text(detail).font(.footnote).foregroundStyle(detailColor).lineLimit(1) }
+                if let detail { Text(detail).font(.inter(.footnote)).foregroundStyle(detailColor).lineLimit(1) }
             }
         }
         .contentShape(Rectangle())
@@ -158,7 +158,7 @@ extension HRRow where Value == Text? {
         self.muted = muted
         self.strike = strike
         self.leading = leading
-        self.value = { value.map { Text($0).font(.subheadline).monospacedDigit() } }
+        self.value = { value.map { Text($0).font(.inter(.subheadline)).monospacedDigit() } }
     }
 }
 
@@ -188,7 +188,7 @@ struct Running: View {
     let text: String
 
     var body: some View {
-        Label(text, systemImage: "clock").font(.subheadline.weight(.semibold)).monospacedDigit()
+        Label(text, systemImage: "clock").font(.inter(.subheadline, weight: .semibold)).monospacedDigit()
     }
 }
 
@@ -211,8 +211,8 @@ struct PeriodNav: View {
             Spacer()
             Button { onLabel?() } label: {
                 VStack(spacing: 0) {
-                    Text(label).font(.headline).foregroundStyle(.primary)
-                    if let sublabel { Text(sublabel).font(.caption).foregroundStyle(.secondary) }
+                    Text(label).font(.inter(.headline)).foregroundStyle(.primary)
+                    if let sublabel { Text(sublabel).font(.inter(.caption)).foregroundStyle(.secondary) }
                 }
             }
             .disabled(onLabel == nil)
@@ -325,7 +325,7 @@ struct SearchBox: View {
             if let onFilter {
                 Button(action: onFilter) {
                     Image(systemName: filtered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                        .font(.title2)
+                        .font(.inter(.title2))
                 }
                 .accessibilityLabel(HRStrings.commonFilter)
                 .accessibilityIdentifier("\(tag)-filter")
@@ -427,6 +427,6 @@ struct PersonAvatar: View {
     var size: CGFloat = 34
 
     var body: some View {
-        AvatarView(name: name, url: url.flatMap(URL.init(string:)), size: size, tint: Tokens.Brand.weldhr)
+        AvatarView(name: name, url: url.flatMap(URL.init(string:)), size: size)
     }
 }

@@ -155,10 +155,10 @@ struct AgendaView: View {
                 } header: {
                     HStack(alignment: .firstTextBaseline) {
                         Text(CalendarText.dayHeading(section.day, today: today, calendar))
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(section.day == today ? Tokens.Brand.weldcalendar : .primary)
+                            .font(.inter(.subheadline, weight: .bold))
+                            .foregroundStyle(section.day == today ? Tokens.Palette.primary : .primary)
                         Spacer()
-                        Text(CalendarStrings.agendaEventCount(section.events.count)).font(.caption).foregroundStyle(.secondary)
+                        Text(CalendarStrings.agendaEventCount(section.events.count)).font(.inter(.caption)).foregroundStyle(.secondary)
                     }
                     .textCase(nil)
                 }
@@ -178,9 +178,9 @@ struct Kpi: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            Text("\(value)").font(.title2.weight(.bold))
-            Text(sub).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            Text(label).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
+            Text("\(value)").font(.inter(.title2, weight: .bold))
+            Text(sub).font(.inter(.caption2)).foregroundStyle(.secondary).lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Tokens.Spacing.m)

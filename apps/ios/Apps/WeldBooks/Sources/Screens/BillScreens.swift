@@ -63,14 +63,14 @@ struct ReceiptPreview: View {
                 } else if pdf {
                     VStack(spacing: Tokens.Spacing.xs) {
                         Image(systemName: "doc.richtext")
-                            .font(.title2)
+                            .font(.inter(.title2))
                             .accessibilityHidden(true)
-                        Text(BooksStrings.receiptPdf).font(.footnote)
+                        Text(BooksStrings.receiptPdf).font(.inter(.footnote))
                     }
                     .foregroundStyle(Color.secondary)
                 } else {
                     Text(BooksStrings.receiptUnavailable)
-                        .font(.footnote)
+                        .font(.inter(.footnote))
                         .foregroundStyle(Color.secondary)
                 }
             }
@@ -374,11 +374,11 @@ private struct BillNavTitle: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(title)
-                .font(.headline)
+                .font(.inter(.headline))
                 .lineLimit(1)
             if let subtitle {
                 Text(subtitle)
-                    .font(.caption)
+                    .font(.inter(.caption))
                     .foregroundStyle(Color.secondary)
                     .lineLimit(1)
             }
@@ -474,7 +474,7 @@ private struct BillBodyView: View {
         if let notes = bill.notes {
             SectionCard(title: BooksStrings.billDetailNotes) {
                 Text(notes)
-                    .font(.subheadline)
+                    .font(.inter(.subheadline))
                     .foregroundStyle(Color.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

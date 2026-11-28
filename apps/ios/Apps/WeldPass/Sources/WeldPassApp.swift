@@ -42,7 +42,7 @@ struct WeldPassApp: App {
             ) { person, workspace, workspaces in
                 ContentView(env: env, store: store, person: person, workspace: workspace, workspaces: workspaces)
             }
-            .tint(Tokens.Brand.weldpass)
+            .tint(Tokens.Palette.primary)
             .preferredColorScheme(appearance.colorScheme)
             .environment(toast)
             .overlay(alignment: .bottom) { ToastView(center: toast) }
@@ -119,7 +119,7 @@ private struct ToastView: View {
     var body: some View {
         if let message = center.message {
             Text(message)
-                .font(.subheadline)
+                .font(.inter(.subheadline))
                 .padding(.horizontal, Tokens.Spacing.l)
                 .padding(.vertical, Tokens.Spacing.m)
                 .background(.thinMaterial, in: Capsule())

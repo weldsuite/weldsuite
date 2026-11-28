@@ -148,7 +148,7 @@ struct MessageView: View {
                     } else {
                         let text = current.textBody ?? current.preview ?? ""
                         Text(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? MailStrings.commonNoContent : text)
-                            .font(.body)
+                            .font(.inter(.body))
                             .textSelection(.enabled)
                             .padding(.horizontal, Tokens.Spacing.l)
                     }
@@ -296,12 +296,12 @@ private struct MessageHeader: View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.m) {
             HStack(alignment: .top) {
                 Text(message.subject.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } ?? MailStrings.commonNoSubject)
-                    .font(.title2.weight(.semibold))
+                    .font(.inter(.title2, weight: .semibold))
                     .accessibilityIdentifier("message-subject")
                 Spacer(minLength: 0)
                 if conversationSize > 1 {
                     Text("\(conversationSize)")
-                        .font(.caption)
+                        .font(.inter(.caption))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 6))
@@ -330,9 +330,9 @@ private struct MessageHeader: View {
                     } label: {
                         HStack(spacing: 2) {
                             Text(recipients.isEmpty ? MailStrings.messageToMe : MailStrings.messageTo(recipients: recipients))
-                                .font(.footnote)
+                                .font(.inter(.footnote))
                                 .lineLimit(1)
-                            Image(systemName: details ? "chevron.up" : "chevron.down").font(.caption2)
+                            Image(systemName: details ? "chevron.up" : "chevron.down").font(.inter(.caption2))
                         }
                         .foregroundStyle(Color.accentColor)
                     }
@@ -341,7 +341,7 @@ private struct MessageHeader: View {
                     .accessibilityIdentifier("toggle-details")
                 }
                 Spacer(minLength: 0)
-                Text(messageTime(message.listDate)).font(.caption).foregroundStyle(.secondary)
+                Text(messageTime(message.listDate)).font(.inter(.caption)).foregroundStyle(.secondary)
             }
             if details {
                 VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
@@ -351,7 +351,7 @@ private struct MessageHeader: View {
                         detail(MailStrings.messageCc, message.cc.map { $0.email.isEmpty ? $0.label : $0.email }.joined(separator: ", "))
                     }
                     detail(MailStrings.messageDate, fullTime(message.listDate))
-                    Label(MailStrings.messageEncryption, systemImage: "lock").font(.footnote)
+                    Label(MailStrings.messageEncryption, systemImage: "lock").font(.inter(.footnote))
                 }
                 .padding(Tokens.Spacing.m)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -364,8 +364,8 @@ private struct MessageHeader: View {
 
     private func detail(_ label: String, _ value: String) -> some View {
         HStack(alignment: .top) {
-            Text(label).font(.footnote).foregroundStyle(.secondary).frame(width: 56, alignment: .leading)
-            Text(value).font(.footnote).textSelection(.enabled)
+            Text(label).font(.inter(.footnote)).foregroundStyle(.secondary).frame(width: 56, alignment: .leading)
+            Text(value).font(.inter(.footnote)).textSelection(.enabled)
         }
     }
 }
@@ -391,7 +391,7 @@ private struct UnsubscribeChip: View {
                             .accessibilityLabel(MailStrings.unsubscribeAccessibility(sender: current.senderLabel))
                             .accessibilityIdentifier("unsubscribe")
                     } else {
-                        Text(MailStrings.unsubscribeUnsubscribed).font(.footnote).foregroundStyle(.secondary)
+                        Text(MailStrings.unsubscribeUnsubscribed).font(.inter(.footnote)).foregroundStyle(.secondary)
                     }
                 }
                 .padding(.horizontal, Tokens.Spacing.l)
@@ -443,7 +443,7 @@ private struct AttachmentsBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
-            Label(MailStrings.messageAttachments(attachments.count), systemImage: "paperclip").font(.footnote.weight(.medium))
+            Label(MailStrings.messageAttachments(attachments.count), systemImage: "paperclip").font(.inter(.footnote, weight: .medium))
             ForEach(attachments) { attachment in
                 let name = attachment.fileName.isEmpty ? MailStrings.messageAttachment : attachment.fileName
                 let color = Color(mailRGB: MailLogic.attachmentColor(MailLogic.attachmentKind(name)))
@@ -458,7 +458,7 @@ private struct AttachmentsBlock: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(name).lineLimit(1).foregroundStyle(.primary)
                             Text([MailLogic.extensionLabel(name), attachment.size > 0 ? MailLogic.fileSize(attachment.size) : ""].filter { !$0.isEmpty }.joined(separator: " · "))
-                                .font(.caption)
+                                .font(.inter(.caption))
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -520,16 +520,16 @@ private struct ThreadMessageView: View {
                         if expanded {
                             let to = message.to.map(\.label).joined(separator: ", ")
                             Text(to.isEmpty ? MailStrings.messageToMe : MailStrings.messageTo(recipients: to))
-                                .font(.footnote)
+                                .font(.inter(.footnote))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         } else {
-                            Text(message.preview ?? "").font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                            Text(message.preview ?? "").font(.inter(.footnote)).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
                     Spacer()
-                    Text(rowTime(message.listDate)).font(.caption).foregroundStyle(.secondary)
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption)
+                    Text(rowTime(message.listDate)).font(.inter(.caption)).foregroundStyle(.secondary)
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.inter(.caption))
                 }
                 .padding(.horizontal, Tokens.Spacing.l)
                 .padding(.vertical, Tokens.Spacing.m)

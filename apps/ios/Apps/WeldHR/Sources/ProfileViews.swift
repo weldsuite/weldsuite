@@ -96,13 +96,13 @@ struct ProfileView: View {
             Spacer()
             if count > 0 {
                 Text(String(count))
-                    .font(.caption.weight(.semibold))
+                    .font(.inter(.caption, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
-                    .background(Tokens.Brand.weldhr, in: Capsule())
+                    .background(Tokens.Palette.primary, in: Capsule())
             }
-            Image(systemName: "chevron.right").font(.footnote).foregroundStyle(.tertiary)
+            Image(systemName: "chevron.right").font(.inter(.footnote)).foregroundStyle(.tertiary)
         }
     }
 }
@@ -121,7 +121,7 @@ private struct BalanceRow: View {
             guard let allowance = balance.allowance, let remaining = balance.remaining else { return 1 }
             return allowance > 0 ? min(1, max(0, remaining / allowance)) : 0
         }()
-        let color = Swatches.hex(balance.color).map { Color(hrRGB: $0) } ?? Tokens.Brand.weldhr
+        let color = Swatches.hex(balance.color).map { Color(hrRGB: $0) } ?? Tokens.Palette.primary
         HRRow(
             title: balance.name,
             value: balance.remaining.map { HRStrings.absenceRemaining(amount: Fmt.daysText($0)) } ?? HRStrings.balanceUnlimited
@@ -193,7 +193,7 @@ struct PayView: View {
                                         subtitle: HRStrings.payPaidOn(date: Fmt.date(slip.payDate)),
                                         value: Fmt.money(slip.netPay, slip.currency),
                                         detail: slip.viewedAt == nil ? HRStrings.payNew : nil,
-                                        detailColor: Tokens.Brand.weldhr
+                                        detailColor: Tokens.Palette.primary
                                     ) { IconTile(symbol: "doc.text") }
                                 }
                                 .buttonStyle(.plain)
@@ -265,14 +265,14 @@ private struct LatestPayslip: View {
             HStack {
                 Text(HRStrings.payLatest).foregroundStyle(.secondary)
                 Spacer()
-                if slip.viewedAt == nil { Text(HRStrings.payNew).font(.subheadline.weight(.semibold)).foregroundStyle(Tokens.Brand.weldhr) }
+                if slip.viewedAt == nil { Text(HRStrings.payNew).font(.inter(.subheadline, weight: .semibold)).foregroundStyle(Tokens.Palette.primary) }
             }
-            Text(Fmt.dateRange(slip.periodStart, slip.periodEnd)).font(.headline)
+            Text(Fmt.dateRange(slip.periodStart, slip.periodEnd)).font(.inter(.headline))
             Text(HRStrings.payNetPay).foregroundStyle(.secondary)
-            Text(Fmt.money(slip.netPay, slip.currency)).font(.largeTitle.weight(.bold)).monospacedDigit()
+            Text(Fmt.money(slip.netPay, slip.currency)).font(.inter(.largeTitle, weight: .bold)).monospacedDigit()
             HStack {
                 Text("\(HRStrings.payPaidOn(date: Fmt.date(slip.payDate))) · \(HRStrings.payGross(amount: Fmt.money(slip.grossPay, slip.currency)))")
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
@@ -345,8 +345,8 @@ private struct TaskRow: View {
                         ProgressView()
                     } else {
                         Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                            .font(.title2)
-                            .foregroundStyle(done ? Tokens.Brand.weldhr : .secondary)
+                            .font(.inter(.title2))
+                            .foregroundStyle(done ? Tokens.Palette.primary : .secondary)
                             .opacity(task.canComplete || done ? 1 : 0.4)
                     }
                 }
@@ -426,7 +426,7 @@ private struct Acknowledged: View {
         if let acknowledgedAt {
             if let comment, !comment.isEmpty { Text("\(HRStrings.reviewsYourComment): \(comment)") }
             Label(HRStrings.reviewsAcknowledged(date: Fmt.date(acknowledgedAt)), systemImage: "checkmark.circle.fill")
-                .font(.footnote)
+                .font(.inter(.footnote))
                 .foregroundStyle(.secondary)
         } else {
             Button(HRStrings.reviewsAcknowledge, action: onAcknowledge)
@@ -445,23 +445,23 @@ private struct CoachingCard: View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
             HStack {
                 Text(Labels.coachingCategory(log.category))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(log.category == "recognition" ? Tokens.Status.success : Tokens.Brand.weldhr)
+                    .font(.inter(.subheadline, weight: .semibold))
+                    .foregroundStyle(log.category == "recognition" ? Tokens.Status.success : Tokens.Palette.primary)
                 Spacer()
-                Text(Fmt.date(log.sessionDate)).font(.subheadline).foregroundStyle(.secondary)
+                Text(Fmt.date(log.sessionDate)).font(.inter(.subheadline)).foregroundStyle(.secondary)
             }
-            Text(log.topic).font(.headline)
-            if let coach = log.coachName { Text(HRStrings.reviewsBy(name: coach)).font(.subheadline).foregroundStyle(.secondary) }
+            Text(log.topic).font(.inter(.headline))
+            if let coach = log.coachName { Text(HRStrings.reviewsBy(name: coach)).font(.inter(.subheadline)).foregroundStyle(.secondary) }
             if let notes = log.notes { Text(notes) }
             if !log.actionItems.isEmpty {
-                Text(HRStrings.reviewsActionItems).font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+                Text(HRStrings.reviewsActionItems).font(.inter(.footnote, weight: .semibold)).foregroundStyle(.secondary)
                 ForEach(log.actionItems) { item in
                     Label(item.text, systemImage: item.done ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(item.done ? Tokens.Status.success : .primary)
                 }
             }
             if let followUp = log.followUpDate {
-                Text(HRStrings.reviewsFollowUp(date: Fmt.date(followUp))).font(.subheadline).foregroundStyle(.secondary)
+                Text(HRStrings.reviewsFollowUp(date: Fmt.date(followUp))).font(.inter(.subheadline)).foregroundStyle(.secondary)
             }
             Acknowledged(acknowledgedAt: log.acknowledgedAt, comment: log.employeeComment, tag: "acknowledge-\(log.id)", onAcknowledge: onAcknowledge)
         }
@@ -476,15 +476,15 @@ private struct EvaluationCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
             HStack {
-                Text(evaluation.formName ?? HRStrings.reviewsEvaluations).font(.headline)
+                Text(evaluation.formName ?? HRStrings.reviewsEvaluations).font(.inter(.headline))
                 Spacer()
                 if let score = evaluation.overallScore {
-                    Text(HRStrings.reviewsScore(score: Fmt.days(score))).font(.subheadline.weight(.semibold)).foregroundStyle(Tokens.Brand.weldhr)
+                    Text(HRStrings.reviewsScore(score: Fmt.days(score))).font(.inter(.subheadline, weight: .semibold)).foregroundStyle(Tokens.Palette.primary)
                 }
             }
             let period: String? = evaluation.periodStart.flatMap { start in evaluation.periodEnd.map { Fmt.dateRange(start, $0) } }
             Text([period, evaluation.evaluatorName.map { HRStrings.reviewsBy(name: $0) }].compactMap { $0 }.joined(separator: " • "))
-                .font(.subheadline)
+                .font(.inter(.subheadline))
                 .foregroundStyle(.secondary)
             ForEach(evaluation.criteria) { criterion in
                 let score = evaluation.scores.first { $0.criterionId == criterion.id }?.score
@@ -592,7 +592,7 @@ struct EmployeeView: View {
                 Section {
                     VStack(spacing: Tokens.Spacing.xs) {
                         PersonAvatar(name: data.displayName, url: data.avatarUrl, size: 84)
-                        if let job = data.jobTitle { Text(job).font(.headline).multilineTextAlignment(.center) }
+                        if let job = data.jobTitle { Text(job).font(.inter(.headline)).multilineTextAlignment(.center) }
                         Text([Labels.employeeStatus(data.status), data.pronouns].compactMap { $0 }.joined(separator: " • ")).foregroundStyle(.secondary)
                         HStack {
                             if let phone = data.phone {

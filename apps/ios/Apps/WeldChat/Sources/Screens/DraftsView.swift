@@ -52,22 +52,22 @@ struct DraftsView: View {
     private func row(_ draft: DraftItem, names: [String: String]) -> some View {
         HStack(alignment: .top, spacing: Tokens.Spacing.m) {
             Image(systemName: "square.and.pencil")
-                .foregroundStyle(Tokens.Brand.weldchat)
+                .foregroundStyle(Tokens.Palette.primary)
                 .frame(width: 32, height: 32)
-                .background(Tokens.Brand.weldchat.opacity(0.12), in: Circle())
+                .background(Tokens.Palette.primary.opacity(0.12), in: Circle())
             VStack(alignment: .leading, spacing: 2) {
                 Text(SavedRules.conversationLabel(name: draft.channelName, isDM: draft.isDM))
-                    .font(.subheadline.weight(.semibold))
+                    .font(.inter(.subheadline, weight: .semibold))
                     .lineLimit(1)
                 Text(MentionText.plainText(draft.content, names: names))
-                    .font(.subheadline)
+                    .font(.inter(.subheadline))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
             Spacer(minLength: 0)
             if let date = WeldDate.parse(draft.updatedAt) {
                 Text(ChatDates.draftTime(date))
-                    .font(.caption)
+                    .font(.inter(.caption))
                     .foregroundStyle(.secondary)
             }
         }

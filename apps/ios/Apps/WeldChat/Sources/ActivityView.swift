@@ -121,12 +121,12 @@ private struct ActivityRow: View {
                     Text(item.title).font(item.isRead ? .body : .body.weight(.semibold)).lineLimit(1)
                     Spacer()
                     if let date = WeldDate.parse(item.createdAt) {
-                        Text(ChatDates.activityTime(date)).font(.caption).foregroundStyle(.secondary)
+                        Text(ChatDates.activityTime(date)).font(.inter(.caption)).foregroundStyle(.secondary)
                     }
                 }
                 HStack(alignment: .top) {
                     Text(MentionText.plainText(item.body ?? "", names: names))
-                        .font(.subheadline)
+                        .font(.inter(.subheadline))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                     Spacer()
@@ -145,7 +145,7 @@ private struct ActivityRow: View {
             Image(systemName: symbol)
                 .foregroundStyle(.white)
                 .frame(width: 40, height: 40)
-                .background(Tokens.Brand.weldchat, in: Circle())
+                .background(Tokens.Palette.primary, in: Circle())
         }
     }
 

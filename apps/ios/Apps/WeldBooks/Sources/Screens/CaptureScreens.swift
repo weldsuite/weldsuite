@@ -149,7 +149,7 @@ struct ScanView: View {
                 .foregroundStyle(Color.secondary)
                 .accessibilityHidden(true)
             Text(BooksStrings.scanAlignHint)
-                .font(.subheadline)
+                .font(.inter(.subheadline))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, Tokens.Spacing.l)
             if cameraDenied {
@@ -672,7 +672,7 @@ struct QuickExpenseView: View {
         SectionCard {
             VStack(spacing: Tokens.Spacing.xs) {
                 Text(BooksStrings.expenseQuickAmount)
-                    .font(.caption)
+                    .font(.inter(.caption))
                     .foregroundStyle(Color.secondary)
                 TextField(
                     Self.amountPlaceholder,
@@ -687,7 +687,7 @@ struct QuickExpenseView: View {
                 .minimumScaleFactor(0.5)
                 .tagged("expense-amount")
                 Text(amountHint)
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(amountError == nil ? Color.secondary : Tokens.Status.danger)
                     .multilineTextAlignment(.center)
             }
@@ -741,10 +741,10 @@ struct QuickExpenseView: View {
         } label: {
             VStack(spacing: Tokens.Spacing.xs) {
                 Image(systemName: categoryIcon(key))
-                    .font(.title3)
+                    .font(.inter(.title3))
                     .accessibilityHidden(true)
                 Text(categoryLabel(key))
-                    .font(.caption2)
+                    .font(.inter(.caption2))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }

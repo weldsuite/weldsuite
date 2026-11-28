@@ -30,11 +30,11 @@ private struct FinanceNavTitle: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(title)
-                .font(.headline)
+                .font(.inter(.headline))
                 .lineLimit(1)
             if let subtitle {
                 Text(subtitle)
-                    .font(.caption)
+                    .font(.inter(.caption))
                     .foregroundStyle(Color.secondary)
                     .lineLimit(1)
             }
@@ -100,10 +100,10 @@ private struct FinanceBankAccountsList: View {
                 Section {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(BooksStrings.bankTotalBalance)
-                            .font(.footnote)
+                            .font(.inter(.footnote))
                             .foregroundStyle(Color.secondary)
                         Text(total)
-                            .font(.title2.bold())
+                            .font(.inter(.title2, weight: .bold))
                     }
                     .padding(.vertical, Tokens.Spacing.xs)
                     .accessibilityElement(children: .combine)
@@ -211,16 +211,16 @@ private struct FinanceBankAccountDetail: View {
                 IconTile(systemImage: "building.columns", color: Accents.banking, size: 44)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(BooksStrings.bankDetailCurrentBalance)
-                        .font(.footnote)
+                        .font(.inter(.footnote))
                         .foregroundStyle(Color.secondary)
                     Text(books.money(account.balance, currency: account.currency))
-                        .font(.title2.bold())
+                        .font(.inter(.title2, weight: .bold))
                         .foregroundStyle(account.balance < 0 ? Tokens.Status.danger : Color.primary)
                 }
             }
             if let bank = account.bankName {
                 Text(bank)
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(Color.secondary)
             }
             if account.routingNumber != nil || account.accountNumberLast4 != nil {
@@ -401,12 +401,12 @@ private struct FinanceStatTile: View {
     var body: some View {
         VStack(spacing: 2) {
             Text(value)
-                .font(.headline.bold())
+                .font(.inter(.headline, weight: .bold))
                 .foregroundStyle(color ?? Color.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
             Text(label)
-                .font(.caption2)
+                .font(.inter(.caption2))
                 .foregroundStyle(Color.secondary)
                 .lineLimit(1)
         }
@@ -442,22 +442,22 @@ private struct FinanceUnmatchedCard: View {
                 )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(tx.description ?? tx.counterpartyName ?? BooksStrings.reconciliationTransaction)
-                        .font(.body.weight(.semibold))
+                        .font(.inter(.body, weight: .semibold))
                         .lineLimit(1)
                     Text(books.shortDate(tx.date))
-                        .font(.footnote)
+                        .font(.inter(.footnote))
                         .foregroundStyle(Color.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Text((incoming ? "+" : "") + books.money(tx.amount))
-                    .font(.body.weight(.semibold))
+                    .font(.inter(.body, weight: .semibold))
             }
             if line.suggestions.isEmpty {
                 HintText(BooksStrings.reconciliationNoSuggestions)
             } else {
                 Divider().padding(.vertical, Tokens.Spacing.s)
                 Text(BooksStrings.reconciliationSuggestedMatches)
-                    .font(.caption.weight(.semibold))
+                    .font(.inter(.caption, weight: .semibold))
                     .foregroundStyle(Color.secondary)
                     .textCase(.uppercase)
                 ForEach(line.suggestions) { suggestion in
@@ -488,16 +488,16 @@ private struct FinanceUnmatchedCard: View {
             HStack(spacing: Tokens.Spacing.s) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(description)
-                        .font(.subheadline)
+                        .font(.inter(.subheadline))
                         .lineLimit(1)
                     Text(books.money(suggestion.amount))
-                        .font(.footnote)
+                        .font(.inter(.footnote))
                         .foregroundStyle(Color.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 StatusBadge("\(percent)%", color: tone)
                 Image(systemName: "checkmark")
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(Color.secondary)
                     .accessibilityHidden(true)
             }
@@ -559,15 +559,15 @@ struct ReportsView: View {
                             IconTile(systemImage: report.systemImage, color: report.color)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(report.title)
-                                    .font(.body.weight(.semibold))
+                                    .font(.inter(.body, weight: .semibold))
                                     .foregroundStyle(Color.primary)
                                 Text(report.subtitle)
-                                    .font(.footnote)
+                                    .font(.inter(.footnote))
                                     .foregroundStyle(Color.secondary)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold))
+                                .font(.inter(.footnote, weight: .semibold))
                                 .foregroundStyle(Color(uiColor: .tertiaryLabel))
                                 .accessibilityHidden(true)
                         }
@@ -641,15 +641,15 @@ private struct FinanceProfitLossBody: View {
             VStack(spacing: 0) {
                 SectionCard {
                     Text(net)
-                        .font(.footnote)
+                        .font(.inter(.footnote))
                         .foregroundStyle(Color.secondary)
                     Text(books.money(data.netProfit.magnitude))
-                        .font(.largeTitle.bold())
+                        .font(.inter(.largeTitle, weight: .bold))
                         .foregroundStyle(profitable ? Tokens.Status.success : Tokens.Status.danger)
                         .lineLimit(1)
                         .minimumScaleFactor(0.5)
                     Text(BooksStrings.profitLossMargin(percent: "\(Amounts.plain(data.margin))%"))
-                        .font(.footnote)
+                        .font(.inter(.footnote))
                         .foregroundStyle(Color.secondary)
                 }
                 SectionCard(title: BooksStrings.profitLossBreakdown) {
@@ -700,10 +700,10 @@ private struct FinanceBalanceSheetBody: View {
             VStack(spacing: 0) {
                 SectionCard {
                     Text(BooksStrings.balanceSheetTotalAssets)
-                        .font(.footnote)
+                        .font(.inter(.footnote))
                         .foregroundStyle(Color.secondary)
                     Text(books.money(data.totalAssets))
-                        .font(.largeTitle.bold())
+                        .font(.inter(.largeTitle, weight: .bold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.5)
                 }
@@ -738,10 +738,10 @@ private struct FinanceBalanceSheetBody: View {
                 SectionCard {
                     HStack {
                         Text(BooksStrings.balanceSheetLiabilitiesAndEquity)
-                            .font(.subheadline.weight(.semibold))
+                            .font(.inter(.subheadline, weight: .semibold))
                         Spacer()
                         Text(books.money(data.totalLiabilitiesAndEquity))
-                            .font(.subheadline.weight(.semibold))
+                            .font(.inter(.subheadline, weight: .semibold))
                     }
                     .accessibilityElement(children: .combine)
                 }
@@ -775,24 +775,24 @@ private struct FinanceBalanceSection: View {
                     let row = rows[index]
                     HStack(alignment: .center) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(row.name).font(.subheadline)
+                            Text(row.name).font(.inter(.subheadline))
                             if !row.code.isBlank {
                                 Text(row.code)
-                                    .font(.caption)
+                                    .font(.inter(.caption))
                                     .foregroundStyle(Color.secondary)
                             }
                         }
                         Spacer(minLength: Tokens.Spacing.m)
-                        Text(books.money(row.balance)).font(.subheadline)
+                        Text(books.money(row.balance)).font(.inter(.subheadline))
                     }
                     .padding(.vertical, 5)
                     .accessibilityElement(children: .combine)
                 }
                 Divider().padding(.vertical, Tokens.Spacing.s)
                 HStack {
-                    Text(totalLabel).font(.subheadline.weight(.semibold))
+                    Text(totalLabel).font(.inter(.subheadline, weight: .semibold))
                     Spacer()
-                    Text(books.money(total)).font(.subheadline.weight(.semibold))
+                    Text(books.money(total)).font(.inter(.subheadline, weight: .semibold))
                 }
                 .accessibilityElement(children: .combine)
             }
@@ -858,7 +858,7 @@ private struct FinanceVatReturnsList: View {
     private func chip(_ label: String, selected: Bool, tag: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label)
-                .font(.subheadline.weight(.medium))
+                .font(.inter(.subheadline, weight: .medium))
                 .padding(.horizontal, Tokens.Spacing.m)
                 .padding(.vertical, 6)
                 .foregroundStyle(selected ? Color.white : Color.primary)
@@ -1033,10 +1033,10 @@ private struct FinanceVatReturnBody: View {
                     HStack(alignment: .center) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(payable ? BooksStrings.vatDetailToPay : BooksStrings.vatDetailToReclaim)
-                                .font(.footnote)
+                                .font(.inter(.footnote))
                                 .foregroundStyle(Color.secondary)
                             Text(books.money(item.netAmount.magnitude))
-                                .font(.title2.bold())
+                                .font(.inter(.title2, weight: .bold))
                                 .foregroundStyle(payable ? Color.primary : Tokens.Status.success)
                         }
                         Spacer()

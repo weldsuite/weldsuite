@@ -207,7 +207,7 @@ struct InboxView: View {
                         model.cycleSort()
                     } label: {
                         Label(sortLabel(model.query.sort), systemImage: "arrow.up.arrow.down")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.inter(.subheadline, weight: .semibold))
                             .padding(.horizontal, Tokens.Spacing.m)
                             .padding(.vertical, 6)
                             .background(Color(.secondarySystemFill), in: Capsule())
@@ -255,12 +255,12 @@ struct FilterChip: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(.inter(.subheadline, weight: .semibold))
                 .padding(.horizontal, Tokens.Spacing.m)
                 .padding(.vertical, 6)
-                .foregroundStyle(selected ? Tokens.Brand.welddesk : Color.primary)
-                .background(selected ? Tokens.Brand.welddesk.opacity(0.12) : Color(.secondarySystemFill), in: Capsule())
-                .overlay(Capsule().stroke(selected ? Tokens.Brand.welddesk : .clear, lineWidth: 1))
+                .foregroundStyle(selected ? Tokens.Palette.primary : Color.primary)
+                .background(selected ? Tokens.Palette.primary.opacity(0.12) : Color(.secondarySystemFill), in: Capsule())
+                .overlay(Capsule().stroke(selected ? Tokens.Palette.primary : .clear, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -276,25 +276,25 @@ private struct ConversationRow: View {
             ChannelTile(channel: conversation.channel)
             VStack(alignment: .leading, spacing: 2) {
                 Text(conversation.isWaiting ? DeskStrings.inboxWaiting : DeskLogic.numberLabel(conversation))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(conversation.isWaiting ? Tokens.Brand.welddesk : Color.secondary)
+                    .font(.inter(.caption, weight: .semibold))
+                    .foregroundStyle(conversation.isWaiting ? Tokens.Palette.primary : Color.secondary)
                     .lineLimit(1)
                 Text(DeskLogic.rowTitle(conversation) ?? DeskStrings.inboxNoSubject)
-                    .font(.body.weight(conversation.isWaiting ? .semibold : .regular))
+                    .font(.inter(.body).weight(conversation.isWaiting ? .semibold : .regular))
                     .lineLimit(1)
                 let subtitle = DeskLogic.rowSubtitle(conversation)
                 if !subtitle.isEmpty {
-                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    Text(subtitle).font(.inter(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             Spacer(minLength: 0)
             VStack(alignment: .trailing, spacing: Tokens.Spacing.xs) {
                 if let time = DeskLogic.rowTime(conversation) {
-                    Text(WeldDate.short(time)).font(.caption2).foregroundStyle(.secondary)
+                    Text(WeldDate.short(time)).font(.inter(.caption2)).foregroundStyle(.secondary)
                 }
                 ChannelBadge(channel: conversation.channel, value: conversation.channelValue)
                 if conversation.isWaiting {
-                    Circle().fill(Tokens.Brand.welddesk).frame(width: 8, height: 8)
+                    Circle().fill(Tokens.Palette.primary).frame(width: 8, height: 8)
                 }
             }
         }

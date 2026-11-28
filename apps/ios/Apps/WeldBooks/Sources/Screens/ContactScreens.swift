@@ -33,11 +33,11 @@ private struct ContactNavTitle: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(title)
-                .font(.headline)
+                .font(.inter(.headline))
                 .lineLimit(1)
             if let subtitle {
                 Text(subtitle)
-                    .font(.caption)
+                    .font(.inter(.caption))
                     .foregroundStyle(Color.secondary)
                     .lineLimit(1)
             }
@@ -317,7 +317,7 @@ private struct ContactBody: View {
                 ContactKindTile(kind: contact.kind, size: 48)
                 VStack(alignment: .leading, spacing: Tokens.Spacing.xs) {
                     Text(contact.name)
-                        .font(.headline)
+                        .font(.inter(.headline))
                     HStack(spacing: 6) {
                         if let kind = contact.kind {
                             StatusBadge(

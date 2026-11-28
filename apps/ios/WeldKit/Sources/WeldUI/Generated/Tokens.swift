@@ -3,24 +3,35 @@
 import SwiftUI
 
 public enum Tokens {
-    public enum Brand {
-        public static let weldpass = Color(light: 0x4F46E5, dark: 0x818CF8)
-        public static let weldbooks = Color(light: 0x0E9F6E, dark: 0x34D399)
-        public static let weldmail = Color(light: 0xE4572E, dark: 0xFB8A6B)
-        public static let weldcalendar = Color(light: 0xE5375E, dark: 0xFF7A98)
-        public static let weldchat = Color(light: 0x00A35A, dark: 0x3DD68C)
-        public static let welddesk = Color(light: 0x1D7FE0, dark: 0x60A5FA)
-        public static let weldhr = Color(light: 0x0F8A80, dark: 0x2DD4BF)
+    public enum Palette {
+        public static let background = Color(light: 0xFFFFFF, dark: 0x1C1D1F)
+        public static let foreground = Color(light: 0x0A0A0A, dark: 0xFFFFFF)
+        public static let card = Color(light: 0xFFFFFF, dark: 0x232529)
+        public static let primary = Color(light: 0x171717, dark: 0x266DF0)
+        public static let primaryForeground = Color(light: 0xFAFAFA, dark: 0xFFFFFF)
+        public static let secondary = Color(light: 0xF5F5F5, dark: 0x2E3238)
+        public static let secondaryForeground = Color(light: 0x171717, dark: 0xEDEFF3)
+        public static let muted = Color(light: 0xF5F5F5, dark: 0x232529)
+        public static let mutedForeground = Color(light: 0x737373, dark: 0xB5BDC9)
+        public static let accent = Color(light: 0xF5F5F5, dark: 0x2E3238)
+        public static let accentForeground = Color(light: 0x171717, dark: 0xEDEFF3)
+        public static let border = Color(light: 0xE5E5E5, dark: 0x2E3238)
+        public static let input = Color(light: 0xE5E5E5, dark: 0x383E47)
+        public static let ring = Color(light: 0xA1A1A1, dark: 0x709FF5)
+        public static let chrome = Color(light: 0xFAFAFA, dark: 0x1C1D1F)
+        public static let link = Color(light: 0x2563EB, dark: 0x709FF5)
     }
     public enum Status {
-        public static let danger = Color(light: 0xDC2626, dark: 0xF87171)
-        public static let warning = Color(light: 0xD97706, dark: 0xFBBF24)
-        public static let success = Color(light: 0x059669, dark: 0x34D399)
+        public static let danger = Color(light: 0xE7000B, dark: 0xFF5B59)
+        public static let warning = Color(light: 0xD97706, dark: 0xF5B900)
+        public static let success = Color(light: 0x059669, dark: 0x0FC27B)
+        public static let info = Color(light: 0x2563EB, dark: 0x709FF5)
     }
     public enum Radius {
-        public static let small: CGFloat = 8
-        public static let medium: CGFloat = 12
-        public static let large: CGFloat = 16
+        public static let small: CGFloat = 6
+        public static let medium: CGFloat = 8
+        public static let large: CGFloat = 10
+        public static let xlarge: CGFloat = 14
     }
     public enum Spacing {
         public static let xs: CGFloat = 4

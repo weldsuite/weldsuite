@@ -348,7 +348,7 @@ private fun InboxList(state: InboxUiState, model: InboxViewModel, onOpen: (Strin
 
 @Composable
 private fun ConversationRow(conversation: Conversation, onClick: () -> Unit) {
-    val brand = Tokens.Brand.welddesk.current()
+    val brand = Tokens.Palette.primary.current()
     val waiting = conversation.isWaiting
     val title = DeskLogic.rowTitle(conversation) ?: stringResource(R.string.welddesk_inbox_no_subject)
     val meta = if (waiting) stringResource(R.string.welddesk_inbox_waiting) else DeskLogic.numberLabel(conversation)

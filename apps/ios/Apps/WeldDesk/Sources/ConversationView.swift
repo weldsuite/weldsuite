@@ -266,7 +266,7 @@ struct ConversationView: View {
                     thread(detail.messages)
                     if let name = model.room?.state.visitorsTyping.first {
                         Text(DeskStrings.conversationTyping(name: name.isEmpty ? DeskStrings.conversationTypingFallback : name))
-                            .font(.caption.italic())
+                            .font(.inter(.caption).italic())
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, Tokens.Spacing.l)
@@ -367,11 +367,11 @@ private struct ConversationHeader: View {
             HStack(spacing: Tokens.Spacing.s) {
                 StateBadge(state: conversation.state)
                 ChannelBadge(channel: conversation.channel, value: conversation.channelValue)
-                Text("#\(conversation.number)").font(.footnote.weight(.medium)).foregroundStyle(.secondary)
+                Text("#\(conversation.number)").font(.inter(.footnote, weight: .medium)).foregroundStyle(.secondary)
                 if model.room?.state.visitorOnline == true {
                     HStack(spacing: 4) {
                         Circle().fill(Color.green).frame(width: 7, height: 7)
-                        Text(DeskStrings.conversationVisitorOnline).font(.footnote.weight(.medium)).foregroundStyle(.secondary)
+                        Text(DeskStrings.conversationVisitorOnline).font(.inter(.footnote, weight: .medium)).foregroundStyle(.secondary)
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("visitor-online")
@@ -379,13 +379,13 @@ private struct ConversationHeader: View {
                 Spacer(minLength: 0)
             }
             if let email = conversation.email, !email.isEmpty, conversation.name != nil {
-                Text(email).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                Text(email).font(.inter(.footnote)).foregroundStyle(.secondary).lineLimit(1)
             }
             HStack(spacing: 4) {
                 Text(DeskStrings.conversationAssignee).foregroundStyle(.secondary)
                 Text(assigneeText).fontWeight(.semibold).lineLimit(1).accessibilityIdentifier("assignee-label")
             }
-            .font(.footnote)
+            .font(.inter(.footnote))
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: Tokens.Spacing.s) {
                     let mine = conversation.assigneeID != nil && conversation.assigneeID == model.userID
@@ -427,10 +427,10 @@ private struct AssignChip: View {
     var body: some View {
         Button(action: action) {
             Label(title, systemImage: icon)
-                .font(.caption.weight(.semibold))
+                .font(.inter(.caption, weight: .semibold))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(Tokens.Brand.welddesk.opacity(0.12), in: Capsule())
+                .background(Tokens.Palette.primary.opacity(0.12), in: Capsule())
         }
         .buttonStyle(.plain)
         .disabled(disabled)
@@ -477,7 +477,7 @@ private struct ComposerView: View {
                                 .buttonStyle(.plain)
                                 .accessibilityLabel(DeskStrings.conversationRemoveAttachment(name: file.name))
                             }
-                            .font(.caption)
+                            .font(.inter(.caption))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
                             .background(Color(.secondarySystemFill), in: Capsule())
@@ -528,7 +528,7 @@ private struct ComposerView: View {
                         }
                     }
                     .frame(width: 36, height: 36)
-                    .background(model.canSend ? Tokens.Brand.welddesk : Color(.systemGray3), in: Circle())
+                    .background(model.canSend ? Tokens.Palette.primary : Color(.systemGray3), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(!model.canSend)

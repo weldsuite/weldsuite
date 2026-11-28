@@ -21,12 +21,12 @@ struct ItemListView: View {
         List {
             if vaultID == nil, store.offline.isOffline, let copy = store.offline.readable {
                 Label(PassStrings.itemsOfflineBanner(time: formatWhen(copy.syncedAt)), systemImage: "icloud.slash")
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("offline-banner")
             }
             if let note {
-                Text(note).font(.subheadline).foregroundStyle(.secondary)
+                Text(note).font(.inter(.subheadline)).foregroundStyle(.secondary)
             }
             Picker(PassStrings.formType, selection: $kind) {
                 Text(PassStrings.itemsAll).tag(PassItem.Kind?.none)
@@ -75,10 +75,10 @@ private struct ItemRow: View {
         HStack(spacing: Tokens.Spacing.m) {
             ItemIcon(kind: item.kind)
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.title).font(.body.weight(.semibold)).lineLimit(1)
+                Text(item.title).font(.inter(.body, weight: .semibold)).lineLimit(1)
                 let supporting = [item.subtitle, item.host].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
                 if !supporting.isEmpty {
-                    Text(supporting).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    Text(supporting).font(.inter(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
         }
@@ -123,13 +123,13 @@ private struct VaultRow: View {
     var body: some View {
         HStack(spacing: Tokens.Spacing.m) {
             Image(systemName: vault.kind == .personal ? "lock" : "person.2")
-                .foregroundStyle(Tokens.Brand.weldpass)
+                .foregroundStyle(Tokens.Palette.primary)
                 .frame(width: 40, height: 40)
-                .background(Tokens.Brand.weldpass.opacity(0.12), in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+                .background(Tokens.Palette.primary.opacity(0.12), in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
             VStack(alignment: .leading, spacing: 2) {
-                Text(vaultLabel(vault)).font(.body.weight(.semibold)).lineLimit(1)
+                Text(vaultLabel(vault)).font(.inter(.body, weight: .semibold)).lineLimit(1)
                 Text(vault.kind == .personal ? PassStrings.vaultsPersonalDescription : summary)
-                    .font(.subheadline)
+                    .font(.inter(.subheadline))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }

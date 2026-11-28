@@ -204,7 +204,7 @@ struct TintChip: View {
         let color = Color(hex: hex)
         HStack(spacing: 6) {
             Circle().fill(color).frame(width: 7, height: 7)
-            Text(text).font(.caption.weight(.semibold)).foregroundStyle(color)
+            Text(text).font(.inter(.caption, weight: .semibold)).foregroundStyle(color)
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 4)
@@ -257,11 +257,11 @@ struct EventRow: View {
         HStack(alignment: .top, spacing: Tokens.Spacing.m) {
             VStack(alignment: .leading, spacing: 1) {
                 if event.allDay {
-                    Text(CalendarStrings.agendaAllDay).font(.caption.weight(.semibold)).foregroundStyle(.secondary).lineLimit(2)
+                    Text(CalendarStrings.agendaAllDay).font(.inter(.caption, weight: .semibold)).foregroundStyle(.secondary).lineLimit(2)
                 } else {
-                    Text(CalendarText.time(event.start)).font(.subheadline.weight(.semibold)).lineLimit(1)
+                    Text(CalendarText.time(event.start)).font(.inter(.subheadline, weight: .semibold)).lineLimit(1)
                     if let end = event.end {
-                        Text(CalendarText.time(end)).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                        Text(CalendarText.time(end)).font(.inter(.footnote)).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
             }
@@ -272,7 +272,7 @@ struct EventRow: View {
                 .opacity(past ? 0.55 : 1)
             VStack(alignment: .leading, spacing: 2) {
                 Text(event.title)
-                    .font(.body.weight(.semibold))
+                    .font(.inter(.body, weight: .semibold))
                     .strikethrough(cancelled)
                     .foregroundStyle(cancelled ? Color.secondary : Color.primary)
                     .lineLimit(2)
@@ -280,10 +280,10 @@ struct EventRow: View {
                 let subtitle = [calendarName, event.location].compactMap { $0 }.joined(separator: " · ")
                 if !subtitle.isEmpty {
                     HStack(spacing: 4) {
-                        if event.location != nil { Image(systemName: "mappin").font(.caption2) }
+                        if event.location != nil { Image(systemName: "mappin").font(.inter(.caption2)) }
                         Text(subtitle).lineLimit(1)
                     }
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(.secondary)
                 }
                 meta(live: live, accent: accent)
@@ -305,7 +305,7 @@ struct EventRow: View {
             HStack(spacing: 10) {
                 if live {
                     Text(CalendarStrings.agendaNow)
-                        .font(.caption2.weight(.bold))
+                        .font(.inter(.caption2, weight: .bold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2)
@@ -318,7 +318,7 @@ struct EventRow: View {
                     Label(CalendarStrings.eventAttendeeCount(event.guests.count), systemImage: "person.2")
                 }
             }
-            .font(.caption)
+            .font(.inter(.caption))
             .foregroundStyle(.secondary)
             .padding(.top, 4)
         }

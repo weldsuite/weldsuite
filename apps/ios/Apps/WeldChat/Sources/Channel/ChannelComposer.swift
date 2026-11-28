@@ -32,18 +32,18 @@ struct ChannelMentionPicker: View {
                     HStack(spacing: Tokens.Spacing.m) {
                         avatar(candidate)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(candidate.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            Text(candidate.name).font(.inter(.subheadline, weight: .semibold)).lineLimit(1)
                             if !candidate.isAgent, let email = candidate.email, !email.isEmpty {
-                                Text(email).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                Text(email).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
                             }
                         }
                         Spacer(minLength: 0)
                         if candidate.isAgent {
                             Text(ChatStrings.channelAgentBadge)
-                                .font(.caption2.weight(.bold))
+                                .font(.inter(.caption2, weight: .bold))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Tokens.Brand.weldchat.opacity(0.15), in: Capsule())
+                                .background(Tokens.Palette.primary.opacity(0.15), in: Capsule())
                         }
                     }
                     .padding(.horizontal, Tokens.Spacing.m)
@@ -63,11 +63,11 @@ struct ChannelMentionPicker: View {
                 if let icon = candidate.agentIcon, !icon.isEmpty {
                     Text(icon).font(.system(size: 15))
                 } else {
-                    Image(systemName: "sparkles").font(.caption).foregroundStyle(.white)
+                    Image(systemName: "sparkles").font(.inter(.caption)).foregroundStyle(.white)
                 }
             }
             .frame(width: 30, height: 30)
-            .background(Tokens.Brand.weldchat, in: Circle())
+            .background(Tokens.Palette.primary, in: Circle())
         } else {
             ChatAvatar(name: candidate.name, url: candidate.picture, size: 30)
         }
@@ -106,7 +106,7 @@ struct ChannelComposer: View {
             }
             if let room = model.room, let typing = ChatLogic.typingLabel(room.typingUserIDs, names: model.names) {
                 Text(typing)
-                    .font(.caption)
+                    .font(.inter(.caption))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, Tokens.Spacing.l)
@@ -179,7 +179,7 @@ struct ChannelComposer: View {
                     }
                     .frame(width: 36, height: 36)
                     .foregroundStyle(.white)
-                    .background(Tokens.Brand.weldchat, in: Circle())
+                    .background(Tokens.Palette.primary, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(model.uploading)
@@ -204,7 +204,7 @@ struct ChannelComposer: View {
     private func replyHeader(_ reply: ReplyReference) -> some View {
         HStack(spacing: Tokens.Spacing.s) {
             Text(ChatStrings.channelReplyingTo(name: reply.authorName))
-                .font(.caption)
+                .font(.inter(.caption))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer(minLength: 0)
@@ -212,10 +212,10 @@ struct ChannelComposer: View {
                 model.replyMention.toggle()
             } label: {
                 Image(systemName: "at")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(model.replyMention ? Tokens.Brand.weldchat : Color.secondary)
+                    .font(.inter(.caption, weight: .bold))
+                    .foregroundStyle(model.replyMention ? Tokens.Palette.primary : Color.secondary)
                     .padding(4)
-                    .background(model.replyMention ? Tokens.Brand.weldchat.opacity(0.15) : Color.clear, in: Circle())
+                    .background(model.replyMention ? Tokens.Palette.primary.opacity(0.15) : Color.clear, in: Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(ChatStrings.channelMentionAuthor(name: reply.authorName))
@@ -234,13 +234,13 @@ struct ChannelComposer: View {
 
     private var editBar: some View {
         HStack(spacing: Tokens.Spacing.s) {
-            Image(systemName: "pencil").foregroundStyle(Tokens.Brand.weldchat)
-            Text(ChatStrings.channelEditingMessage).font(.subheadline.weight(.semibold)).lineLimit(1)
+            Image(systemName: "pencil").foregroundStyle(Tokens.Palette.primary)
+            Text(ChatStrings.channelEditingMessage).font(.inter(.subheadline, weight: .semibold)).lineLimit(1)
             Spacer()
             Button {
                 model.cancelEdit()
             } label: {
-                Image(systemName: "xmark").font(.caption.weight(.bold))
+                Image(systemName: "xmark").font(.inter(.caption, weight: .bold))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(CoreStrings.commonCancel)
@@ -251,8 +251,8 @@ struct ChannelComposer: View {
 
     private var threadSuggestion: some View {
         HStack(spacing: Tokens.Spacing.s) {
-            Image(systemName: "bubble.left.and.bubble.right").foregroundStyle(Tokens.Brand.weldchat)
-            Text(ChatStrings.channelThreadSuggestion).font(.caption).lineLimit(2)
+            Image(systemName: "bubble.left.and.bubble.right").foregroundStyle(Tokens.Palette.primary)
+            Text(ChatStrings.channelThreadSuggestion).font(.inter(.caption)).lineLimit(2)
             Spacer(minLength: 0)
             Button(ChatStrings.channelCreateThread, action: onContinueInThread)
                 .buttonStyle(.borderedProminent)
@@ -261,24 +261,24 @@ struct ChannelComposer: View {
             Button {
                 model.dismissThreadSuggestion()
             } label: {
-                Image(systemName: "xmark").font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                Image(systemName: "xmark").font(.inter(.caption, weight: .bold)).foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(ChatStrings.channelDismissThreadSuggestion)
             .accessibilityIdentifier("thread-suggestion-dismiss")
         }
         .padding(Tokens.Spacing.s)
-        .background(Tokens.Brand.weldchat.opacity(0.08), in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
+        .background(Tokens.Palette.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
         .padding(.horizontal, Tokens.Spacing.m)
     }
 
     private var archivedBanner: some View {
         HStack(spacing: Tokens.Spacing.s) {
             Image(systemName: "archivebox").foregroundStyle(.secondary)
-            Text(ChatStrings.channelArchivedNotice).font(.subheadline).foregroundStyle(.secondary)
+            Text(ChatStrings.channelArchivedNotice).font(.inter(.subheadline)).foregroundStyle(.secondary)
             Spacer(minLength: 0)
             Button(ChatStrings.channelUnarchive, action: onUnarchive)
-                .font(.subheadline.weight(.semibold))
+                .font(.inter(.subheadline, weight: .semibold))
                 .accessibilityIdentifier("channel-unarchive")
         }
         .padding(.horizontal, Tokens.Spacing.l)

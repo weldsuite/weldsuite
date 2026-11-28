@@ -10,7 +10,7 @@ struct ChatAvatar: View {
     var size: CGFloat = 36
 
     var body: some View {
-        AvatarView(name: name, url: url.flatMap(URL.init(string:)), size: size, tint: Tokens.Brand.weldchat)
+        AvatarView(name: name, url: url.flatMap(URL.init(string:)), size: size)
     }
 }
 
@@ -53,17 +53,17 @@ struct CountBadge: View {
 
     var body: some View {
         Text("\(prefix)\(count)")
-            .font(.caption2.weight(.bold))
+            .font(.inter(.caption2, weight: .bold))
             .foregroundStyle(.white)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(Tokens.Brand.weldchat, in: Capsule())
+            .background(Tokens.Palette.primary, in: Capsule())
     }
 }
 
 struct UnreadDot: View {
     var body: some View {
-        Circle().fill(Tokens.Brand.weldchat).frame(width: 8, height: 8)
+        Circle().fill(Tokens.Palette.primary).frame(width: 8, height: 8)
     }
 }
 
@@ -118,7 +118,7 @@ struct MessageBody: View {
                 switch block {
                 case let .text(text):
                     Text(MessageTextStyle.attributed(text, names: names))
-                        .font(.body)
+                        .font(.inter(.body))
                         .textSelection(.enabled)
                 case let .file(id):
                     if let file = byID[id] { attachment(file) }
@@ -175,13 +175,13 @@ struct FilterChip: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                if let symbol { Image(systemName: symbol).font(.caption) }
-                Text(title).font(.subheadline.weight(.medium))
+                if let symbol { Image(systemName: symbol).font(.inter(.caption)) }
+                Text(title).font(.inter(.subheadline, weight: .medium))
             }
             .padding(.horizontal, Tokens.Spacing.m)
             .padding(.vertical, 6)
             .foregroundStyle(selected ? Color.white : Color.primary)
-            .background(selected ? Tokens.Brand.weldchat : Color(.secondarySystemBackground), in: Capsule())
+            .background(selected ? Tokens.Palette.primary : Color(.secondarySystemBackground), in: Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -205,7 +205,7 @@ struct ChannelRowView: View {
                 .foregroundStyle(unread ? Color.primary : Color.secondary)
                 .lineLimit(1)
             Spacer()
-            if channel.isMuted { Image(systemName: "bell.slash").font(.caption).foregroundStyle(.secondary) }
+            if channel.isMuted { Image(systemName: "bell.slash").font(.inter(.caption)).foregroundStyle(.secondary) }
             if channel.unreadMentionCount > 0 { CountBadge(count: channel.unreadMentionCount) }
         }
         .contentShape(Rectangle())
@@ -227,7 +227,7 @@ struct RecordChatRowView: View {
                 .foregroundStyle(unread ? Color.primary : Color.secondary)
                 .lineLimit(1)
             Spacer()
-            if chat.isMuted { Image(systemName: "bell.slash").font(.caption).foregroundStyle(.secondary) }
+            if chat.isMuted { Image(systemName: "bell.slash").font(.inter(.caption)).foregroundStyle(.secondary) }
             if chat.unreadMentionCount > 0 { CountBadge(count: chat.unreadMentionCount) }
         }
         .contentShape(Rectangle())

@@ -53,7 +53,7 @@ struct WeldBooksApp: App {
             }
             .environment(books)
             .environment(navigator)
-            .tint(Tokens.Brand.weldbooks)
+            .tint(Tokens.Palette.primary)
             .preferredColorScheme(appearance.colorScheme)
             .toastOverlay(toaster)
         }

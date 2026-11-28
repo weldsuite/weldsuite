@@ -21,14 +21,14 @@ struct IncomingCallView: View {
                 name: ring.callerName,
                 url: ring.callerAvatar.flatMap(URL.init(string:)),
                 size: 128,
-                tint: Tokens.Brand.weldchat
+                tint: Tokens.Palette.primary
             )
             Text(callerName)
-                .font(.title.bold())
+                .font(.inter(.title, weight: .bold))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
             Text(ring.callType == .video ? ChatStrings.callIncomingVideo : ChatStrings.callIncomingVoice)
-                .font(.subheadline)
+                .font(.inter(.subheadline))
                 .foregroundStyle(.secondary)
             Spacer()
             HStack(spacing: 72) {
@@ -68,12 +68,12 @@ private struct RingButton: View {
         Button(action: action) {
             VStack(spacing: Tokens.Spacing.s) {
                 Image(systemName: symbol)
-                    .font(.title)
+                    .font(.inter(.title))
                     .foregroundStyle(.white)
                     .frame(width: 72, height: 72)
                     .background(color, in: Circle())
                 Text(label)
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(.primary)
             }
         }

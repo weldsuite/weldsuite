@@ -40,8 +40,8 @@ struct InvitePeopleView: View {
                                 Text(member.displayName).lineLimit(1).foregroundStyle(Color.primary)
                                 Spacer()
                                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                    .font(.title3)
-                                    .foregroundStyle(isSelected ? Tokens.Brand.weldchat : Color.secondary)
+                                    .font(.inter(.title3))
+                                    .foregroundStyle(isSelected ? Tokens.Palette.primary : Color.secondary)
                             }
                             .contentShape(Rectangle())
                         }

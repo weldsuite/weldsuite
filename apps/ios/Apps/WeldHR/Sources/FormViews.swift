@@ -75,7 +75,7 @@ private struct Hint: View {
     var body: some View {
         if let text, !text.isEmpty {
             Text(text)
-                .font(.footnote)
+                .font(.inter(.footnote))
                 .foregroundStyle(error ? Tokens.Status.danger : .secondary)
                 .accessibilityIdentifier(error ? "form-error" : "")
         }
@@ -130,13 +130,13 @@ struct LeaveForm: View {
                                 Text(option.name).foregroundStyle(.primary)
                                 if let remaining = optionBalance?.remaining {
                                     Text("\(HRStrings.balanceLeft(days: Fmt.days(remaining))) · \(HRStrings.balanceOfAllowance(days: Fmt.days(optionBalance?.allowance ?? 0)))")
-                                        .font(.footnote).foregroundStyle(.secondary)
+                                        .font(.inter(.footnote)).foregroundStyle(.secondary)
                                 } else if optionBalance != nil {
-                                    Text(HRStrings.balanceUnlimited).font(.footnote).foregroundStyle(.secondary)
+                                    Text(HRStrings.balanceUnlimited).font(.inter(.footnote)).foregroundStyle(.secondary)
                                 }
                             }
                             Spacer()
-                            if option.id == typeId { Image(systemName: "checkmark").foregroundStyle(Tokens.Brand.weldhr) }
+                            if option.id == typeId { Image(systemName: "checkmark").foregroundStyle(Tokens.Palette.primary) }
                         }
                     }
                     .accessibilityIdentifier("leave-type-\(option.id)")
@@ -633,14 +633,14 @@ struct AnnouncementForm: View {
                 Toggle(isOn: $pinned) {
                     VStack(alignment: .leading) {
                         Text(HRStrings.announcementFormPinned)
-                        Text(HRStrings.announcementFormPinnedHint).font(.footnote).foregroundStyle(.secondary)
+                        Text(HRStrings.announcementFormPinnedHint).font(.inter(.footnote)).foregroundStyle(.secondary)
                     }
                 }
                 .accessibilityIdentifier("announcement-pinned")
                 Toggle(isOn: $notify) {
                     VStack(alignment: .leading) {
                         Text(HRStrings.announcementFormNotify)
-                        Text(HRStrings.announcementFormNotifyHint).font(.footnote).foregroundStyle(.secondary)
+                        Text(HRStrings.announcementFormNotifyHint).font(.inter(.footnote)).foregroundStyle(.secondary)
                     }
                 }
                 .accessibilityIdentifier("announcement-notify")

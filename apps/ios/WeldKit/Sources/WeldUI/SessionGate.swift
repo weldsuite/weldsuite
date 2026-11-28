@@ -72,6 +72,7 @@ public struct SessionGate<Content: View>: View {
             }
         }
         .modifier(StartEnvironment(env: env))
+        .weldStyle()
     }
 
     private func problemText(_ problem: ServerProblem, server: String) -> String {
@@ -126,7 +127,7 @@ public struct MessageView: View {
 
     public var body: some View {
         VStack(spacing: Tokens.Spacing.m) {
-            Text(title).font(.title2.bold()).multilineTextAlignment(.center)
+            Text(title).font(.inter(.title2, weight: .bold)).multilineTextAlignment(.center)
             if let message {
                 Text(message).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
@@ -157,7 +158,7 @@ private struct SignInView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: 88, height: 88)
-            Text(branding.name).font(.largeTitle.bold())
+            Text(branding.name).font(.inter(.largeTitle, weight: .bold))
             Text(branding.subtitle).foregroundStyle(.secondary).multilineTextAlignment(.center)
             if let error {
                 Text(error).foregroundStyle(.red).multilineTextAlignment(.center)
@@ -176,7 +177,7 @@ private struct SignInView: View {
                 .disabled(busy)
                 .accessibilityIdentifier("create-account")
             Text(CoreStrings.signInServer(server: env.serverName))
-                .font(.footnote)
+                .font(.inter(.footnote))
                 .foregroundStyle(.secondary)
         }
         .padding(Tokens.Spacing.xl)

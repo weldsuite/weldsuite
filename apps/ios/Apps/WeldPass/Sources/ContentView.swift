@@ -125,9 +125,9 @@ struct ItemIcon: View {
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: size * 0.45))
-            .foregroundStyle(Tokens.Brand.weldpass)
+            .foregroundStyle(Tokens.Palette.primary)
             .frame(width: size, height: size)
-            .background(Tokens.Brand.weldpass.opacity(0.12), in: RoundedRectangle(cornerRadius: size * 0.28))
+            .background(Tokens.Palette.primary.opacity(0.12), in: RoundedRectangle(cornerRadius: size * 0.28))
     }
 
     private var symbol: String {

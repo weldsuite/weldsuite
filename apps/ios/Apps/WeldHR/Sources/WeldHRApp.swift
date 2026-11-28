@@ -41,7 +41,7 @@ struct WeldHRApp: App {
             ) { person, workspace, workspaces in
                 ContentView(env: env, store: store, person: person, workspace: workspace, workspaces: workspaces, appearance: $appearance)
             }
-            .tint(Tokens.Brand.weldhr)
+            .tint(Tokens.Palette.primary)
             .preferredColorScheme(appearance.colorScheme)
             .toastOverlay(toaster)
         }

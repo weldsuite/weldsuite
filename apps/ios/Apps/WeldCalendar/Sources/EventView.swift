@@ -115,9 +115,9 @@ struct EventView: View {
                 HStack(spacing: Tokens.Spacing.m) {
                     RoundedRectangle(cornerRadius: 2).fill(accent).frame(width: 4)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(CalendarText.dayHeading(day, today: today, calendar)).font(.title3.weight(.bold))
+                        Text(CalendarText.dayHeading(day, today: today, calendar)).font(.inter(.title3, weight: .bold))
                         Text([CalendarText.timeRange(event, calendar), CalendarText.duration(event)].compactMap { $0 }.joined(separator: " · "))
-                            .font(.subheadline)
+                            .font(.inter(.subheadline))
                             .foregroundStyle(.secondary)
                             .accessibilityIdentifier("event-when")
                     }
@@ -149,7 +149,7 @@ struct EventView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         LabeledContent(CalendarStrings.eventTimezone, value: zone)
                         if zone != TimeZone.current.identifier {
-                            Text(CalendarStrings.eventTimezoneShown(zone: zone)).font(.footnote).foregroundStyle(.secondary)
+                            Text(CalendarStrings.eventTimezoneShown(zone: zone)).font(.inter(.footnote)).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -161,8 +161,8 @@ struct EventView: View {
                         if let url = URL(string: link) { openURL(url) }
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
-                            Label(CalendarStrings.eventJoinMeeting, systemImage: "arrow.up.right.square").font(.body.weight(.semibold))
-                            Text(link).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Label(CalendarStrings.eventJoinMeeting, systemImage: "arrow.up.right.square").font(.inter(.body, weight: .semibold))
+                            Text(link).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
                     .accessibilityIdentifier("join-meeting")
@@ -178,7 +178,7 @@ struct EventView: View {
                         declinedCount: answers.declined,
                         pendingCount: answers.pending
                     ))
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(.secondary)
                     ForEach(event.guests) { guest in
                         HStack(spacing: Tokens.Spacing.m) {
@@ -186,7 +186,7 @@ struct EventView: View {
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(guest.label).lineLimit(1)
                                 if guest.name != nil {
-                                    Text(guest.email).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                                    Text(guest.email).font(.inter(.footnote)).foregroundStyle(.secondary).lineLimit(1)
                                 }
                             }
                             Spacer()
@@ -211,11 +211,11 @@ struct EventView: View {
         Section {
             Label {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.subheadline.weight(.semibold))
-                    Text(text).font(.footnote).foregroundStyle(.secondary)
+                    Text(title).font(.inter(.subheadline, weight: .semibold))
+                    Text(text).font(.inter(.footnote)).foregroundStyle(.secondary)
                 }
             } icon: {
-                Image(systemName: "info.circle").foregroundStyle(Tokens.Brand.weldcalendar)
+                Image(systemName: "info.circle").foregroundStyle(Tokens.Palette.primary)
             }
         }
     }

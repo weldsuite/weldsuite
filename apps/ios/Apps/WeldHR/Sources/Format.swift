@@ -245,7 +245,7 @@ enum Labels {
 /// Sign up in the app's colour, waiting amber, declined red, full grey.
 func standingColor(_ standing: Standing) -> Color {
     switch standing {
-    case .open: Tokens.Brand.weldhr
+    case .open: Tokens.Palette.primary
     case .waiting: Tokens.Status.warning
     case .declined: Tokens.Status.danger
     case .full: .secondary

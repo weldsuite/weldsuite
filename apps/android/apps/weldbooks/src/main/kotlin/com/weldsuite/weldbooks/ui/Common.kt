@@ -18,7 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
+import org.weldsuite.ui.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -431,7 +431,7 @@ fun GroupLabel(text: String) {
 fun BottomSpace() = Spacer(Modifier.size(Tokens.Spacing.xl))
 
 /** The brand colour of the theme. */
-val Brand: DayNight get() = Tokens.Brand.weldbooks
+val Brand: DayNight get() = Tokens.Palette.primary
 
 @Composable
 fun HintText(text: String) {

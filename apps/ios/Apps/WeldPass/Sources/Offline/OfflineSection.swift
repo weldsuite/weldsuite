@@ -17,7 +17,7 @@ struct OfflineSection: View {
         Section {
             VStack(alignment: .leading, spacing: 2) {
                 Text(PassStrings.settingsOffline)
-                Text(statusLine).font(.subheadline).foregroundStyle(.secondary)
+                Text(statusLine).font(.inter(.subheadline)).foregroundStyle(.secondary)
             }
             switch offline.status {
             case .ready:
@@ -46,7 +46,7 @@ struct OfflineSection: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(device.name)
-                            Text(deviceLine(device, thisPhone: thisPhone)).font(.subheadline).foregroundStyle(.secondary)
+                            Text(deviceLine(device, thisPhone: thisPhone)).font(.inter(.subheadline)).foregroundStyle(.secondary)
                         }
                         Spacer()
                         if !thisPhone {

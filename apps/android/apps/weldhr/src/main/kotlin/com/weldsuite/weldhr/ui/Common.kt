@@ -31,7 +31,7 @@ import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.Button
+import org.weldsuite.ui.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -104,7 +104,7 @@ private fun argb(value: Long) = Color(value.toInt())
 @Composable
 fun LeaveTypeTile(color: String?, size: Dp = ROW_TILE) {
     val hex = Swatches.hex(color)
-    val background = hex?.let(::argb) ?: Tokens.Brand.weldhr.current()
+    val background = hex?.let(::argb) ?: Tokens.Palette.primary.current()
     val tint = if (hex != null && Swatches.prefersDarkText(hex)) Color.Black else Color.White
     IconTile(Icons.Filled.Flight, background, tint, size)
 }

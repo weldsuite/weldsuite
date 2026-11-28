@@ -51,7 +51,7 @@ struct WeldCalendarApp: App {
                     link: $link
                 )
             }
-            .tint(Tokens.Brand.weldcalendar)
+            .tint(Tokens.Palette.primary)
             .preferredColorScheme(appearance.colorScheme)
             .toastOverlay(toaster)
             // weldcalendar://event/<id> and the other paths the Expo app's router answered.

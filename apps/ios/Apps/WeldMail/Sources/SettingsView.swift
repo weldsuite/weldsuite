@@ -43,9 +43,9 @@ struct SettingsView: View {
                         }
                     }
                     Text(store.pending == 0 ? MailStrings.settingsOutboxEmpty : MailStrings.settingsOutboxWaiting(store.pending))
-                        .font(.footnote)
+                        .font(.inter(.footnote))
                     Text(MailStrings.settingsOutboxDescription)
-                        .font(.footnote)
+                        .font(.inter(.footnote))
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityIdentifier("settings-outbox")

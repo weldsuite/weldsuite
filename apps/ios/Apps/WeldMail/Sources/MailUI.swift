@@ -70,11 +70,11 @@ extension View {
                 if let notice = notifier.notice {
                     HStack(spacing: Tokens.Spacing.m) {
                         Text(notice.text)
-                            .font(.subheadline)
+                            .font(.inter(.subheadline))
                             .lineLimit(3)
                         if let action = notice.action {
                             Button(action) { notifier.perform() }
-                                .font(.subheadline.weight(.semibold))
+                                .font(.inter(.subheadline, weight: .semibold))
                                 .accessibilityIdentifier("toast-action")
                         }
                     }
@@ -115,7 +115,7 @@ struct LabelChip: View {
     var body: some View {
         let tint = Color(mailRGB: color)
         Text(name)
-            .font(.caption2)
+            .font(.inter(.caption2))
             .lineLimit(1)
             .foregroundStyle(tint)
             .padding(.horizontal, 6)
@@ -129,7 +129,7 @@ struct OfflineBanner: View {
     var body: some View {
         HStack(spacing: Tokens.Spacing.s) {
             Image(systemName: "wifi.slash").foregroundStyle(Tokens.Status.warning)
-            Text(MailStrings.inboxOffline).font(.footnote).foregroundStyle(.secondary)
+            Text(MailStrings.inboxOffline).font(.inter(.footnote)).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)

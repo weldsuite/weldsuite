@@ -93,7 +93,7 @@ private struct InCallView: View {
             HStack {
                 Button(action: { manager.minimize() }) {
                     Image(systemName: "chevron.down")
-                        .font(.title3.weight(.semibold))
+                        .font(.inter(.title3, weight: .semibold))
                         .frame(width: 44, height: 44)
                 }
                 .accessibilityLabel(ChatStrings.inCallMinimize)
@@ -101,7 +101,7 @@ private struct InCallView: View {
                 Spacer()
                 Button(action: onOpenChat) {
                     Image(systemName: "message")
-                        .font(.title3)
+                        .font(.inter(.title3))
                         .frame(width: 44, height: 44)
                 }
                 .accessibilityLabel(ChatStrings.inCallBackToChat)
@@ -109,10 +109,10 @@ private struct InCallView: View {
             }
             .foregroundStyle(.primary)
             Text(title)
-                .font(.title.bold())
+                .font(.inter(.title, weight: .bold))
                 .lineLimit(1)
             Text(manager.statusText)
-                .font(.subheadline)
+                .font(.inter(.subheadline))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -151,14 +151,14 @@ private struct InCallView: View {
                 name: session.peerName,
                 url: session.peerAvatar.flatMap(URL.init(string:)),
                 size: 140,
-                tint: Tokens.Brand.weldchat
+                tint: Tokens.Palette.primary
             )
         } else {
             Image(systemName: "number")
                 .font(.system(size: 56, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 140, height: 140)
-                .background(Tokens.Brand.weldchat, in: Circle())
+                .background(Tokens.Palette.primary, in: Circle())
                 .accessibilityHidden(true)
         }
     }
@@ -192,7 +192,7 @@ private struct InCallView: View {
                 }
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.title3)
+                    .font(.inter(.title3))
                     .frame(width: 48, height: 48)
                     .background(Color(uiColor: .secondarySystemFill), in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
                     .foregroundStyle(.primary)
@@ -201,7 +201,7 @@ private struct InCallView: View {
             .accessibilityIdentifier("call-more")
             Button(action: { manager.hangUp() }) {
                 Image(systemName: "phone.down.fill")
-                    .font(.title3)
+                    .font(.inter(.title3))
                     .frame(maxWidth: .infinity, minHeight: 48)
                     .background(Tokens.Status.danger, in: RoundedRectangle(cornerRadius: Tokens.Radius.medium))
                     .foregroundStyle(.white)
@@ -223,7 +223,7 @@ private struct ControlButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.title3)
+                .font(.inter(.title3))
                 .frame(width: 48, height: 48)
                 .background(
                     isOn ? Color(uiColor: .secondarySystemFill) : Tokens.Status.danger.opacity(0.16),
@@ -286,7 +286,7 @@ private struct MinimizedCallBar: View {
         HStack(spacing: Tokens.Spacing.m) {
             Button(action: { manager.toggleMic() }) {
                 Image(systemName: "mic.slash.fill")
-                    .font(.body)
+                    .font(.inter(.body))
                     .frame(width: 38, height: 38)
                     .background(muted ? Color.white : Self.button, in: Circle())
                     .foregroundStyle(muted ? Self.button : Color.white)
@@ -296,9 +296,9 @@ private struct MinimizedCallBar: View {
             Button(action: { manager.expand() }) {
                 HStack(spacing: Tokens.Spacing.s) {
                     Image(systemName: "phone.fill")
-                        .font(.footnote)
+                        .font(.inter(.footnote))
                     Text(title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.inter(.subheadline, weight: .semibold))
                         .monospacedDigit()
                         .lineLimit(1)
                 }
@@ -310,7 +310,7 @@ private struct MinimizedCallBar: View {
             .accessibilityIdentifier("call-bar")
             Button(action: { manager.hangUp() }) {
                 Image(systemName: "phone.down.fill")
-                    .font(.body)
+                    .font(.inter(.body))
                     .frame(width: 38, height: 38)
                     .background(Self.red, in: Circle())
                     .foregroundStyle(Color.white)

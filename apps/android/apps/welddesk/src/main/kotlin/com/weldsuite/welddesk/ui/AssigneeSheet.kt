@@ -62,7 +62,7 @@ fun AssigneeSheet(
     }
     val members = state.members
     val visible = remember(members, search) { members?.let { DeskLogic.filterMembers(it, search) } }
-    val brand = Tokens.Brand.welddesk.current()
+    val brand = Tokens.Palette.primary.current()
     ModalBottomSheet(onDismissRequest = onDismiss, modifier = Modifier.tagged("assignee-sheet")) {
         Column(Modifier.fillMaxWidth().heightIn(max = 560.dp), verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
             Text(
@@ -119,7 +119,7 @@ fun AssigneeSheet(
                             } else {
                                 null
                             },
-                            leadingContent = { Avatar(member.name, member.picture, size = 32.dp, tint = brand) },
+                            leadingContent = { Avatar(member.name, member.picture, size = 32.dp) },
                             trailingContent = if (member.userId == currentAssigneeId) {
                                 { Icon(Icons.Outlined.Check, contentDescription = null, tint = brand) }
                             } else {

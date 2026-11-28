@@ -21,7 +21,7 @@ struct SettingsView: View {
                         .background(violet.opacity(0.12), in: RoundedRectangle(cornerRadius: Tokens.Radius.small))
                         .accessibilityHidden(true)
                     Text(DeskStrings.settingsChannelsHint)
-                        .font(.subheadline)
+                        .font(.inter(.subheadline))
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityIdentifier("channels-hint")

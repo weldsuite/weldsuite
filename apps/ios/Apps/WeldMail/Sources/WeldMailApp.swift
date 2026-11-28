@@ -43,7 +43,7 @@ struct WeldMailApp: App {
                     // Another workspace (or person) starts over: its own stacks and screens.
                     .id("\(person.id):\(workspace.id)")
             }
-            .tint(Tokens.Brand.weldmail)
+            .tint(Tokens.Palette.primary)
             .preferredColorScheme(appearance.colorScheme)
             .toastOverlay(toaster)
             // weldmail://message/<id>, weldmail://compose?to=…, …/search, …/settings, …/subscriptions.

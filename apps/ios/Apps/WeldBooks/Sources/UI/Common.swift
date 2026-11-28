@@ -49,7 +49,7 @@ enum Accents {
     static let contacts = Color(hex: 0x06B6D4)
     static let settings = Color(hex: 0x6B7280)
     /// The app's brand colour (Android `Brand`).
-    static let brand = Tokens.Brand.weldbooks
+    static let brand = Tokens.Palette.primary
 }
 
 private extension Color {
@@ -83,7 +83,7 @@ struct SectionCard<Action: View, Content: View>: View {
             if title != nil || hasAction {
                 HStack(alignment: .center) {
                     if let title {
-                        Text(title).font(.subheadline.weight(.semibold))
+                        Text(title).font(.inter(.subheadline, weight: .semibold))
                     }
                     Spacer(minLength: Tokens.Spacing.s)
                     action
@@ -129,11 +129,11 @@ struct DetailRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Tokens.Spacing.l) {
             Text(label)
-                .font(.subheadline)
+                .font(.inter(.subheadline))
                 .foregroundStyle(Color.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(value)
-                .font(.subheadline.weight(strong ? .semibold : .regular))
+                .font(.inter(.subheadline).weight(strong ? .semibold : .regular))
                 .foregroundStyle(valueColor ?? Color.primary)
                 .multilineTextAlignment(.trailing)
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -156,9 +156,9 @@ struct TotalsBlock: View {
             }
             Divider().padding(.vertical, Tokens.Spacing.s)
             HStack {
-                Text(total.0).font(.subheadline.weight(.semibold))
+                Text(total.0).font(.inter(.subheadline, weight: .semibold))
                 Spacer()
-                Text(total.1).font(.subheadline.weight(.semibold))
+                Text(total.1).font(.inter(.subheadline, weight: .semibold))
             }
             .accessibilityElement(children: .combine)
         }
@@ -230,18 +230,18 @@ struct RecordRow<Leading: View, Badge: View>: View {
         HStack(spacing: Tokens.Spacing.m) {
             leading
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.body.weight(.semibold)).lineLimit(1)
+                Text(title).font(.inter(.body, weight: .semibold)).lineLimit(1)
                 if let subtitle {
-                    Text(subtitle).font(.footnote).foregroundStyle(Color.secondary).lineLimit(1)
+                    Text(subtitle).font(.inter(.footnote)).foregroundStyle(Color.secondary).lineLimit(1)
                 }
                 if let meta {
-                    Text(meta).font(.footnote).foregroundStyle(Color.secondary).lineLimit(1)
+                    Text(meta).font(.inter(.footnote)).foregroundStyle(Color.secondary).lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             VStack(alignment: .trailing, spacing: 4) {
                 if let amount {
-                    Text(amount).font(.body.weight(.semibold)).foregroundStyle(amountColor ?? Color.primary)
+                    Text(amount).font(.inter(.body, weight: .semibold)).foregroundStyle(amountColor ?? Color.primary)
                 }
                 badge
             }
@@ -343,14 +343,14 @@ struct Banner: View {
         HStack(alignment: .top, spacing: Tokens.Spacing.s) {
             VStack(alignment: .leading, spacing: 2) {
                 if let title {
-                    Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(color)
+                    Text(title).font(.inter(.subheadline, weight: .semibold)).foregroundStyle(color)
                 }
-                Text(text).font(.subheadline)
+                Text(text).font(.inter(.subheadline))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if let onClose {
                 Button(action: onClose) {
-                    Image(systemName: "xmark").font(.caption.weight(.semibold))
+                    Image(systemName: "xmark").font(.inter(.caption, weight: .semibold))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.secondary)
@@ -374,7 +374,7 @@ struct GroupLabel: View {
 
     var body: some View {
         Text(text)
-            .font(.footnote.weight(.semibold))
+            .font(.inter(.footnote, weight: .semibold))
             .foregroundStyle(Color.secondary)
             .textCase(.uppercase)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -394,7 +394,7 @@ struct HintText: View {
 
     var body: some View {
         Text(text)
-            .font(.footnote)
+            .font(.inter(.footnote))
             .foregroundStyle(Color.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 4)
@@ -454,7 +454,7 @@ struct SearchAndFilters: View {
                                 selected = choice.key
                             } label: {
                                 Text(choice.label)
-                                    .font(.subheadline.weight(.medium))
+                                    .font(.inter(.subheadline, weight: .medium))
                                     .padding(.horizontal, Tokens.Spacing.m)
                                     .padding(.vertical, 6)
                                     .foregroundStyle(on ? Color.white : Color.primary)

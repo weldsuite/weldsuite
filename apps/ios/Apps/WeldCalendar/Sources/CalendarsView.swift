@@ -90,7 +90,7 @@ struct CalendarsView: View {
                             StatusBadge(CalendarStrings.calendarsDefaultBadge, color: .secondary)
                         }
                     }
-                    Text(subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                    Text(subtitle).font(.inter(.footnote)).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
         }
@@ -137,7 +137,7 @@ struct NewCalendarView: View {
                                 ZStack {
                                     Circle().fill(Color(hex: option)).frame(width: 34, height: 34)
                                     if option == color {
-                                        Image(systemName: "checkmark").font(.footnote.weight(.bold)).foregroundStyle(.white)
+                                        Image(systemName: "checkmark").font(.inter(.footnote, weight: .bold)).foregroundStyle(.white)
                                     }
                                 }
                             }

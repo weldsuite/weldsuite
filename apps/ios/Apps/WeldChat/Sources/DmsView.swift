@@ -57,7 +57,7 @@ struct DmsView: View {
                         } label: {
                             Label(dm.isPinned ? ChatStrings.dmsUnpin : ChatStrings.dmsPin, systemImage: dm.isPinned ? "pin.slash" : "pin")
                         }
-                        .tint(Tokens.Brand.weldchat)
+                        .tint(Tokens.Palette.primary)
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
@@ -110,7 +110,7 @@ struct DmsView: View {
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 56, height: 56)
-                    .background(Tokens.Brand.weldchat, in: Circle())
+                    .background(Tokens.Palette.primary, in: Circle())
                     .shadow(radius: 4, y: 2)
             }
             .accessibilityLabel(ChatStrings.dmsNewDm)
@@ -185,7 +185,7 @@ private struct DmRow: View {
                             .font(.system(size: 8))
                             .foregroundStyle(.white)
                             .padding(3)
-                            .background(Tokens.Brand.weldchat, in: Circle())
+                            .background(Tokens.Palette.primary, in: Circle())
                     }
                 }
             VStack(alignment: .leading, spacing: 2) {
@@ -195,16 +195,16 @@ private struct DmRow: View {
                         .lineLimit(1)
                     Spacer()
                     Text(ChatDates.listTime(dm.lastMessageAt))
-                        .font(.caption)
-                        .foregroundStyle(dm.hasUnread ? Tokens.Brand.weldchat : Color.secondary)
+                        .font(.inter(.caption))
+                        .foregroundStyle(dm.hasUnread ? Tokens.Palette.primary : Color.secondary)
                 }
                 HStack(alignment: .top) {
                     Text(dm.lastMessagePreview.map { MentionText.plainText($0, names: names) } ?? ChatStrings.dmsNoMessagesPreview)
-                        .font(.subheadline)
+                        .font(.inter(.subheadline))
                         .foregroundStyle(dm.hasUnread ? Color.primary : Color.secondary)
                         .lineLimit(2)
                     Spacer()
-                    if dm.isMuted { Image(systemName: "bell.slash").font(.caption).foregroundStyle(.secondary) }
+                    if dm.isMuted { Image(systemName: "bell.slash").font(.inter(.caption)).foregroundStyle(.secondary) }
                     if dm.hasUnread, dm.unreadCount > 0 { CountBadge(count: dm.unreadCount) }
                 }
             }

@@ -51,14 +51,14 @@ struct MessageRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     if !compact {
                         HStack(spacing: 6) {
-                            Text(message.authorName).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            Text(message.authorName).font(.inter(.subheadline, weight: .semibold)).lineLimit(1)
                             if message.isAgent {
                                 Text(ChatStrings.channelAgentBadge)
-                                    .font(.caption2.weight(.bold))
+                                    .font(.inter(.caption2, weight: .bold))
                                     .padding(.horizontal, 4)
-                                    .background(Tokens.Brand.weldchat.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+                                    .background(Tokens.Palette.primary.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
                             }
-                            Text(ChatDates.time(message.date)).font(.caption).foregroundStyle(.secondary)
+                            Text(ChatDates.time(message.date)).font(.inter(.caption)).foregroundStyle(.secondary)
                             if message.pending { ProgressView().controlSize(.mini) }
                         }
                     }
@@ -68,10 +68,10 @@ struct MessageRow: View {
                             actions.openThread(message)
                         } label: {
                             Label(ChatStrings.channelReplyCount(message.threadReplyCount), systemImage: "bubble.left.and.bubble.right")
-                                .font(.caption.weight(.semibold))
+                                .font(.inter(.caption, weight: .semibold))
                         }
                         .buttonStyle(.plain)
-                        .foregroundStyle(Tokens.Brand.weldchat)
+                        .foregroundStyle(Tokens.Palette.primary)
                         .accessibilityIdentifier("thread-link-\(message.id)")
                     }
                 }
@@ -135,11 +135,11 @@ private struct MessageExtras: View {
                 }
             }
             if message.editedAt != nil {
-                Text(ChatStrings.channelEdited).font(.caption2).foregroundStyle(.secondary)
+                Text(ChatStrings.channelEdited).font(.inter(.caption2)).foregroundStyle(.secondary)
             }
             if message.isAgent {
                 ForEach(Array(message.visuals.enumerated()), id: \.offset) { _, visual in
-                    Text(AgentVisuals.line(visual)).font(.caption).italic().foregroundStyle(.secondary)
+                    Text(AgentVisuals.line(visual)).font(.inter(.caption)).italic().foregroundStyle(.secondary)
                 }
             }
             ForEach(gallery) { attachment in
@@ -166,7 +166,7 @@ struct MessageAvatar: View {
                 }
             }
             .frame(width: 38, height: 38)
-            .background(Tokens.Brand.weldchat, in: Circle())
+            .background(Tokens.Palette.primary, in: Circle())
         } else {
             ChatAvatar(name: message.authorName, url: message.authorAvatar, size: 38)
         }
@@ -182,10 +182,10 @@ struct ReplyQuoteView: View {
     var body: some View {
         Button(action: onJump) {
             HStack(spacing: 6) {
-                Image(systemName: "arrow.turn.up.right").font(.caption2).foregroundStyle(.secondary)
+                Image(systemName: "arrow.turn.up.right").font(.inter(.caption2)).foregroundStyle(.secondary)
                 ChatAvatar(name: reply.authorName, url: reply.authorAvatar, size: 16)
-                Text(reply.authorName).font(.caption.weight(.semibold)).lineLimit(1)
-                Text(ChatLogic.replyQuoteText(reply, names: names)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(reply.authorName).font(.inter(.caption, weight: .semibold)).lineLimit(1)
+                Text(ChatLogic.replyQuoteText(reply, names: names)).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
             }
         }
         .buttonStyle(.plain)
@@ -221,11 +221,11 @@ struct AttachmentView: View {
                 if let url = URL(string: attachment.url) { openURL(url) }
             } label: {
                 HStack(spacing: Tokens.Spacing.s) {
-                    Image(systemName: "doc.text").font(.title3).foregroundStyle(.secondary)
+                    Image(systemName: "doc.text").font(.inter(.title3)).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(attachment.fileName).font(.subheadline).lineLimit(1)
+                        Text(attachment.fileName).font(.inter(.subheadline)).lineLimit(1)
                         Text(ByteCountFormatter.string(fromByteCount: Int64(attachment.fileSize), countStyle: .file))
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.inter(.caption)).foregroundStyle(.secondary)
                     }
                 }
                 .padding(Tokens.Spacing.s)
@@ -253,12 +253,12 @@ struct ReactionsBar: View {
                 } label: {
                     HStack(spacing: 3) {
                         Text(reaction.emoji)
-                        Text("\(reaction.users.count)").font(.caption.weight(.semibold))
+                        Text("\(reaction.users.count)").font(.inter(.caption, weight: .semibold))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
-                    .background(mine ? Tokens.Brand.weldchat.opacity(0.18) : Color(.secondarySystemBackground), in: Capsule())
-                    .overlay(Capsule().stroke(mine ? Tokens.Brand.weldchat : Color.clear, lineWidth: 1))
+                    .background(mine ? Tokens.Palette.primary.opacity(0.18) : Color(.secondarySystemBackground), in: Capsule())
+                    .overlay(Capsule().stroke(mine ? Tokens.Palette.primary : Color.clear, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
             }
@@ -328,13 +328,13 @@ struct CallLogCard: View {
         let when = WeldDate.parse(createdAt).map { $0.formatted(date: .numeric, time: .shortened) } ?? ""
         HStack(spacing: Tokens.Spacing.m) {
             Image(systemName: missed ? "phone.down.fill" : (entry.isVideo ? "video.fill" : "phone.fill"))
-                .foregroundStyle(missed ? Tokens.Status.danger : (ongoing ? Tokens.Brand.weldchat : Color.secondary))
+                .foregroundStyle(missed ? Tokens.Status.danger : (ongoing ? Tokens.Palette.primary : Color.secondary))
                 .frame(width: 36, height: 36)
                 .background(Color(.tertiarySystemBackground), in: Circle())
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text(title).font(.inter(.subheadline, weight: .semibold)).lineLimit(1)
                 Text(CallLog.lasted(entry.duration).map { ChatStrings.channelCallLasted(duration: $0, when: when) } ?? when)
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    .font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
             if joinable {
@@ -359,7 +359,7 @@ struct DateSeparator: View {
     var body: some View {
         HStack {
             VStack { Divider() }
-            Text(ChatDates.dayLabel(date)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Text(ChatDates.dayLabel(date)).font(.inter(.caption, weight: .semibold)).foregroundStyle(.secondary)
             VStack { Divider() }
         }
         .padding(.horizontal, Tokens.Spacing.l)

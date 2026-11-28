@@ -128,7 +128,7 @@ private struct MyAbsence: View {
         let reportSick = today.hasPrefix(prefix) && current == nil
         Group {
             if !canRequest {
-                Section { Text(HRStrings.timeOffTurnedOff).font(.subheadline).foregroundStyle(.secondary) }
+                Section { Text(HRStrings.timeOffTurnedOff).font(.inter(.subheadline)).foregroundStyle(.secondary) }
             }
             if open.isEmpty && reviewed.isEmpty && reports.isEmpty && !reportSick {
                 ContentUnavailableView(HRStrings.absenceNoAbsence(year: prefix), systemImage: "calendar")
@@ -281,14 +281,14 @@ struct ApprovalRow: View {
             HStack(alignment: .top, spacing: Tokens.Spacing.m) {
                 PersonAvatar(name: name)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(name).font(.body.weight(.semibold)).lineLimit(1)
-                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                    if let note, !note.isEmpty { Text(note).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
+                    Text(name).font(.inter(.body, weight: .semibold)).lineLimit(1)
+                    Text(subtitle).font(.inter(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
+                    if let note, !note.isEmpty { Text(note).font(.inter(.subheadline)).foregroundStyle(.secondary).lineLimit(2) }
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(value).font(.subheadline).lineLimit(1)
-                    Text(detail).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                    Text(value).font(.inter(.subheadline)).lineLimit(1)
+                    Text(detail).font(.inter(.footnote)).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             HStack {

@@ -360,7 +360,7 @@ private struct LooseRow: View {
                 if let since {
                     Running(text: ShiftMath.timer(now - (WeldDate.parse(since)?.timeIntervalSince1970 ?? 0) * 1000))
                 } else {
-                    Text(Fmt.hm(ShiftMath.minutesOf(record, now: now))).font(.subheadline)
+                    Text(Fmt.hm(ShiftMath.minutesOf(record, now: now))).font(.inter(.subheadline))
                 }
             }
         }
@@ -451,7 +451,7 @@ private struct TeamWeek: View {
             if let openSince {
                 Running(text: ShiftMath.timer(now - (WeldDate.parse(openSince)?.timeIntervalSince1970 ?? 0) * 1000))
             } else if !worked.isEmpty {
-                Text(Fmt.hm(worked.reduce(0) { $0 + ShiftMath.minutesOf($1, now: now) })).font(.subheadline)
+                Text(Fmt.hm(worked.reduce(0) { $0 + ShiftMath.minutesOf($1, now: now) })).font(.inter(.subheadline))
             }
         }
         .accessibilityIdentifier("team-shift-\(shift.id)")
@@ -470,7 +470,7 @@ private struct TeamWeek: View {
             if let since {
                 Running(text: ShiftMath.timer(now - (WeldDate.parse(since)?.timeIntervalSince1970 ?? 0) * 1000))
             } else {
-                Text(Fmt.hm(ShiftMath.minutesOf(record, now: now))).font(.subheadline)
+                Text(Fmt.hm(ShiftMath.minutesOf(record, now: now))).font(.inter(.subheadline))
             }
         }
     }

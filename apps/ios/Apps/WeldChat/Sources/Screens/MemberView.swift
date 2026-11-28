@@ -77,9 +77,9 @@ struct MemberView: View {
             }
             VStack(alignment: .leading, spacing: 2) {
                 if state != .loading {
-                    Text(name).font(.title3.weight(.semibold)).lineLimit(1)
+                    Text(name).font(.inter(.title3, weight: .semibold)).lineLimit(1)
                     if let status = MemberScreenRules.customStatus(presence) {
-                        Text(status).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                        Text(status).font(.inter(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
             }
@@ -95,10 +95,10 @@ struct MemberView: View {
                 } label: {
                     VStack(spacing: 6) {
                         Label(option.label, systemImage: option.symbol)
-                            .font(.subheadline.weight(option == tab ? .semibold : .regular))
+                            .font(.inter(.subheadline).weight(option == tab ? .semibold : .regular))
                             .foregroundStyle(option == tab ? Color.primary : Color.secondary)
                         Rectangle()
-                            .fill(option == tab ? Tokens.Brand.weldchat : Color.clear)
+                            .fill(option == tab ? Tokens.Palette.primary : Color.clear)
                             .frame(height: 2)
                     }
                     .frame(maxWidth: .infinity)

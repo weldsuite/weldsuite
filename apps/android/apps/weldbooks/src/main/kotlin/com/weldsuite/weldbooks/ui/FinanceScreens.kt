@@ -27,7 +27,7 @@ import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.Balance
 import androidx.compose.material.icons.automirrored.outlined.FactCheck
 import androidx.compose.material.icons.automirrored.outlined.MergeType
-import androidx.compose.material3.Button
+import org.weldsuite.ui.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -376,7 +376,7 @@ private fun ReconciliationStatsRow(stats: ReconciliationStats) {
 
 @Composable
 private fun StatTile(value: String, label: String, color: Color?, modifier: Modifier) {
-    androidx.compose.material3.Card(
+    org.weldsuite.ui.Card(
         modifier = modifier,
         colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         shape = RoundedCornerShape(Tokens.Radius.large),

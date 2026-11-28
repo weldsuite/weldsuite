@@ -109,7 +109,7 @@ struct MonthView: View {
             } header: {
                 HStack {
                     Text(CalendarText.dayHeading(selected, today: today, calendar))
-                        .font(.headline)
+                        .font(.inter(.headline))
                         .foregroundStyle(.primary)
                     Spacer()
                     if selected != today {
@@ -117,7 +117,7 @@ struct MonthView: View {
                             selected = today
                             month = YearMonth(today)
                         }
-                        .font(.subheadline.weight(.semibold))
+                        .font(.inter(.subheadline, weight: .semibold))
                         .accessibilityIdentifier("month-today")
                     }
                 }
@@ -147,7 +147,7 @@ struct MonthGrid: View {
             HStack(spacing: 0) {
                 ForEach(Array(headers.enumerated()), id: \.offset) { _, symbol in
                     Text(symbol.uppercased())
-                        .font(.caption2.weight(.bold))
+                        .font(.inter(.caption2, weight: .bold))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                 }
@@ -173,14 +173,14 @@ struct MonthGrid: View {
             VStack(spacing: 2) {
                 Text("\(day.day)")
                     .font(.system(size: 15, weight: isSelected || isToday ? .bold : .regular))
-                    .foregroundStyle(isSelected ? Color.white : isToday ? Tokens.Brand.weldcalendar : inMonth ? Color.primary : Color.secondary)
+                    .foregroundStyle(isSelected ? Color.white : isToday ? Tokens.Palette.primary : inMonth ? Color.primary : Color.secondary)
                     .opacity(!inMonth && !isSelected ? 0.45 : 1)
                     .frame(width: 32, height: 32)
                     .background {
                         if isSelected {
-                            Circle().fill(Tokens.Brand.weldcalendar)
+                            Circle().fill(Tokens.Palette.primary)
                         } else if isToday {
-                            Circle().stroke(Tokens.Brand.weldcalendar, lineWidth: 1.5)
+                            Circle().stroke(Tokens.Palette.primary, lineWidth: 1.5)
                         }
                     }
                 HStack(spacing: 3) {

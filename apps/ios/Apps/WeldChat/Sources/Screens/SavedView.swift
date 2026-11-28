@@ -55,23 +55,23 @@ struct SavedView: View {
     private func row(_ bookmark: ChatBookmark, name: String, isDM: Bool, names: [String: String]) -> some View {
         HStack(alignment: .top, spacing: Tokens.Spacing.m) {
             Image(systemName: "bookmark")
-                .foregroundStyle(Tokens.Brand.weldchat)
+                .foregroundStyle(Tokens.Palette.primary)
                 .frame(width: 32, height: 32)
-                .background(Tokens.Brand.weldchat.opacity(0.12), in: Circle())
+                .background(Tokens.Palette.primary.opacity(0.12), in: Circle())
             VStack(alignment: .leading, spacing: 2) {
                 Text(SavedRules.conversationLabel(name: name, isDM: isDM))
-                    .font(.subheadline.weight(.semibold))
+                    .font(.inter(.subheadline, weight: .semibold))
                     .lineLimit(1)
                 Text(bookmark.messageAuthorName ?? ChatStrings.savedUnknownAuthor)
-                    .font(.caption.weight(.medium))
+                    .font(.inter(.caption, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Text(SavedRules.bookmarkText(bookmark, names: names))
-                    .font(.subheadline)
+                    .font(.inter(.subheadline))
                     .lineLimit(2)
                 if let note = bookmark.note, !note.isEmpty {
                     Text(note)
-                        .font(.caption)
+                        .font(.inter(.caption))
                         .italic()
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -80,7 +80,7 @@ struct SavedView: View {
             Spacer(minLength: 0)
             if let date = WeldDate.parse(bookmark.createdAt) {
                 Text(date.formatted(.dateTime.day().month(.abbreviated)))
-                    .font(.caption)
+                    .font(.inter(.caption))
                     .foregroundStyle(.secondary)
             }
         }

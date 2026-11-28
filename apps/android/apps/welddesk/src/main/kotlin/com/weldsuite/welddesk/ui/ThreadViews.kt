@@ -68,7 +68,7 @@ fun ChannelBadge(conversation: Conversation) {
 @Composable
 fun StateBadge(state: ConversationState) {
     if (state == ConversationState.OPEN) {
-        StatusBadge(stringResource(R.string.welddesk_inbox_open), Tokens.Brand.welddesk.current())
+        StatusBadge(stringResource(R.string.welddesk_inbox_open), Tokens.Palette.primary.current())
     } else {
         StatusBadge(stringResource(R.string.welddesk_inbox_closed), MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -92,7 +92,7 @@ fun MessageRow(message: Message, onOpenFailed: () -> Unit) {
     val fromAgent = message.authorType == AuthorType.AGENT || message.authorType == AuthorType.BOT
     val isNote = message.kind == MessageKind.NOTE
     val onBrand = fromAgent && !isNote
-    val brand = Tokens.Brand.welddesk.current()
+    val brand = Tokens.Palette.primary.current()
     val background = when {
         isNote -> Tokens.Status.warning.current().copy(alpha = 0.15f)
         fromAgent -> brand

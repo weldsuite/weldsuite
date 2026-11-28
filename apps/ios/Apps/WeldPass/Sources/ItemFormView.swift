@@ -170,7 +170,7 @@ private struct ItemFormFields: View {
                 TextField(PassStrings.formTitle, text: $values.title, prompt: Text(PassStrings.formTitlePlaceholder))
                     .accessibilityIdentifier("form-title")
                 if showErrors, values.title.trimmingCharacters(in: .whitespaces).isEmpty {
-                    Text(PassStrings.formTitleRequired).font(.footnote).foregroundStyle(.red)
+                    Text(PassStrings.formTitleRequired).font(.inter(.footnote)).foregroundStyle(.red)
                 }
             } header: {
                 Text(PassStrings.formTitle)
@@ -284,7 +284,7 @@ struct StrengthMeter: View {
                     Spacer()
                     Text(PassStrings.strengthBits(bits: bits)).foregroundStyle(.secondary)
                 }
-                .font(.caption)
+                .font(.inter(.caption))
             }
         }
     }

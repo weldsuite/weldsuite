@@ -116,7 +116,7 @@ struct HomeView: View {
                                     Text(ChatStrings.homeSeeAll)
                                     Image(systemName: "chevron.right")
                                 }
-                                .font(.footnote)
+                                .font(.inter(.footnote))
                             }
                             .accessibilityIdentifier("home-see-all-dms")
                         }
@@ -171,15 +171,15 @@ struct HomeView: View {
         } label: {
             HStack(spacing: Tokens.Spacing.s) {
                 Text(String(workspace.name.prefix(1)).uppercased())
-                    .font(.subheadline.weight(.bold))
+                    .font(.inter(.subheadline, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 28, height: 28)
-                    .background(Tokens.Brand.weldchat, in: RoundedRectangle(cornerRadius: 7))
+                    .background(Tokens.Palette.primary, in: RoundedRectangle(cornerRadius: 7))
                 Text(workspace.name.isEmpty ? ChatStrings.homeWorkspaceFallback : workspace.name)
-                    .font(.headline)
+                    .font(.inter(.headline))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                Image(systemName: "chevron.down").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Image(systemName: "chevron.down").font(.inter(.caption, weight: .semibold)).foregroundStyle(.secondary)
             }
         }
         .accessibilityLabel("\(workspace.name), \(ChatStrings.homeSwitchWorkspace)")
@@ -215,10 +215,10 @@ struct HomeView: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Image(systemName: symbol).font(.subheadline)
-                    Text(title).font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.85)
+                    Image(systemName: symbol).font(.inter(.subheadline))
+                    Text(title).font(.inter(.subheadline, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.85)
                 }
-                Text(subtitle ?? " ").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(subtitle ?? " ").font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Tokens.Spacing.m)
@@ -233,7 +233,7 @@ struct HomeView: View {
             Image(systemName: "bubble.left.and.text.bubble.right")
                 .font(.system(size: 54))
                 .foregroundStyle(.secondary)
-            Text(ChatStrings.homeEmptyTitle).font(.title3.weight(.semibold))
+            Text(ChatStrings.homeEmptyTitle).font(.inter(.title3, weight: .semibold))
             Text(ChatStrings.homeEmptyHint).foregroundStyle(.secondary).multilineTextAlignment(.center)
             Button {
                 navigator.sheet = .newChannel(sectionID: nil)
@@ -281,7 +281,7 @@ struct HomeView: View {
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 56, height: 56)
-                .background(Tokens.Brand.weldchat, in: Circle())
+                .background(Tokens.Palette.primary, in: Circle())
                 .shadow(radius: 4, y: 2)
         }
         .accessibilityLabel(ChatStrings.homeNewItem)
@@ -305,7 +305,7 @@ struct HomeView: View {
                 if let count { CountBadge(count: count) }
                 if mentions > 0 { CountBadge(count: mentions, prefix: "@") }
                 Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.bold))
+                    .font(.inter(.caption2, weight: .bold))
                     .rotationEffect(.degrees(collapsed.contains(key) ? -90 : 0))
                 Spacer()
             }
@@ -321,7 +321,7 @@ struct HomeView: View {
                 Image(systemName: "ellipsis").frame(width: 22).foregroundStyle(.secondary)
                 Text(title).foregroundStyle(.secondary)
                 Spacer()
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                Image(systemName: "chevron.right").font(.inter(.caption)).foregroundStyle(.tertiary)
             }
             .contentShape(Rectangle())
         }

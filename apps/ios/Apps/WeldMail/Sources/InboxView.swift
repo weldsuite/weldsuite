@@ -67,7 +67,7 @@ struct InboxView: View {
                 nav.compose(ComposePrefill())
             } label: {
                 Label(MailStrings.inboxCompose, systemImage: "square.and.pencil")
-                    .font(.headline)
+                    .font(.inter(.headline))
                     .padding(.horizontal, Tokens.Spacing.l)
                     .padding(.vertical, Tokens.Spacing.m)
                     .background(Capsule().fill(Color.accentColor))
@@ -210,7 +210,7 @@ struct FilterChip: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.subheadline)
+                .font(.inter(.subheadline))
                 .padding(.horizontal, Tokens.Spacing.m)
                 .padding(.vertical, 6)
                 .background(selected ? Color.accentColor.opacity(0.15) : Color(.secondarySystemBackground), in: Capsule())
@@ -245,32 +245,32 @@ struct MessageRow: View {
                         .lineLimit(1)
                     if message.threadCount > 1 {
                         Text("\(message.threadCount)")
-                            .font(.caption2)
+                            .font(.inter(.caption2))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 5)
                             .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 4))
                     }
                     Spacer(minLength: 0)
                     if message.hasAttachments {
-                        Image(systemName: "paperclip").font(.caption).foregroundStyle(.secondary)
+                        Image(systemName: "paperclip").font(.inter(.caption)).foregroundStyle(.secondary)
                             .accessibilityLabel(MailStrings.inboxHasAttachments)
                     }
                     if pinned {
-                        Image(systemName: "pin.fill").font(.caption).foregroundStyle(MailColors.pin)
+                        Image(systemName: "pin.fill").font(.inter(.caption)).foregroundStyle(MailColors.pin)
                             .accessibilityLabel(MailStrings.inboxIsPinned)
                     }
                     if message.isStarred {
-                        Image(systemName: "star.fill").font(.caption).foregroundStyle(MailColors.star)
+                        Image(systemName: "star.fill").font(.inter(.caption)).foregroundStyle(MailColors.star)
                             .accessibilityLabel(MailStrings.inboxIsStarred)
                     }
-                    Text(rowTime(message.listDate)).font(.caption).foregroundStyle(.secondary)
+                    Text(rowTime(message.listDate)).font(.inter(.caption)).foregroundStyle(.secondary)
                 }
                 Text(message.subject.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } ?? MailStrings.commonNoSubject)
                     .fontWeight(message.isRead ? .regular : .medium)
                     .foregroundStyle(message.isRead ? .secondary : .primary)
                     .lineLimit(1)
                 Text(message.preview ?? "")
-                    .font(.footnote)
+                    .font(.inter(.footnote))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 let shown = MailLogic.displayLabels(message.labels)
@@ -280,7 +280,7 @@ struct MessageRow: View {
                             LabelChip(name: name, color: MailLogic.labelColor(name, own: customColors[name] ?? nil))
                         }
                         if shown.count > 3 {
-                            Text("+\(shown.count - 3)").font(.caption2).foregroundStyle(.secondary)
+                            Text("+\(shown.count - 3)").font(.inter(.caption2)).foregroundStyle(.secondary)
                         }
                     }
                     .padding(.top, 2)
@@ -311,9 +311,9 @@ struct MailboxMenuView: View {
             List {
                 Section {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(selected?.displayName ?? MailStrings.drawerAllInboxes).font(.headline)
-                        Text(selected?.email ?? MailStrings.drawerAccounts(own.count)).font(.footnote).foregroundStyle(.secondary)
-                        Text(workspace.name).font(.caption).foregroundStyle(.secondary)
+                        Text(selected?.displayName ?? MailStrings.drawerAllInboxes).font(.inter(.headline))
+                        Text(selected?.email ?? MailStrings.drawerAccounts(own.count)).font(.inter(.footnote)).foregroundStyle(.secondary)
+                        Text(workspace.name).font(.inter(.caption)).foregroundStyle(.secondary)
                     }
                     menuRow(MailStrings.drawerAllInboxes, systemImage: "tray.2", selected: store.mailbox == .unified, tag: "mailbox-unified") {
                         store.select(mailbox: .unified)
@@ -328,7 +328,7 @@ struct MailboxMenuView: View {
                                 SenderAvatar(name: account.displayName, size: 24)
                                 VStack(alignment: .leading) {
                                     Text(account.displayName).lineLimit(1).foregroundStyle(.primary)
-                                    Text(account.email).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                    Text(account.email).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
                                 }
                                 Spacer()
                                 if selected?.id == account.id { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
@@ -375,7 +375,7 @@ struct MailboxMenuView: View {
                 }
                 Section {
                     if store.labels.custom.isEmpty {
-                        Text(MailStrings.drawerNoLabels).font(.footnote).foregroundStyle(.secondary)
+                        Text(MailStrings.drawerNoLabels).font(.inter(.footnote)).foregroundStyle(.secondary)
                     }
                     ForEach(store.labels.custom) { custom in
                         Button {
@@ -386,7 +386,7 @@ struct MailboxMenuView: View {
                                 Image(systemName: "tag").foregroundStyle(Color(mailRGB: MailLogic.labelColor(custom.name, own: custom.color)))
                                 Text(custom.name).lineLimit(1).foregroundStyle(.primary)
                                 Spacer()
-                                if custom.count > 0 { Text("\(custom.count)").font(.caption).foregroundStyle(.secondary) }
+                                if custom.count > 0 { Text("\(custom.count)").font(.inter(.caption)).foregroundStyle(.secondary) }
                                 if store.label == custom.slug { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
                             }
                         }
@@ -434,7 +434,7 @@ struct MailboxMenuView: View {
                 Label(system.title, systemImage: system.systemImage).foregroundStyle(.primary)
                 Spacer()
                 if let count = store.labels.systemCounts[system.slug], count > 0 {
-                    Text("\(count)").font(.caption).foregroundStyle(.secondary)
+                    Text("\(count)").font(.inter(.caption)).foregroundStyle(.secondary)
                 }
                 if store.label == system.slug { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
             }
