@@ -217,6 +217,10 @@ struct LineFilters<'a> {
     /// `processedAutomatically=true` (Rust only): the lines the automatic
     /// matcher or a rule booked (`reconciliation_type = 'auto'`).
     automatic: bool,
+    /// `contactId` (Rust only, edition feature `books-contact-page`): the
+    /// lines of one contact, by the rule the contact page's timeline uses
+    /// ([`weldsuite_books_domain::contact_page::bank_line_condition`]).
+    contact: Option<&'a str>,
 }
 
 impl LineFilters<'_> {
@@ -240,6 +244,11 @@ impl LineFilters<'_> {
             query = query
                 .filter(Column::Status.eq("reconciled"))
                 .filter(Column::ReconciliationType.eq("auto"));
+        }
+        if let Some(contact) = self.contact {
+            query = query.filter(weldsuite_books_domain::contact_page::bank_line_condition(
+                contact,
+            ));
         }
         query
             .apply_if(self.from.as_deref(), |q, from| {
@@ -304,6 +313,7 @@ async fn list_lines(caller: &Caller) -> Reply {
         to: date_bound("to")?,
         search: q.present("search"),
         automatic: q.present("processedAutomatically") == Some("true"),
+        contact: q.present("contactId"),
     };
     let db = orm(&caller.db);
     let rows = filters
@@ -1807,3 +1817,6 @@ async fn remove(
     .await;
     reply(result, "Failed to delete transaction")
 }
+
+#[cfg(test)]
+mod contact_filter_tests;

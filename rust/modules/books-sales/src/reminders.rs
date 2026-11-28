@@ -32,6 +32,7 @@ use http::HeaderMap;
 use sea_orm::sea_query::Expr;
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
+use weldsuite_books_domain::contact_page::paused_contacts;
 use weldsuite_books_domain::contacts::with_contact_email;
 use weldsuite_books_domain::email_templates::{Template, statutory_template};
 use weldsuite_books_domain::entity_context::resolve_entity_id;
@@ -64,6 +65,8 @@ pub(crate) enum Skip {
     NoNextStep,
     NoRecipient,
     NotFound,
+    /// The contact's reminders are held (`remindersPaused` on the contact).
+    ContactPaused,
 }
 
 impl Skip {
@@ -73,6 +76,7 @@ impl Skip {
             Self::NoNextStep => "no_next_step",
             Self::NoRecipient => "no_recipient",
             Self::NotFound => "not_found",
+            Self::ContactPaused => "contact_paused",
         }
     }
 }
@@ -457,6 +461,8 @@ pub(crate) async fn remind_many(caller: &Caller, state: &BooksState, ids: Vec<St
         .await?;
     let rows: Vec<Value> = rows.into_iter().map(row_json).collect::<Result<_, _>>()?;
     let settings = entity_settings_of(db, &entity_id).await?;
+    let contact_ids: Vec<String> = rows.iter().filter_map(|r| owned(r, "contactId")).collect();
+    let paused = paused_contacts(db, &contact_ids).await?;
     let mut skipped: Vec<Value> = ids
         .iter()
         .filter(|id| !rows.iter().any(|r| text(r, "id") == Some(id.as_str())))
@@ -468,6 +474,10 @@ pub(crate) async fn remind_many(caller: &Caller, state: &BooksState, ids: Vec<St
         let id = owned(&invoice, "id").unwrap_or_default();
         if !is_open(&invoice) {
             skipped.push(json!({ "invoiceId": id, "reason": Skip::NotOpen.code() }));
+            continue;
+        }
+        if owned(&invoice, "contactId").is_some_and(|contact| paused.contains(&contact)) {
+            skipped.push(json!({ "invoiceId": id, "reason": Skip::ContactPaused.code() }));
             continue;
         }
         let Some(step) = next_step_of(db, &settings, &invoice, now_ms).await? else {
@@ -666,8 +676,13 @@ pub async fn send_due_reminders(
             .order_by_asc(invoices::Column::DueDate)
             .all(&orm(db))
             .await?;
+        let contact_ids: Vec<String> = candidates.iter().map(|r| r.contact_id.clone()).collect();
+        let paused = paused_contacts(db, &contact_ids).await?;
         let mut groups: BTreeMap<(String, i32), (Vec<Value>, Step)> = BTreeMap::new();
         for row in candidates {
+            if paused.contains(&row.contact_id) {
+                continue;
+            }
             let invoice = row_json(row)?;
             let id = owned(&invoice, "id").unwrap_or_default();
             let Some(step) = settings.due_step(level_of(&invoice), days_overdue(&invoice, now_ms))

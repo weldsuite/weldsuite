@@ -81,6 +81,10 @@ where
             "/{id}/public-link",
             delete(email::revoke_quote_link).route_layer(need("invoices:update")),
         )
+        .route(
+            "/{id}/public-link",
+            get(email::quote_link).route_layer(need("invoices:read")),
+        )
         .with_state(state)
 }
 
@@ -589,7 +593,12 @@ fn accepted_at(quote: &Value) -> Value {
     }
 }
 
-fn list_row(quote: &Value, party: Option<&(String, String)>, invoice_ids: &[Value]) -> Value {
+fn list_row(
+    quote: &Value,
+    party: Option<&(String, String)>,
+    invoice_ids: &[Value],
+    made: &[Value],
+) -> Value {
     json!({
         "id": quote["id"],
         "quoteNumber": quote["quoteNumber"],
@@ -604,6 +613,12 @@ fn list_row(quote: &Value, party: Option<&(String, String)>, invoice_ids: &[Valu
         "viewedAt": quote["viewedAt"],
         "acceptedAt": accepted_at(quote),
         "invoiceIds": invoice_ids,
+        // The invoices made from the quote, so a list can show their numbers
+        // and statuses without another call.
+        "invoices": made
+            .iter()
+            .map(|i| json!({ "id": i["id"], "invoiceNumber": i["invoiceNumber"], "status": i["status"] }))
+            .collect::<Vec<_>>(),
     })
 }
 
@@ -676,11 +691,17 @@ async fn list_quotes(caller: &Caller) -> Reply {
     let out = rows
         .iter()
         .map(|quote| {
-            let invoice_ids: Vec<Value> = made
+            let invoices = made
                 .get(text(quote, "id").unwrap_or_default())
-                .map(|list| list.iter().map(|i| i["id"].clone()).collect())
+                .cloned()
                 .unwrap_or_default();
-            list_row(quote, party_of(&names, quote).as_ref(), &invoice_ids)
+            let invoice_ids: Vec<Value> = invoices.iter().map(|i| i["id"].clone()).collect();
+            list_row(
+                quote,
+                party_of(&names, quote).as_ref(),
+                &invoice_ids,
+                &invoices,
+            )
         })
         .collect();
     Ok(paged(out, total, page * page_size < total, None))
@@ -708,7 +729,12 @@ async fn detail_of(db: &PgPool, quote: Value) -> Result<Value, DbErr> {
     let made = invoices_of(db, std::slice::from_ref(&id)).await?;
     let invoices = made.get(&id).cloned().unwrap_or_default();
     let invoice_ids: Vec<Value> = invoices.iter().map(|i| i["id"].clone()).collect();
-    let mut out = list_row(&quote, party_of(&names, &quote).as_ref(), &invoice_ids);
+    let mut out = list_row(
+        &quote,
+        party_of(&names, &quote).as_ref(),
+        &invoice_ids,
+        &invoices,
+    );
     if let (Value::Object(out), Value::Object(quote)) = (&mut out, &quote) {
         for key in [
             "subtotal",

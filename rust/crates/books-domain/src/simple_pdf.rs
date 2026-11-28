@@ -317,6 +317,133 @@ pub fn render(doc: &DocumentPdf) -> Vec<u8> {
     assemble(&p.pages)
 }
 
+/// One open item on a statement.
+#[derive(Debug, Clone)]
+pub struct StatementRow {
+    /// "Invoice INV-001", "Credit note CN-002".
+    pub document: String,
+    pub date: String,
+    pub due: String,
+    pub amount: String,
+    pub balance: String,
+}
+
+/// The words on a statement, in the contact's language.
+#[derive(Debug, Clone)]
+pub struct StatementLabels {
+    pub document: String,
+    pub date: String,
+    pub due_date: String,
+    pub amount: String,
+    pub balance: String,
+    pub total: String,
+    pub from: String,
+    pub to: String,
+    /// Shown when nothing is open.
+    pub nothing_open: String,
+}
+
+/// A contact's open items: what the seller sends a customer as a statement.
+#[derive(Debug, Clone)]
+pub struct StatementPdf {
+    /// "Statement".
+    pub title: String,
+    /// The date it is as of, as the reader reads it.
+    pub as_of: String,
+    pub seller: PdfParty,
+    pub buyer: PdfParty,
+    pub labels: StatementLabels,
+    pub rows: Vec<StatementRow>,
+    /// The balance per currency, money formatted: `(currency, total)`.
+    pub totals: Vec<(String, String)>,
+}
+
+/// The statement's PDF, on the same page set-up as [`render`].
+#[allow(clippy::too_many_lines, reason = "one page layout, top to bottom")]
+pub fn render_statement(doc: &StatementPdf) -> Vec<u8> {
+    let mut p = Pages::new();
+    let right = WIDTH - MARGIN;
+    p.text(MARGIN, p.y, 22.0, true, &doc.title);
+    p.right(right, p.y, 12.0, false, &doc.as_of);
+    p.y -= 36.0;
+
+    let top = p.y;
+    let mut left_y = top;
+    p.text(MARGIN, left_y, 8.0, true, &doc.labels.from.to_uppercase());
+    left_y -= 13.0;
+    p.text(MARGIN, left_y, 10.5, true, &doc.seller.name);
+    left_y -= 13.0;
+    for line in &doc.seller.lines {
+        p.text(MARGIN, left_y, 9.5, false, line);
+        left_y -= 12.0;
+    }
+    let buyer_x = WIDTH / 2.0 + 20.0;
+    let mut right_y = top;
+    p.text(buyer_x, right_y, 8.0, true, &doc.labels.to.to_uppercase());
+    right_y -= 13.0;
+    p.text(buyer_x, right_y, 10.5, true, &doc.buyer.name);
+    right_y -= 13.0;
+    for line in &doc.buyer.lines {
+        p.text(buyer_x, right_y, 9.5, false, line);
+        right_y -= 12.0;
+    }
+    p.y = left_y.min(right_y) - 18.0;
+
+    // Document | date | due date | amount | balance.
+    let (date_x, due_x, amount_r) = (260.0, 335.0, 460.0);
+    let header = |p: &mut Pages| {
+        let y = p.y;
+        p.text(MARGIN, y, 9.0, true, &doc.labels.document);
+        p.text(date_x, y, 9.0, true, &doc.labels.date);
+        p.text(due_x, y, 9.0, true, &doc.labels.due_date);
+        p.right(amount_r, y, 9.0, true, &doc.labels.amount);
+        p.right(right, y, 9.0, true, &doc.labels.balance);
+        p.rule(y - 5.0);
+        p.y -= 18.0;
+    };
+    header(&mut p);
+    if doc.rows.is_empty() {
+        let y = p.y;
+        p.text(MARGIN, y, 9.5, false, &doc.labels.nothing_open);
+        p.y -= 16.0;
+    }
+    for row in &doc.rows {
+        let name = wrap(&row.document, date_x - MARGIN - 10.0, 9.5);
+        #[allow(clippy::cast_precision_loss)]
+        let height = name.len() as f64 * 12.0;
+        if p.y - height < MARGIN + 20.0 {
+            p.break_if(f64::MAX / 2.0);
+            header(&mut p);
+        }
+        let y = p.y;
+        for (i, part) in name.iter().enumerate() {
+            #[allow(clippy::cast_precision_loss)]
+            p.text(MARGIN, y - i as f64 * 12.0, 9.5, false, part);
+        }
+        p.text(date_x, y, 9.5, false, &row.date);
+        p.text(due_x, y, 9.5, false, &row.due);
+        p.right(amount_r, y, 9.5, false, &row.amount);
+        p.right(right, y, 9.5, false, &row.balance);
+        p.y -= height + 5.0;
+    }
+    p.y -= 6.0;
+    p.break_if(20.0 + 14.0 * f64::from(u32::try_from(doc.totals.len() + 1).unwrap_or(u32::MAX)));
+    p.rule(p.y + 9.0);
+    for (currency, total) in &doc.totals {
+        let y = p.y;
+        p.text(
+            amount_r - 130.0,
+            y,
+            11.0,
+            true,
+            &format!("{} ({currency})", doc.labels.total),
+        );
+        p.right(right, y, 11.0, true, total);
+        p.y -= 15.0;
+    }
+    assemble(&p.pages)
+}
+
 fn assemble(pages: &[String]) -> Vec<u8> {
     // Objects: 1 catalog, 2 pages, 3 and 4 fonts, then a content and a page
     // object per page.
@@ -467,5 +594,56 @@ mod tests {
         assert_eq!(winansi('é'), 0xe9);
         assert_eq!(winansi('漢'), b'?');
         assert!(literal("€").contains("\\200"));
+    }
+
+    #[test]
+    fn a_statement_is_a_pdf() {
+        let doc = StatementPdf {
+            title: "Overzicht".into(),
+            as_of: "28-11-2026".into(),
+            seller: PdfParty {
+                name: "Acme B.V.".into(),
+                lines: vec!["Straat 1".into()],
+            },
+            buyer: PdfParty {
+                name: "Klant".into(),
+                lines: Vec::new(),
+            },
+            labels: StatementLabels {
+                document: "Document".into(),
+                date: "Datum".into(),
+                due_date: "Vervaldatum".into(),
+                amount: "Bedrag".into(),
+                balance: "Openstaand".into(),
+                total: "Totaal".into(),
+                from: "Van".into(),
+                to: "Aan".into(),
+                nothing_open: "Niets open".into(),
+            },
+            rows: (0..80)
+                .map(|i| StatementRow {
+                    document: format!("Factuur F-{i}"),
+                    date: "01-11-2026".into(),
+                    due: "01-12-2026".into(),
+                    amount: "121.00".into(),
+                    balance: "121.00".into(),
+                })
+                .collect(),
+            totals: vec![("EUR".into(), "9680.00".into())],
+        };
+        let pdf = render_statement(&doc);
+        assert!(pdf.starts_with(b"%PDF-1.4"));
+        assert!(
+            String::from_utf8_lossy(&pdf)
+                .matches("/Type /Page ")
+                .count()
+                >= 2
+        );
+        let empty = render_statement(&StatementPdf {
+            rows: Vec::new(),
+            totals: Vec::new(),
+            ..doc
+        });
+        assert!(String::from_utf8_lossy(&empty).contains("Niets open"));
     }
 }

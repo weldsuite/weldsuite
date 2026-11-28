@@ -361,6 +361,15 @@ export const EDITION_FEATURES = [
    */
   'books-online-payments',
   /**
+   * WeldBooks contact page: one page per customer or supplier with a timeline
+   * of everything about them, a summary (to receive, to pay, overdue, credit,
+   * quotes, unbilled hours), a statement of open items as PDF, stored defaults
+   * (expense account, VAT rate, payment terms, reminders paused), the contact's
+   * bank lines, paged invoice and bill lists, and the contact behind a WeldCRM
+   * company or person. Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-contact-page',
+  /**
    * WeldBooks time billing: billable WeldFlow time per customer and project
    * (`/api/accounting-time/unbilled`), invoiced once on a new or an existing
    * draft invoice (`/api/invoices/from-time`), read-only in WeldFlow from then

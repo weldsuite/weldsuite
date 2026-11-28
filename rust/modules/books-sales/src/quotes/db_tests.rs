@@ -279,6 +279,32 @@ async fn an_advance_invoice_bills_a_share_and_the_rest_closes_the_quote() {
     assert_eq!(detail["invoices"].as_array().unwrap().len(), 2);
     assert_eq!(detail["invoiceIds"].as_array().unwrap().len(), 2);
     assert_eq!(detail["status"], "invoiced");
+
+    // The list rows carry the invoices next to their ids: number and status.
+    let (status, listed) = answer(
+        list_quotes(
+            &world
+                .caller(&ent)
+                .with_query(&format!("contactId={contact}")),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(status, 200, "{listed}");
+    let row = &listed["data"][0];
+    let made = row["invoices"].as_array().unwrap();
+    assert_eq!(made.len(), 2, "{row}");
+    assert_eq!(row["invoiceIds"].as_array().unwrap().len(), 2);
+    for (invoice, id) in made.iter().zip(row["invoiceIds"].as_array().unwrap()) {
+        assert_eq!(invoice["id"], *id);
+        assert!(
+            invoice["invoiceNumber"]
+                .as_str()
+                .is_some_and(|n| !n.is_empty())
+        );
+        assert_eq!(invoice["status"], "draft");
+        assert_eq!(invoice.as_object().unwrap().len(), 3);
+    }
 }
 
 #[tokio::test]

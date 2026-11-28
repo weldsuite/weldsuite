@@ -94,6 +94,12 @@ where
             axum::routing::delete(crate::delivery::email::revoke_invoice_link)
                 .route_layer(need("invoices:update")),
         )
+        // Rust only (edition feature `books-contact-page`): the link as it is,
+        // never a new one.
+        .route(
+            "/{id}/public-link",
+            get(crate::delivery::email::invoice_link).route_layer(need("invoices:read")),
+        )
         // Rust only (edition feature `books-reminders`).
         .route(
             "/{id}/remind",

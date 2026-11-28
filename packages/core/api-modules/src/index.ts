@@ -178,6 +178,9 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   // WeldBooks: online invoice payments through the entity's own Mollie account
   // (`/api/accounting-payment-connections`, `/public/weldbooks/mollie`).
   'books-online-payments',
+  // WeldBooks: the contact page (timeline, summary, statement, stored defaults,
+  // the CRM finance tab, the contact's bank lines and paging of its lists).
+  'books-contact-page',
   // WeldBooks: billable hours from WeldFlow invoiced once, and a project's
   // finance (`/api/accounting-time`, `/api/invoices/from-time`).
   'books-time-billing',

@@ -383,6 +383,67 @@ pub(crate) async fn email_quote(
     }
 }
 
+// ── Reading a link ──────────────────────────────────────────────────────────
+
+/// `GET /api/invoices/:id/public-link`: `{ url }`, the link as it is now, or
+/// `null` when there is none (never e-mailed, revoked, or the install has no
+/// portal address or key). Reading never makes a link.
+pub(crate) async fn invoice_link(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+) -> Response {
+    let result = async {
+        let Some(row) = load_invoice(&caller.db, &id).await? else {
+            return Err(Refusal::not_found("Invoice", &id));
+        };
+        let url = match (
+            Links::of(&state),
+            super::link_nonce(&super::history_of(&row)),
+        ) {
+            (Some(links), Some(nonce)) => {
+                Some(links.url(&weldsuite_books_domain::document_token::sign(
+                    &links.secret,
+                    &weldsuite_books_domain::document_token::DocumentToken::new(
+                        &caller.workspace_id,
+                        "invoice",
+                        &id,
+                        &nonce,
+                    ),
+                )))
+            }
+            _ => None,
+        };
+        Ok(ok(json!({ "url": url })))
+    }
+    .await;
+    reply(result, "Failed to read the invoice link")
+}
+
+/// `GET /api/accounting-quotes/:id/public-link`: `{ url }` for a quote that
+/// was sent (revoking clears `sent_at`), else `null`. Never makes a link.
+pub(crate) async fn quote_link(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+) -> Response {
+    let result = async {
+        let Some(row) = load_quote(&caller.db, &id).await? else {
+            return Err(Refusal::not_found("Quote", &id));
+        };
+        let sent = text(&row, "sentAt").and_then(millis_of);
+        let url = match (Links::of(&state), sent) {
+            (Some(links), Some(sent)) => {
+                Some(links.url(&quote_token(&links.secret, &caller.workspace_id, &id, sent)))
+            }
+            _ => None,
+        };
+        Ok(ok(json!({ "url": url })))
+    }
+    .await;
+    reply(result, "Failed to read the quote link")
+}
+
 // ── Revoking a link ─────────────────────────────────────────────────────────
 
 pub(crate) async fn revoke_invoice_link(caller: Caller, Path(id): Path<String>) -> Response {

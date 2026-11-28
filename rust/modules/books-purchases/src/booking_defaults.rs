@@ -3,10 +3,12 @@
 //!
 //! Worked out from the supplier's last ten posted bills, line by line: the
 //! expense account, the VAT rate and the project used most, each with how
-//! often. Nothing is stored (no per-contact default column; stored defaults
-//! are the optional M5 of the plan): the history is the default. A supplier
-//! with no bills yet falls back to its own `default_expense_account_id`.
-//! Bills that are drafts, rejected, or have no posting are not history.
+//! often (`source: "history"`). What the owner stored on the contact wins
+//! when it is set (`source: "contact"`, count 0): its
+//! `default_expense_account_id` and, since M5, its `default_tax_rate_id`
+//! (`PATCH /api/accounting-contacts/:id/defaults`). A stored default naming a
+//! row that is gone is ignored, and the history answers. Bills that are
+//! drafts, rejected, or have no posting are not history.
 
 use std::collections::HashMap;
 
@@ -92,50 +94,56 @@ pub(crate) async fn booking_defaults(
     let tax_rate = pick(|line| line.tax_rate_id.as_ref());
     let project = pick(|line| line.project_id.as_ref());
 
-    let account_view = match account {
-        Some((id, count)) => Some((id, count, "history")),
-        None => party
-            .default_expense_account_id
-            .clone()
-            .filter(|id| !id.is_empty())
-            .map(|id| (id, 0, "contact")),
-    };
-    let account_json = match account_view {
-        Some((id, count, source)) => {
-            let row = accounts::Entity::find_by_id(id.clone())
-                .filter(accounts::Column::DeletedAt.is_null())
-                .one(&orm(db))
-                .await?;
-            row.map(|row| {
-                json!({
-                    "accountId": id,
-                    "code": row.code,
-                    "name": row.name,
-                    "count": count,
-                    "source": source,
-                })
-            })
+    let stored_account = party
+        .default_expense_account_id
+        .clone()
+        .filter(|id| !id.is_empty());
+    let stored_rate = party
+        .default_tax_rate_id
+        .clone()
+        .filter(|id| !id.is_empty());
+    let mut account_json = None;
+    for (id, count, source) in stored_account
+        .map(|id| (id, 0, "contact"))
+        .into_iter()
+        .chain(account.map(|(id, count)| (id, count, "history")))
+    {
+        let row = accounts::Entity::find_by_id(id.clone())
+            .filter(accounts::Column::DeletedAt.is_null())
+            .one(&orm(db))
+            .await?;
+        if let Some(row) = row {
+            account_json = Some(json!({
+                "accountId": id,
+                "code": row.code,
+                "name": row.name,
+                "count": count,
+                "source": source,
+            }));
+            break;
         }
-        None => None,
-    };
-    let tax_json = match tax_rate {
-        Some((id, count)) => {
-            let row = tax_rates::Entity::find_by_id(id.clone())
-                .filter(tax_rates::Column::DeletedAt.is_null())
-                .one(&orm(db))
-                .await?;
-            row.map(|row| {
-                json!({
-                    "taxRateId": id,
-                    "name": row.name,
-                    "rate": row.rate.to_string(),
-                    "count": count,
-                    "source": "history",
-                })
-            })
+    }
+    let mut tax_json = None;
+    for (id, count, source) in stored_rate
+        .map(|id| (id, 0, "contact"))
+        .into_iter()
+        .chain(tax_rate.map(|(id, count)| (id, count, "history")))
+    {
+        let row = tax_rates::Entity::find_by_id(id.clone())
+            .filter(tax_rates::Column::DeletedAt.is_null())
+            .one(&orm(db))
+            .await?;
+        if let Some(row) = row {
+            tax_json = Some(json!({
+                "taxRateId": id,
+                "name": row.name,
+                "rate": row.rate.to_string(),
+                "count": count,
+                "source": source,
+            }));
+            break;
         }
-        None => None,
-    };
+    }
     let project_json =
         project.map(|(id, count)| json!({ "projectId": id, "count": count, "source": "history" }));
     let last = history.first().map(|bill| {

@@ -943,3 +943,82 @@ async fn an_expired_or_declined_quote_cannot_be_accepted() {
         assert_eq!(doc.json["quote"]["canAccept"], false);
     }
 }
+
+#[tokio::test]
+async fn reading_a_link_gives_the_current_one_and_never_makes_one() {
+    let Some(world) = World::new() else { return };
+    let _guard = DEFAULT_ENTITY.lock().await;
+    let (ent, id, _) = sent_invoice(&world, -10).await;
+    make_default(&world.db, &ent).await;
+    let contact = customer(&world.db, "Link Klant BV", false).await;
+    let qid = quote(&world.db, &contact, "draft", 20).await;
+    let caller = world.caller(&ent);
+    let read_invoice = || async {
+        answer(Ok(super::email::invoice_link(
+            world.caller(&ent),
+            axum::extract::State(world.state.clone()),
+            axum::extract::Path(id.clone()),
+        )
+        .await))
+        .await
+    };
+    let read_quote = || async {
+        answer(Ok(super::email::quote_link(
+            world.caller(&ent),
+            axum::extract::State(world.state.clone()),
+            axum::extract::Path(qid.clone()),
+        )
+        .await))
+        .await
+    };
+
+    // Nothing sent yet: no link, and reading made none.
+    let (status, out) = read_invoice().await;
+    assert_eq!((status, &out["data"]["url"]), (200, &json!(null)), "{out}");
+    let (status, out) = read_quote().await;
+    assert_eq!((status, &out["data"]["url"]), (200, &json!(null)), "{out}");
+    assert!(row_of(&world.db, "invoices", &id).await["email_history"].is_null());
+    assert!(row_of(&world.db, "crm_quotes", &qid).await["sent_at"].is_null());
+
+    // Sent: the link the customer has.
+    let (_, sent) =
+        answer(email_invoice(&caller, &world.state, &id, body("klant@example.test")).await).await;
+    let invoice_link = sent["data"]["delivery"]["link"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let (_, out) = read_invoice().await;
+    assert_eq!(out["data"]["url"], json!(invoice_link));
+    let (_, sent) =
+        answer(email_quote(&caller, &world.state, &qid, body("klant@example.test")).await).await;
+    let quote_link = sent["data"]["delivery"]["link"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let (_, out) = read_quote().await;
+    assert_eq!(out["data"]["url"], json!(quote_link));
+
+    // Revoked: none again; an unknown record is a 404.
+    answer(Ok(super::email::revoke_invoice_link(
+        world.caller(&ent),
+        axum::extract::Path(id.clone()),
+    )
+    .await))
+    .await;
+    answer(Ok(super::email::revoke_quote_link(
+        world.caller(&ent),
+        axum::extract::Path(qid.clone()),
+    )
+    .await))
+    .await;
+    assert_eq!(read_invoice().await.1["data"]["url"], json!(null));
+    assert_eq!(read_quote().await.1["data"]["url"], json!(null));
+    let (status, _) = answer(Ok(super::email::quote_link(
+        world.caller(&ent),
+        axum::extract::State(world.state.clone()),
+        axum::extract::Path("quote_unknown".to_owned()),
+    )
+    .await))
+    .await;
+    assert_eq!(status, 404);
+}

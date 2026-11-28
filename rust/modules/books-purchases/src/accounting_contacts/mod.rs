@@ -8,6 +8,7 @@
 
 mod body;
 mod identity;
+mod page;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,7 +17,7 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use http::HeaderMap;
 use sea_orm::sea_query::extension::postgres as pg;
 use sea_orm::sea_query::{Asterisk, Expr, Func, Query as Sql, SelectStatement};
@@ -91,6 +92,16 @@ where
             "/{id}",
             axum::routing::delete(remove)
                 .route_layer(need(&["customers:delete", "suppliers:delete"])),
+        )
+        // Rust only (edition feature `books-contact-page`): the contact page.
+        .route("/by-crm", get(page::by_crm).route_layer(read()))
+        .route("/{id}/timeline", get(page::timeline).route_layer(read()))
+        .route("/{id}/summary", get(page::summary).route_layer(read()))
+        .route("/{id}/statement", get(page::statement).route_layer(read()))
+        .route("/{id}/defaults", get(page::defaults).route_layer(read()))
+        .route(
+            "/{id}/defaults",
+            patch(page::update_defaults).route_layer(need(&["invoices:update"])),
         )
         .route("/{id}/invoices", get(invoices).route_layer(read()))
         .route("/{id}/bills", get(bills).route_layer(read()))
@@ -464,10 +475,25 @@ fn in_scope(scope: &EntityScopeCondition, column: impl ColumnTrait) -> Condition
 async fn invoices(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
         let scope = entity_scope(&caller).await?;
-        let rows = invoices::Entity::find()
+        // Opt-in paging (`page`, `pageSize`, edition feature
+        // `books-contact-page`): without either, the list is whole as ever.
+        let window = page::page_window(&caller)?;
+        let select = invoices::Entity::find()
             .filter(invoices::Column::ContactId.eq(id.as_str()))
             .filter(invoices::Column::DeletedAt.is_null())
-            .filter(in_scope(&scope, invoices::Column::EntityId))
+            .filter(in_scope(&scope, invoices::Column::EntityId));
+        if let Some(window) = window {
+            return page::page_of(
+                &orm(&caller.db),
+                select,
+                invoices::Column::IssueDate,
+                invoices::Column::Id,
+                window,
+                |row| js!(row),
+            )
+            .await;
+        }
+        let rows = select
             .order_by_desc(invoices::Column::IssueDate)
             .all(&orm(&caller.db))
             .await?;
@@ -480,10 +506,23 @@ async fn invoices(caller: Caller, Path(id): Path<String>) -> Response {
 async fn bills(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
         let scope = entity_scope(&caller).await?;
-        let rows = bills::Entity::find()
+        let window = page::page_window(&caller)?;
+        let select = bills::Entity::find()
             .filter(bills::Column::ContactId.eq(id.as_str()))
             .filter(bills::Column::DeletedAt.is_null())
-            .filter(in_scope(&scope, bills::Column::EntityId))
+            .filter(in_scope(&scope, bills::Column::EntityId));
+        if let Some(window) = window {
+            return page::page_of(
+                &orm(&caller.db),
+                select,
+                bills::Column::IssueDate,
+                bills::Column::Id,
+                window,
+                |row| js!(row),
+            )
+            .await;
+        }
+        let rows = select
             .order_by_desc(bills::Column::IssueDate)
             .all(&orm(&caller.db))
             .await?;

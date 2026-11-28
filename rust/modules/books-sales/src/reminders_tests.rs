@@ -621,3 +621,72 @@ async fn a_bulk_reminder_bundles_a_contact_and_stays_inside_its_entity() {
             .sum::<usize>()
     );
 }
+
+#[tokio::test]
+async fn a_contact_with_reminders_paused_gets_none_from_the_sweep_or_a_bulk_reminder() {
+    let _one = ONE_AT_A_TIME.lock().await;
+    let Some(world) = World::new() else { return };
+    alone(&world).await;
+    let on = entity(&world.db, "Acme B.V.", "nl-NL", Some(workflow(false))).await;
+    let held = customer(&world.db, "Gepauzeerd BV", false).await;
+    let open = customer(&world.db, "Open BV", false).await;
+    let a = invoice(
+        &world.db,
+        &on,
+        &held,
+        "F-HELD",
+        "sent",
+        8,
+        Some("held@example.test"),
+    )
+    .await;
+    let b = invoice(
+        &world.db,
+        &on,
+        &open,
+        "F-OPEN",
+        "sent",
+        8,
+        Some("open@example.test"),
+    )
+    .await;
+    // The pause is the contact's: stored in the party's jsonb, with whatever else is there.
+    let column = weldsuite_books_domain::contact_page::with_reminders_paused(None, true);
+    sqlx::query("update parties set average_deal_size = $2 where id = $1")
+        .bind(&held)
+        .bind(&column)
+        .execute(&world.db)
+        .await
+        .unwrap();
+
+    // A bulk reminder skips the held contact's invoice and names the reason.
+    let (status, out) =
+        answer(remind_many(&world.caller(&on), &world.state, vec![a.clone(), b.clone()]).await)
+            .await;
+    assert_eq!(status, 200, "{out}");
+    let sent = out["data"]["sent"].as_array().unwrap();
+    assert_eq!(sent.len(), 1, "{out}");
+    assert_eq!(sent[0]["invoiceIds"], json!([b]));
+    assert_eq!(
+        out["data"]["skipped"],
+        json!([{ "invoiceId": a, "reason": "contact_paused" }])
+    );
+    assert_eq!(level(&row_of(&world.db, "invoices", &a).await), 0);
+    assert_eq!(level(&row_of(&world.db, "invoices", &b).await), 1);
+
+    // The sweep leaves it alone too, until the pause is lifted.
+    let result = send_due_reminders(&world.db, &world.state, WORKSPACE, WORKSPACE, now_ms())
+        .await
+        .unwrap();
+    assert_eq!(result.failed, 0);
+    assert_eq!(level(&row_of(&world.db, "invoices", &a).await), 0);
+    sqlx::query("update parties set average_deal_size = null where id = $1")
+        .bind(&held)
+        .execute(&world.db)
+        .await
+        .unwrap();
+    send_due_reminders(&world.db, &world.state, WORKSPACE, WORKSPACE, now_ms())
+        .await
+        .unwrap();
+    assert_eq!(level(&row_of(&world.db, "invoices", &a).await), 1);
+}
