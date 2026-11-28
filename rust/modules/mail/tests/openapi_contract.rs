@@ -464,7 +464,7 @@ async fn weldmail_answers_what_the_native_apps_read() {
         .success(&app, "listMailAccounts", &[], &[("limit", "100")], None)
         .await;
     let account_count = accounts["data"].as_array().map_or(0, Vec::len);
-    assert!(account_count >= 2, "{account_count} mail accounts");
+    assert!(account_count >= 2, "at least the two fixture mail accounts");
     contract
         .success(&app, "listMailboxes", &[], &[], None)
         .await;
