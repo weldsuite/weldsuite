@@ -1,7 +1,6 @@
 package com.weldsuite.weldhr.ui
 
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.weldsuite.weldhr.HrDays
@@ -11,7 +10,6 @@ import org.weldsuite.core.Money
 import org.weldsuite.core.WeldDate
 import org.weldsuite.core.api.ApiException
 import org.weldsuite.core.apiErrorMessage
-import org.weldsuite.ui.Tokens
 import java.math.BigDecimal
 import java.text.NumberFormat
 import java.time.LocalDate
@@ -121,14 +119,10 @@ fun errorText(error: Throwable?): String {
     return message ?: stringResource(apiErrorMessage(error))
 }
 
-/** Status words in their colour: approved green, pending amber, declined red. */
+/** A sick report's badge, as the platform's: Sick while it runs, Recovered after. */
 @Composable
-fun statusColor(status: String): Color = when (status) {
-    "approved", "paid", "present" -> Tokens.Status.success.current()
-    "pending", "late" -> Tokens.Status.warning.current()
-    "rejected", "absent" -> Tokens.Status.danger.current()
-    else -> androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
-}
+fun absenceStatusLabel(status: String): String =
+    stringResource(if (status == "ongoing") R.string.weldhr_absence_sick else R.string.weldhr_absence_recovered)
 
 @Composable
 fun leaveStatusLabel(status: String): String = when (status) {

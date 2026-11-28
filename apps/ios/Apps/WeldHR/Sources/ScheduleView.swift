@@ -24,7 +24,7 @@ struct ScheduleView: View {
         return List {
             Section {
                 Segments(options: options, selection: Binding(get: { view }, set: { chosen = $0 }))
-                    .listRowInsets(EdgeInsets())
+                    .segmentsRow()
                     .listRowBackground(Color.clear)
                 PeriodNav(
                     label: HRStrings.scheduleWeek(week: String(HRDays.isoWeek(from))),
@@ -33,7 +33,7 @@ struct ScheduleView: View {
                     onNext: { day = HRDays.add(from, 7) },
                     onLabel: { picking = true }
                 )
-                .listRowInsets(EdgeInsets())
+                .segmentsRow()
                 .listRowBackground(Color.clear)
             }
             if view == "mine" {
@@ -51,6 +51,7 @@ struct ScheduleView: View {
                 }
             }
         }
+        .listStyle(.plain)
         .navigationTitle(HRStrings.tabsSchedule)
         .refreshable {
             if view == "mine" {
@@ -122,20 +123,21 @@ private struct OpenShiftsSection: View {
                             title: Fmt.timeRange(shift.startsAt, shift.endsAt),
                             subtitle: note.map { "\(place)\n\(HRStrings.openShiftsReviewNote(note: $0))" } ?? place,
                             subtitleLines: 2,
-                            value: HRStrings.openShiftsSpotsLeft(shift.spotsLeft),
-                            detail: Labels.standing(standing),
-                            detailColor: standingColor(standing)
-                        ) { ShiftBar(key: shift.workType ?? shift.companyName) }
+                            detail: spotsText(shift.spotsLeft),
+                            tag: standingTag(standing)
+                        ) { ShiftBar(client: shift.companyName) }
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("open-shift-\(shift.id)")
                 }
                 if shifts.count > 3 {
                     Button(expanded ? HRStrings.openShiftsShowLess : HRStrings.openShiftsShowAll(count: shifts.count)) { expanded.toggle() }
+                        .font(.inter(.subheadline, weight: .medium))
+                        .foregroundStyle(Tokens.Palette.primary)
                         .accessibilityIdentifier("open-shifts-toggle")
                 }
             } header: {
-                HeadWithFigure(title: HRStrings.openShiftsTitle, figure: String(shifts.count))
+                GroupHead(title: HRStrings.openShiftsTitle, count: shifts.count)
             }
         }
     }
@@ -175,7 +177,7 @@ private struct MyWeek: View {
         let running = records.contains(where: ShiftMath.isOpen)
         Group {
             if days.isEmpty {
-                ContentUnavailableView(HRStrings.scheduleNoShifts, systemImage: "calendar", description: Text(HRStrings.scheduleNoShiftsDescription))
+                HREmpty(HRStrings.scheduleNoShifts, description: HRStrings.scheduleNoShiftsDescription, symbol: "calendar")
                     .task(id: running) { await tick(running) }
             } else {
                 ForEach(days) { group in
@@ -186,11 +188,9 @@ private struct MyWeek: View {
                             Button { nav.open(.shiftRequest(id: request.id, day: HRDays.dayOf(request.startsAt))) } label: {
                                 HRRow(
                                     title: Fmt.timeRange(request.startsAt, request.endsAt),
-                                    subtitle: Labels.shiftRequestStatus(request.status),
-                                    subtitleColor: statusColor(request.status),
-                                    value: Fmt.hm(Double(ShiftMath.minutesBetween(request.startsAt, request.endsAt))),
-                                    detail: request.workType
-                                ) { ShiftBar(key: nil, plain: true) }
+                                    subtitle: [Fmt.hm(Double(ShiftMath.minutesBetween(request.startsAt, request.endsAt))), request.workType].compactMap { $0 }.joined(separator: " · "),
+                                    tag: .status(request.status, Labels.shiftRequestStatus(request.status))
+                                ) { ShiftBar(client: nil) }
                             }
                             .accessibilityIdentifier("shift-request-\(request.id)")
                         }
@@ -198,22 +198,19 @@ private struct MyWeek: View {
                             Button { nav.open(.leave(request.id)) } label: {
                                 HRRow(
                                     title: request.leaveTypeName ?? HRStrings.absenceLeave,
-                                    subtitle: Labels.leaveStatus(request.status),
-                                    subtitleColor: statusColor(request.status),
-                                    value: Fmt.span(request.startDate, request.endDate),
-                                    detail: HRStrings.scheduleHoursOff(hours: Fmt.hm(LeaveRules.minutesOff(request, planned: group.planned)))
-                                ) { LeaveTypeTile(color: request.leaveTypeColor) }
+                                    subtitle: "\(Fmt.span(request.startDate, request.endDate)) · \(HRStrings.scheduleHoursOff(hours: Fmt.hm(LeaveRules.minutesOff(request, planned: group.planned))))",
+                                    dot: HRDot(color: request.leaveTypeColor),
+                                    tag: .status(request.status, Labels.leaveStatus(request.status))
+                                )
                             }
                         }
                         ForEach(group.ill) { absence in
-                            let ongoing = absence.status == "ongoing"
                             Button { nav.open(.sickReport(absence.id)) } label: {
                                 HRRow(
                                     title: HRStrings.absenceSick,
-                                    subtitle: ongoing ? HRStrings.absenceOngoing : HRStrings.absenceRecovered,
-                                    subtitleColor: ongoing ? Tokens.Status.danger : .secondary,
-                                    value: group.day == absence.startDate && absence.firstDay == "half" ? HRStrings.sickHalfDay : HRStrings.sickFullDay
-                                ) { SickTile() }
+                                    subtitle: group.day == absence.startDate && absence.firstDay == "half" ? HRStrings.sickHalfDay : HRStrings.sickFullDay,
+                                    tag: .status(absence.status, Labels.absenceStatus(absence.status))
+                                )
                             }
                         }
                     } header: {
@@ -311,7 +308,7 @@ private struct MyShiftRow: View {
                 detail: HRStrings.timesheetClockedIn,
                 detailColor: Tokens.Status.success
             ) {
-                ShiftBar(key: shift.companyName ?? workspace)
+                ShiftBar(client: shift.companyName)
             } value: {
                 Running(text: ShiftMath.timer(now - (WeldDate.parse(openSince)?.timeIntervalSince1970 ?? 0) * 1000))
             }
@@ -324,15 +321,14 @@ private struct MyShiftRow: View {
                 title: Fmt.timeRange(shift.startsAt, shift.endsAt),
                 subtitle: [HRStrings.scheduleWorked(range: range), late].compactMap { $0 }.joined(separator: " · "),
                 value: Fmt.hm(worked.reduce(0) { $0 + ShiftMath.minutesOf($1, now: now) }),
-                detail: approved ? HRStrings.timesheetApproved : HRStrings.timesheetPendingApproval,
-                detailColor: approved ? Tokens.Status.success : Tokens.Status.warning
-            ) { ShiftBar(key: shift.companyName ?? workspace) }
+                tag: approvalTag(approved)
+            ) { ShiftBar(client: shift.companyName) }
         } else {
             HRRow(
                 title: Fmt.timeRange(shift.startsAt, shift.endsAt),
                 subtitle: started ? HRStrings.scheduleNotClockedIn : [workspace, shift.companyName ?? shift.notes].compactMap { $0 }.joined(separator: " | "),
                 subtitleColor: started ? Tokens.Status.warning : .secondary
-            ) { ShiftBar(key: shift.companyName ?? workspace) }
+            ) { ShiftBar(client: shift.companyName) }
         }
     }
 }
@@ -352,10 +348,11 @@ private struct LooseRow: View {
             HRRow(
                 title: record.clockIn != nil ? Fmt.timeRange(record.clockIn, record.clockOut) : Labels.attendanceStatus(record.status),
                 subtitle: [place, HRStrings.scheduleWithoutShift, late].compactMap { $0 }.joined(separator: " · "),
-                detail: since != nil ? HRStrings.timesheetClockedIn : (record.approved ? HRStrings.timesheetApproved : HRStrings.timesheetPendingApproval),
-                detailColor: since != nil || record.approved ? Tokens.Status.success : Tokens.Status.warning
+                detail: since != nil ? HRStrings.timesheetClockedIn : nil,
+                detailColor: Tokens.Status.success,
+                tag: since == nil ? approvalTag(record.approved) : nil
             ) {
-                ShiftBar(key: record.companyName ?? workspace)
+                ShiftBar(client: record.companyName)
             } value: {
                 if let since {
                     Running(text: ShiftMath.timer(now - (WeldDate.parse(since)?.timeIntervalSince1970 ?? 0) * 1000))
@@ -395,7 +392,7 @@ private struct TeamWeek: View {
         }
         return Group {
             if days.isEmpty {
-                ContentUnavailableView(HRStrings.scheduleNoTeamShifts, systemImage: "person.3")
+                HREmpty(HRStrings.scheduleNoTeamShifts, symbol: "calendar")
                     .task(id: running) { await tick(running) }
             } else {
                 ForEach(days, id: \.self) { day in
@@ -405,7 +402,7 @@ private struct TeamWeek: View {
                         ForEach(dayShifts) { shift in teamShiftRow(shift, worked: onShift[shift.id] ?? []) }
                         ForEach(dayLoose) { record in teamLooseRow(record) }
                     } header: {
-                        DayHead(day: day, figure: String(dayShifts.count + dayLoose.count))
+                        DayHead(day: day, count: dayShifts.count + dayLoose.count)
                     }
                 }
                 Section {
@@ -444,8 +441,8 @@ private struct TeamWeek: View {
             detailColor: detailColor
         ) {
             HStack(spacing: Tokens.Spacing.s) {
-                ShiftBar(key: shift.workType ?? shift.companyName)
-                PersonAvatar(name: shift.employeeName)
+                ShiftBar(client: shift.companyName)
+                PersonAvatar(name: shift.employeeName, size: 32)
             }
         } value: {
             if let openSince {
@@ -465,7 +462,7 @@ private struct TeamWeek: View {
             detail: since != nil ? HRStrings.timesheetClockedIn : nil,
             detailColor: since != nil ? Tokens.Status.success : .secondary
         ) {
-            PersonAvatar(name: record.employeeName)
+            PersonAvatar(name: record.employeeName, size: 32)
         } value: {
             if let since {
                 Running(text: ShiftMath.timer(now - (WeldDate.parse(since)?.timeIntervalSince1970 ?? 0) * 1000))

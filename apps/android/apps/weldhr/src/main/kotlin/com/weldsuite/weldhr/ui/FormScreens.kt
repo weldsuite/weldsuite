@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -96,7 +97,7 @@ fun FormPage(
             },
         )
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = Tokens.Spacing.l, vertical = Tokens.Spacing.s),
             verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
             content = content,
         )
@@ -214,7 +215,7 @@ fun LeaveFormScreen() {
                 else -> null
             }
             ListItem(
-                leadingContent = { LeaveTypeTile(option.color) },
+                leadingContent = { ColorDot(option.color, size = 10.dp) },
                 headlineContent = { Text(option.name) },
                 supportingContent = sub?.let { { Text(it) } },
                 trailingContent = { RadioButton(selected = option.id == typeId, onClick = { typeId = option.id }) },

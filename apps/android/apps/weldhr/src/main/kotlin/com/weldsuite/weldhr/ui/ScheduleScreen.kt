@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.weldsuite.weldhr.Absence
 import com.weldsuite.weldhr.Attendance
@@ -35,6 +38,7 @@ import com.weldsuite.weldhr.Shift
 import com.weldsuite.weldhr.ShiftMath
 import com.weldsuite.weldhr.ShiftRequest
 import com.weldsuite.weldhr.Standing
+import com.weldsuite.weldhr.Tone
 import org.weldsuite.core.WeldDate
 import org.weldsuite.ui.Avatar
 import org.weldsuite.ui.Tokens
@@ -156,19 +160,18 @@ private fun LazyListScope.openShiftsSection(all: List<OpenShift>, workspace: Str
         val shifts = OpenShiftRules.listable(all, now)
         var expanded by rememberSaveable { mutableStateOf(false) }
         if (shifts.isEmpty()) return@item
-        SectionHead(stringResource(R.string.weldhr_open_shifts_title), shifts.size.toString())
+        SectionHead(stringResource(R.string.weldhr_open_shifts_title), count = shifts.size)
         (if (expanded) shifts else shifts.take(3)).forEach { shift ->
             val standing = OpenShiftRules.standingOf(shift)
             val place = listOfNotNull(Fmt.day(HrDays.dayOf(shift.startsAt)), shift.workType, shift.companyName ?: workspace).joinToString(" · ")
             val note = if (standing == Standing.DECLINED) shift.myRequest?.reviewNote else null
             HrRow(
-                leading = { ShiftBar(shift.workType ?: shift.companyName) },
+                leading = { ShiftBar(shift.companyName) },
                 title = Fmt.timeRange(shift.startsAt, shift.endsAt),
                 subtitle = if (note != null) "$place\n${stringResource(R.string.weldhr_open_shifts_review_note, note)}" else place,
                 subtitleLines = 2,
-                value = pluralStringResource(R.plurals.weldhr_open_shifts_spots_left, shift.spotsLeft, shift.spotsLeft),
-                detail = standingLabel(standing),
-                detailColor = standingColor(standing),
+                detail = spotsText(shift.spotsLeft),
+                badge = standingBadge(standing),
                 tag = "open-shift-${shift.id}",
                 onClick = { hr.open(Routes.openShift(shift.id)) },
             )
@@ -176,12 +179,19 @@ private fun LazyListScope.openShiftsSection(all: List<OpenShift>, workspace: Str
         if (shifts.size > 3) {
             Text(
                 if (expanded) stringResource(R.string.weldhr_open_shifts_show_less) else stringResource(R.string.weldhr_open_shifts_show_all, shifts.size),
-                color = brand(),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(Tokens.Spacing.l).tagged("open-shifts-toggle"),
             )
         }
     }
 }
+
+/** "2 spots left", or "Full", as the platform's Spots column. */
+@Composable
+fun spotsText(spotsLeft: Int): String =
+    if (spotsLeft == 0) stringResource(R.string.weldhr_open_shifts_full) else pluralStringResource(R.plurals.weldhr_open_shifts_spots_left, spotsLeft, spotsLeft)
 
 @Composable
 fun standingLabel(standing: Standing): String = when (standing) {
@@ -191,13 +201,15 @@ fun standingLabel(standing: Standing): String = when (standing) {
     Standing.FULL -> stringResource(R.string.weldhr_open_shifts_full)
 }
 
-/** Sign up in the app's colour, waiting amber, declined red, full grey. */
-@Composable
-fun standingColor(standing: Standing) = when (standing) {
-    Standing.OPEN -> brand()
-    Standing.WAITING -> Tokens.Status.warning.current()
-    Standing.DECLINED -> Tokens.Status.danger.current()
-    Standing.FULL -> MaterialTheme.colorScheme.onSurfaceVariant
+/**
+ * Your sign-up as the platform's badge: waiting outlined, declined
+ * destructive; nothing while you can still sign up or once it is full
+ * (the spots say so).
+ */
+fun standingBadge(standing: Standing): (@Composable () -> Unit)? = when (standing) {
+    Standing.WAITING -> ({ ToneBadge(standingLabel(standing), Tone.OUTLINE) })
+    Standing.DECLINED -> ({ ToneBadge(standingLabel(standing), Tone.DESTRUCTIVE) })
+    Standing.OPEN, Standing.FULL -> null
 }
 
 /** One day of My week. */
@@ -245,7 +257,7 @@ private fun LazyListScope.myWeek(data: Attendance, from: String, to: String, lea
             )
         }.filter { it.shifts.size + it.loose.size + it.asked.size + it.away.size + it.ill.size > 0 }
         if (days.isEmpty()) {
-            org.weldsuite.ui.EmptyState(stringResource(R.string.weldhr_schedule_no_shifts), stringResource(R.string.weldhr_schedule_no_shifts_description))
+            HrEmpty(stringResource(R.string.weldhr_schedule_no_shifts), stringResource(R.string.weldhr_schedule_no_shifts_description), Icons.Filled.EditCalendar)
             return@item
         }
         val currency = records.firstOrNull { it.currency != null }?.currency ?: ShiftMath.DEFAULT_CURRENCY
@@ -264,33 +276,26 @@ private fun LazyListScope.myWeek(data: Attendance, from: String, to: String, lea
                 HrRow(
                     leading = { ShiftBar(null) },
                     title = Fmt.timeRange(request.startsAt, request.endsAt),
-                    subtitle = shiftRequestStatusLabel(request.status),
-                    subtitleColor = statusColor(request.status),
-                    value = hm(ShiftMath.minutesBetween(request.startsAt, request.endsAt).toDouble()),
-                    detail = request.workType,
+                    subtitle = listOfNotNull(hm(ShiftMath.minutesBetween(request.startsAt, request.endsAt).toDouble()), request.workType).joinToString(" · "),
+                    badge = { StatusTag(request.status, shiftRequestStatusLabel(request.status)) },
                     tag = "shift-request-${request.id}",
                     onClick = { hr.open(Routes.shiftRequest(request.id, HrDays.dayOf(request.startsAt))) },
                 )
             }
             group.away.forEach { request ->
                 HrRow(
-                    leading = { LeaveTypeTile(request.leaveTypeColor) },
+                    marker = { ColorDot(request.leaveTypeColor) },
                     title = request.leaveTypeName ?: stringResource(R.string.weldhr_absence_leave),
-                    subtitle = leaveStatusLabel(request.status),
-                    subtitleColor = statusColor(request.status),
-                    value = Fmt.span(request.startDate, request.endDate),
-                    detail = stringResource(R.string.weldhr_schedule_hours_off, hm(LeaveRules.minutesOff(request, group.planned))),
+                    subtitle = "${Fmt.span(request.startDate, request.endDate)} · ${stringResource(R.string.weldhr_schedule_hours_off, hm(LeaveRules.minutesOff(request, group.planned)))}",
+                    badge = { StatusTag(request.status, leaveStatusLabel(request.status)) },
                     onClick = { hr.open(Routes.leave(request.id)) },
                 )
             }
             group.ill.forEach { absence ->
-                val ongoing = absence.status == "ongoing"
                 HrRow(
-                    leading = { SickTile() },
                     title = stringResource(R.string.weldhr_absence_sick),
-                    subtitle = stringResource(if (ongoing) R.string.weldhr_absence_ongoing else R.string.weldhr_absence_recovered),
-                    subtitleColor = if (ongoing) Tokens.Status.danger.current() else null,
-                    value = stringResource(if (group.day == absence.startDate && absence.firstDay == "half") R.string.weldhr_sick_half_day else R.string.weldhr_sick_full_day),
+                    subtitle = stringResource(if (group.day == absence.startDate && absence.firstDay == "half") R.string.weldhr_sick_half_day else R.string.weldhr_sick_full_day),
+                    badge = { StatusTag(absence.status, absenceStatusLabel(absence.status)) },
                     onClick = { hr.open(Routes.sickReport(absence.id)) },
                 )
             }
@@ -320,7 +325,7 @@ private fun MyShiftRow(shift: Shift, worked: List<ClockRecord>, now: Long, works
     val openSince = open?.clockIn
     if (openSince != null) {
         HrRow(
-            leading = { ShiftBar(shift.companyName ?: workspace) },
+            leading = { ShiftBar(shift.companyName) },
             title = Fmt.timeRange(shift.startsAt, shift.endsAt),
             subtitle = stringResource(R.string.weldhr_home_since, Fmt.time(openSince)),
             valueContent = { Running(ShiftMath.timer(now - (WeldDate.parse(openSince)?.toEpochMilli() ?: now))) },
@@ -334,21 +339,20 @@ private fun MyShiftRow(shift: Shift, worked: List<ClockRecord>, now: Long, works
         val approved = worked.all { it.approved }
         val range = worked.filter { it.clockIn != null }.let { if (it.isEmpty()) "" else Fmt.timeRange(it.first().clockIn, it.last().clockOut) }
         HrRow(
-            leading = { ShiftBar(shift.companyName ?: workspace) },
+            leading = { ShiftBar(shift.companyName) },
             title = Fmt.timeRange(shift.startsAt, shift.endsAt),
             subtitle = listOfNotNull(
                 stringResource(R.string.weldhr_schedule_worked, range),
                 late?.let { stringResource(R.string.weldhr_timesheet_late, it.toString()) },
             ).joinToString(" · "),
             value = hm(worked.sumOf { ShiftMath.minutesOf(it, now) }),
-            detail = stringResource(if (approved) R.string.weldhr_timesheet_approved else R.string.weldhr_timesheet_pending_approval),
-            detailColor = if (approved) Tokens.Status.success.current() else Tokens.Status.warning.current(),
+            badge = { ApprovalTag(approved) },
             tag = "shift-${shift.id}",
             onClick = { hr.open(Routes.shift(shift.id, HrDays.dayOf(shift.startsAt))) },
         )
     } else {
         HrRow(
-            leading = { ShiftBar(shift.companyName ?: workspace) },
+            leading = { ShiftBar(shift.companyName) },
             title = Fmt.timeRange(shift.startsAt, shift.endsAt),
             subtitle = if (started) stringResource(R.string.weldhr_schedule_not_clocked_in) else listOfNotNull(workspace, shift.companyName ?: shift.notes).joinToString(" | "),
             subtitleColor = if (started) Tokens.Status.warning.current() else null,
@@ -358,13 +362,23 @@ private fun MyShiftRow(shift: Shift, worked: List<ClockRecord>, now: Long, works
     }
 }
 
+/** Clocked hours' approval, as the platform's Hours groups: Approved, or Not approved yet (outlined). */
+@Composable
+fun ApprovalTag(approved: Boolean) {
+    if (approved) {
+        ToneBadge(stringResource(R.string.weldhr_timesheet_approved), Tone.DEFAULT)
+    } else {
+        ToneBadge(stringResource(R.string.weldhr_timesheet_pending_approval), Tone.OUTLINE)
+    }
+}
+
 /** Hours clocked outside any shift. */
 @Composable
 private fun LooseRow(record: ClockRecord, now: Long, workspace: String) {
     val hr = LocalHr.current
     val since = if (ShiftMath.isOpen(record)) record.clockIn else null
     HrRow(
-        leading = { ShiftBar(record.companyName ?: workspace) },
+        leading = { ShiftBar(record.companyName) },
         title = if (record.clockIn != null) Fmt.timeRange(record.clockIn, record.clockOut) else attendanceStatusLabel(record.status),
         subtitle = listOfNotNull(
             if (since != null) stringResource(R.string.weldhr_home_since, Fmt.time(since)) else listOfNotNull(workspace, record.companyName).joinToString(" | "),
@@ -373,14 +387,9 @@ private fun LooseRow(record: ClockRecord, now: Long, workspace: String) {
         ).joinToString(" · "),
         valueContent = if (since != null) ({ Running(ShiftMath.timer(now - (WeldDate.parse(since)?.toEpochMilli() ?: now))) }) else null,
         value = if (since == null) hm(ShiftMath.minutesOf(record, now)) else null,
-        detail = stringResource(
-            when {
-                since != null -> R.string.weldhr_timesheet_clocked_in
-                record.approved -> R.string.weldhr_timesheet_approved
-                else -> R.string.weldhr_timesheet_pending_approval
-            },
-        ),
-        detailColor = if (since != null || record.approved) Tokens.Status.success.current() else Tokens.Status.warning.current(),
+        detail = if (since != null) stringResource(R.string.weldhr_timesheet_clocked_in) else null,
+        detailColor = if (since != null) Tokens.Status.success.current() else null,
+        badge = if (since == null) ({ ApprovalTag(record.approved) }) else null,
         tag = "record-${record.id}",
         onClick = { hr.open(Routes.shift(record.id, record.date)) },
     )
@@ -403,11 +412,11 @@ private fun LazyListScope.teamWeek(shifts: List<Shift>, records: List<ClockRecor
             .map { day -> Triple(day, planned.filter { HrDays.dayOf(it.startsAt) == day }, loose.filter { it.date == day }) }
             .filter { it.second.size + it.third.size > 0 }
         if (days.isEmpty()) {
-            org.weldsuite.ui.EmptyState(stringResource(R.string.weldhr_schedule_no_team_shifts))
+            HrEmpty(stringResource(R.string.weldhr_schedule_no_team_shifts), icon = Icons.Filled.EditCalendar)
             return@item
         }
         days.forEach { (day, dayShifts, dayLoose) ->
-            DayHead(day, (dayShifts.size + dayLoose.size).toString())
+            DayHead(day, count = dayShifts.size + dayLoose.size)
             dayShifts.forEach { shift ->
                 val worked = onShift[shift.id].orEmpty()
                 val openSince = worked.firstOrNull(ShiftMath::isOpen)?.clockIn
@@ -415,8 +424,8 @@ private fun LazyListScope.teamWeek(shifts: List<Shift>, records: List<ClockRecor
                 HrRow(
                     leading = {
                         Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s), verticalAlignment = Alignment.CenterVertically) {
-                            ShiftBar(shift.workType ?: shift.companyName)
-                            Avatar(shift.employeeName)
+                            ShiftBar(shift.companyName)
+                            Avatar(shift.employeeName, size = 32.dp)
                         }
                     },
                     title = shift.employeeName.orEmpty(),
@@ -440,7 +449,7 @@ private fun LazyListScope.teamWeek(shifts: List<Shift>, records: List<ClockRecor
             dayLoose.forEach { record ->
                 val since = if (ShiftMath.isOpen(record)) record.clockIn else null
                 HrRow(
-                    leading = { Avatar(record.employeeName) },
+                    leading = { Avatar(record.employeeName, size = 32.dp) },
                     title = record.employeeName.orEmpty(),
                     subtitle = listOf(
                         if (record.clockIn != null) Fmt.timeRange(record.clockIn, record.clockOut) else attendanceStatusLabel(record.status),

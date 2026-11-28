@@ -45,7 +45,16 @@ data class Overview(
     val toAcknowledge: Int,
     val openShifts: Int,
     val unreadAnnouncements: Int,
+    /** The newest evaluation shared with the member; null without one. */
+    val latestEvaluation: EvaluationSummary? = null,
+    /** Milestones achieved, and still planned or in progress; null when the server does not say. */
+    val milestones: MilestoneCount? = null,
 )
+
+/** An evaluation as the overview names it: its score (0-100), form and when it was submitted. */
+data class EvaluationSummary(val overallScore: Double?, val formName: String?, val submittedAt: String?)
+
+data class MilestoneCount(val achieved: Int, val open: Int)
 
 /** Hours clocked: the caller's own, or a teammate's (with [employeeName]). */
 data class ClockRecord(

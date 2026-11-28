@@ -3,9 +3,9 @@ import UIKit
 import WeldCore
 import WeldUI
 
-/// Home: the workspace at the top (tap for the profile), the next shift with
-/// the clock button right on the page, then My schedule, My absences and
-/// what is waiting to be done.
+/// Home, as the platform's My HR overview: who you are at the top (tap for the
+/// profile), the next shift with the clock button, the upcoming shifts, the
+/// leave balances, this year's absences and what waits for you.
 struct HomeView: View {
     let workspace: WorkspaceRef
     @Environment(HRStore.self) private var store
@@ -15,12 +15,13 @@ struct HomeView: View {
         let state = SelfState.of(me: store.me, access: store.access)
         List {
             Section {
+                // The record's header, as the platform's: your avatar and name, the job title under it.
                 Button { nav.open(.profile) } label: {
                     HStack(spacing: Tokens.Spacing.m) {
-                        PersonAvatar(name: workspace.name, size: 32)
-                        VStack(alignment: .leading) {
-                            Text(workspace.name).font(.inter(.headline)).foregroundStyle(.primary)
-                            Text(HRStrings.homeProfileAndSettings).font(.inter(.footnote)).foregroundStyle(.secondary)
+                        PersonAvatar(name: state.profile?.displayName ?? workspace.name, url: state.profile?.avatarUrl, size: 32)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(state.profile?.displayName ?? workspace.name).font(.inter(size: 15, weight: .medium)).foregroundStyle(.primary).lineLimit(1)
+                            Text(state.profile?.jobTitle ?? HRStrings.homeProfileAndSettings).font(.inter(.caption)).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer()
                         Image(systemName: "chevron.right").foregroundStyle(.tertiary)
@@ -34,7 +35,8 @@ struct HomeView: View {
                 }
             }
         }
-        .navigationTitle(HRStrings.tabsHome)
+        .listStyle(.plain)
+        .navigationTitle(workspace.name)
         .refreshable {
             await store.load(.me)
             await store.load(.access)
@@ -72,22 +74,24 @@ private struct HomeBody: View {
             Group {
                 if features.selfClockIn || next != nil || overview.clockedIn {
                     Section {
-                        ShiftHero(overview: overview, next: next, onShift: onShift, switchable: switchable, features: features, workspace: workspace, now: now)
+                        ShiftHero(overview: overview, next: next, onShift: onShift, switchable: switchable, features: features, now: now)
                     }
                 }
-                Section(HRStrings.homeMySchedule) {
+                Section {
                     if shifts.isEmpty {
                         Button { nav.tab = .schedule } label: {
-                            HRRow(title: HRStrings.homeNoShifts, muted: true) { IconTile(symbol: "clock") }
+                            HRRow(title: HRStrings.homeNoShifts, muted: true)
                         }
                     } else {
                         ForEach(shifts.prefix(3)) { shift in
                             Button { nav.open(.shift(id: shift.id, day: HRDays.dayOf(shift.startsAt))) } label: {
-                                ShiftRowView(startsAt: shift.startsAt, endsAt: shift.endsAt, place: shift.companyName, workspace: workspace)
+                                ShiftRowView(startsAt: shift.startsAt, endsAt: shift.endsAt, client: shift.companyName)
                             }
                             .accessibilityIdentifier("home-shift-\(shift.id)")
                         }
                     }
+                } header: {
+                    GroupHead(title: HRStrings.homeMySchedule, count: shifts.isEmpty ? nil : shifts.count)
                 }
                 .task(id: overview.clockedIn) {
                     // The page's one clock: the running time, and which shifts are still to come.
@@ -96,26 +100,22 @@ private struct HomeBody: View {
                         try? await Task.sleep(for: .seconds(overview.clockedIn ? 1 : 30))
                     }
                 }
+                LeaveBalancesSection()
                 MyAbsencesSection(canRequest: features.leaveRequests)
                 ToDoSection(overview: overview)
             }
     }
 }
 
-/// A shift on Home and in the switch sheet: its day, its hours, and where.
+/// A shift on Home and in the switch sheet, as the platform's Upcoming shifts:
+/// the day, its hours under it, and the client on the right.
 struct ShiftRowView: View {
     let startsAt: String
     let endsAt: String
-    let place: String?
-    let workspace: String?
+    let client: String?
 
     var body: some View {
-        HRRow(title: Fmt.timeRange(startsAt, endsAt), subtitle: [place, workspace].compactMap { $0 }.joined(separator: " • ")) {
-            HStack(spacing: Tokens.Spacing.s) {
-                ShiftBar(key: place ?? workspace)
-                DateTile(day: HRDays.dayOf(startsAt))
-            }
-        }
+        HRRow(title: Fmt.day(HRDays.dayOf(startsAt)), subtitle: Fmt.timeRange(startsAt, endsAt), detail: client)
     }
 }
 
@@ -127,7 +127,6 @@ private struct ShiftHero: View {
     let onShift: HRUpcomingShift?
     let switchable: [HRUpcomingShift]
     let features: HRFeatures
-    let workspace: String
     let now: Double
     @Environment(HRStore.self) private var store
     @Environment(Toaster.self) private var toaster
@@ -142,12 +141,13 @@ private struct ShiftHero: View {
         let shown = running ? onShift : next
         VStack(alignment: .leading, spacing: Tokens.Spacing.l) {
             HStack(alignment: .top, spacing: Tokens.Spacing.m) {
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(shown.map { Color(hrRGB: Swatches.shiftColor($0.companyName ?? workspace)) } ?? Color(.systemGray4))
-                    .frame(width: 5)
+                // The shift's client colour, as the platform's schedule; the border colour without a shift.
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(shown.map { Color(hrRGB: Swatches.shiftColor($0.companyName)) } ?? Tokens.Palette.border)
+                    .frame(width: 4)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
-                        Text(title(since: since)).font(.inter(.title2, weight: .bold)).monospacedDigit().lineLimit(1)
+                        Text(title(since: since)).font(.inter(.title3)).monospacedDigit().lineLimit(1)
                             .accessibilityIdentifier("home-hero-title")
                         Spacer()
                         if running {
@@ -162,21 +162,27 @@ private struct ShiftHero: View {
             .fixedSize(horizontal: false, vertical: true)
             if features.selfClockIn || overview.clockedIn {
                 HStack {
+                    // As the platform's clock button: Clock in in the primary colour, Clock out destructive.
                     Button { clock(overview.clockedIn ? "out" : "in") } label: {
                         Group {
                             if working && !switching { ProgressView() } else {
-                                Text(overview.clockedIn ? HRStrings.homeClockOut : HRStrings.homeClockIn)
+                                Label(
+                                    overview.clockedIn ? HRStrings.homeClockOut : HRStrings.homeClockIn,
+                                    systemImage: overview.clockedIn ? "rectangle.portrait.and.arrow.right" : "arrow.right.to.line"
+                                )
                             }
                         }
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .tint(overview.clockedIn ? Tokens.Status.danger : Tokens.Palette.primary)
                     .controlSize(.large)
                     .disabled(working)
                     .accessibilityIdentifier("home-clock")
                     if overview.clockedIn && features.selfClockIn {
                         Button(HRStrings.homeSwitchShift) { switching = true }
                             .buttonStyle(.bordered)
+                            .tint(Tokens.Palette.foreground)
                             .controlSize(.large)
                             .disabled(working)
                             .accessibilityIdentifier("home-switch-shift")
@@ -196,11 +202,11 @@ private struct ShiftHero: View {
                     }
                     Section {
                         if switchable.isEmpty {
-                            HRRow(title: HRStrings.homeNoOtherShifts, muted: true) { IconTile(symbol: "clock") }
+                            HRRow(title: HRStrings.homeNoOtherShifts, muted: true)
                         }
                         ForEach(switchable) { shift in
                             Button { clock("switch", shiftId: shift.id) } label: {
-                                ShiftRowView(startsAt: shift.startsAt, endsAt: shift.endsAt, place: shift.companyName, workspace: workspace)
+                                ShiftRowView(startsAt: shift.startsAt, endsAt: shift.endsAt, client: shift.companyName)
                             }
                             .buttonStyle(.plain)
                             .disabled(working)
@@ -230,21 +236,21 @@ private struct ShiftHero: View {
         return HRStrings.homeNoShiftToday
     }
 
-    /// Clocked in: the shift it is on. Else which day (when not today) and where; with no shift, today.
+    /// Clocked in: the shift it is on. Else which day (when not today) and the client; with no shift, today.
     private func lines(running: Bool) -> [String] {
-        func place(_ shift: HRUpcomingShift) -> String? {
-            let text = [workspace, shift.companyName].compactMap { $0 }.joined(separator: " | ")
-            return text.isEmpty ? nil : text
+        func client(_ shift: HRUpcomingShift) -> String? {
+            guard let name = shift.companyName, !name.isEmpty else { return nil }
+            return name
         }
         if running {
             guard let onShift else { return [HRStrings.homeNoShiftToday] }
-            return [Fmt.timeRange(onShift.startsAt, onShift.endsAt), place(onShift)].compactMap { $0 }
+            return [Fmt.timeRange(onShift.startsAt, onShift.endsAt), client(onShift)].compactMap { $0 }
         }
         guard let next else { return [Fmt.longDay(HRDays.today())] }
         let today = HRDays.today()
         let day = HRDays.dayOf(next.startsAt)
         let when: String? = day == today ? nil : (day == HRDays.add(today, 1) ? CoreStrings.commonTomorrow : Fmt.day(day))
-        let line = [when, place(next)].compactMap { $0 }.joined(separator: " · ")
+        let line = [when, client(next)].compactMap { $0 }.joined(separator: " · ")
         return line.isEmpty ? [] : [line]
     }
 
@@ -281,6 +287,50 @@ private struct ShiftHero: View {
     }
 }
 
+/// The leave balances, as the platform overview's: a leave type's colour dot
+/// and name, used / pending / allowance under it, what is left on the right.
+private struct LeaveBalancesSection: View {
+    @Environment(HRStore.self) private var store
+    @Environment(HRNavigator.self) private var nav
+
+    var body: some View {
+        let balances = store.leave.data?.balances ?? []
+        if !balances.isEmpty {
+            Section {
+                ForEach(balances) { balance in
+                    Button { nav.tab = .absence } label: { BalanceRowView(balance: balance) }
+                        .accessibilityIdentifier("balance-\(balance.leaveTypeId)")
+                }
+            } header: {
+                GroupHead(title: HRStrings.absenceBalances, count: balances.count)
+            }
+        }
+    }
+}
+
+/// A leave type's balance: its dot and name, used / pending / allowance, and what is left.
+struct BalanceRowView: View {
+    let balance: HRLeaveBalance
+
+    var body: some View {
+        let allowance = balance.allowance.map(Fmt.days) ?? HRStrings.balanceUnlimited
+        HRRow(
+            title: balance.name,
+            subtitle: [
+                HRStrings.balanceUsed(days: Fmt.days(balance.used)),
+                HRStrings.balancePending(days: Fmt.days(balance.pending)),
+                HRStrings.balanceAllowance(days: allowance),
+            ].joined(separator: " · "),
+            subtitleLines: 2,
+            dot: HRDot(color: balance.color)
+        ) {
+            EmptyView()
+        } value: {
+            Text(balance.remaining.map(Fmt.daysText) ?? HRStrings.balanceUnlimited).font(.inter(.subheadline, weight: .medium)).monospacedDigit()
+        }
+    }
+}
+
 /// This year's open sick report and the next leave, or a row to add some.
 private struct MyAbsencesSection: View {
     let canRequest: Bool
@@ -295,7 +345,7 @@ private struct MyAbsencesSection: View {
             .filter { ($0.status == "approved" || $0.status == "pending") && $0.endDate >= today && $0.startDate.hasPrefix(year) }
             .sorted { $0.startDate < $1.startDate }
             .prefix(3)
-        Section(HRStrings.homeMyAbsences(year: year)) {
+        Section {
             if let current {
                 Button { nav.open(.sickReport(current.id)) } label: { SickRowView(absence: current) }
             }
@@ -304,87 +354,149 @@ private struct MyAbsencesSection: View {
             }
             if current == nil && upcoming.isEmpty {
                 Button { if canRequest { nav.present(.leave) } } label: {
-                    HRRow(title: HRStrings.homeNoAbsences, value: canRequest ? HRStrings.homeAddAbsence : nil, muted: true) {
-                        IconTile(symbol: "calendar.badge.plus")
+                    HRRow(title: HRStrings.homeNoAbsences, muted: true) {
+                        EmptyView()
+                    } value: {
+                        if canRequest { Text(HRStrings.homeAddAbsence).font(.inter(.subheadline, weight: .medium)).foregroundStyle(Tokens.Palette.primary) }
                     }
                 }
                 .disabled(!canRequest)
                 .accessibilityIdentifier("home-add-absence")
             }
+        } header: {
+            GroupHead(title: HRStrings.homeMyAbsences(year: year))
         }
     }
 }
 
-/// Unread announcements, open shifts, open tasks and reviews to read, when there are any.
+/// What waits for you, as the platform overview's Details rows: open tasks and
+/// what to confirm always, unread announcements and open shifts when there are
+/// some. A value links to the page behind it.
 private struct ToDoSection: View {
     let overview: HROverview
     @Environment(HRNavigator.self) private var nav
 
     var body: some View {
-        if overview.openTasks > 0 || overview.toAcknowledge > 0 || overview.openShifts > 0 || overview.unreadAnnouncements > 0 {
-            Section(HRStrings.homeToDo) {
-                if overview.unreadAnnouncements > 0 {
-                    Button { nav.tab = .announcements } label: {
-                        HRRow(title: HRStrings.announcementsTitle, subtitle: HRStrings.homeUnreadAnnouncements(overview.unreadAnnouncements)) { IconTile(symbol: "megaphone") }
+        Section {
+            Button { nav.open(.tasks) } label: {
+                HomeFact(symbol: "checklist", label: HRStrings.homeOpenTasksLabel, value: String(overview.openTasks))
+            }
+            .accessibilityIdentifier("home-tasks")
+            Button { nav.open(.reviews) } label: {
+                HomeFact(
+                    symbol: "text.bubble",
+                    label: HRStrings.homeToConfirm,
+                    value: overview.toAcknowledge > 0 ? HRStrings.homeToAcknowledge(overview.toAcknowledge) : HRStrings.homeNothingToConfirm,
+                    link: overview.toAcknowledge > 0
+                )
+            }
+            .accessibilityIdentifier("home-reviews")
+            // The latest evaluation's coloured score with its form and date, and the milestones, as on the platform.
+            Button { nav.open(.reviews) } label: {
+                HomeFactRow(symbol: "star", label: HRStrings.homeEvaluation) {
+                    if let evaluation = overview.latestEvaluation {
+                        if let score = evaluation.overallScore { ScoreBadge(score: score) }
+                        let about = [evaluation.formName, evaluation.submittedAt.map(Fmt.date)].compactMap { $0 }.joined(separator: " · ")
+                        if !about.isEmpty { Text(about).font(.inter(.subheadline)).foregroundStyle(.secondary).lineLimit(1) }
+                    } else {
+                        Text(HRStrings.homeNoEvaluation).font(.inter(.subheadline)).foregroundStyle(.secondary)
                     }
-                    .accessibilityIdentifier("home-announcements")
-                }
-                if overview.openShifts > 0 {
-                    Button { nav.tab = .schedule } label: {
-                        HRRow(title: HRStrings.openShiftsTitle, subtitle: HRStrings.homeOpenShiftsToSignUp(overview.openShifts)) { IconTile(symbol: "calendar.badge.plus") }
-                    }
-                    .accessibilityIdentifier("home-open-shifts")
-                }
-                if overview.openTasks > 0 {
-                    Button { nav.open(.tasks) } label: {
-                        HRRow(title: HRStrings.meTasks, subtitle: HRStrings.homeOpenTasks(overview.openTasks)) { IconTile(symbol: "checklist") }
-                    }
-                    .accessibilityIdentifier("home-tasks")
-                }
-                if overview.toAcknowledge > 0 {
-                    Button { nav.open(.reviews) } label: {
-                        HRRow(title: HRStrings.meReviews, subtitle: HRStrings.homeToAcknowledge(overview.toAcknowledge)) { IconTile(symbol: "text.bubble") }
-                    }
-                    .accessibilityIdentifier("home-reviews")
                 }
             }
+            .accessibilityIdentifier("home-evaluation")
+            if let milestones = overview.milestones {
+                Button { nav.open(.reviews) } label: {
+                    HomeFactRow(symbol: "flag", label: HRStrings.homeMilestones) {
+                        Text(HRStrings.homeMilestonesValue(achieved: String(milestones.achieved), total: String(milestones.achieved + milestones.open)))
+                            .font(.inter(.subheadline))
+                            .foregroundStyle(Tokens.Palette.primary)
+                        if milestones.open > 0 {
+                            Text(HRStrings.homeMilestonesOpen(open: String(milestones.open))).font(.inter(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                }
+                .accessibilityIdentifier("home-milestones")
+            }
+            if overview.unreadAnnouncements > 0 {
+                Button { nav.tab = .announcements } label: {
+                    HomeFact(symbol: "newspaper", label: HRStrings.announcementsTitle, value: HRStrings.homeUnreadAnnouncements(overview.unreadAnnouncements))
+                }
+                .accessibilityIdentifier("home-announcements")
+            }
+            if overview.openShifts > 0 {
+                Button { nav.tab = .schedule } label: {
+                    HomeFact(symbol: "calendar.badge.plus", label: HRStrings.openShiftsTitle, value: HRStrings.homeOpenShiftsToSignUp(overview.openShifts))
+                }
+                .accessibilityIdentifier("home-open-shifts")
+            }
+        } header: {
+            GroupHead(title: HRStrings.homeToDo)
         }
     }
 }
 
-/// A leave request of the member's own, its status in colour.
+/// One of the overview's property rows: a muted icon and label, the value as a link to the page behind it.
+private struct HomeFact: View {
+    let symbol: String
+    let label: String
+    let value: String
+    var link = true
+
+    var body: some View {
+        HomeFactRow(symbol: symbol, label: label) {
+            Text(value).font(.inter(.subheadline)).foregroundStyle(link ? Tokens.Palette.primary : Tokens.Palette.mutedForeground)
+        }
+    }
+}
+
+/// A property row with any value: a muted icon and label, then the content.
+private struct HomeFactRow<Content: View>: View {
+    let symbol: String
+    let label: String
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        HStack(spacing: Tokens.Spacing.s) {
+            Image(systemName: symbol).font(.system(size: 14)).foregroundStyle(.secondary).frame(width: 18)
+            Text(label).font(.inter(.subheadline)).foregroundStyle(.secondary).frame(width: 128, alignment: .leading)
+            content()
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+    }
+}
+
+/// A leave request of the member's own, as the platform's Leave list: the
+/// type's colour dot and name, the dates and days under it, the status badge.
 struct LeaveRowView: View {
     let request: HRLeaveRequest
 
     var body: some View {
-        let status = Labels.leaveStatus(request.status)
-        let subtitle = request.reviewNote.map { "\(status) • \(HRStrings.timeOffReviewNoteAnonymous(note: $0))" } ?? status
+        let period = "\(Fmt.dateRange(request.startDate, request.endDate)) · \(Fmt.daysText(request.days))"
         HRRow(
             title: request.leaveTypeName ?? HRStrings.absenceLeave,
-            subtitle: subtitle,
-            subtitleColor: statusColor(request.status),
-            subtitleLines: 2,
-            value: Fmt.span(request.startDate, request.endDate),
-            detail: Fmt.daysText(request.days),
-            muted: request.status == "cancelled"
-        ) { LeaveTypeTile(color: request.leaveTypeColor) }
-            .accessibilityIdentifier("leave-\(request.id)")
+            subtitle: request.reviewNote.map { "\(period)\n\(HRStrings.timeOffReviewNoteAnonymous(note: $0))" } ?? period,
+            subtitleLines: 3,
+            dot: HRDot(color: request.leaveTypeColor),
+            tag: .status(request.status, Labels.leaveStatus(request.status))
+        )
+        .accessibilityIdentifier("leave-\(request.id)")
     }
 }
 
-/// A sick report: running or recovered.
+/// A sick report, as the platform's Sick reports list: the first sick day, the
+/// last one (or "still sick") and the days under it, Sick or Recovered.
 struct SickRowView: View {
     let absence: HRAbsence
 
     var body: some View {
-        let ongoing = absence.status == "ongoing"
+        let first = absence.firstDay == "half" ? "\(Fmt.date(absence.startDate)) · \(HRStrings.sickHalfDay)" : Fmt.date(absence.startDate)
+        let last = absence.endDate.map(Fmt.date) ?? HRStrings.sickDetailStillSick
         HRRow(
-            title: HRStrings.absenceSick,
-            subtitle: ongoing ? HRStrings.absenceOngoing : HRStrings.absenceRecovered,
-            subtitleColor: ongoing ? Tokens.Status.danger : .secondary,
-            value: ongoing || absence.endDate == nil ? "\(Fmt.shortDate(absence.startDate))\(Fmt.range)…" : Fmt.span(absence.startDate, absence.endDate ?? absence.startDate),
-            detail: Fmt.daysText(absence.days)
-        ) { SickTile() }
-            .accessibilityIdentifier("sick-\(absence.id)")
+            title: first,
+            subtitle: "\(last) · \(Fmt.daysText(absence.days))",
+            tag: .status(absence.status, Labels.absenceStatus(absence.status))
+        )
+        .accessibilityIdentifier("sick-\(absence.id)")
     }
 }

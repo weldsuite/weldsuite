@@ -1,11 +1,8 @@
 package com.weldsuite.weldhr.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Icon
@@ -28,7 +25,6 @@ import com.weldsuite.weldhr.LeaveRequest
 import com.weldsuite.weldhr.R
 import com.weldsuite.weldhr.ShiftMath
 import kotlinx.coroutines.delay
-import org.weldsuite.ui.Tokens
 
 /** The current time, ticking every [intervalMs] (a running clock-in). */
 @Composable
@@ -43,67 +39,54 @@ fun rememberNow(intervalMs: Long): Long {
     return now
 }
 
-/** A day on a small tile: "MA" over "26". */
+/**
+ * A shift on Home and in the switch sheet, as the platform's Upcoming
+ * shifts: the day, its hours under it, and the client on the right.
+ */
 @Composable
-fun DateTile(day: String) {
-    val date = HrDays.parse(day)
-    Column(
-        Modifier.size(ROW_TILE).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp)),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(Fmt.weekdayShort(day).uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(date?.dayOfMonth?.toString().orEmpty(), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-    }
-}
-
-/** A shift on Home and in the switch sheet: its day, its hours, and where. */
-@Composable
-fun ShiftRow(startsAt: String, endsAt: String, place: String?, workspace: String?, tag: String? = null, onClick: (() -> Unit)?) {
+fun ShiftRow(startsAt: String, endsAt: String, client: String?, tag: String? = null, onClick: (() -> Unit)?) {
     HrRow(
-        leading = {
-            Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s), verticalAlignment = Alignment.CenterVertically) {
-                ShiftBar(place ?: workspace)
-                DateTile(HrDays.dayOf(startsAt))
-            }
-        },
-        title = Fmt.timeRange(startsAt, endsAt),
-        subtitle = listOfNotNull(place, workspace).joinToString(" • "),
+        title = Fmt.day(HrDays.dayOf(startsAt)),
+        subtitle = Fmt.timeRange(startsAt, endsAt),
+        detail = client,
         tag = tag,
         onClick = onClick,
     )
 }
 
-/** A leave request of the member's own, its status in colour. */
+/**
+ * A leave request of the member's own, as the platform's Leave list: the
+ * type's colour dot and name, the dates and days under it, the status badge.
+ */
 @Composable
 fun LeaveRow(request: LeaveRequest, onClick: (() -> Unit)?) {
-    val status = leaveStatusLabel(request.status)
     val note = request.reviewNote?.let { stringResource(R.string.weldhr_time_off_review_note_anonymous, it) }
+    val period = "${Fmt.dateRange(request.startDate, request.endDate)} · ${daysText(request.days)}"
     HrRow(
-        leading = { LeaveTypeTile(request.leaveTypeColor) },
+        marker = { ColorDot(request.leaveTypeColor) },
         title = request.leaveTypeName ?: stringResource(R.string.weldhr_absence_leave),
-        subtitle = if (note != null) "$status • $note" else status,
-        subtitleLines = 2,
-        subtitleColor = statusColor(request.status),
-        value = Fmt.span(request.startDate, request.endDate),
-        detail = daysText(request.days),
-        muted = request.status == "cancelled",
+        subtitle = if (note != null) "$period\n$note" else period,
+        subtitleLines = 3,
+        badge = { StatusTag(request.status, leaveStatusLabel(request.status)) },
         tag = "leave-${request.id}",
         onClick = onClick,
     )
 }
 
-/** A sick report: running ("since 3 Mar - …") or recovered. */
+/**
+ * A sick report, as the platform's Sick reports list: the first sick day,
+ * the last one (or "still sick") and the days under it, Sick or Recovered.
+ */
 @Composable
 fun SickRow(absence: Absence, onClick: (() -> Unit)?) {
-    val ongoing = absence.status == "ongoing"
+    val first = Fmt.date(absence.startDate).let {
+        if (absence.firstDay == "half") "$it · ${stringResource(R.string.weldhr_sick_half_day)}" else it
+    }
+    val last = absence.endDate?.let(Fmt::date) ?: stringResource(R.string.weldhr_sick_detail_still_sick)
     HrRow(
-        leading = { SickTile() },
-        title = stringResource(R.string.weldhr_absence_sick),
-        subtitle = stringResource(if (ongoing) R.string.weldhr_absence_ongoing else R.string.weldhr_absence_recovered),
-        subtitleColor = if (ongoing) Tokens.Status.danger.current() else null,
-        value = if (ongoing || absence.endDate == null) "${Fmt.shortDate(absence.startDate)}${Fmt.RANGE}…" else Fmt.span(absence.startDate, absence.endDate),
-        detail = daysText(absence.days),
+        title = first,
+        subtitle = "$last · ${daysText(absence.days)}",
+        badge = { StatusTag(absence.status, absenceStatusLabel(absence.status)) },
         tag = "sick-${absence.id}",
         onClick = onClick,
     )
@@ -114,7 +97,7 @@ fun SickRow(absence: Absence, onClick: (() -> Unit)?) {
 fun Running(text: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Icon(Icons.Filled.Schedule, contentDescription = null, modifier = Modifier.size(15.dp))
-        Text(text, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+        Text(text, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     }
 }
 

@@ -486,27 +486,54 @@ enum HRRoutes {
     }
 }
 
-/// Colours for the bar in front of a shift: a stable one per client, role or department name.
+/// The web platform's badge variants (`@weldsuite/ui` Badge): `primary` is its `default`, the primary
+/// fill, `secondary` the neutral fill, `destructive` red, `outline` a border with foreground text.
+enum Tone: Equatable {
+    case primary, secondary, destructive, outline
+
+    /// The variant WeldHR gives a status on the platform (`STATUS_TONE` in app/weldhr/components/shared.tsx).
+    static func of(_ status: String) -> Tone {
+        switch status {
+        case "active", "present", "approved", "acknowledged", "achieved", "completed": .primary
+        case "onboarding", "offboarding", "late", "pending", "ongoing", "open", "submitted", "in_progress", "invited": .outline
+        case "terminated", "absent", "rejected", "missed", "revoked": .destructive
+        default: .secondary
+        }
+    }
+}
+
+/// The platform's colours for shifts and leave types (app/weldhr/attendance/components/schedule-model.ts).
 enum Swatches {
-    static let shift: [UInt32] = [0x10B981, 0x8B5CF6, 0xF59E0B, 0x3B82F6, 0xEC4899, 0x14B8A6, 0xF97316, 0x6366F1]
+    /// WeldCalendar's default blue: a shift without a client account.
+    static let defaultShift: UInt32 = 0x3B82F6
+    /// The dot of a leave type without a colour of its own (the platform's `ColorDot`, slate-400).
+    static let neutralDot: UInt32 = 0x94A3B8
+    /// WeldCalendar's palette minus the default blue: one colour per client account.
+    static let client: [UInt32] = [0x22C55E, 0x14B8A6, 0x8B5CF6, 0xF59E0B, 0xEC4899, 0x06B6D4, 0xF97316, 0x6366F1, 0xEF4444]
 
-    static let category: [String: UInt32] = [
-        "travel": 0x3B82F6,
-        "meals": 0xF97316,
-        "accommodation": 0x8B5CF6,
-        "equipment": 0x14B8A6,
-        "training": 0xEC4899,
-        "other": 0x6B7280,
-    ]
-
-    /// The Expo app's string hash (`value * 31 + char`, 32-bit).
+    /// The platform's `shiftColor` hash (`hash * 31 + code point`, mod 9973).
     static func hash(_ key: String) -> Int {
-        var value: Int32 = 0
-        for unit in key.utf16 { value = value &* 31 &+ Int32(unit) }
-        return Int(value.magnitude)
+        var value = 0
+        for scalar in key.unicodeScalars { value = (value * 31 + Int(scalar.value)) % 9973 }
+        return value
     }
 
-    static func shiftColor(_ key: String?) -> UInt32 { shift[hash(key ?? "") % shift.count] }
+    /// A shift's colour by its client; the default blue without one.
+    static func shiftColor(_ client: String?) -> UInt32 {
+        guard let client, !client.isEmpty else { return defaultShift }
+        return Swatches.client[hash(client) % Swatches.client.count]
+    }
+
+    /// A leave type's dot: the colour HR picked, else the neutral grey.
+    static func dot(_ color: String?) -> UInt32 { hex(color) ?? neutralDot }
+
+    /// The colour band of an evaluation score (0-100), as the platform's `ScoreBadge`.
+    static func scoreBand(_ score: Double) -> Int {
+        if score >= 85 { return 0 }
+        if score >= 70 { return 1 }
+        if score >= 55 { return 2 }
+        return 3
+    }
 
     /// A `#rgb` / `#rrggbb` colour; nil when it is not hex.
     static func hex(_ color: String?) -> UInt32? {

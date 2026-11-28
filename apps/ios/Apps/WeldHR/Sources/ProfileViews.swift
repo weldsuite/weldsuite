@@ -24,33 +24,42 @@ struct ProfileView: View {
             if access.me {
                 SelfGate(state: state, retry: { await store.load(.me) }) { profile, _ in
                     Section {
-                        HRRow(title: profile.displayName, subtitle: [profile.jobTitle, Labels.employeeStatus(profile.status)].compactMap { $0 }.joined(separator: " • ")) {
+                        // The platform's record header: avatar and name, the job title, the employee status badge.
+                        HRRow(
+                            title: profile.displayName,
+                            subtitle: profile.jobTitle,
+                            tag: .status(profile.status, Labels.employeeStatus(profile.status))
+                        ) {
                             PersonAvatar(name: profile.displayName, url: profile.avatarUrl, size: 40)
                         }
+                        // Its Details rows, in the platform's order.
                         Facts(rows: [
+                            (HRStrings.meEmail, profile.email),
+                            (HRStrings.mePhone, profile.phone),
                             (HRStrings.meDepartment, profile.departmentName),
                             (HRStrings.meManager, profile.managerName),
-                            (HRStrings.meStartDate, profile.startDate.map(Fmt.date)),
                             (HRStrings.meEmployeeNumberLabel, profile.employeeNumber),
+                            (HRStrings.meStartDate, profile.startDate.map(Fmt.date)),
+                            (HRStrings.meLocation, profile.location),
                         ])
                     }
                     if let balances = store.leave.data?.balances, !balances.isEmpty {
                         Section(HRStrings.absenceBalances) {
                             ForEach(balances) { item in
-                                Button { balance = item } label: { BalanceRow(balance: item) }
+                                Button { balance = item } label: { BalanceRowView(balance: item) }
                                     .buttonStyle(.plain)
                                     .accessibilityIdentifier("balance-\(item.leaveTypeId)")
                             }
                         }
                     }
-                    Section {
+                    Section(HRStrings.meMyHr) {
                         if store.payslips.data?.isOn == true {
                             link(HRStrings.payPayslips, symbol: "doc.text", count: 0, route: .pay, tag: "profile-pay")
                         }
-                        Button { nav.present(.sick) } label: { linkLabel(HRStrings.meSickLeave, symbol: "thermometer.medium", count: 0) }
+                        Button { nav.present(.sick) } label: { linkLabel(HRStrings.meSickLeave, symbol: "heart.text.square", count: 0) }
                             .accessibilityIdentifier("profile-sick")
-                        link(HRStrings.meTasks, symbol: "checklist", count: store.overview.data?.openTasks ?? 0, route: .tasks, tag: "profile-tasks")
-                        link(HRStrings.meReviews, symbol: "text.bubble", count: store.overview.data?.toAcknowledge ?? 0, route: .reviews, tag: "profile-reviews")
+                        link(HRStrings.meTasks, symbol: "checkmark.square", count: store.overview.data?.openTasks ?? 0, route: .tasks, tag: "profile-tasks")
+                        link(HRStrings.meReviews, symbol: "trophy", count: store.overview.data?.toAcknowledge ?? 0, route: .reviews, tag: "profile-reviews")
                     }
                 }
             }
@@ -90,18 +99,16 @@ struct ProfileView: View {
             .accessibilityIdentifier(tag)
     }
 
+    /// A link to a page that is not a tab, as the platform's sidebar items: a muted icon, the label, its count in a chip.
     private func linkLabel(_ title: String, symbol: String, count: Int) -> some View {
         HStack {
-            Label(title, systemImage: symbol).foregroundStyle(.primary)
-            Spacer()
-            if count > 0 {
-                Text(String(count))
-                    .font(.inter(.caption, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(Tokens.Palette.primary, in: Capsule())
+            Label {
+                Text(title).foregroundStyle(.primary)
+            } icon: {
+                Image(systemName: symbol).foregroundStyle(.secondary)
             }
+            Spacer()
+            if count > 0 { CountChip(count: count) }
             Image(systemName: "chevron.right").font(.inter(.footnote)).foregroundStyle(.tertiary)
         }
     }
@@ -110,30 +117,6 @@ struct ProfileView: View {
 private struct BalanceItem: Identifiable {
     let balance: HRLeaveBalance
     var id: String { balance.leaveTypeId }
-}
-
-/// A leave type with a ring for how much is left and the days left on the right.
-private struct BalanceRow: View {
-    let balance: HRLeaveBalance
-
-    var body: some View {
-        let fraction: Double = {
-            guard let allowance = balance.allowance, let remaining = balance.remaining else { return 1 }
-            return allowance > 0 ? min(1, max(0, remaining / allowance)) : 0
-        }()
-        let color = Swatches.hex(balance.color).map { Color(hrRGB: $0) } ?? Tokens.Palette.primary
-        HRRow(
-            title: balance.name,
-            value: balance.remaining.map { HRStrings.absenceRemaining(amount: Fmt.daysText($0)) } ?? HRStrings.balanceUnlimited
-        ) {
-            ZStack {
-                Circle().stroke(Color(.systemGray5), lineWidth: 3)
-                Circle().trim(from: 0, to: fraction).stroke(color, style: StrokeStyle(lineWidth: 3, lineCap: .round)).rotationEffect(.degrees(-90))
-            }
-            .frame(width: 26, height: 26)
-            .accessibilityHidden(true)
-        }
-    }
 }
 
 /// A balance in figures: allowance, taken, waiting, left.
@@ -173,7 +156,7 @@ struct PayView: View {
             QueryBody(state: store.payslips, retry: { await store.load(.payslips) }) { payroll in
                 switch payroll {
                 case .off:
-                    ContentUnavailableView(HRStrings.payNotEnabled, systemImage: "doc.text")
+                    HREmpty(HRStrings.payNotEnabled, symbol: "doc.text")
                 case let .on(slips):
                     if let latest = slips.first {
                         Section {
@@ -182,44 +165,53 @@ struct PayView: View {
                                 .accessibilityIdentifier("payslip-latest")
                         }
                     } else {
-                        ContentUnavailableView(HRStrings.payNoPayslips, systemImage: "doc.text", description: Text(HRStrings.payNoPayslipsDescription))
+                        HREmpty(HRStrings.payNoPayslips, description: HRStrings.payNoPayslipsDescription, symbol: "doc.text")
                     }
                     if slips.count > 1 {
-                        Section(HRStrings.payEarlier) {
+                        Section {
                             ForEach(slips.dropFirst()) { slip in
                                 Button { openPayslip(slip) } label: {
+                                    // As the platform's payslip rows: medium while unopened, with an outlined "New".
                                     HRRow(
                                         title: Fmt.dateRange(slip.periodStart, slip.periodEnd),
                                         subtitle: HRStrings.payPaidOn(date: Fmt.date(slip.payDate)),
-                                        value: Fmt.money(slip.netPay, slip.currency),
-                                        detail: slip.viewedAt == nil ? HRStrings.payNew : nil,
-                                        detailColor: Tokens.Palette.primary
-                                    ) { IconTile(symbol: "doc.text") }
+                                        unread: slip.viewedAt == nil,
+                                        tag: slip.viewedAt == nil ? HRTag(text: HRStrings.payNew, tone: .outline) : nil
+                                    ) {
+                                        EmptyView()
+                                    } value: {
+                                        Text(Fmt.money(slip.netPay, slip.currency)).font(.inter(.subheadline, weight: .medium)).monospacedDigit()
+                                    }
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(opening == slip.id)
                                 .accessibilityIdentifier("payslip-\(slip.id)")
                             }
+                        } header: {
+                            GroupHead(title: HRStrings.payEarlier, count: slips.count - 1)
                         }
                     }
                     if let statements = store.statements.data, !statements.isEmpty {
-                        Section(HRStrings.payAnnualStatements) {
+                        Section {
                             ForEach(statements) { statement in
                                 Button { openStatement(statement) } label: {
                                     HRRow(
                                         title: statement.kind == "w2" ? HRStrings.payW2(year: String(statement.year)) : HRStrings.payJaaropgaaf(year: String(statement.year)),
                                         subtitle: statement.employerName
-                                    ) { IconTile(symbol: "doc.text") }
+                                    )
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(opening == statement.id)
                                 .accessibilityIdentifier("statement-\(statement.id)")
                             }
+                        } header: {
+                            GroupHead(title: HRStrings.payAnnualStatements, count: statements.count)
                         }
                     }
                 }
             }
         }
+        .listStyle(.plain)
         .navigationTitle(HRStrings.payPayslips)
         .refreshable {
             await store.load(.payslips)
@@ -263,13 +255,13 @@ private struct LatestPayslip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.xs) {
             HStack {
-                Text(HRStrings.payLatest).foregroundStyle(.secondary)
+                Text(HRStrings.payLatest).font(.inter(.subheadline)).foregroundStyle(.secondary)
                 Spacer()
-                if slip.viewedAt == nil { Text(HRStrings.payNew).font(.inter(.subheadline, weight: .semibold)).foregroundStyle(Tokens.Palette.primary) }
+                if slip.viewedAt == nil { ToneBadge(HRStrings.payNew, tone: .outline) }
             }
             Text(Fmt.dateRange(slip.periodStart, slip.periodEnd)).font(.inter(.headline))
-            Text(HRStrings.payNetPay).foregroundStyle(.secondary)
-            Text(Fmt.money(slip.netPay, slip.currency)).font(.inter(.largeTitle, weight: .bold)).monospacedDigit()
+            Text(HRStrings.payNetPay).font(.inter(.subheadline)).foregroundStyle(.secondary)
+            Text(Fmt.money(slip.netPay, slip.currency)).font(.inter(.largeTitle, weight: .semibold)).monospacedDigit()
             HStack {
                 Text("\(HRStrings.payPaidOn(date: Fmt.date(slip.payDate))) · \(HRStrings.payGross(amount: Fmt.money(slip.grossPay, slip.currency)))")
                     .font(.inter(.footnote))
@@ -293,17 +285,22 @@ struct TasksView: View {
             QueryBody(state: store.tasks, retry: { await store.load(.tasks) }) { tasks in
                 let groups = groupTasks(tasks)
                 if groups.isEmpty {
-                    ContentUnavailableView(HRStrings.tasksEmpty, systemImage: "checklist", description: Text(HRStrings.tasksEmptyDescription))
+                    HREmpty(HRStrings.tasksEmpty, description: HRStrings.tasksEmptyDescription, symbol: "checkmark.square")
                 }
                 ForEach(groups, id: \.0) { group in
                     Section {
                         ForEach(group.1) { task in TaskRow(task: task) }
                     } header: {
-                        HeadWithFigure(title: group.0, figure: "\(group.1.filter { $0.completedAt != nil }.count)/\(group.1.count)")
+                        GroupHead(
+                            title: group.0,
+                            count: group.1.count,
+                            figure: HRStrings.tasksProgress(done: String(group.1.filter { $0.completedAt != nil }.count), total: String(group.1.count))
+                        )
                     }
                 }
             }
         }
+        .listStyle(.plain)
         .navigationTitle(HRStrings.tasksTitle)
         .refreshable { await store.load(.tasks) }
         .task { await store.ensure(.tasks) }
@@ -330,13 +327,15 @@ private struct TaskRow: View {
                 }
             }
         } label: {
+            // As the platform's: a checkbox, the title (struck through and muted once done),
+            // who it is for, and the state pill with the due date.
             HRRow(
                 title: task.title,
-                subtitle: overdue ? task.dueDate.map { HRStrings.tasksDue(date: Fmt.day($0)) } : task.description,
-                subtitleColor: overdue ? Tokens.Status.danger : .secondary,
+                subtitle: [task.description, task.canComplete ? nil : HRStrings.tasksAssignedTo(role: Labels.role(task.assigneeRole))]
+                    .compactMap { $0 }.joined(separator: "\n"),
                 subtitleLines: 3,
-                value: task.dueDate.map(Fmt.day),
-                detail: task.canComplete ? nil : HRStrings.tasksAssignedTo(role: Labels.role(task.assigneeRole)),
+                detail: task.dueDate.map(Fmt.day),
+                detailColor: overdue ? Tokens.Status.danger : .secondary,
                 muted: done,
                 strike: done
             ) {
@@ -344,13 +343,15 @@ private struct TaskRow: View {
                     if busy {
                         ProgressView()
                     } else {
-                        Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                            .font(.inter(.title2))
+                        Image(systemName: done ? "checkmark.square.fill" : "square")
+                            .font(.system(size: 20))
                             .foregroundStyle(done ? Tokens.Palette.primary : .secondary)
                             .opacity(task.canComplete || done ? 1 : 0.4)
                     }
                 }
                 .frame(width: 28)
+            } value: {
+                TaskStatePill(state: done ? "done" : overdue ? "overdue" : "open")
             }
         }
         .buttonStyle(.plain)
@@ -358,6 +359,29 @@ private struct TaskRow: View {
         .accessibilityLabel(done ? HRStrings.a11yMarkOpen : HRStrings.a11yMarkDone)
         .accessibilityValue(task.title)
         .accessibilityIdentifier("task-\(task.id)")
+    }
+}
+
+/// A task's state, as the platform's pill: to do grey, overdue red, done green.
+private struct TaskStatePill: View {
+    let state: String
+
+    var body: some View {
+        Text(style.label)
+            .font(.inter(.caption, weight: .medium))
+            .foregroundStyle(style.ink)
+            .lineLimit(1)
+            .padding(.horizontal, Tokens.Spacing.s)
+            .padding(.vertical, 2)
+            .background(style.fill, in: RoundedRectangle(cornerRadius: 4))
+    }
+
+    private var style: (label: String, fill: Color, ink: Color) {
+        switch state {
+        case "overdue": return (HRStrings.tasksStateOverdue, Color(hrLight: 0xFEF2F2, dark: 0x450A0A), Color(hrLight: 0xDC2626, dark: 0xF87171))
+        case "done": return (HRStrings.tasksStateDone, Color(hrLight: 0xECFDF5, dark: 0x022C22), Color(hrLight: 0x059669, dark: 0x34D399))
+        default: return (HRStrings.tasksStateOpen, Color(hrLight: 0xF3F4F6, dark: 0x2E3238), Color(hrLight: 0x4B5563, dark: 0xB5BDC9))
+        }
     }
 }
 
@@ -374,24 +398,24 @@ struct ReviewsView: View {
             Section {
                 Segments(
                     options: [
-                        Segment(value: "coaching", label: withCount(HRStrings.reviewsCoaching, openCoaching), tag: "reviews-coaching"),
-                        Segment(value: "evaluations", label: withCount(HRStrings.reviewsEvaluations, openEvaluations), tag: "reviews-evaluations"),
+                        Segment(value: "coaching", label: HRStrings.reviewsCoaching, tag: "reviews-coaching", count: openCoaching),
+                        Segment(value: "evaluations", label: HRStrings.reviewsEvaluations, tag: "reviews-evaluations", count: openEvaluations),
                     ],
                     selection: $tab
                 )
-                .listRowInsets(EdgeInsets())
+                .segmentsRow()
                 .listRowBackground(Color.clear)
             }
             if tab == "coaching" {
                 QueryBody(state: store.coaching, retry: { await store.load(.coaching) }) { logs in
-                    if logs.isEmpty { ContentUnavailableView(HRStrings.reviewsNoCoaching, systemImage: "text.bubble") }
+                    if logs.isEmpty { HREmpty(HRStrings.reviewsNoCoaching, symbol: "text.bubble") }
                     ForEach(logs) { log in
                         Section { CoachingCard(log: log) { target = AcknowledgeTarget(coaching: true, id: log.id) } }
                     }
                 }
             } else {
                 QueryBody(state: store.evaluations, retry: { await store.load(.evaluations) }) { rows in
-                    if rows.isEmpty { ContentUnavailableView(HRStrings.reviewsNoEvaluations, systemImage: "text.bubble") }
+                    if rows.isEmpty { HREmpty(HRStrings.reviewsNoEvaluations, symbol: "star") }
                     ForEach(rows) { evaluation in
                         Section { EvaluationCard(evaluation: evaluation) { target = AcknowledgeTarget(coaching: false, id: evaluation.id) } }
                     }
@@ -444,11 +468,10 @@ private struct CoachingCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
             HStack {
-                Text(Labels.coachingCategory(log.category))
-                    .font(.inter(.subheadline, weight: .semibold))
-                    .foregroundStyle(log.category == "recognition" ? Tokens.Status.success : Tokens.Palette.primary)
+                // The platform shows the category as a secondary badge.
+                ToneBadge(Labels.coachingCategory(log.category), tone: .secondary)
                 Spacer()
-                Text(Fmt.date(log.sessionDate)).font(.inter(.subheadline)).foregroundStyle(.secondary)
+                Text(Fmt.date(log.sessionDate)).font(.inter(.caption)).foregroundStyle(.secondary)
             }
             Text(log.topic).font(.inter(.headline))
             if let coach = log.coachName { Text(HRStrings.reviewsBy(name: coach)).font(.inter(.subheadline)).foregroundStyle(.secondary) }
@@ -478,9 +501,8 @@ private struct EvaluationCard: View {
             HStack {
                 Text(evaluation.formName ?? HRStrings.reviewsEvaluations).font(.inter(.headline))
                 Spacer()
-                if let score = evaluation.overallScore {
-                    Text(HRStrings.reviewsScore(score: Fmt.days(score))).font(.inter(.subheadline, weight: .semibold)).foregroundStyle(Tokens.Palette.primary)
-                }
+                // The platform's coloured score badge.
+                if let score = evaluation.overallScore { ScoreBadge(score: score) }
             }
             let period: String? = evaluation.periodStart.flatMap { start in evaluation.periodEnd.map { Fmt.dateRange(start, $0) } }
             Text([period, evaluation.evaluatorName.map { HRStrings.reviewsBy(name: $0) }].compactMap { $0 }.joined(separator: " • "))
@@ -549,20 +571,21 @@ struct DirectoryView: View {
         List {
             QueryBody(state: store.directory(query), retry: { await store.load(.employees(query)) }) { rows in
                 if rows.isEmpty {
-                    ContentUnavailableView(HRStrings.directoryEmpty, systemImage: "person.3", description: Text(HRStrings.directoryEmptyDescription))
+                    HREmpty(HRStrings.directoryEmpty, description: HRStrings.directoryEmptyDescription, symbol: "person.crop.circle.badge.questionmark")
                 }
                 ForEach(rows) { employee in
                     Button { nav.open(.employee(employee.id)) } label: {
                         HRRow(
                             title: employee.displayName,
                             subtitle: [employee.jobTitle, employee.departmentName].compactMap { $0 }.joined(separator: " • ").nilIfEmpty ?? employee.email
-                        ) { PersonAvatar(name: employee.displayName, url: employee.avatarUrl) }
+                        ) { PersonAvatar(name: employee.displayName, url: employee.avatarUrl, size: 32) }
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("employee-\(employee.id)")
                 }
             }
         }
+        .listStyle(.plain)
         .navigationTitle(HRStrings.directoryTitle)
         .searchable(text: $search, prompt: HRStrings.directorySearch)
         .refreshable { await store.load(.employees(query)) }
@@ -590,25 +613,27 @@ struct EmployeeView: View {
         List {
             QueryBody(state: state, retry: { await store.load(.employee(id)) }) { data in
                 Section {
-                    VStack(spacing: Tokens.Spacing.xs) {
-                        PersonAvatar(name: data.displayName, url: data.avatarUrl, size: 84)
-                        if let job = data.jobTitle { Text(job).font(.inter(.headline)).multilineTextAlignment(.center) }
-                        Text([Labels.employeeStatus(data.status), data.pronouns].compactMap { $0 }.joined(separator: " • ")).foregroundStyle(.secondary)
+                    VStack(spacing: Tokens.Spacing.s) {
+                        PersonAvatar(name: data.displayName, url: data.avatarUrl, size: 72)
+                        if let job = data.jobTitle { Text(job).font(.inter(size: 16, weight: .medium)).multilineTextAlignment(.center) }
+                        if let pronouns = data.pronouns { Text(pronouns).font(.inter(.caption)).foregroundStyle(.secondary) }
+                        // The employee status badge, as the platform's Employees list.
+                        ToneBadge(Labels.employeeStatus(data.status), tone: .of(data.status))
                         HStack {
                             if let phone = data.phone {
                                 Button {
                                     let digits = phone.filter { $0.isNumber || $0 == "+" }
                                     if let url = URL(string: "tel:\(digits)") { UIApplication.shared.open(url) }
                                 } label: { Label(HRStrings.directoryCall, systemImage: "phone") }
-                                    .buttonStyle(.bordered)
                                     .accessibilityIdentifier("employee-call")
                             }
                             Button {
                                 if let url = URL(string: "mailto:\(data.email)") { UIApplication.shared.open(url) }
                             } label: { Label(HRStrings.directoryEmail, systemImage: "envelope") }
-                                .buttonStyle(.bordered)
                                 .accessibilityIdentifier("employee-email")
                         }
+                        .buttonStyle(.bordered)
+                        .tint(Tokens.Palette.foreground)
                         .padding(.top, Tokens.Spacing.s)
                     }
                     .frame(maxWidth: .infinity)
@@ -627,7 +652,7 @@ struct EmployeeView: View {
                         ForEach(data.directReports) { report in
                             Button { nav.open(.employee(report.id)) } label: {
                                 HRRow(title: report.displayName, subtitle: report.jobTitle) {
-                                    PersonAvatar(name: report.displayName, url: report.avatarUrl)
+                                    PersonAvatar(name: report.displayName, url: report.avatarUrl, size: 32)
                                 }
                             }
                             .buttonStyle(.plain)

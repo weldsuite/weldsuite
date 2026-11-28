@@ -111,17 +111,12 @@ enum Fmt {
     }
 }
 
-/// Status words in their colour: approved green, pending amber, declined red.
-func statusColor(_ status: String) -> Color {
-    switch status {
-    case "approved", "paid", "present": Tokens.Status.success
-    case "pending", "late": Tokens.Status.warning
-    case "rejected", "absent": Tokens.Status.danger
-    default: .secondary
-    }
-}
-
 enum Labels {
+    /// A sick report's badge, as the platform's: Sick while it runs, Recovered after.
+    static func absenceStatus(_ status: String) -> String {
+        status == "ongoing" ? HRStrings.absenceSick : HRStrings.absenceRecovered
+    }
+
     static func leaveStatus(_ status: String) -> String {
         switch status {
         case "pending": HRStrings.leaveStatusPending
@@ -242,12 +237,22 @@ enum Labels {
     }
 }
 
-/// Sign up in the app's colour, waiting amber, declined red, full grey.
-func standingColor(_ standing: Standing) -> Color {
+/// Your sign-up as the platform's badge: waiting outlined, declined destructive;
+/// none while you can still sign up or once it is full (the spots say so).
+func standingTag(_ standing: Standing) -> HRTag? {
     switch standing {
-    case .open: Tokens.Palette.primary
-    case .waiting: Tokens.Status.warning
-    case .declined: Tokens.Status.danger
-    case .full: .secondary
+    case .waiting: HRTag(text: Labels.standing(standing), tone: .outline)
+    case .declined: HRTag(text: Labels.standing(standing), tone: .destructive)
+    case .open, .full: nil
     }
+}
+
+/// "2 spots left", or "Full", as the platform's Spots column.
+func spotsText(_ spotsLeft: Int) -> String {
+    spotsLeft == 0 ? HRStrings.openShiftsFull : HRStrings.openShiftsSpotsLeft(spotsLeft)
+}
+
+/// Clocked hours' approval, as the platform's Hours groups: Approved, or Not approved yet (outlined).
+func approvalTag(_ approved: Bool) -> HRTag {
+    approved ? HRTag(text: HRStrings.timesheetApproved, tone: .primary) : HRTag(text: HRStrings.timesheetPendingApproval, tone: .outline)
 }

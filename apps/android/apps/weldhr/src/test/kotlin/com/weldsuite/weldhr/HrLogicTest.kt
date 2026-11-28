@@ -249,6 +249,35 @@ class HrLogicTest {
     }
 
     @Test
+    fun platformColoursForShiftsLeaveAndScores() {
+        // No client: WeldCalendar's default blue; a client: one of the platform's client colours.
+        assertEquals(Swatches.DEFAULT_SHIFT, Swatches.shift(null))
+        assertEquals(Swatches.DEFAULT_SHIFT, Swatches.shift(""))
+        assertTrue(Swatches.shift("Acme") != Swatches.DEFAULT_SHIFT)
+        // The platform's hash: ("a" = 97) * 31 + ("b" = 98) = 3105, mod 9973.
+        assertEquals(3105, Swatches.hash("ab"))
+        assertEquals(Swatches.NEUTRAL_DOT, Swatches.dot(null))
+        assertEquals(0xFF0D9488, Swatches.dot("#0D9488"))
+        assertEquals(0, Swatches.scoreBand(85.0))
+        assertEquals(1, Swatches.scoreBand(70.0))
+        assertEquals(2, Swatches.scoreBand(55.0))
+        assertEquals(3, Swatches.scoreBand(54.9))
+    }
+
+    @Test
+    fun statusesTakeThePlatformsBadgeVariant() {
+        assertEquals(Tone.DEFAULT, Tones.of("approved"))
+        assertEquals(Tone.DEFAULT, Tones.of("active"))
+        assertEquals(Tone.OUTLINE, Tones.of("pending"))
+        assertEquals(Tone.OUTLINE, Tones.of("ongoing"))
+        assertEquals(Tone.DESTRUCTIVE, Tones.of("rejected"))
+        assertEquals(Tone.DESTRUCTIVE, Tones.of("terminated"))
+        assertEquals(Tone.SECONDARY, Tones.of("cancelled"))
+        assertEquals(Tone.SECONDARY, Tones.of("paid"))
+        assertEquals(Tone.SECONDARY, Tones.of("something-new"))
+    }
+
+    @Test
     fun clockFixesRoundTheAccuracy() {
         assertEquals(GeoFix(52.1, 4.3, 13.0), ClockLocator.toFix(52.1, 4.3, 12.6))
         assertEquals(GeoFix(52.1, 4.3, null), ClockLocator.toFix(52.1, 4.3, -1.0))

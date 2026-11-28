@@ -7,6 +7,9 @@
     <string name="weldhr_absence_absences">Afwezigen</string>
     <string name="weldhr_absence_allowance">Tegoed</string>
     <string name="weldhr_absence_balances">Verlofsaldo</string>
+    <string name="weldhr_absence_groups_approved">Goedgekeurd</string>
+    <string name="weldhr_absence_groups_pending">In behandeling</string>
+    <string name="weldhr_absence_groups_rejected_cancelled">Afgewezen &amp; geannuleerd</string>
     <string name="weldhr_absence_leave">Verlof</string>
     <string name="weldhr_absence_leave_days">%1$s verlof</string>
     <string name="weldhr_absence_left">Over</string>
@@ -49,6 +52,7 @@
     <string name="weldhr_announcements_hours_ago">%1$du</string>
     <string name="weldhr_announcements_just_now">Zojuist</string>
     <string name="weldhr_announcements_minutes_ago">%1$dm</string>
+    <string name="weldhr_announcements_new">Nieuw</string>
     <string name="weldhr_announcements_not_found">Deze mededeling bestaat niet meer</string>
     <string name="weldhr_announcements_pinned">Vastgezet</string>
     <string name="weldhr_announcements_title">Mededelingen</string>
@@ -62,6 +66,7 @@
     <string name="weldhr_attendance_status_present">Aanwezig</string>
     <string name="weldhr_attendance_status_remote">Op afstand</string>
     <string name="weldhr_auth_subtitle">Je werk, in je broekzak</string>
+    <string name="weldhr_balance_allowance">Tegoed %1$s</string>
     <plurals name="weldhr_balance_days">
         <item quantity="one">%1$d dag</item>
         <item quantity="other">%1$d dagen</item>
@@ -69,8 +74,10 @@
     <string name="weldhr_balance_days_fraction">%1$s dagen</string>
     <string name="weldhr_balance_left">%1$s over</string>
     <string name="weldhr_balance_of_allowance">van %1$s dagen</string>
+    <string name="weldhr_balance_pending">In aanvraag %1$s</string>
     <string name="weldhr_balance_prorated">Naar rato voor dit jaar</string>
-    <string name="weldhr_balance_unlimited">Geen limiet</string>
+    <string name="weldhr_balance_unlimited">Onbeperkt</string>
+    <string name="weldhr_balance_used">Opgenomen %1$s</string>
     <string name="weldhr_calendar_next">Volgende</string>
     <string name="weldhr_calendar_previous">Vorige</string>
     <string name="weldhr_coaching_category_attendance">Aanwezigheid</string>
@@ -96,9 +103,9 @@
     <string name="weldhr_declaration_category_training">Opleiding</string>
     <string name="weldhr_declaration_category_travel">Reiskosten</string>
     <string name="weldhr_declaration_status_approved">Goedgekeurd</string>
-    <string name="weldhr_declaration_status_cancelled">Ingetrokken</string>
+    <string name="weldhr_declaration_status_cancelled">Geannuleerd</string>
     <string name="weldhr_declaration_status_paid">Uitbetaald</string>
-    <string name="weldhr_declaration_status_pending">Wacht op goedkeuring</string>
+    <string name="weldhr_declaration_status_pending">In afwachting</string>
     <string name="weldhr_declaration_status_rejected">Afgewezen</string>
     <string name="weldhr_directory_call">Bellen</string>
     <string name="weldhr_directory_department">Afdeling</string>
@@ -113,7 +120,7 @@
     <string name="weldhr_directory_start_date">In dienst sinds</string>
     <string name="weldhr_directory_title">Collega’s</string>
     <string name="weldhr_employee_status_active">Actief</string>
-    <string name="weldhr_employee_status_offboarding">Vertrekt</string>
+    <string name="weldhr_employee_status_offboarding">Uitdiensttreding</string>
     <string name="weldhr_employee_status_on_leave">Met verlof</string>
     <string name="weldhr_employee_status_onboarding">Inwerken</string>
     <string name="weldhr_employee_status_terminated">Uit dienst</string>
@@ -143,11 +150,14 @@
     <string name="weldhr_expense_form_sent_no_receipt">Declaratie ingediend, maar de bon is niet geüpload. Lever hem in bij HR.</string>
     <string name="weldhr_expense_form_take_photo">Foto maken</string>
     <string name="weldhr_expense_form_title">Nieuwe declaratie</string>
-    <string name="weldhr_expenses_awaiting">Wacht op goedkeuring</string>
+    <string name="weldhr_expenses_awaiting">Wacht op een beslissing</string>
     <string name="weldhr_expenses_cancel_confirm">Intrekken</string>
     <string name="weldhr_expenses_cancel_title">Deze declaratie intrekken?</string>
     <string name="weldhr_expenses_cancelled">Declaratie ingetrokken</string>
     <string name="weldhr_expenses_declarations">Declaraties</string>
+    <string name="weldhr_expenses_groups_other">Overig</string>
+    <string name="weldhr_expenses_groups_paid">Uitbetaald</string>
+    <string name="weldhr_expenses_groups_rejected_cancelled">Afgewezen en geannuleerd</string>
     <string name="weldhr_expenses_keep">Behouden</string>
     <string name="weldhr_expenses_mine">Mijn declaraties</string>
     <string name="weldhr_expenses_new_expense">Nieuwe declaratie</string>
@@ -157,6 +167,7 @@
     <string name="weldhr_expenses_no_results">Geen declaraties gevonden</string>
     <string name="weldhr_expenses_no_results_description">Probeer een ander woord, bedrag of categorie.</string>
     <string name="weldhr_expenses_receipt_failed">De bon kon niet worden geopend.</string>
+    <string name="weldhr_expenses_review_group">Te beoordelen</string>
     <string name="weldhr_expenses_search">Zoek in declaraties</string>
     <string name="weldhr_expenses_title">Declaraties</string>
     <string name="weldhr_expenses_to_approve">Goedkeuren</string>
@@ -168,16 +179,22 @@
     <string name="weldhr_home_clock_out">Uitklokken</string>
     <string name="weldhr_home_clocked_in">Ingeklokt</string>
     <string name="weldhr_home_clocked_out">Uitgeklokt</string>
+    <string name="weldhr_home_evaluation">Beoordeling</string>
     <string name="weldhr_home_im_better">Ik ben beter</string>
     <string name="weldhr_home_im_better_hint">Beëindig je ziekmelding</string>
+    <string name="weldhr_home_milestones">Mijlpalen</string>
+    <string name="weldhr_home_milestones_open">%1$s nog open</string>
+    <string name="weldhr_home_milestones_value">%1$s van %2$s behaald</string>
     <string name="weldhr_home_my_absences">Mijn afwezigheid %1$s</string>
-    <string name="weldhr_home_my_schedule">Mijn rooster</string>
+    <string name="weldhr_home_my_schedule">Komende diensten</string>
     <string name="weldhr_home_new_expense">Nieuwe declaratie</string>
     <string name="weldhr_home_new_expense_hint">Declareer kosten met een bon</string>
     <string name="weldhr_home_no_absences">Je hebt geen afwezigheid</string>
+    <string name="weldhr_home_no_evaluation">Nog geen beoordeling</string>
     <string name="weldhr_home_no_other_shifts">Geen andere diensten vandaag</string>
     <string name="weldhr_home_no_shift_today">Geen dienst gepland</string>
-    <string name="weldhr_home_no_shifts">Geen diensten gepland</string>
+    <string name="weldhr_home_no_shifts">Geen komende diensten</string>
+    <string name="weldhr_home_nothing_to_confirm">Niets te bevestigen</string>
     <plurals name="weldhr_home_open_shifts_to_sign_up">
         <item quantity="one">%1$d open dienst om je voor aan te melden</item>
         <item quantity="other">%1$d open diensten om je voor aan te melden</item>
@@ -186,6 +203,7 @@
         <item quantity="one">%1$d open taak</item>
         <item quantity="other">%1$d open taken</item>
     </plurals>
+    <string name="weldhr_home_open_tasks_label">Openstaande taken</string>
     <string name="weldhr_home_photo_receipt">Foto van bon maken</string>
     <string name="weldhr_home_profile_and_settings">Profiel en instellingen</string>
     <string name="weldhr_home_report_sick">Ziek melden</string>
@@ -201,6 +219,7 @@
         <item quantity="one">%1$d te lezen</item>
         <item quantity="other">%1$d te lezen</item>
     </plurals>
+    <string name="weldhr_home_to_confirm">Te bevestigen</string>
     <string name="weldhr_home_to_do">Te doen</string>
     <plurals name="weldhr_home_unread_announcements">
         <item quantity="one">%1$d ongelezen mededeling</item>
@@ -241,7 +260,7 @@
     <string name="weldhr_leave_form_type">Soort</string>
     <string name="weldhr_leave_status_approved">Goedgekeurd</string>
     <string name="weldhr_leave_status_cancelled">Geannuleerd</string>
-    <string name="weldhr_leave_status_pending">In behandeling</string>
+    <string name="weldhr_leave_status_pending">In afwachting</string>
     <string name="weldhr_leave_status_rejected">Afgewezen</string>
     <string name="weldhr_location_denied_message">WeldHR controleert of je op je werk bent als je in- of uitklokt. Sta locatietoegang toe in Instellingen en probeer het opnieuw.</string>
     <string name="weldhr_location_denied_title">Toegang tot locatie staat uit</string>
@@ -249,8 +268,12 @@
     <string name="weldhr_location_required">Locatie nodig om te klokken</string>
     <string name="weldhr_location_unavailable">Je locatie kon niet worden bepaald. Controleer of locatievoorzieningen aan staan en probeer het opnieuw.</string>
     <string name="weldhr_me_department">Afdeling</string>
+    <string name="weldhr_me_email">E-mail</string>
     <string name="weldhr_me_employee_number_label">Personeelsnummer</string>
+    <string name="weldhr_me_location">Locatie</string>
     <string name="weldhr_me_manager">Leidinggevende</string>
+    <string name="weldhr_me_my_hr">Mijn HR</string>
+    <string name="weldhr_me_phone">Telefoon</string>
     <string name="weldhr_me_reviews">Beoordelingen &amp; coaching</string>
     <string name="weldhr_me_sick_leave">Ziekteverzuim</string>
     <string name="weldhr_me_start_date">In dienst sinds</string>
@@ -379,7 +402,7 @@
     <string name="weldhr_shift_request_sent">Aanvraag verstuurd</string>
     <string name="weldhr_shift_request_status_approved">Goedgekeurd</string>
     <string name="weldhr_shift_request_status_cancelled">Ingetrokken</string>
-    <string name="weldhr_shift_request_status_pending">Wacht op goedkeuring</string>
+    <string name="weldhr_shift_request_status_pending">In afwachting</string>
     <string name="weldhr_shift_request_status_rejected">Afgewezen</string>
     <string name="weldhr_shift_request_title">Dienst aanvragen</string>
     <string name="weldhr_shift_request_to">Tot</string>
@@ -423,11 +446,15 @@
     <string name="weldhr_tasks_due">Uiterlijk %1$s</string>
     <string name="weldhr_tasks_empty">Geen taken voor jou</string>
     <string name="weldhr_tasks_empty_description">Taken die HR je geeft bij je start of vertrek verschijnen hier.</string>
+    <string name="weldhr_tasks_progress">%1$s van %2$s gedaan</string>
     <string name="weldhr_tasks_roles_employee">jou</string>
     <string name="weldhr_tasks_roles_hr">HR</string>
     <string name="weldhr_tasks_roles_it">IT</string>
     <string name="weldhr_tasks_roles_manager">je leidinggevende</string>
     <string name="weldhr_tasks_roles_other">iemand anders</string>
+    <string name="weldhr_tasks_state_done">Klaar</string>
+    <string name="weldhr_tasks_state_open">Te doen</string>
+    <string name="weldhr_tasks_state_overdue">Te laat</string>
     <string name="weldhr_tasks_title">Inwerktaken</string>
     <string name="weldhr_team_approve">Goedkeuren</string>
     <string name="weldhr_team_approved">Goedgekeurd</string>

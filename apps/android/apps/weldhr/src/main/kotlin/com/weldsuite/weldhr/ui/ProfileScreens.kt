@@ -2,33 +2,39 @@ package com.weldsuite.weldhr.ui
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.MonitorHeart
+import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
-import androidx.compose.material.icons.filled.Thermostat
-import androidx.compose.material3.Badge
+import androidx.compose.material.icons.filled.StarOutline
 import org.weldsuite.ui.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import org.weldsuite.ui.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import org.weldsuite.ui.ModalBottomSheet
 import org.weldsuite.ui.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import org.weldsuite.ui.Button
@@ -58,11 +64,11 @@ import com.weldsuite.weldhr.LeaveBalance
 import com.weldsuite.weldhr.Payslip
 import com.weldsuite.weldhr.R
 import com.weldsuite.weldhr.SelfState
-import com.weldsuite.weldhr.Swatches
+import com.weldsuite.weldhr.Tone
 import com.weldsuite.weldhr.groupTasks
 import kotlinx.coroutines.delay
 import org.weldsuite.ui.Avatar
-import org.weldsuite.ui.EmptyState
+import androidx.compose.ui.graphics.Color
 import org.weldsuite.ui.Tokens
 import org.weldsuite.ui.WorkspacePicker
 import org.weldsuite.ui.commonSettingsItems
@@ -117,31 +123,38 @@ fun ProfileScreen() {
                 val ready = self as SelfState.Ready
                 val profile = ready.profile
                 item("profile") {
+                    // The platform's record header: avatar and name, the job title, the employee status badge.
                     HrRow(
                         leading = { Avatar(profile.displayName, profile.avatarUrl, size = 40.dp) },
                         title = profile.displayName,
-                        subtitle = listOfNotNull(profile.jobTitle, employeeStatusLabel(profile.status)).joinToString(" • "),
+                        subtitle = profile.jobTitle,
+                        badge = { StatusTag(profile.status, employeeStatusLabel(profile.status)) },
+                        divider = false,
                     )
+                    // Its Details rows, in the platform's order.
                     facts(
+                        stringResource(R.string.weldhr_me_email) to profile.email,
+                        stringResource(R.string.weldhr_me_phone) to profile.phone,
                         stringResource(R.string.weldhr_me_department) to profile.departmentName,
                         stringResource(R.string.weldhr_me_manager) to profile.managerName,
-                        stringResource(R.string.weldhr_me_start_date) to profile.startDate?.let(Fmt::date),
                         stringResource(R.string.weldhr_me_employee_number_label) to profile.employeeNumber,
+                        stringResource(R.string.weldhr_me_start_date) to profile.startDate?.let(Fmt::date),
+                        stringResource(R.string.weldhr_me_location) to profile.location,
                     )
                 }
                 val balances = leave.data?.balances.orEmpty()
                 if (balances.isNotEmpty()) {
-                    item("balances-head") { SectionHead(stringResource(R.string.weldhr_absence_balances)) }
+                    item("balances-head") { SectionHead(stringResource(R.string.weldhr_absence_balances), count = balances.size) }
                     items(balances, key = { "balance-${it.leaveTypeId}" }) { BalanceRow(it) { balance = it } }
                 }
                 item("links") {
-                    Rule()
+                    SectionHead(stringResource(R.string.weldhr_me_my_hr))
                     if (payslips.data != null) {
                         LinkRow(Icons.Filled.Description, stringResource(R.string.weldhr_pay_payslips), 0, "profile-pay") { hr.open(Routes.PAY) }
                     }
-                    LinkRow(Icons.Filled.Thermostat, stringResource(R.string.weldhr_me_sick_leave), 0, "profile-sick") { hr.open(Routes.SICK) }
-                    LinkRow(Icons.Filled.Checklist, stringResource(R.string.weldhr_me_tasks), overview.data?.openTasks ?: 0, "profile-tasks") { hr.open(Routes.TASKS) }
-                    LinkRow(Icons.Filled.Forum, stringResource(R.string.weldhr_me_reviews), overview.data?.toAcknowledge ?: 0, "profile-reviews") { hr.open(Routes.REVIEWS) }
+                    LinkRow(Icons.Filled.MonitorHeart, stringResource(R.string.weldhr_me_sick_leave), 0, "profile-sick") { hr.open(Routes.SICK) }
+                    LinkRow(Icons.Filled.CheckBox, stringResource(R.string.weldhr_me_tasks), overview.data?.openTasks ?: 0, "profile-tasks") { hr.open(Routes.TASKS) }
+                    LinkRow(Icons.Filled.EmojiEvents, stringResource(R.string.weldhr_me_reviews), overview.data?.toAcknowledge ?: 0, "profile-reviews") { hr.open(Routes.REVIEWS) }
                 }
             }
         }
@@ -164,44 +177,19 @@ fun ProfileScreen() {
     balance?.let { BalanceSheet(it) { balance = null } }
 }
 
+/** A link to a page that is not a tab, as the platform's sidebar items: a muted icon, the label, its count in a chip. */
 @Composable
 private fun LinkRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, count: Int, tag: String, onClick: () -> Unit) {
     HrRow(
-        leading = { PlainTile(icon) },
+        leading = { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) },
         title = title,
         valueContent = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
-                if (count > 0) Badge { Text(count.toString()) }
+                if (count > 0) CountChip(count)
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
         tag = tag,
-        onClick = onClick,
-    )
-}
-
-/** A leave type with a ring for how much is left and the days left on the right. */
-@Composable
-private fun BalanceRow(balance: LeaveBalance, onClick: () -> Unit) {
-    val allowance = balance.allowance
-    val remaining = balance.remaining
-    val limited = allowance != null && remaining != null
-    val fraction = if (limited && allowance != null && remaining != null) (if (allowance > 0) (remaining / allowance).toFloat() else 0f).coerceIn(0f, 1f) else 1f
-    val color = Swatches.hex(balance.color)?.let { androidx.compose.ui.graphics.Color(it.toInt()) } ?: brand()
-    HrRow(
-        leading = {
-            CircularProgressIndicator(
-                progress = { fraction },
-                modifier = Modifier.size(28.dp),
-                color = color,
-                strokeWidth = 3.dp,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-            )
-        },
-        title = balance.name,
-        value = if (remaining != null) stringResource(R.string.weldhr_absence_remaining, daysText(remaining)) else stringResource(R.string.weldhr_balance_unlimited),
-        detail = null,
-        tag = "balance-${balance.leaveTypeId}",
         onClick = onClick,
     )
 }
@@ -272,26 +260,26 @@ fun PayScreen() {
         }
         if (data == null) {
             // The server's 404: payroll is off for this workspace.
-            item("off") { EmptyState(stringResource(R.string.weldhr_pay_not_enabled)) }
+            item("off") { HrEmpty(stringResource(R.string.weldhr_pay_not_enabled), icon = Icons.Filled.Description) }
             return@Page
         }
         val latest = data.firstOrNull()
         if (latest == null) {
-            item("none") { EmptyState(stringResource(R.string.weldhr_pay_no_payslips), stringResource(R.string.weldhr_pay_no_payslips_description)) }
+            item("none") { HrEmpty(stringResource(R.string.weldhr_pay_no_payslips), stringResource(R.string.weldhr_pay_no_payslips_description), Icons.Filled.Description) }
         } else {
             item("latest") { LatestPayslip(latest, opening == latest.id) { openPayslip(latest) } }
         }
         val older = data.drop(1)
         if (older.isNotEmpty()) {
-            item("earlier") { SectionHead(stringResource(R.string.weldhr_pay_earlier)) }
+            item("earlier") { SectionHead(stringResource(R.string.weldhr_pay_earlier), count = older.size) }
             items(older, key = { it.id }) { slip ->
+                // As the platform's payslip rows: medium while unopened, with an outlined "New".
                 HrRow(
-                    leading = { PlainTile(Icons.Filled.Description) },
                     title = Fmt.dateRange(slip.periodStart, slip.periodEnd),
                     subtitle = stringResource(R.string.weldhr_pay_paid_on, Fmt.date(slip.payDate)),
-                    value = Fmt.money(slip.netPay, slip.currency),
-                    detail = if (slip.viewedAt == null) stringResource(R.string.weldhr_pay_new) else null,
-                    detailColor = brand(),
+                    valueContent = { Text(Fmt.money(slip.netPay, slip.currency), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium) },
+                    badge = if (slip.viewedAt == null) ({ ToneBadge(stringResource(R.string.weldhr_pay_new), Tone.OUTLINE) }) else null,
+                    unread = slip.viewedAt == null,
                     tag = "payslip-${slip.id}",
                     onClick = if (opening == slip.id) null else ({ openPayslip(slip) }),
                 )
@@ -299,11 +287,10 @@ fun PayScreen() {
         }
         val list = statements.data.orEmpty()
         if (list.isNotEmpty()) {
-            item("statements") { SectionHead(stringResource(R.string.weldhr_pay_annual_statements)) }
+            item("statements") { SectionHead(stringResource(R.string.weldhr_pay_annual_statements), count = list.size) }
             items(list, key = { "${it.year}-${it.employerId}" }) { statement ->
                 val key = "${statement.year}-${statement.employerId}"
                 HrRow(
-                    leading = { PlainTile(Icons.Filled.Description) },
                     title = stringResource(if (statement.kind == "w2") R.string.weldhr_pay_w2 else R.string.weldhr_pay_jaaropgaaf, statement.year.toString()),
                     subtitle = statement.employerName,
                     tag = "statement-$key",
@@ -320,12 +307,12 @@ private fun LatestPayslip(slip: Payslip, busy: Boolean, onClick: () -> Unit) {
     Card(Modifier.fillMaxWidth().padding(Tokens.Spacing.l).clickable(enabled = !busy, onClick = onClick).tagged("payslip-latest")) {
         Column(Modifier.padding(Tokens.Spacing.l), verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.xs)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.weldhr_pay_latest), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                if (slip.viewedAt == null) Text(stringResource(R.string.weldhr_pay_new), color = brand(), fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.weldhr_pay_latest), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                if (slip.viewedAt == null) ToneBadge(stringResource(R.string.weldhr_pay_new), Tone.OUTLINE)
             }
             Text(Fmt.dateRange(slip.periodStart, slip.periodEnd), style = MaterialTheme.typography.titleMedium)
-            Text(stringResource(R.string.weldhr_pay_net_pay), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(Fmt.money(slip.netPay, slip.currency), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.weldhr_pay_net_pay), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(Fmt.money(slip.netPay, slip.currency), style = MaterialTheme.typography.headlineMedium)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "${stringResource(R.string.weldhr_pay_paid_on, Fmt.date(slip.payDate))} · ${stringResource(R.string.weldhr_pay_gross, Fmt.money(slip.grossPay, slip.currency))}",
@@ -351,16 +338,45 @@ fun TasksScreen() {
         query(tasks, onRetry = { repo.tasks.refresh() }) { list ->
             val groups = groupTasks(list)
             if (groups.isEmpty()) {
-                item("empty") { EmptyState(stringResource(R.string.weldhr_tasks_empty), stringResource(R.string.weldhr_tasks_empty_description)) }
+                item("empty") { HrEmpty(stringResource(R.string.weldhr_tasks_empty), stringResource(R.string.weldhr_tasks_empty_description), Icons.Filled.Checklist) }
             }
             groups.forEach { (name, group) ->
-                item("head-$name") { SectionHead(name, "${group.count { it.completedAt != null }}/${group.size}") }
+                item("head-$name") {
+                    SectionHead(name, count = group.size, figure = stringResource(R.string.weldhr_tasks_progress, group.count { it.completedAt != null }.toString(), group.size.toString()))
+                }
                 items(group, key = { it.id }) { TaskRow(it) }
             }
         }
     }
 }
 
+/** A task's state, as the platform's pill: to do grey, overdue red, done green. */
+@Composable
+private fun TaskStatePill(state: String) {
+    val dark = isDark()
+    val (fill, ink) = when (state) {
+        "overdue" -> if (dark) Color(0xFF450A0A) to Color(0xFFF87171) else Color(0xFFFEF2F2) to Color(0xFFDC2626)
+        "done" -> if (dark) Color(0xFF022C22) to Color(0xFF34D399) else Color(0xFFECFDF5) to Color(0xFF059669)
+        else -> if (dark) Tokens.Palette.secondary.current() to MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFFF3F4F6) to Color(0xFF4B5563)
+    }
+    val label = when (state) {
+        "overdue" -> stringResource(R.string.weldhr_tasks_state_overdue)
+        "done" -> stringResource(R.string.weldhr_tasks_state_done)
+        else -> stringResource(R.string.weldhr_tasks_state_open)
+    }
+    Text(
+        label,
+        style = MaterialTheme.typography.labelMedium,
+        color = ink,
+        maxLines = 1,
+        modifier = Modifier.background(fill, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
+    )
+}
+
+/**
+ * A task, as the platform's: a checkbox, the title (struck through and
+ * muted once done), who it is for, and the state pill with the due date.
+ */
 @Composable
 private fun TaskRow(task: HrTask) {
     val hr = LocalHr.current
@@ -372,21 +388,25 @@ private fun TaskRow(task: HrTask) {
     HrRow(
         leading = {
             when {
-                busy -> CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                done -> Icon(Icons.Filled.CheckCircle, contentDescription = stringResource(R.string.weldhr_a11y_mark_open), tint = brand())
+                busy -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                done -> Icon(Icons.Filled.CheckBox, contentDescription = stringResource(R.string.weldhr_a11y_mark_open), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 else -> Icon(
-                    Icons.Filled.RadioButtonUnchecked,
+                    Icons.Filled.CheckBoxOutlineBlank,
                     contentDescription = stringResource(R.string.weldhr_a11y_mark_done),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (task.canComplete) 1f else 0.4f),
+                    modifier = Modifier.size(20.dp),
                 )
             }
         },
         title = task.title,
-        subtitle = if (overdue && task.dueDate != null) stringResource(R.string.weldhr_tasks_due, Fmt.day(task.dueDate)) else task.description,
-        subtitleColor = if (overdue) Tokens.Status.danger.current() else null,
+        subtitle = listOfNotNull(
+            task.description,
+            if (task.canComplete) null else stringResource(R.string.weldhr_tasks_assigned_to, roleLabel(task.assigneeRole)),
+        ).joinToString("\n").ifEmpty { null },
         subtitleLines = 3,
-        value = task.dueDate?.let(Fmt::day),
-        detail = if (task.canComplete) null else stringResource(R.string.weldhr_tasks_assigned_to, roleLabel(task.assigneeRole)),
+        detail = task.dueDate?.let(Fmt::day),
+        detailColor = if (overdue) Tokens.Status.danger.current() else null,
+        badge = { TaskStatePill(if (done) "done" else if (overdue) "overdue" else "open") },
         muted = done,
         strike = done,
         tag = "task-${task.id}",
@@ -431,8 +451,8 @@ fun ReviewsScreen() {
         header = {
             Segments(
                 listOf(
-                    Segment("coaching", withCount(stringResource(R.string.weldhr_reviews_coaching), openCoaching), "reviews-coaching"),
-                    Segment("evaluations", withCount(stringResource(R.string.weldhr_reviews_evaluations), openEvaluations), "reviews-evaluations"),
+                    Segment("coaching", stringResource(R.string.weldhr_reviews_coaching), "reviews-coaching", openCoaching),
+                    Segment("evaluations", stringResource(R.string.weldhr_reviews_evaluations), "reviews-evaluations", openEvaluations),
                 ),
                 tab,
             ) { tab = it }
@@ -440,12 +460,12 @@ fun ReviewsScreen() {
     ) {
         if (tab == "coaching") {
             query(coaching, onRetry = { repo.coaching.refresh() }) { logs ->
-                if (logs.isEmpty()) item("empty") { EmptyState(stringResource(R.string.weldhr_reviews_no_coaching)) }
+                if (logs.isEmpty()) item("empty") { HrEmpty(stringResource(R.string.weldhr_reviews_no_coaching), icon = Icons.Filled.Forum) }
                 items(logs, key = { it.id }) { CoachingCard(it) { target = true to it.id } }
             }
         } else {
             query(evaluations, onRetry = { repo.evaluations.refresh() }) { rows ->
-                if (rows.isEmpty()) item("empty") { EmptyState(stringResource(R.string.weldhr_reviews_no_evaluations)) }
+                if (rows.isEmpty()) item("empty") { HrEmpty(stringResource(R.string.weldhr_reviews_no_evaluations), icon = Icons.Filled.StarOutline) }
                 items(rows, key = { it.id }) { EvaluationCard(it) { target = false to it.id } }
             }
         }
@@ -476,14 +496,10 @@ private fun Acknowledged(acknowledgedAt: String?, comment: String?, tag: String,
 @Composable
 private fun CoachingCard(log: CoachingLog, onAcknowledge: () -> Unit) {
     ReviewCard {
-        Row {
-            Text(
-                coachingCategoryLabel(log.category),
-                color = if (log.category == "recognition") Tokens.Status.success.current() else brand(),
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-            )
-            Text(Fmt.date(log.sessionDate), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // The platform shows the category as a secondary badge.
+            Box(Modifier.weight(1f)) { ToneBadge(coachingCategoryLabel(log.category), Tone.SECONDARY) }
+            Text(Fmt.date(log.sessionDate), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Text(log.topic, style = MaterialTheme.typography.titleMedium)
         log.coachName?.let { Text(stringResource(R.string.weldhr_reviews_by, it), color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -511,9 +527,10 @@ private fun CoachingCard(log: CoachingLog, onAcknowledge: () -> Unit) {
 private fun EvaluationCard(evaluation: Evaluation, onAcknowledge: () -> Unit) {
     val scores = evaluation.scores.associateBy { it.criterionId }
     ReviewCard {
-        Row {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(evaluation.formName ?: stringResource(R.string.weldhr_reviews_evaluations), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            evaluation.overallScore?.let { Text(stringResource(R.string.weldhr_reviews_score, Fmt.days(it)), color = brand(), fontWeight = FontWeight.SemiBold) }
+            // The platform's coloured score badge.
+            if (evaluation.overallScore != null) ScoreBadge(evaluation.overallScore)
         }
         Text(
             listOfNotNull(
@@ -592,10 +609,10 @@ fun DirectoryScreen() {
         SearchField(search, { search = it }, stringResource(R.string.weldhr_directory_search), filtered = false, onFilter = null, tag = "directory")
     }) {
         query(state, onRetry = { employees.refresh() }) { rows ->
-            if (rows.isEmpty()) item("empty") { EmptyState(stringResource(R.string.weldhr_directory_empty), stringResource(R.string.weldhr_directory_empty_description)) }
+            if (rows.isEmpty()) item("empty") { HrEmpty(stringResource(R.string.weldhr_directory_empty), stringResource(R.string.weldhr_directory_empty_description), Icons.Filled.PersonSearch) }
             items(rows, key = { it.id }) { employee ->
                 HrRow(
-                    leading = { Avatar(employee.displayName, employee.avatarUrl) },
+                    leading = { Avatar(employee.displayName, employee.avatarUrl, size = 32.dp) },
                     title = employee.displayName,
                     subtitle = listOfNotNull(employee.jobTitle, employee.departmentName).joinToString(" • ").ifEmpty { employee.email },
                     tag = "employee-${employee.id}",
@@ -617,27 +634,30 @@ fun EmployeeScreen(id: String) {
     Page(state.data?.displayName.orEmpty(), state.loading, { employee.refresh() }, onBack = hr::back) {
         query(state, onRetry = { employee.refresh() }) { data ->
             item("card") {
-                Column(Modifier.fillMaxWidth().padding(Tokens.Spacing.l), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Avatar(data.displayName, data.avatarUrl, size = 84.dp)
-                    data.jobTitle?.let { Text(it, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center) }
-                    Text(listOfNotNull(employeeStatusLabel(data.status), data.pronouns).joinToString(" • "), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(Modifier.fillMaxWidth().padding(Tokens.Spacing.l), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Avatar(data.displayName, data.avatarUrl, size = 72.dp)
+                    data.jobTitle?.let { Text(it, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center) }
+                    data.pronouns?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    // The employee status badge, as the platform's Employees list.
+                    StatusTag(data.status, employeeStatusLabel(data.status))
                 }
                 Row(Modifier.fillMaxWidth().padding(horizontal = Tokens.Spacing.l), horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s, Alignment.CenterHorizontally)) {
                     data.phone?.let { phone ->
-                        FilledTonalButton(onClick = {
+                        OutlinedButton(onClick = {
                             context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${phone.filter { it.isDigit() || it == '+' }}")))
                         }, modifier = Modifier.tagged("employee-call")) {
-                            Icon(Icons.Filled.Call, contentDescription = null)
+                            Icon(Icons.Filled.Call, contentDescription = null, modifier = Modifier.size(16.dp))
                             Text(stringResource(R.string.weldhr_directory_call), modifier = Modifier.padding(start = Tokens.Spacing.s))
                         }
                     }
-                    FilledTonalButton(onClick = {
+                    OutlinedButton(onClick = {
                         runCatching { context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${data.email}"))) }
                     }, modifier = Modifier.tagged("employee-email")) {
-                        Icon(Icons.Filled.Email, contentDescription = null)
+                        Icon(Icons.Filled.Email, contentDescription = null, modifier = Modifier.size(16.dp))
                         Text(stringResource(R.string.weldhr_directory_email), modifier = Modifier.padding(start = Tokens.Spacing.s))
                     }
                 }
+                VSpace(Tokens.Spacing.m)
                 facts(
                     stringResource(R.string.weldhr_directory_department) to data.departmentName,
                     stringResource(R.string.weldhr_directory_manager) to data.managerName,
@@ -646,10 +666,10 @@ fun EmployeeScreen(id: String) {
                     stringResource(R.string.weldhr_directory_email_address) to data.email,
                 )
                 if (data.directReports.isNotEmpty()) {
-                    SectionHead(stringResource(R.string.weldhr_directory_reports))
+                    SectionHead(stringResource(R.string.weldhr_directory_reports), count = data.directReports.size)
                     data.directReports.forEach { report ->
                         HrRow(
-                            leading = { Avatar(report.displayName, report.avatarUrl) },
+                            leading = { Avatar(report.displayName, report.avatarUrl, size = 32.dp) },
                             title = report.displayName,
                             subtitle = report.jobTitle,
                             onClick = { hr.open(Routes.employee(report.id)) },

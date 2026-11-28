@@ -20,17 +20,17 @@ struct AbsenceView: View {
         if access.me { options.append(Segment(value: "mine", label: HRStrings.absenceMine, tag: "absence-mine")) }
         if access.leave || access.sickToday { options.append(Segment(value: "absences", label: HRStrings.absenceAbsences, tag: "absence-team")) }
         if access.approveLeave {
-            options.append(Segment(value: "requests", label: withCount(HRStrings.absenceRequests, store.pendingLeave.data?.count ?? 0), tag: "absence-requests"))
+            options.append(Segment(value: "requests", label: HRStrings.absenceRequests, tag: "absence-requests", count: store.pendingLeave.data?.count ?? 0))
         }
         let view = options.contains { $0.value == chosen } ? chosen : options.first?.value ?? "mine"
         return List {
             Section {
                 Segments(options: options, selection: Binding(get: { view }, set: { chosen = $0 }))
-                    .listRowInsets(EdgeInsets())
+                    .segmentsRow()
                     .listRowBackground(Color.clear)
                 if view == "mine" {
                     PeriodNav(label: String(year), onPrevious: { year -= 1 }, onNext: year <= thisYear ? Optional({ year += 1 }) : nil)
-                        .listRowInsets(EdgeInsets())
+                        .segmentsRow()
                         .listRowBackground(Color.clear)
                 } else if view == "absences" {
                     PeriodNav(
@@ -39,7 +39,7 @@ struct AbsenceView: View {
                         onNext: { day = HRDays.add(day, 1) },
                         onLabel: { picking = true }
                     )
-                    .listRowInsets(EdgeInsets())
+                    .segmentsRow()
                     .listRowBackground(Color.clear)
                 }
             }
@@ -65,13 +65,14 @@ struct AbsenceView: View {
             default:
                 QueryBody(state: store.pendingLeave, retry: { await store.load(.pendingLeave) }) { requests in
                     if requests.isEmpty {
-                        ContentUnavailableView(HRStrings.teamNothingToApprove, systemImage: "checkmark.circle", description: Text(HRStrings.teamNothingToApproveDescription))
+                        HREmpty(HRStrings.teamNothingToApprove, description: HRStrings.teamNothingToApproveDescription, symbol: "calendar")
                     } else {
                         LeaveApprovals(requests: requests)
                     }
                 }
             }
         }
+        .listStyle(.plain)
         .navigationTitle(HRStrings.tabsAbsence)
         .refreshable {
             switch view {
@@ -108,7 +109,8 @@ struct AbsenceView: View {
     }
 }
 
-/// The member's year: requests waiting, the ones reviewed, sick reports, and the totals.
+/// The member's year, in the platform's groups: leave requests Pending,
+/// Approved and Rejected & cancelled, then the sick reports, and the totals.
 private struct MyAbsence: View {
     let year: Int
     let requests: [HRLeaveRequest]
@@ -121,38 +123,41 @@ private struct MyAbsence: View {
         let prefix = String(year)
         let inYear = requests.filter { $0.startDate.hasPrefix(prefix) || $0.endDate.hasPrefix(prefix) }
         let open = inYear.filter { $0.status == "pending" }.sorted { $0.startDate < $1.startDate }
-        let reviewed = inYear.filter { $0.status != "pending" }.sorted { $0.startDate > $1.startDate }
+        let approved = inYear.filter { $0.status == "approved" }.sorted { $0.startDate > $1.startDate }
+        let closed = inYear.filter { $0.status != "pending" && $0.status != "approved" }.sorted { $0.startDate > $1.startDate }
+        let groups: [(title: String, requests: [HRLeaveRequest])] = [
+            (title: HRStrings.absenceGroupsPending, requests: open),
+            (title: HRStrings.absenceGroupsApproved, requests: approved),
+            (title: HRStrings.absenceGroupsRejectedCancelled, requests: closed),
+        ]
         let current = absences?.current
-        let reports = ([current].compactMap { $0 } + (absences?.history ?? []))
+        let reports = ([current].compactMap { $0 } + (absences?.history ?? []).filter { $0.id != current?.id })
             .filter { $0.startDate.hasPrefix(prefix) || ($0.endDate ?? today).hasPrefix(prefix) }
         let reportSick = today.hasPrefix(prefix) && current == nil
         Group {
             if !canRequest {
                 Section { Text(HRStrings.timeOffTurnedOff).font(.inter(.subheadline)).foregroundStyle(.secondary) }
             }
-            if open.isEmpty && reviewed.isEmpty && reports.isEmpty && !reportSick {
-                ContentUnavailableView(HRStrings.absenceNoAbsence(year: prefix), systemImage: "calendar")
+            if inYear.isEmpty && reports.isEmpty && !reportSick {
+                HREmpty(HRStrings.absenceNoAbsence(year: prefix), symbol: "calendar")
             } else {
-                if !open.isEmpty {
+                ForEach(groups.filter { !$0.requests.isEmpty }, id: \.title) { group in
                     Section {
-                        ForEach(open) { request in Button { nav.open(.leave(request.id)) } label: { LeaveRowView(request: request) } }
-                    } header: { HeadWithFigure(title: HRStrings.absenceOpenRequests, figure: String(open.count)) }
-                }
-                if !reviewed.isEmpty {
-                    Section {
-                        ForEach(reviewed) { request in Button { nav.open(.leave(request.id)) } label: { LeaveRowView(request: request) } }
-                    } header: { HeadWithFigure(title: HRStrings.absenceReviewed, figure: String(reviewed.count)) }
+                        ForEach(group.requests) { request in Button { nav.open(.leave(request.id)) } label: { LeaveRowView(request: request) } }
+                    } header: { GroupHead(title: group.title, count: group.requests.count) }
                 }
                 if !reports.isEmpty || reportSick {
                     Section {
                         ForEach(reports) { report in Button { nav.open(.sickReport(report.id)) } label: { SickRowView(absence: report) } }
                         if reportSick {
                             Button { nav.present(.sick) } label: {
-                                HRRow(title: HRStrings.absenceReportSick) { IconTile(symbol: "thermometer.medium") }
+                                HRRow(title: HRStrings.absenceReportSick) {
+                                    Image(systemName: "heart.text.square").foregroundStyle(.secondary)
+                                }
                             }
                             .accessibilityIdentifier("absence-report-sick")
                         }
-                    } header: { HeadWithFigure(title: HRStrings.absenceSickLeave, figure: reports.isEmpty ? nil : String(reports.count)) }
+                    } header: { GroupHead(title: HRStrings.absenceSickLeave, count: reports.isEmpty ? nil : reports.count) }
                 }
                 Section {
                     let leaveDays = inYear.filter { $0.status == "approved" }.reduce(0) { $0 + $1.days }
@@ -179,31 +184,31 @@ private struct OffOnDay: View {
         let onLeave = leave.filter { $0.startDate <= day && $0.endDate >= day }
         let ill = sick.filter { $0.startDate <= day && ($0.endDate ?? today) >= day && day <= today }
         if onLeave.isEmpty && ill.isEmpty {
-            ContentUnavailableView(HRStrings.absenceNobodyAbsent, systemImage: "person.3", description: Text(HRStrings.absenceNobodyAbsentDescription))
+            HREmpty(HRStrings.absenceNobodyAbsent, description: HRStrings.absenceNobodyAbsentDescription, symbol: "calendar")
         } else {
             if !onLeave.isEmpty {
                 Section {
                     ForEach(onLeave) { request in
                         HRRow(
                             title: request.employeeName ?? "",
-                            subtitle: request.leaveTypeName ?? HRStrings.absenceLeave,
-                            value: Fmt.span(request.startDate, request.endDate),
-                            detail: Fmt.daysText(request.days)
-                        ) { PersonAvatar(name: request.employeeName) }
+                            subtitle: "\(request.leaveTypeName ?? HRStrings.absenceLeave) · \(Fmt.span(request.startDate, request.endDate))",
+                            detail: Fmt.daysText(request.days),
+                            subtitleDot: HRDot(color: request.leaveTypeColor)
+                        ) { PersonAvatar(name: request.employeeName, size: 32) }
                     }
-                } header: { HeadWithFigure(title: HRStrings.absenceLeave, figure: String(onLeave.count)) }
+                } header: { GroupHead(title: HRStrings.absenceLeave, count: onLeave.count) }
             }
             if !ill.isEmpty {
                 Section {
                     ForEach(ill) { absence in
                         HRRow(
                             title: absence.employeeName ?? "",
-                            subtitle: HRStrings.absenceSick,
-                            value: absence.endDate.map { Fmt.span(absence.startDate, $0) } ?? "\(Fmt.shortDate(absence.startDate))\(Fmt.range)…",
-                            detail: Fmt.daysText(absence.days)
-                        ) { PersonAvatar(name: absence.employeeName) }
+                            subtitle: absence.endDate.map { Fmt.span(absence.startDate, $0) } ?? "\(Fmt.shortDate(absence.startDate))\(Fmt.range)…",
+                            detail: Fmt.daysText(absence.days),
+                            tag: .status(absence.status, Labels.absenceStatus(absence.status))
+                        ) { PersonAvatar(name: absence.employeeName, size: 32) }
                     }
-                } header: { HeadWithFigure(title: HRStrings.absenceSick, figure: String(ill.count)) }
+                } header: { GroupHead(title: HRStrings.absenceSick, count: ill.count) }
             }
         }
     }
@@ -248,28 +253,33 @@ private struct LeaveApprovals: View {
                         ApprovalRow(
                             id: request.id,
                             name: request.employeeName ?? "",
-                            subtitle: request.leaveTypeName ?? HRStrings.absenceLeave,
-                            note: request.reason,
-                            value: Fmt.span(request.startDate, request.endDate),
-                            detail: Fmt.daysText(request.days)
+                            subtitle: "\(request.leaveTypeName ?? HRStrings.absenceLeave) · \(Fmt.span(request.startDate, request.endDate)) · \(Fmt.daysText(request.days))",
+                            subtitleDot: HRDot(color: request.leaveTypeColor),
+                            note: request.reason
                         ) { approve, note in
                             try await store.reviewLeave(id: request.id, approve: approve, note: note)
                         }
                     }
+                } header: {
+                    GroupHead(title: HRStrings.absenceGroupsPending, count: shown.count)
                 }
             }
         }
     }
 }
 
-/// A request or claim to approve: who and what for, the dates or the amount, Decline and Approve under it.
+/// A request or claim to approve, the same on Absence → Requests and Expenses →
+/// To approve, as the platform's review rows: who (medium) with what and when
+/// under it, the amount on the right, and the small outline Approve and Reject
+/// buttons the platform puts on a pending row.
 struct ApprovalRow: View {
     let id: String
     let name: String
     let subtitle: String
+    var subtitleDot: HRDot?
+    var subtitleSymbol: String?
     let note: String?
-    let value: String
-    let detail: String
+    var value: String?
     let decide: (Bool, String?) async throws -> Void
     @Environment(Toaster.self) private var toaster
     @State private var busy = false
@@ -277,35 +287,37 @@ struct ApprovalRow: View {
     @State private var reason = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Tokens.Spacing.m) {
-            HStack(alignment: .top, spacing: Tokens.Spacing.m) {
-                PersonAvatar(name: name)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(name).font(.inter(.body, weight: .semibold)).lineLimit(1)
-                    Text(subtitle).font(.inter(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
-                    if let note, !note.isEmpty { Text(note).font(.inter(.subheadline)).foregroundStyle(.secondary).lineLimit(2) }
+        HStack(alignment: .top, spacing: Tokens.Spacing.m) {
+            PersonAvatar(name: name, size: 32)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(name).font(.inter(size: 15, weight: .medium)).lineLimit(1)
+                    Spacer(minLength: Tokens.Spacing.s)
+                    if let value { Text(value).font(.inter(.subheadline, weight: .medium)).monospacedDigit().lineLimit(1) }
                 }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(value).font(.inter(.subheadline)).lineLimit(1)
-                    Text(detail).font(.inter(.footnote)).foregroundStyle(.secondary).lineLimit(1)
+                HStack(spacing: 6) {
+                    if let subtitleDot { ColorDot(color: subtitleDot.color) }
+                    if let subtitleSymbol { Image(systemName: subtitleSymbol).font(.system(size: 11)).foregroundStyle(.secondary) }
+                    Text(subtitle).font(.inter(.footnote)).foregroundStyle(.secondary).lineLimit(2)
                 }
-            }
-            HStack {
-                Button(HRStrings.teamReject) { rejecting = true }
-                    .buttonStyle(.bordered)
-                    .disabled(busy)
+                if let note, !note.isEmpty { Text(note).font(.inter(.footnote)).foregroundStyle(.secondary).lineLimit(2) }
+                HStack(spacing: 6) {
+                    Button { run(approve: true, note: nil) } label: {
+                        Label(HRStrings.teamApprove, systemImage: "checkmark").font(.inter(.caption, weight: .medium))
+                    }
+                    .accessibilityIdentifier("approve-\(id)")
+                    Button { rejecting = true } label: {
+                        Label(HRStrings.teamReject, systemImage: "xmark").font(.inter(.caption, weight: .medium))
+                    }
                     .accessibilityIdentifier("reject-\(id)")
-                Button {
-                    run(approve: true, note: nil)
-                } label: {
-                    if busy { ProgressView() } else { Text(HRStrings.teamApprove) }
+                    if busy { ProgressView().controlSize(.small) }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.bordered)
+                .tint(Tokens.Palette.foreground)
+                .controlSize(.small)
                 .disabled(busy)
-                .accessibilityIdentifier("approve-\(id)")
+                .padding(.top, Tokens.Spacing.s)
             }
-            .padding(.leading, 34 + Tokens.Spacing.m)
         }
         .padding(.vertical, Tokens.Spacing.xs)
         .accessibilityIdentifier("approval-\(id)")

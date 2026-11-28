@@ -20,7 +20,7 @@ struct ShiftView: View {
                 let shift = data.shifts.first { $0.id == id }
                 let loose = shift == nil ? data.records.first { $0.id == id } : nil
                 if shift == nil && loose == nil {
-                    ContentUnavailableView(HRStrings.shiftNotFound, systemImage: "calendar")
+                    HREmpty(HRStrings.shiftNotFound, symbol: "calendar")
                 } else {
                     let worked: [HRClockRecord] = shift.map { shift in
                         ShiftMath.byClockIn(data.records.filter { ShiftMath.shiftOf($0, shifts: data.shifts, now: now)?.id == shift.id })
@@ -58,16 +58,18 @@ private struct ShiftDetail: View {
         let place = shift.map { [$0.workType, company].compactMap { $0 }.joined(separator: " · ") }.map { $0.isEmpty ? workspace : $0 } ?? HRStrings.scheduleWithoutShift
         Section {
             HStack(alignment: .top, spacing: Tokens.Spacing.m) {
-                RoundedRectangle(cornerRadius: 3).fill(Color(hrRGB: Swatches.shiftColor(company ?? workspace))).frame(width: 5)
+                RoundedRectangle(cornerRadius: 2).fill(Color(hrRGB: Swatches.shiftColor(company))).frame(width: 4)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
                         Text(shift.map { Fmt.timeRange($0.startsAt, $0.endsAt) } ?? Fmt.timeRange(loose?.clockIn, loose?.clockOut))
-                            .font(.inter(.title2, weight: .bold))
+                            .font(.inter(.title3))
                         Spacer()
                         Text(shift.map { Fmt.hm(Double(ShiftMath.plannedMinutes($0))) } ?? Fmt.hm(workedMinutes)).foregroundStyle(.secondary)
                     }
-                    Text(place).foregroundStyle(.secondary).lineLimit(1)
-                    Text(status.0).foregroundStyle(status.1).accessibilityIdentifier("shift-status")
+                    Text(place).font(.inter(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
+                    ToneBadge(status.text, tone: status.tone)
+                        .padding(.top, Tokens.Spacing.xs)
+                        .accessibilityIdentifier("shift-status")
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -79,7 +81,7 @@ private struct ShiftDetail: View {
         if !worked.isEmpty || started {
             Section(HRStrings.shiftWorked) {
                 if worked.isEmpty {
-                    HRRow(title: HRStrings.scheduleNotClockedIn, muted: true) { IconTile(symbol: "clock") }
+                    HRRow(title: HRStrings.scheduleNotClockedIn, muted: true)
                 }
                 ForEach(worked) { record in
                     let since = ShiftMath.isOpen(record) ? record.clockIn : nil
@@ -88,9 +90,10 @@ private struct ShiftDetail: View {
                         title: record.clockIn != nil ? Fmt.timeRange(record.clockIn, record.clockOut) : Labels.attendanceStatus(record.status),
                         subtitle: [Labels.source(record.source), late].compactMap { $0 }.joined(separator: " · "),
                         value: since.map { ShiftMath.timer(now - (WeldDate.parse($0)?.timeIntervalSince1970 ?? 0) * 1000) } ?? Fmt.hm(ShiftMath.minutesOf(record, now: now)),
-                        detail: since != nil ? HRStrings.timesheetClockedIn : Labels.attendanceStatus(record.status),
-                        detailColor: since != nil ? Tokens.Status.success : statusColor(record.status)
-                    ) { IconTile(symbol: "clock") }
+                        detail: since != nil ? HRStrings.timesheetClockedIn : nil,
+                        detailColor: Tokens.Status.success,
+                        tag: since == nil ? .status(record.status, Labels.attendanceStatus(record.status)) : nil
+                    )
                 }
                 ForEach(worked.compactMap(\.notes), id: \.self) { note in FactRow(label: HRStrings.shiftNotes, value: note) }
             }
@@ -98,14 +101,15 @@ private struct ShiftDetail: View {
         pay(workedMinutes: workedMinutes)
     }
 
-    private func statusOf(open: Bool, started: Bool) -> (String, Color) {
-        if open { return (HRStrings.timesheetClockedIn, Tokens.Status.success) }
+    /// The shift's state as the platform's badge.
+    private func statusOf(open: Bool, started: Bool) -> (text: String, tone: Tone) {
+        if open { return (HRStrings.timesheetClockedIn, .primary) }
         if !worked.isEmpty {
             return worked.allSatisfy(\.approved)
-                ? (HRStrings.timesheetApproved, Tokens.Status.success)
-                : (HRStrings.timesheetPendingApproval, Tokens.Status.warning)
+                ? (HRStrings.timesheetApproved, .primary)
+                : (HRStrings.timesheetPendingApproval, .outline)
         }
-        if started { return (HRStrings.scheduleNotClockedIn, Tokens.Status.warning) }
+        if started { return (HRStrings.scheduleNotClockedIn, .outline) }
         return (HRStrings.shiftPlanned, .secondary)
     }
 
@@ -121,7 +125,7 @@ private struct ShiftDetail: View {
         let recorded = worked.filter { ($0.breakMinutes ?? 0) > 0 }
         Section {
             if planned == nil && gaps.isEmpty && recorded.isEmpty {
-                HRRow(title: HRStrings.shiftNoBreak, muted: true) { IconTile(symbol: "cup.and.saucer") }
+                HRRow(title: HRStrings.shiftNoBreak, muted: true)
             }
             if let planned {
                 HRRow(
@@ -129,7 +133,7 @@ private struct ShiftDetail: View {
                     subtitle: HRStrings.shiftPlannedBreak,
                     value: minutesText(Double(ShiftMath.minutesBetween(planned.0, planned.1))),
                     detail: HRStrings.shiftUnpaid
-                ) { IconTile(symbol: "cup.and.saucer") }
+                )
             }
             ForEach(Array(gaps.enumerated()), id: \.offset) { _, gap in
                 HRRow(
@@ -137,7 +141,7 @@ private struct ShiftDetail: View {
                     subtitle: HRStrings.shiftClockedOut,
                     value: minutesText(Double(ShiftMath.minutesBetween(gap.0, gap.1))),
                     detail: HRStrings.shiftUnpaid
-                ) { IconTile(symbol: "cup.and.saucer") }
+                )
             }
             ForEach(recorded) { record in
                 HRRow(
@@ -145,7 +149,7 @@ private struct ShiftDetail: View {
                     subtitle: record.clockIn.map { Fmt.timeRange($0, record.clockOut) },
                     value: minutesText(Double(record.breakMinutes ?? 0)),
                     detail: HRStrings.shiftUnpaid
-                ) { IconTile(symbol: "cup.and.saucer") }
+                )
             }
         } header: {
             Text(HRStrings.shiftBreaks)
@@ -197,11 +201,9 @@ struct ShiftRequestView: View {
                     Section {
                         HRRow(
                             title: range,
-                            subtitle: Labels.shiftRequestStatus(request.status),
-                            subtitleColor: statusColor(request.status),
-                            value: hours,
-                            detail: request.workType
-                        ) { ShiftBar(key: nil, plain: true) }
+                            subtitle: [hours, request.workType].compactMap { $0 }.joined(separator: " · "),
+                            tag: .status(request.status, Labels.shiftRequestStatus(request.status))
+                        ) { ShiftBar(client: nil) }
                     }
                     Section(HRStrings.shiftDetails) {
                         Facts(rows: [
@@ -235,7 +237,7 @@ struct ShiftRequestView: View {
                         }
                     }
                 } else {
-                    ContentUnavailableView(HRStrings.shiftRequestNotFound, systemImage: "calendar")
+                    HREmpty(HRStrings.shiftRequestNotFound, symbol: "calendar")
                 }
             }
         }
@@ -263,7 +265,7 @@ struct OpenShiftView: View {
                 if let shift = list.first(where: { $0.id == id }) {
                     content(shift)
                 } else {
-                    ContentUnavailableView(HRStrings.openShiftsNotFound, systemImage: "calendar")
+                    HREmpty(HRStrings.openShiftsNotFound, symbol: "calendar")
                 }
             }
         }
@@ -283,11 +285,10 @@ struct OpenShiftView: View {
         Section {
             HRRow(
                 title: range,
-                subtitle: standing == .open ? HRStrings.openShiftsSpotsLeft(shift.spotsLeft) : Labels.standing(standing),
-                subtitleColor: standingColor(standing),
-                value: hours,
-                detail: shift.workType
-            ) { ShiftBar(key: shift.workType ?? shift.companyName) }
+                subtitle: [hours, shift.workType].compactMap { $0 }.joined(separator: " · "),
+                detail: spotsText(shift.spotsLeft),
+                tag: standingTag(standing)
+            ) { ShiftBar(client: shift.companyName) }
         }
         if canSignUp {
             Section {
@@ -372,7 +373,7 @@ struct LeaveView: View {
                 if let request = data.requests.first(where: { $0.id == id }) {
                     content(request, data: data)
                 } else {
-                    ContentUnavailableView(HRStrings.leaveDetailNotFound, systemImage: "calendar")
+                    HREmpty(HRStrings.leaveDetailNotFound, symbol: "calendar")
                 }
             }
         }
@@ -390,15 +391,14 @@ struct LeaveView: View {
         let balance = LeaveRules.balanceForStart(data.balances, leaveTypeId: request.leaveTypeId, startDate: request.startDate, today: today)
         let reviewed = request.reviewedAt.map(Fmt.date)
         let days = { (value: Double?) in value.map(Fmt.days) ?? HRStrings.balanceUnlimited }
+        // The platform panel's title: the type's dot and name, with the status badge.
         Section {
             HRRow(
                 title: request.leaveTypeName ?? type?.name ?? HRStrings.absenceLeave,
-                subtitle: Labels.leaveStatus(request.status),
-                subtitleColor: statusColor(request.status),
-                value: Fmt.span(request.startDate, request.endDate),
-                detail: Fmt.daysText(request.days),
-                muted: request.status == "cancelled"
-            ) { LeaveTypeTile(color: request.leaveTypeColor ?? type?.color) }
+                subtitle: "\(Fmt.span(request.startDate, request.endDate)) · \(Fmt.daysText(request.days))",
+                dot: HRDot(color: request.leaveTypeColor ?? type?.color),
+                tag: .status(request.status, Labels.leaveStatus(request.status))
+            )
         }
         Section(HRStrings.absenceLeave) {
             Facts(rows: [
@@ -466,7 +466,7 @@ struct SickReportView: View {
                         }
                     }
                 } else {
-                    ContentUnavailableView(HRStrings.sickDetailNotFound, systemImage: "calendar")
+                    HREmpty(HRStrings.sickDetailNotFound, symbol: "calendar")
                 }
             }
         }
@@ -494,7 +494,7 @@ struct ExpenseView: View {
                 if let declaration = data.declarations.first(where: { $0.id == id }) {
                     content(declaration)
                 } else {
-                    ContentUnavailableView(HRStrings.expenseDetailNotFound, systemImage: "receipt")
+                    HREmpty(HRStrings.expenseDetailNotFound, symbol: "wallet.bifold")
                 }
             }
         }
@@ -526,7 +526,7 @@ struct ExpenseView: View {
                     open(declaration)
                 } label: {
                     HRRow(title: HRStrings.expensesViewReceipt, subtitle: declaration.receiptFileName) {
-                        IconTile(symbol: "paperclip")
+                        Image(systemName: "paperclip").foregroundStyle(.secondary)
                     } value: {
                         if opening { ProgressView() } else { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
                     }
@@ -535,7 +535,7 @@ struct ExpenseView: View {
                 .disabled(opening)
                 .accessibilityIdentifier("expense-receipt")
             } else {
-                HRRow(title: HRStrings.expensesNoReceipt, muted: true) { IconTile(symbol: "paperclip") }
+                HRRow(title: HRStrings.expensesNoReceipt, muted: true)
             }
         }
         if declaration.status == "pending" {
@@ -585,9 +585,9 @@ struct AnnouncementView: View {
                     Section {
                         VStack(alignment: .leading, spacing: Tokens.Spacing.s) {
                             if item.pinned {
-                                Label(HRStrings.announcementsPinned, systemImage: "pin").font(.inter(.footnote, weight: .semibold)).foregroundStyle(.secondary)
+                                Label(HRStrings.announcementsPinned, systemImage: "pin").font(.inter(.footnote, weight: .medium)).foregroundStyle(.secondary)
                             }
-                            Text(item.title).font(.inter(.title2, weight: .bold)).accessibilityIdentifier("announcement-title")
+                            Text(item.title).font(.inter(.title2, weight: .semibold)).accessibilityIdentifier("announcement-title")
                             Text([item.createdByName.map { HRStrings.announcementsBy(name: $0) }, "\(Fmt.date(item.publishedAt)), \(Fmt.time(item.publishedAt))"].compactMap { $0 }.joined(separator: " · "))
                                 .font(.inter(.subheadline))
                                 .foregroundStyle(.secondary)
@@ -596,7 +596,7 @@ struct AnnouncementView: View {
                         .padding(.vertical, Tokens.Spacing.s)
                     }
                 } else {
-                    ContentUnavailableView(HRStrings.announcementsNotFound, systemImage: "megaphone")
+                    HREmpty(HRStrings.announcementsNotFound, symbol: "newspaper")
                 }
             }
         }

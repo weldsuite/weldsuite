@@ -3,13 +3,19 @@ package com.weldsuite.weldhr.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Thermostat
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.MonitorHeart
+import androidx.compose.material.icons.filled.Search as SearchIcon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,7 +33,6 @@ import com.weldsuite.weldhr.R
 import com.weldsuite.weldhr.Search
 import com.weldsuite.weldhr.SelfState
 import org.weldsuite.ui.Avatar
-import org.weldsuite.ui.EmptyState
 
 /**
  * Absence: the member's requests and sick reports per year; for who may, who
@@ -46,7 +51,7 @@ fun AbsenceScreen() {
         if (access.self) add(Segment("mine", stringResource(R.string.weldhr_absence_mine), "absence-mine"))
         if (access.leave || access.sickToday) add(Segment("absences", stringResource(R.string.weldhr_absence_absences), "absence-team"))
         if (access.approveLeave) {
-            add(Segment("requests", withCount(stringResource(R.string.weldhr_absence_requests), pending.data?.size ?: 0), "absence-requests"))
+            add(Segment("requests", stringResource(R.string.weldhr_absence_requests), "absence-requests", pending.data?.size ?: 0))
         }
     }
     var chosen by rememberSaveable { mutableStateOf("mine") }
@@ -128,7 +133,9 @@ fun AbsenceScreen() {
             }
             else -> query(pending, onRetry = { repo.pendingLeave.refresh() }) { requests ->
                 if (requests.isEmpty()) {
-                    item("nothing") { EmptyState(stringResource(R.string.weldhr_team_nothing_to_approve), stringResource(R.string.weldhr_team_nothing_to_approve_description)) }
+                    item("nothing") {
+                        HrEmpty(stringResource(R.string.weldhr_team_nothing_to_approve), stringResource(R.string.weldhr_team_nothing_to_approve_description), Icons.Filled.DateRange)
+                    }
                 } else {
                     leaveApprovals(requests)
                 }
@@ -138,7 +145,10 @@ fun AbsenceScreen() {
 }
 
 
-/** The member's year: requests waiting, the ones reviewed, sick reports, and the totals. */
+/**
+ * The member's year, in the platform's groups: leave requests Pending,
+ * Approved and Rejected & cancelled, then the sick reports, and the totals.
+ */
 private fun LazyListScope.myAbsence(year: Int, all: List<LeaveRequest>, absences: com.weldsuite.weldhr.Absences?, canRequest: Boolean) {
     item("my-absence") {
         val hr = LocalHr.current
@@ -146,30 +156,33 @@ private fun LazyListScope.myAbsence(year: Int, all: List<LeaveRequest>, absences
         val prefix = year.toString()
         val requests = all.filter { it.startDate.startsWith(prefix) || it.endDate.startsWith(prefix) }
         val open = requests.filter { it.status == "pending" }.sortedBy { it.startDate }
-        val reviewed = requests.filter { it.status != "pending" }.sortedByDescending { it.startDate }
+        val approved = requests.filter { it.status == "approved" }.sortedByDescending { it.startDate }
+        val closed = requests.filter { it.status != "pending" && it.status != "approved" }.sortedByDescending { it.startDate }
         val current = absences?.current
-        val reports = (listOfNotNull(current) + absences?.history.orEmpty())
+        val reports = (listOfNotNull(current) + absences?.history.orEmpty().filter { it.id != current?.id })
             .filter { it.startDate.startsWith(prefix) || (it.endDate ?: today).startsWith(prefix) }
         val reportSick = today.startsWith(prefix) && current == null
         if (!canRequest) Note(stringResource(R.string.weldhr_time_off_turned_off))
-        if (open.isEmpty() && reviewed.isEmpty() && reports.isEmpty() && !reportSick) {
-            EmptyState(stringResource(R.string.weldhr_absence_no_absence, prefix))
+        if (requests.isEmpty() && reports.isEmpty() && !reportSick) {
+            HrEmpty(stringResource(R.string.weldhr_absence_no_absence, prefix), icon = Icons.Filled.DateRange)
             return@item
         }
-        if (open.isNotEmpty()) {
-            SectionHead(stringResource(R.string.weldhr_absence_open_requests), open.size.toString())
-            open.forEach { LeaveRow(it) { hr.open(Routes.leave(it.id)) } }
-        }
-        if (reviewed.isNotEmpty()) {
-            SectionHead(stringResource(R.string.weldhr_absence_reviewed), reviewed.size.toString())
-            reviewed.forEach { LeaveRow(it) { hr.open(Routes.leave(it.id)) } }
+        listOf(
+            R.string.weldhr_absence_groups_pending to open,
+            R.string.weldhr_absence_groups_approved to approved,
+            R.string.weldhr_absence_groups_rejected_cancelled to closed,
+        ).forEach { (label, group) ->
+            if (group.isNotEmpty()) {
+                SectionHead(stringResource(label), count = group.size)
+                group.forEach { LeaveRow(it) { hr.open(Routes.leave(it.id)) } }
+            }
         }
         if (reports.isNotEmpty() || reportSick) {
-            SectionHead(stringResource(R.string.weldhr_absence_sick_leave), reports.size.takeIf { it > 0 }?.toString())
+            SectionHead(stringResource(R.string.weldhr_absence_sick_leave), count = reports.size.takeIf { it > 0 })
             reports.forEach { SickRow(it) { hr.open(Routes.sickReport(it.id)) } }
             if (reportSick) {
                 HrRow(
-                    leading = { PlainTile(Icons.Filled.Thermostat) },
+                    leading = { Icon(Icons.Filled.MonitorHeart, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) },
                     title = stringResource(R.string.weldhr_absence_report_sick),
                     tag = "absence-report-sick",
                     onClick = { hr.open(Routes.SICK) },
@@ -193,30 +206,32 @@ private fun LazyListScope.offOnDay(day: String, leave: List<LeaveRequest>, sick:
     val onLeave = leave.filter { it.startDate <= day && it.endDate >= day }
     val ill = sick.filter { it.startDate <= day && (it.endDate ?: today) >= day && day <= today }
     if (onLeave.isEmpty() && ill.isEmpty()) {
-        item("nobody") { EmptyState(stringResource(R.string.weldhr_absence_nobody_absent), stringResource(R.string.weldhr_absence_nobody_absent_description)) }
+        item("nobody") {
+            HrEmpty(stringResource(R.string.weldhr_absence_nobody_absent), stringResource(R.string.weldhr_absence_nobody_absent_description), Icons.Filled.DateRange)
+        }
         return
     }
     if (onLeave.isNotEmpty()) {
-        item("leave-head") { SectionHead(stringResource(R.string.weldhr_absence_leave), onLeave.size.toString()) }
+        item("leave-head") { SectionHead(stringResource(R.string.weldhr_absence_leave), count = onLeave.size) }
         items(onLeave, key = { "leave-${it.id}" }) { request ->
             HrRow(
-                leading = { Avatar(request.employeeName) },
+                leading = { Avatar(request.employeeName, size = 32.dp) },
                 title = request.employeeName.orEmpty(),
-                subtitle = request.leaveTypeName ?: stringResource(R.string.weldhr_absence_leave),
-                value = Fmt.span(request.startDate, request.endDate),
+                subtitleMarker = { ColorDot(request.leaveTypeColor) },
+                subtitle = "${request.leaveTypeName ?: stringResource(R.string.weldhr_absence_leave)} · ${Fmt.span(request.startDate, request.endDate)}",
                 detail = daysText(request.days),
             )
         }
     }
     if (ill.isNotEmpty()) {
-        item("sick-head") { SectionHead(stringResource(R.string.weldhr_absence_sick), ill.size.toString()) }
+        item("sick-head") { SectionHead(stringResource(R.string.weldhr_absence_sick), count = ill.size) }
         items(ill, key = { "sick-${it.id}" }) { absence ->
             HrRow(
-                leading = { Avatar(absence.employeeName) },
+                leading = { Avatar(absence.employeeName, size = 32.dp) },
                 title = absence.employeeName.orEmpty(),
-                subtitle = stringResource(R.string.weldhr_absence_sick),
-                value = if (absence.endDate != null) Fmt.span(absence.startDate, absence.endDate) else "${Fmt.shortDate(absence.startDate)}${Fmt.RANGE}…",
+                subtitle = if (absence.endDate != null) Fmt.span(absence.startDate, absence.endDate) else "${Fmt.shortDate(absence.startDate)}${Fmt.RANGE}…",
                 detail = daysText(absence.days),
+                badge = { StatusTag(absence.status, absenceStatusLabel(absence.status)) },
             )
         }
     }
@@ -239,17 +254,18 @@ private fun LazyListScope.leaveApprovals(requests: List<LeaveRequest>) {
         }
         SearchField(search, { search = it }, stringResource(R.string.weldhr_absence_search), hidden.isNotEmpty(), { filtering = true }, "leave-approvals")
         if (shown.isEmpty()) {
-            EmptyState(stringResource(R.string.weldhr_absence_no_results), stringResource(R.string.weldhr_absence_no_results_description))
+            HrEmpty(stringResource(R.string.weldhr_absence_no_results), stringResource(R.string.weldhr_absence_no_results_description), Icons.Filled.SearchIcon)
             ClearButtons(hidden.isNotEmpty(), onClearFilters = { off = emptySet() }, onClearSearch = { search = "" })
+        } else {
+            SectionHead(stringResource(R.string.weldhr_absence_groups_pending), count = shown.size)
         }
         shown.forEach { request ->
             ApprovalRow(
                 id = request.id,
                 name = request.employeeName.orEmpty(),
-                subtitle = request.leaveTypeName ?: leaveLabel,
+                subtitle = "${request.leaveTypeName ?: leaveLabel} · ${Fmt.span(request.startDate, request.endDate)} · ${dayTexts[request.id].orEmpty()}",
+                subtitleMarker = { ColorDot(request.leaveTypeColor) },
                 note = request.reason,
-                value = Fmt.span(request.startDate, request.endDate),
-                detail = dayTexts[request.id].orEmpty(),
                 approve = { accept, note -> hr.repository.reviewLeave(request.id, accept, note) },
             )
         }

@@ -125,7 +125,7 @@ struct LeaveForm: View {
                     let optionBalance = balances.first { $0.leaveTypeId == option.id }
                     Button { typeId = option.id } label: {
                         HStack(spacing: Tokens.Spacing.m) {
-                            LeaveTypeTile(color: option.color)
+                            ColorDot(color: option.color, size: 10)
                             VStack(alignment: .leading) {
                                 Text(option.name).foregroundStyle(.primary)
                                 if let remaining = optionBalance?.remaining {
