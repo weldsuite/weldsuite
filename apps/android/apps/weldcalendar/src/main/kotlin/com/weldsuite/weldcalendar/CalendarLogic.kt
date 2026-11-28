@@ -106,47 +106,87 @@ fun relativeDay(day: LocalDate, today: LocalDate): RelativeDay = when (day) {
     else -> if (day.year == today.year) RelativeDay.THIS_YEAR else RelativeDay.OTHER_YEAR
 }
 
-/** Events under one day's heading. */
-data class DaySection(val day: LocalDate, val events: List<CalendarEvent>)
+/**
+ * The groups of the platform's schedule list (`getDateGroup`), in their
+ * order. Weeks run Monday to Sunday, as the calendar's own week does.
+ */
+enum class ScheduleGroup { EARLIER, YESTERDAY, TODAY, TOMORROW, THIS_WEEK, NEXT_WEEK, THIS_MONTH, LATER }
 
-/** What a day square of the month grid shows: up to three colours and how many events in all. */
-data class DayDots(val colors: List<String>, val total: Int) {
-    val overflow: Int get() = total - colors.size
+/**
+ * Yesterday, today and tomorrow win; then the rest of this week, the whole
+ * of next week, the rest of this month, and earlier or later.
+ */
+fun scheduleGroup(day: LocalDate, today: LocalDate): ScheduleGroup {
+    if (day == today.minusDays(1)) return ScheduleGroup.YESTERDAY
+    if (day == today) return ScheduleGroup.TODAY
+    if (day == today.plusDays(1)) return ScheduleGroup.TOMORROW
+    val weekStart = today.with(TemporalAdjusters.previousOrSame(CalendarDates.WEEK_START))
+    if (!day.isBefore(weekStart) && !day.isAfter(weekStart.plusDays(6))) return ScheduleGroup.THIS_WEEK
+    val nextWeekStart = weekStart.plusWeeks(1)
+    if (!day.isBefore(nextWeekStart) && !day.isAfter(nextWeekStart.plusDays(6))) return ScheduleGroup.NEXT_WEEK
+    if (day.isBefore(weekStart)) return ScheduleGroup.EARLIER
+    if (YearMonth.from(day) == YearMonth.from(today)) return ScheduleGroup.THIS_MONTH
+    return ScheduleGroup.LATER
 }
 
-/** The agenda's numbers. */
-data class AgendaCounts(val today: Int, val nextSevenDays: Int)
+/** The events of one schedule group, by start. */
+data class ScheduleSection(val group: ScheduleGroup, val events: List<CalendarEvent>)
 
 /** Lists of events as the agenda and the month grid read them. */
 object EventLists {
-    const val MAX_DOTS = 3
+    /** A very long event is walked for this many days at most, as on the platform. */
+    private const val MAX_COVERED_DAYS = 400L
 
     private val byStart = compareBy<CalendarEvent>({ it.start }, { it.title })
 
     /**
-     * Day sections in order, each sorted by start. A multi-day event is
-     * listed under its start day only: repeating a week-long event under
-     * seven headings would bury everything else.
+     * The agenda's groups in order, each sorted by start. An event is listed
+     * once, under the group of its start day, as the platform's schedule does.
      */
-    fun groupByDay(events: List<CalendarEvent>, zone: ZoneId): List<DaySection> =
-        events.groupBy { CalendarDates.dayOf(it.start, zone) }
-            .toSortedMap()
-            .map { (day, list) -> DaySection(day, list.sortedWith(byStart)) }
-
-    fun on(day: LocalDate, events: List<CalendarEvent>, zone: ZoneId): List<CalendarEvent> =
-        events.filter { CalendarDates.dayOf(it.start, zone) == day }.sortedWith(byStart)
-
-    fun dots(events: List<CalendarEvent>, zone: ZoneId): Map<LocalDate, DayDots> =
+    fun scheduleSections(events: List<CalendarEvent>, today: LocalDate, zone: ZoneId): List<ScheduleSection> =
         events.sortedWith(byStart)
-            .groupBy { CalendarDates.dayOf(it.start, zone) }
-            .mapValues { (_, list) -> DayDots(list.take(MAX_DOTS).map { eventColor(it.color, it.type) }, list.size) }
+            .groupBy { scheduleGroup(CalendarDates.dayOf(it.start, zone), today) }
+            .toSortedMap()
+            .map { (group, list) -> ScheduleSection(group, list) }
 
-    fun counts(events: List<CalendarEvent>, today: LocalDate, zone: ZoneId): AgendaCounts {
-        val weekEnd = CalendarDates.endOf(today.plusDays(6), zone)
-        return AgendaCounts(
-            today = events.count { CalendarDates.dayOf(it.start, zone) == today },
-            nextSevenDays = events.count { !it.start.isAfter(weekEnd) },
-        )
+    /**
+     * The first and last day an event covers. An end exactly on midnight is
+     * exclusive (how synced all-day events are stored), and a missing or
+     * backwards end covers the start day only.
+     */
+    fun dayRange(event: CalendarEvent, zone: ZoneId): Pair<LocalDate, LocalDate> {
+        val end = event.end?.takeIf { !it.isBefore(event.start) } ?: event.start
+        val atMidnight = end.atZone(zone).toLocalTime() == LocalTime.MIDNIGHT
+        val last = if (atMidnight && end.isAfter(event.start)) end.minusMillis(1) else end
+        val first = CalendarDates.dayOf(event.start, zone)
+        val lastDay = CalendarDates.dayOf(last, zone)
+        return first to if (lastDay.isBefore(first)) first else lastDay
+    }
+
+    /** Every day an event covers. */
+    fun coveredDays(event: CalendarEvent, zone: ZoneId): List<LocalDate> {
+        val (first, last) = dayRange(event, zone)
+        val count = minOf(ChronoUnit.DAYS.between(first, last) + 1, MAX_COVERED_DAYS)
+        return (0 until count).map { first.plusDays(it) }
+    }
+
+    /** All day, or 24 hours and longer: the platform lists these with their dates rather than a time. */
+    fun spansDays(event: CalendarEvent): Boolean {
+        if (event.allDay) return true
+        val end = event.end ?: return false
+        return Duration.between(event.start, end) >= Duration.ofDays(1)
+    }
+
+    /** The events on [day], multi-day ones on every day they cover, by start. */
+    fun on(day: LocalDate, events: List<CalendarEvent>, zone: ZoneId): List<CalendarEvent> =
+        events.filter { event -> dayRange(event, zone).let { (first, last) -> !day.isBefore(first) && !day.isAfter(last) } }
+            .sortedWith(byStart)
+
+    /** How many events each day has, a multi-day event counting on every day it covers: the month grid's dots. */
+    fun dayCounts(events: List<CalendarEvent>, zone: ZoneId): Map<LocalDate, Int> {
+        val counts = HashMap<LocalDate, Int>()
+        events.forEach { event -> coveredDays(event, zone).forEach { counts[it] = (counts[it] ?: 0) + 1 } }
+        return counts
     }
 
     /** Over: its end (or start, when open-ended) has passed. */
@@ -188,8 +228,11 @@ object Visibility {
     }
 }
 
-/** Colours, as `#RRGGBB` strings; the UI turns them into colours. */
-const val BRAND_HEX = "#E5375E"
+/** Colours, as `#RRGGBB` strings; the UI turns them into colours. A calendar without one is blue, as on the platform. */
+const val DEFAULT_CALENDAR_HEX = "#3B82F6"
+
+/** The blue the platform marks today with on every calendar surface (`TODAY_BLUE`). */
+const val TODAY_HEX = "#3073F1"
 
 /** Type colours, the same as the web app's `EVENT_TYPE_COLORS`. */
 fun typeColor(type: EventType): String = when (type) {
@@ -201,17 +244,26 @@ fun typeColor(type: EventType): String = when (type) {
     EventType.OTHER -> "#6B7280"
 }
 
-/** The colour of a task placed in the calendar. */
-const val TASK_HEX = "#6366F1"
+/** The swatches offered for a new calendar, as in the platform's dialog, blue first and the default. */
+enum class CalendarSwatch(val hex: String) {
+    BLUE("#3B82F6"),
+    RED("#EF4444"),
+    GREEN("#22C55E"),
+    AMBER("#F59E0B"),
+    VIOLET("#8B5CF6"),
+    PINK("#EC4899"),
+    CYAN("#06B6D4"),
+    ORANGE("#F97316"),
+    TEAL("#14B8A6"),
+    INDIGO("#6366F1"),
+}
 
-/** The palette offered for a new calendar, as on the web. */
-val CALENDAR_COLORS = listOf(
-    "#FE466C", "#EF4444", "#F59E0B", "#EAB308", "#22C55E", "#10B981",
-    "#06B6D4", "#3B82F6", "#6366F1", "#8B5CF6", "#EC4899", "#6B7280",
-)
-
-/** An event's own colour when it has a valid one, else its type's. */
-fun eventColor(color: String?, type: EventType): String = color?.takeIf { parseHex(it) != null } ?: typeColor(type)
+/**
+ * The colour an event is drawn in, as the platform's `getEventColor`: its
+ * own, else its calendar's, else its type's.
+ */
+fun eventColor(color: String?, type: EventType, calendarColor: String? = null): String =
+    color?.takeIf { parseHex(it) != null } ?: calendarColor?.takeIf { parseHex(it) != null } ?: typeColor(type)
 
 /** `#RGB` or `#RRGGBB` as 0xRRGGBB; null for anything else. */
 fun parseHex(text: String?): Long? {
@@ -290,11 +342,15 @@ fun ianaZone(id: String?): String? {
 /** A plain check for an address someone typed: something@something.tld, no spaces. */
 fun isValidEmail(text: String): Boolean = Regex("""^[^\s@]+@[^\s@]+\.[^\s@]+$""").matches(text.trim())
 
-/** An http(s) link, as the server requires for a meeting link. */
+/**
+ * A meeting link the platform takes: a URL that parses (the form's
+ * `z.string().url()`) whose scheme is http or https (the API's `isHttpUrl`,
+ * on both backends), with a host. A space or a missing host doesn't parse.
+ */
 fun isHttpUrl(text: String): Boolean {
-    val value = text.trim()
-    if (!(value.startsWith("http://", ignoreCase = true) || value.startsWith("https://", ignoreCase = true))) return false
-    return value.substringAfter("://").substringBefore('/').isNotEmpty()
+    val uri = runCatching { java.net.URI(text.trim()) }.getOrNull() ?: return false
+    val scheme = uri.scheme?.lowercase() ?: return false
+    return (scheme == "http" || scheme == "https") && !uri.rawAuthority.isNullOrEmpty()
 }
 
 /** How many guests answered which way. */

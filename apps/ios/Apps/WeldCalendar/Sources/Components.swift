@@ -6,15 +6,18 @@ import WeldUI
 let calendarTopics = ["calendar_event", "calendar", "calendar_share"]
 
 extension Color {
-    /// A `#RRGGBB` string as a colour; the brand colour for anything else.
+    /// A `#RRGGBB` string as a colour; the platform's default calendar blue for anything else.
     init(hex: String?) {
-        let value = parseHex(hex) ?? parseHex(brandHex) ?? 0
+        let value = parseHex(hex) ?? parseHex(defaultCalendarHex) ?? 0
         self.init(
             red: Double((value >> 16) & 0xFF) / 255,
             green: Double((value >> 8) & 0xFF) / 255,
             blue: Double(value & 0xFF) / 255
         )
     }
+
+    /// The platform's today blue, the same in light and dark.
+    static let todayBlue = Color(hex: todayHex)
 }
 
 // MARK: - Words for dates and values
@@ -25,14 +28,14 @@ enum CalendarText {
         date.formatted(date: .omitted, time: .shortened)
     }
 
-    /// "Wed 5 Aug".
+    /// "Mon, Oct 5".
     static func weekdayDate(_ day: Day, _ calendar: Calendar) -> String {
-        day.start(calendar).formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+        day.start(calendar).formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
     }
 
-    /// "5 Aug".
-    static func shortDate(_ day: Day, _ calendar: Calendar) -> String {
-        day.start(calendar).formatted(.dateTime.day().month(.abbreviated))
+    /// "Saturday, November 28".
+    static func longDate(_ day: Day, _ calendar: Calendar) -> String {
+        day.start(calendar).formatted(.dateTime.weekday(.wide).month(.wide).day())
     }
 
     /// "November 2026".
@@ -40,38 +43,79 @@ enum CalendarText {
         month.firstDay.start(calendar).formatted(.dateTime.month(.wide).year())
     }
 
-    /// "Today", "Tomorrow", "Yesterday", else "Wed 5 Aug" (with the year once it differs).
-    static func dayHeading(_ day: Day, today: Day, _ calendar: Calendar) -> String {
+    /// A day as the platform's list groups name it: "Today · Saturday,
+    /// November 28" for today, tomorrow and yesterday, else the date alone.
+    static func dayLabel(_ day: Day, today: Day, _ calendar: Calendar) -> String {
+        let date = longDate(day, calendar)
         switch relativeDay(day, today: today, calendar) {
-        case .today: return CoreStrings.commonToday
-        case .tomorrow: return CoreStrings.commonTomorrow
-        case .yesterday: return CoreStrings.commonYesterday
-        case .thisYear: return weekdayDate(day, calendar)
-        case .otherYear: return day.start(calendar).formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).year())
+        case .today: return "\(CalendarStrings.scheduleToday) · \(date)"
+        case .tomorrow: return "\(CalendarStrings.scheduleTomorrow) · \(date)"
+        case .yesterday: return "\(CalendarStrings.scheduleYesterday) · \(date)"
+        case .thisYear, .otherYear: return date
         }
     }
 
-    /// "09:00 – 10:30", "09:00" without an end, the all-day label, and both dates when it spans days.
-    static func timeRange(_ event: CalendarEvent, _ calendar: Calendar) -> String {
+    /// The schedule group's heading, as the platform's list writes it.
+    static func scheduleGroup(_ group: ScheduleGroup, today: Day, _ calendar: Calendar) -> String {
+        switch group {
+        case .earlier: return CalendarStrings.scheduleEarlier
+        case .yesterday: return dayLabel(today.adding(days: -1, calendar), today: today, calendar)
+        case .today: return dayLabel(today, today: today, calendar)
+        case .tomorrow: return dayLabel(today.adding(days: 1, calendar), today: today, calendar)
+        case .thisWeek: return CalendarStrings.scheduleThisWeek
+        case .nextWeek: return CalendarStrings.scheduleNextWeek
+        case .thisMonth: return today.start(calendar).formatted(.dateTime.month(.wide)).capitalized(with: .current)
+        case .later: return CalendarStrings.scheduleLater
+        }
+    }
+
+    /// The list's date column: "Mon, Oct 5", or "Mon, Oct 5 – Thu, Oct 8" for an event over several days.
+    static func scheduleDate(_ event: CalendarEvent, _ calendar: Calendar) -> String {
+        let range = EventLists.dayRange(event, calendar)
+        guard EventLists.spansDays(event), range.last != range.first else {
+            return weekdayDate(Day(event.start, calendar: calendar), calendar)
+        }
+        return "\(weekdayDate(range.first, calendar)) – \(weekdayDate(range.last, calendar))"
+    }
+
+    /// The row's time: the all-day label, "10:00 – 10:30 AM" (the phone's compact
+    /// range when both ends fall on one day), or only the start without a later end.
+    static func scheduleTime(_ event: CalendarEvent, _ calendar: Calendar) -> String {
+        if event.allDay { return CalendarStrings.agendaAllDay }
+        guard let end = event.end, end > event.start else { return time(event.start) }
+        if Day(event.start, calendar: calendar) == Day(end, calendar: calendar) {
+            return timeRange.string(from: event.start, to: end)
+        }
+        return "\(time(event.start)) – \(time(end))"
+    }
+
+    private static let timeRange: DateIntervalFormatter = {
+        let formatter = DateIntervalFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    /// The detail's "When", as the platform's `formatEventWhen`: the date (or
+    /// dates) of an all-day event, else the date and the times, naming the
+    /// end's day when it differs.
+    static func when(_ event: CalendarEvent, _ calendar: Calendar) -> String {
         let startDay = Day(event.start, calendar: calendar)
-        let endDay = event.end.map { Day($0, calendar: calendar) }
+        let end = event.end.flatMap { $0 > event.start ? $0 : nil }
+        let endDay = end.map { Day($0, calendar: calendar) }
         if event.allDay {
-            if let endDay, endDay != startDay {
-                return "\(CalendarStrings.agendaAllDay) · \(shortDate(startDay, calendar)) – \(shortDate(endDay, calendar))"
-            }
-            return CalendarStrings.agendaAllDay
+            if let endDay, endDay > startDay { return "\(weekdayDate(startDay, calendar)) – \(weekdayDate(endDay, calendar))" }
+            return longDate(startDay, calendar)
         }
-        guard let end = event.end, let endDay else { return time(event.start) }
-        if endDay == startDay { return "\(time(event.start)) – \(time(end))" }
-        return "\(shortDate(startDay, calendar)) \(time(event.start)) – \(shortDate(endDay, calendar)) \(time(end))"
+        let day = weekdayDate(startDay, calendar)
+        guard let end, let endDay else { return "\(day) · \(time(event.start))" }
+        if endDay == startDay { return "\(day) · \(time(event.start)) – \(time(end))" }
+        return "\(day) · \(time(event.start)) – \(weekdayDate(endDay, calendar)) · \(time(end))"
     }
 
-    /// "1h 30m", or nil when there is no measurable span.
-    static func duration(_ event: CalendarEvent) -> String? {
-        guard !event.allDay, let span = CalendarDates.duration(start: event.start, end: event.end) else { return nil }
-        if span.hours == 0 { return CalendarStrings.eventDurationMinutes(minuteCount: span.minutes) }
-        if span.minutes == 0 { return CalendarStrings.eventDurationHours(hourCount: span.hours) }
-        return CalendarStrings.eventDurationHoursMinutes(hourCount: span.hours, minuteCount: span.minutes)
+    /// "Nov 28, 2026": the detail's "Created".
+    static func created(_ date: Date) -> String {
+        date.formatted(.dateTime.month(.abbreviated).day().year())
     }
 
     static func type(_ type: EventType) -> String {
@@ -83,6 +127,11 @@ enum CalendarText {
         case .reminder: return CalendarStrings.eventTypeReminder
         case .other: return CalendarStrings.eventTypeOther
         }
+    }
+
+    /// The event's type, "Task" for one WeldSuite placed from a task, as the platform's list names it.
+    static func eventType(_ event: CalendarEvent) -> String {
+        event.isTask ? CalendarStrings.eventTask : type(event.type)
     }
 
     static func status(_ status: EventStatus) -> String {
@@ -99,14 +148,6 @@ enum CalendarText {
         case .normal: return CalendarStrings.priorityNormal
         case .high: return CalendarStrings.priorityHigh
         case .urgent: return CalendarStrings.priorityUrgent
-        }
-    }
-
-    static func permission(_ permission: CalendarPermission) -> String {
-        switch permission {
-        case .view: return CalendarStrings.permissionView
-        case .edit: return CalendarStrings.permissionEdit
-        case .manage: return CalendarStrings.permissionManage
         }
     }
 
@@ -127,6 +168,21 @@ enum CalendarText {
         case .weekly: return CalendarStrings.repeatWeekly
         case .monthly: return CalendarStrings.repeatMonthly
         case .yearly: return CalendarStrings.repeatYearly
+        }
+    }
+
+    static func swatch(_ swatch: CalendarSwatch) -> String {
+        switch swatch {
+        case .blue: return CalendarStrings.calendarsColorNamesBlue
+        case .red: return CalendarStrings.calendarsColorNamesRed
+        case .green: return CalendarStrings.calendarsColorNamesGreen
+        case .amber: return CalendarStrings.calendarsColorNamesAmber
+        case .violet: return CalendarStrings.calendarsColorNamesViolet
+        case .pink: return CalendarStrings.calendarsColorNamesPink
+        case .cyan: return CalendarStrings.calendarsColorNamesCyan
+        case .orange: return CalendarStrings.calendarsColorNamesOrange
+        case .teal: return CalendarStrings.calendarsColorNamesTeal
+        case .indigo: return CalendarStrings.calendarsColorNamesIndigo
         }
     }
 
@@ -166,161 +222,307 @@ enum CalendarText {
     }
 }
 
-func statusColor(_ status: EventStatus) -> Color {
-    switch status {
-    case .confirmed: return Tokens.Status.success
-    case .tentative: return Tokens.Status.warning
-    case .cancelled: return .secondary
-    }
-}
-
 func responseColor(_ response: GuestResponse) -> Color {
     switch response {
     case .accepted: return Tokens.Status.success
     case .declined: return Tokens.Status.danger
     case .tentative: return Tokens.Status.warning
-    case .pending: return .secondary
+    case .pending: return Tokens.Palette.mutedForeground
     }
 }
 
 // MARK: - Pieces
 
-/// A small round colour sample.
+/// A small round colour sample, as the platform puts next to a calendar's name.
 struct ColorDot: View {
     let hex: String?
-    var size: CGFloat = 12
+    var size: CGFloat = 10
 
     var body: some View {
         Circle().fill(Color(hex: hex)).frame(width: size, height: size).accessibilityHidden(true)
     }
 }
 
-/// A chip tinted with a colour: the event's type, or "Task".
-struct TintChip: View {
-    let text: String
-    let hex: String
+/// The event's dot in a list: solid in its colour, a dashed ring for a tentative event (`statusDotStyle`).
+struct EventDot: View {
+    let color: Color
+    let tentative: Bool
 
     var body: some View {
-        let color = Color(hex: hex)
-        HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text(text).font(.inter(.caption, weight: .semibold)).foregroundStyle(color)
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 4)
-        .background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
-    }
-}
-
-/// The event's status pill: none for a task block while it's confirmed, "Closed" once its task is done.
-struct StatePill: View {
-    let event: CalendarEvent
-
-    var body: some View {
-        if let status = event.status, !(event.isTask && status == .confirmed) {
-            if event.isTask && status == .cancelled {
-                StatusBadge(CalendarStrings.eventTaskClosed, color: .secondary)
+        Group {
+            if tentative {
+                Circle().strokeBorder(color, style: StrokeStyle(lineWidth: 1.5, dash: [2, 1.5]))
             } else {
-                StatusBadge(CalendarText.status(status), color: statusColor(status))
+                Circle().fill(color)
             }
         }
+        .frame(width: 8, height: 8)
+        .accessibilityHidden(true)
     }
 }
 
-/// `normal` carries no signal, so it shows nothing.
-struct PriorityBadge: View {
-    let priority: EventPriority?
+/// A group's heading in a list, as the platform's lists draw it: a small
+/// muted label and a count on a light band, with a hairline under it. Put it
+/// in a section header with `.listRowInsets(EdgeInsets())`.
+struct GroupHeader: View {
+    let label: String
+    let count: Int?
+
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
-        if let priority, priority != .normal {
-            StatusBadge(
-                CalendarText.priority(priority),
-                color: priority == .urgent ? Tokens.Status.danger : priority == .high ? Tokens.Status.warning : .secondary
-            )
+        HStack(spacing: Tokens.Spacing.s) {
+            Text(label)
+                .font(.inter(.caption, weight: .medium))
+                .foregroundStyle(Tokens.Palette.mutedForeground)
+                .lineLimit(1)
+            if let count { CountPill(count: count) }
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, Tokens.Spacing.m)
+        .frame(maxWidth: .infinity, minHeight: 32)
+        .background(Tokens.Palette.muted.opacity(0.5))
+        .background(Tokens.Palette.background)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Tokens.Palette.border.opacity(0.7)).frame(height: 1 / displayScale)
+        }
+        .textCase(nil)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
-/// The row every list uses: a time column, the type's colour as a rule, the
-/// title, the calendar and the place, and what's special about it. A
-/// cancelled event stays, struck through; a past one is dimmed.
+/// The count next to a group's label: small mono digits on the muted fill, with a border.
+struct CountPill: View {
+    let count: Int
+
+    var body: some View {
+        Text("\(count)")
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundStyle(Tokens.Palette.mutedForeground)
+            .padding(.horizontal, 4)
+            .frame(minWidth: 16, minHeight: 16)
+            .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Tokens.Palette.border, lineWidth: 1))
+    }
+}
+
+/// One row of the schedule list, stacked for a phone: the event's dot and its
+/// title (with the status when it isn't confirmed), then a muted line with the
+/// date and the time, then the type and the place. The date is left out when
+/// the group's heading already names the day (`showDate` false), except for an
+/// event over several days. A cancelled event is faded and struck through.
 struct EventRow: View {
     let event: CalendarEvent
-    let calendarName: String?
-    let now: Date
+    let color: Color
+    let showDate: Bool
+
+    private var calendar: Calendar { CalendarDates.calendar() }
 
     var body: some View {
-        let accent = Color(hex: eventColor(event.color, event.type))
-        let cancelled = event.isCancelled
-        let past = !cancelled && EventLists.isPast(event, now: now)
-        let live = !cancelled && EventLists.isOngoing(event, now: now)
-        HStack(alignment: .top, spacing: Tokens.Spacing.m) {
-            VStack(alignment: .leading, spacing: 1) {
-                if event.allDay {
-                    Text(CalendarStrings.agendaAllDay).font(.inter(.caption, weight: .semibold)).foregroundStyle(.secondary).lineLimit(2)
-                } else {
-                    Text(CalendarText.time(event.start)).font(.inter(.subheadline, weight: .semibold)).lineLimit(1)
-                    if let end = event.end {
-                        Text(CalendarText.time(end)).font(.inter(.footnote)).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }
-            }
-            .frame(width: 56, alignment: .leading)
-            RoundedRectangle(cornerRadius: 2)
-                .fill(accent)
-                .frame(width: 3)
-                .opacity(past ? 0.55 : 1)
+        let cancelled = event.status == .cancelled
+        let statusText: String? = {
+            guard let status = event.status, status != .confirmed else { return nil }
+            return CalendarText.status(status)
+        }()
+        let range = EventLists.dayRange(event, calendar)
+        let multiDay = EventLists.spansDays(event) && range.first != range.last
+        let date: String? = showDate || multiDay ? CalendarText.scheduleDate(event, calendar) : nil
+        let whenLine = [date, CalendarText.scheduleTime(event, calendar)].compactMap { $0 }.joined(separator: " · ")
+        let subtitle = [CalendarText.eventType(event), event.location].compactMap { $0 }.joined(separator: " · ")
+        HStack(alignment: .firstTextBaseline, spacing: Tokens.Spacing.m) {
+            EventDot(color: color, tentative: event.status == .tentative)
+                // Centred on the title's first line: the dot's bottom sits just above the baseline.
+                .alignmentGuide(.firstTextBaseline) { dimensions in dimensions[.bottom] + 1 }
             VStack(alignment: .leading, spacing: 2) {
-                Text(event.title)
-                    .font(.inter(.body, weight: .semibold))
-                    .strikethrough(cancelled)
-                    .foregroundStyle(cancelled ? Color.secondary : Color.primary)
-                    .lineLimit(2)
-                    .opacity(past ? 0.55 : 1)
-                let subtitle = [calendarName, event.location].compactMap { $0 }.joined(separator: " · ")
-                if !subtitle.isEmpty {
-                    HStack(spacing: 4) {
-                        if event.location != nil { Image(systemName: "mappin").font(.inter(.caption2)) }
-                        Text(subtitle).lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: Tokens.Spacing.s) {
+                    Text(event.title)
+                        .font(.inter(.subheadline, weight: .medium))
+                        .foregroundStyle(Tokens.Palette.foreground)
+                        .strikethrough(cancelled)
+                        .lineLimit(2)
+                    if let statusText {
+                        Text(statusText)
+                            .font(.inter(.caption))
+                            .foregroundStyle(Tokens.Palette.mutedForeground)
+                            .lineLimit(1)
+                            .layoutPriority(1)
                     }
-                    .font(.inter(.footnote))
-                    .foregroundStyle(.secondary)
                 }
-                meta(live: live, accent: accent)
+                Text(whenLine)
+                    .font(.inter(.caption))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.inter(.caption))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
+                    .lineLimit(1)
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Tokens.Spacing.m)
+        .opacity(cancelled ? 0.6 : 1)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel([event.title, event.allDay ? CalendarStrings.agendaAllDay : CalendarText.time(event.start), calendarName]
-            .compactMap { $0 }
-            .joined(separator: ", "))
         .accessibilityIdentifier("event-row")
     }
+}
 
-    @ViewBuilder private func meta(live: Bool, accent: Color) -> some View {
-        let video = event.isVirtual || event.meetingURL != nil
-        let repeats = event.recurrenceRule != nil
-        if live || event.isTask || video || repeats || !event.guests.isEmpty {
-            HStack(spacing: 10) {
-                if live {
-                    Text(CalendarStrings.agendaNow)
-                        .font(.inter(.caption2, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
-                        .background(accent, in: RoundedRectangle(cornerRadius: 8))
-                }
-                if event.isTask { Label(CalendarStrings.eventTask, systemImage: "checkmark.square") }
-                if video { Image(systemName: "video") }
-                if repeats { Image(systemName: "repeat") }
-                if !event.guests.isEmpty {
-                    Label(CalendarStrings.eventAttendeeCount(event.guests.count), systemImage: "person.2")
-                }
+extension View {
+    /// A list row as the platform's lists draw it: the row's own padding, a full-width hairline in the border colour.
+    func platformRow() -> some View {
+        listRowInsets(EdgeInsets(top: 0, leading: Tokens.Spacing.m, bottom: 0, trailing: Tokens.Spacing.l))
+            .listRowSeparatorTint(Tokens.Palette.border)
+            .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+    }
+}
+
+/// What an empty list shows, as on the platform: the icon in a muted rounded
+/// square, a semibold title and a muted description.
+struct CalendarEmptyState: View {
+    let systemImage: String
+    let title: String
+    let description: String?
+
+    var body: some View {
+        VStack(spacing: Tokens.Spacing.s) {
+            Image(systemName: systemImage)
+                .font(.system(size: 22))
+                .foregroundStyle(Tokens.Palette.mutedForeground)
+                .frame(width: 48, height: 48)
+                .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: Tokens.Radius.large))
+                .padding(.bottom, Tokens.Spacing.xs)
+            Text(title)
+                .font(.inter(.subheadline, weight: .semibold))
+                .multilineTextAlignment(.center)
+            if let description {
+                Text(description)
+                    .font(.inter(.footnote))
+                    .foregroundStyle(Tokens.Palette.mutedForeground)
+                    .multilineTextAlignment(.center)
             }
-            .font(.inter(.caption))
-            .foregroundStyle(.secondary)
-            .padding(.top, 4)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, Tokens.Spacing.xl)
+        .padding(.vertical, 48)
+    }
+}
+
+/// A badge on the muted fill, as the platform shows a priority or a status in the event's details.
+struct MutedBadge: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.inter(.caption, weight: .medium))
+            .foregroundStyle(Tokens.Palette.foreground)
+            .lineLimit(1)
+            .padding(.horizontal, Tokens.Spacing.s)
+            .padding(.vertical, 3)
+            .background(Tokens.Palette.muted, in: RoundedRectangle(cornerRadius: 4))
+    }
+}
+
+/// A badge tinted with a colour, as the platform shows an event's type: the colour at 12.5% under it.
+struct TintBadge: View {
+    let text: String
+    let color: Color
+
+    var body: some View {
+        Text(text)
+            .font(.inter(.caption, weight: .medium))
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .padding(.horizontal, Tokens.Spacing.s)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.125), in: RoundedRectangle(cornerRadius: 4))
+    }
+}
+
+/// The palette the platform draws an attendee's initial on when there's no picture.
+private let attendeePalette = [
+    "#0D9488", "#16A34A", "#2563EB", "#7C3AED", "#DB2777",
+    "#DC2626", "#EA580C", "#CA8A04", "#0891B2", "#4F46E5",
+]
+
+/// The calendar's attendee colour for `seed` (`attendeeFallbackColor`): a
+/// 32-bit `hash * 31 + codePoint` over the UTF-16 units, as JavaScript does it.
+func attendeeColor(_ seed: String) -> Color {
+    let units = Array(seed.utf16)
+    var hash: Int32 = 0
+    for index in units.indices {
+        let unit = units[index]
+        var point = UInt32(unit)
+        if UTF16.isLeadSurrogate(unit), index + 1 < units.count, UTF16.isTrailSurrogate(units[index + 1]) {
+            point = 0x10000 + ((UInt32(unit) - 0xD800) << 10) + (UInt32(units[index + 1]) - 0xDC00)
+        }
+        hash = Int32(truncatingIfNeeded: Int64(hash) * 31 + Int64(point))
+    }
+    return Color(hex: attendeePalette[Int(abs(Int64(hash)) % Int64(attendeePalette.count))])
+}
+
+/// An attendee's initial on their colour, as the calendar's event panel draws it.
+struct AttendeeAvatar: View {
+    let email: String
+    let name: String?
+    var size: CGFloat = 24
+
+    var body: some View {
+        let seed = email.isEmpty ? (name?.isEmpty == false ? name! : "?") : email
+        let source = name?.isEmpty == false ? name! : (email.isEmpty ? "?" : email)
+        Text(String(source.prefix(1)).uppercased())
+            .font(.inter(size: size * 0.45, weight: .medium))
+            .foregroundStyle(.white)
+            .frame(width: size, height: size)
+            .background(attendeeColor(seed), in: Circle())
+            .accessibilityHidden(true)
+    }
+}
+
+/// Lays its children out in rows, wrapping to the next row when one is full: the guests' chips.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(subviews, width: proposal.width ?? .infinity)
+        let width = rows.map(\.width).max() ?? 0
+        let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(rows.count - 1, 0))
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in arrange(subviews, width: bounds.width) {
+            var x = bounds.minX
+            for item in row.items {
+                subviews[item.index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(item.size))
+                x += item.size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row {
+        var items: [(index: Int, size: CGSize)] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    /// Rows of children at their own width, none wider than the row: a long one is cut off with an ellipsis.
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> [Row] {
+        let limit = ProposedViewSize(width: width.isFinite ? width : nil, height: nil)
+        var rows: [Row] = []
+        var current = Row()
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(limit)
+            if !current.items.isEmpty, current.width + spacing + size.width > width {
+                rows.append(current)
+                current = Row()
+            }
+            current.width = current.items.isEmpty ? size.width : current.width + spacing + size.width
+            current.height = max(current.height, size.height)
+            current.items.append((index, size))
+        }
+        if !current.items.isEmpty { rows.append(current) }
+        return rows
     }
 }

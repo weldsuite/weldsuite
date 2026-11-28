@@ -2,13 +2,13 @@ import SwiftUI
 import WeldCore
 import WeldUI
 
-/// The person's calendars and the ones shared with them, each with a switch
-/// that decides whether the agenda and the grid show it. A member who owns
-/// none gets the default one made for them.
+/// The person's calendars and the ones shared with them, as the platform's
+/// sidebar lists them: each with a checkbox in its colour that decides
+/// whether the agenda and the grid show it. A member who owns none gets the
+/// default one made for them.
 struct CalendarsView: View {
     let env: AppEnvironment
     let store: CalendarStore
-    let workspaceName: String
 
     @Environment(Toaster.self) private var toaster
     @State private var creating = false
@@ -47,67 +47,84 @@ struct CalendarsView: View {
         let sections = CalendarAccess.sections(calendars)
         return List {
             if calendars.isEmpty {
-                ContentUnavailableView(
-                    CalendarStrings.calendarsEmptyTitle,
+                CalendarEmptyState(
                     systemImage: "calendar",
-                    description: Text(CalendarStrings.calendarsEmptyDescription)
+                    title: CalendarStrings.calendarsEmptyTitle,
+                    description: CalendarStrings.calendarsEmptyDescription
                 )
+                .listRowSeparator(.hidden)
             }
             if !sections.own.isEmpty {
-                Section(workspaceName.isEmpty ? CalendarStrings.calendarsWorkspace : workspaceName) {
+                Section {
                     ForEach(sections.own) { calendar in row(calendar) }
+                } header: {
+                    GroupHeader(label: CalendarStrings.calendarsMine, count: sections.own.count)
+                        .listRowInsets(EdgeInsets())
                 }
             }
             if !sections.shared.isEmpty {
-                Section(CalendarStrings.calendarsShared) {
-                    ForEach(sections.shared) { calendar in row(calendar) }
-                }
-            }
-            if !calendars.isEmpty {
                 Section {
-                } footer: {
-                    Text(CalendarStrings.calendarsVisibilityHint)
+                    ForEach(sections.shared) { calendar in row(calendar) }
+                } header: {
+                    GroupHeader(label: CalendarStrings.calendarsShared, count: sections.shared.count)
+                        .listRowInsets(EdgeInsets())
                 }
             }
         }
+        .listStyle(.plain)
         .refreshable { await store.refreshCalendars() }
     }
 
     private func row(_ calendar: CalendarInfo) -> some View {
-        let subtitle = calendar.isOwn
-            ? (calendar.description ?? CalendarText.permission(.manage))
-            : CalendarText.permission(calendar.permission)
-        return Toggle(isOn: Binding(
-            get: { !store.hidden.contains(calendar.id) },
-            set: { _ in store.toggleHidden(calendar.id) }
-        )) {
+        let visible = !store.hidden.contains(calendar.id)
+        return Button { store.toggleHidden(calendar.id) } label: {
             HStack(spacing: Tokens.Spacing.m) {
-                ColorDot(hex: calendar.color, size: 16)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: Tokens.Spacing.s) {
-                        Text(calendar.name).lineLimit(1)
-                        if calendar.isDefault {
-                            StatusBadge(CalendarStrings.calendarsDefaultBadge, color: .secondary)
-                        }
-                    }
-                    Text(subtitle).font(.inter(.footnote)).foregroundStyle(.secondary).lineLimit(1)
-                }
+                CalendarCheckbox(color: Color(hex: calendar.color), checked: visible)
+                Text(calendar.name)
+                    .font(.inter(.subheadline, weight: .medium))
+                    .foregroundStyle(Tokens.Palette.foreground)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
             }
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
         }
-        .accessibilityLabel(CalendarStrings.calendarsShow(name: calendar.name))
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 0, leading: Tokens.Spacing.l, bottom: 0, trailing: Tokens.Spacing.l))
+        .listRowSeparatorTint(Tokens.Palette.border)
+        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+        .accessibilityLabel(calendar.name)
+        .accessibilityAddTraits(visible ? [.isButton, .isSelected] : .isButton)
         .accessibilityIdentifier("calendar-visible-\(calendar.id)")
     }
 }
 
-/// A new calendar: a name, an optional description and one of the palette's colours.
+/// The platform sidebar's checkbox: the calendar's colour with a white tick when checked, its outline when not.
+struct CalendarCheckbox: View {
+    let color: Color
+    let checked: Bool
+
+    var body: some View {
+        ZStack {
+            if checked {
+                RoundedRectangle(cornerRadius: 4).fill(color)
+                Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+            } else {
+                RoundedRectangle(cornerRadius: 4).strokeBorder(color, lineWidth: 1.5)
+            }
+        }
+        .frame(width: 18, height: 18)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The platform's "Create Calendar": a name and one of its ten colours, blue by default.
 struct NewCalendarView: View {
     let store: CalendarStore
 
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
-    @State private var description = ""
-    @State private var color = calendarColors[0]
-    @State private var nameError = false
+    @State private var color = CalendarSwatch.blue
     @State private var saving = false
     /// Why creating failed, shown in the sheet (a toast would sit under it).
     @State private var failure: String?
@@ -119,31 +136,28 @@ struct NewCalendarView: View {
                 Section {
                     TextField(CalendarStrings.calendarsNamePlaceholder, text: $name)
                         .focused($nameFocused)
-                        .onChange(of: name) { nameError = false }
                         .accessibilityIdentifier("calendar-name")
                 } header: {
                     Text(CalendarStrings.calendarsNameLabel)
-                } footer: {
-                    if nameError { Text(CalendarStrings.calendarsNameRequired).foregroundStyle(Tokens.Status.danger) }
-                }
-                Section(CalendarStrings.calendarsDescriptionLabel) {
-                    TextField(CalendarStrings.calendarsDescriptionPlaceholder, text: $description)
-                        .accessibilityIdentifier("calendar-description")
                 }
                 Section(CalendarStrings.calendarsColorLabel) {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 12) {
-                        ForEach(Array(calendarColors.enumerated()), id: \.offset) { index, option in
+                    HStack(spacing: 0) {
+                        ForEach(Array(CalendarSwatch.allCases.enumerated()), id: \.offset) { index, option in
+                            let chosen = option == color
                             Button { color = option } label: {
-                                ZStack {
-                                    Circle().fill(Color(hex: option)).frame(width: 34, height: 34)
-                                    if option == color {
-                                        Image(systemName: "checkmark").font(.inter(.footnote, weight: .bold)).foregroundStyle(.white)
-                                    }
-                                }
+                                RoundedRectangle(cornerRadius: Tokens.Radius.medium)
+                                    .fill(Color(hex: option.hex))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: Tokens.Radius.medium)
+                                            .strokeBorder(chosen ? Tokens.Palette.foreground : .clear, lineWidth: 2)
+                                    )
+                                    .frame(width: 28, height: 28)
+                                    .scaleEffect(chosen ? 1.1 : 1)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel(CalendarStrings.calendarsColorOption(number: String(index + 1)))
-                            .accessibilityAddTraits(option == color ? .isSelected : [])
+                            .frame(maxWidth: .infinity)
+                            .accessibilityLabel(CalendarText.swatch(option))
+                            .accessibilityAddTraits(chosen ? .isSelected : [])
                             .accessibilityIdentifier("calendar-color-\(index)")
                         }
                     }
@@ -162,6 +176,7 @@ struct NewCalendarView: View {
                     Button(CoreStrings.commonCancel) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
+                    // Without a name there is nothing to create, as on the platform.
                     Button(CalendarStrings.commonCreate) { create() }
                         .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty)
                         .accessibilityIdentifier("create-calendar")
@@ -173,15 +188,13 @@ struct NewCalendarView: View {
     }
 
     private func create() {
-        guard !name.trimmingCharacters(in: .whitespaces).isEmpty else {
-            nameError = true
-            return
-        }
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
         saving = true
         failure = nil
         Task {
             do {
-                try await store.createCalendar(name: name, description: description, color: color)
+                try await store.createCalendar(name: trimmed, description: "", color: color.hex)
                 dismiss()
             } catch {
                 failure = CalendarText.failure(CalendarStrings.calendarsCreateFailed, error)

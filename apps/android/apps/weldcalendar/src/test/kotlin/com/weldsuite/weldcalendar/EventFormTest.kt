@@ -89,6 +89,8 @@ class EventFormTest {
         assertTrue(problems.endBeforeStart)
         assertTrue(problems.badMeetingUrl)
         assertTrue(problemsOf(draft.copy(title = "Review")).isEmpty)
+        assertTrue(problemsOf(draft.copy(title = "Review", meetingUrl = "http://meet.example.com/abc")).isEmpty)
+        assertTrue(problemsOf(draft.copy(title = "Review", meetingUrl = "mailto:ann@example.com")).badMeetingUrl)
         assertTrue(problemsOf(EventDraft.new(emptyList(), start).copy(title = "x")).noCalendar)
     }
 

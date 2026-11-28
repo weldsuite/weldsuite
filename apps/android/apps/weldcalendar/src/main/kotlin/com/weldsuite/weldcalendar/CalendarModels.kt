@@ -79,7 +79,7 @@ data class CalendarInfo(
     val id: String,
     val name: String,
     val description: String?,
-    /** `#RRGGBB`, or null for the brand colour. */
+    /** `#RRGGBB`, or null for the platform's default blue. */
     val color: String?,
     val isDefault: Boolean,
     /** False for a calendar shared with the person. */
@@ -130,6 +130,8 @@ data class CalendarEvent(
     val sourceType: String?,
     val autoScheduled: Boolean,
     val notes: String?,
+    /** When it was made; the detail's "Created". */
+    val createdAt: Instant? = null,
 ) {
     val isTask: Boolean get() = sourceType == "task"
     val isCancelled: Boolean get() = status == EventStatus.CANCELLED

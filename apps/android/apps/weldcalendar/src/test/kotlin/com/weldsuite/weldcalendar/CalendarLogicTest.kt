@@ -81,52 +81,57 @@ class CalendarLogicTest {
     }
 
     @Test
-    fun eventsAreGroupedByTheirLocalStartDay() {
-        val sections = EventLists.groupByDay(
+    fun theScheduleGroupsFollowThePlatformsWeeks() {
+        // Friday 27 November 2026; its week runs Monday 23 to Sunday 29.
+        val today = LocalDate.of(2026, 11, 27)
+        assertEquals(ScheduleGroup.YESTERDAY, scheduleGroup(today.minusDays(1), today))
+        assertEquals(ScheduleGroup.TODAY, scheduleGroup(today, today))
+        assertEquals(ScheduleGroup.TOMORROW, scheduleGroup(today.plusDays(1), today))
+        assertEquals(ScheduleGroup.THIS_WEEK, scheduleGroup(LocalDate.of(2026, 11, 29), today))
+        assertEquals(ScheduleGroup.THIS_WEEK, scheduleGroup(LocalDate.of(2026, 11, 23), today))
+        assertEquals(ScheduleGroup.NEXT_WEEK, scheduleGroup(LocalDate.of(2026, 11, 30), today))
+        assertEquals(ScheduleGroup.NEXT_WEEK, scheduleGroup(LocalDate.of(2026, 12, 6), today))
+        assertEquals(ScheduleGroup.EARLIER, scheduleGroup(LocalDate.of(2026, 11, 22), today))
+        assertEquals(ScheduleGroup.LATER, scheduleGroup(LocalDate.of(2026, 12, 7), today))
+        // Beyond next week but still this month.
+        assertEquals(ScheduleGroup.THIS_MONTH, scheduleGroup(LocalDate.of(2026, 11, 20), LocalDate.of(2026, 11, 2)))
+    }
+
+    @Test
+    fun theAgendaGroupsEventsByTheirLocalStartDay() {
+        val today = LocalDate.of(2026, 11, 27)
+        val sections = EventLists.scheduleSections(
             listOf(
+                event("next", "2026-12-01T09:00:00Z"),
                 event("late", "2026-11-27T22:30:00Z"),
                 event("b", "2026-11-27T10:00:00Z"),
                 event("a", "2026-11-27T08:00:00Z"),
+                // 23:30 UTC is already the 28th in Amsterdam.
+                event("x", "2026-11-27T23:30:00Z"),
             ),
+            today,
             amsterdam,
         )
-        // 22:30 UTC is 23:30 in Amsterdam, still the 27th; nothing moves to the 28th.
-        assertEquals(listOf(LocalDate.of(2026, 11, 27)), sections.map { it.day })
-        assertEquals(listOf("a", "b", "late"), sections.single().events.map { it.id })
-        val utcSections = EventLists.groupByDay(listOf(event("x", "2026-11-27T23:30:00Z")), amsterdam)
-        assertEquals(LocalDate.of(2026, 11, 28), utcSections.single().day)
+        assertEquals(listOf(ScheduleGroup.TODAY, ScheduleGroup.TOMORROW, ScheduleGroup.NEXT_WEEK), sections.map { it.group })
+        assertEquals(listOf("a", "b", "late"), sections.first().events.map { it.id })
+        assertEquals(listOf("x"), sections[1].events.map { it.id })
     }
 
     @Test
-    fun aDayShowsThreeDotsAndCountsTheRest() {
-        val day = "2026-11-27T"
-        val dots = EventLists.dots(
-            listOf(
-                event("1", "${day}08:00:00Z", type = EventType.CALL),
-                event("2", "${day}09:00:00Z", color = "#123456"),
-                event("3", "${day}10:00:00Z", color = "nope", type = EventType.REMINDER),
-                event("4", "${day}11:00:00Z"),
-            ),
-            amsterdam,
-        )[LocalDate.of(2026, 11, 27)]!!
-        assertEquals(listOf("#22C55E", "#123456", "#EF4444"), dots.colors)
-        assertEquals(4, dots.total)
-        assertEquals(1, dots.overflow)
-    }
-
-    @Test
-    fun theAgendaCountsTodayAndTheNextSevenDays() {
-        val counts = EventLists.counts(
-            listOf(
-                event("today", "2026-11-27T09:00:00Z"),
-                event("day6", "2026-12-03T20:00:00Z"),
-                event("day7", "2026-12-04T09:00:00Z"),
-            ),
-            LocalDate.of(2026, 11, 27),
-            amsterdam,
+    fun aMultiDayEventCountsOnEveryDayItCovers() {
+        val events = listOf(
+            event("one", "2026-11-27T08:00:00Z", "2026-11-27T09:00:00Z"),
+            // Midnight to midnight, Amsterdam: the 28th and 29th, not the 30th.
+            event("weekend", "2026-11-27T23:00:00Z", "2026-11-29T23:00:00Z"),
+            event("open", "2026-11-28T10:00:00Z"),
         )
-        assertEquals(1, counts.today)
-        assertEquals(2, counts.nextSevenDays)
+        val counts = EventLists.dayCounts(events, amsterdam)
+        assertEquals(1, counts[LocalDate.of(2026, 11, 27)])
+        assertEquals(2, counts[LocalDate.of(2026, 11, 28)])
+        assertEquals(1, counts[LocalDate.of(2026, 11, 29)])
+        assertNull(counts[LocalDate.of(2026, 11, 30)])
+        assertEquals(listOf("weekend"), EventLists.on(LocalDate.of(2026, 11, 29), events, amsterdam).map { it.id })
+        assertEquals(listOf("weekend", "open"), EventLists.on(LocalDate.of(2026, 11, 28), events, amsterdam).map { it.id })
     }
 
     @Test
@@ -206,10 +211,13 @@ class CalendarLogicTest {
     }
 
     @Test
-    fun colorsFallBackToTheType() {
+    fun colorsFallBackToTheCalendarThenTheType() {
         assertEquals("#3B82F6", eventColor(null, EventType.MEETING))
         assertEquals("#abc", eventColor("#abc", EventType.MEETING))
         assertEquals("#6B7280", eventColor("blue", EventType.OTHER))
+        assertEquals("#abc", eventColor("#abc", EventType.MEETING, "#14B8A6"))
+        assertEquals("#14B8A6", eventColor(null, EventType.MEETING, "#14B8A6"))
+        assertEquals("#22C55E", eventColor(null, EventType.CALL, "teal"))
         assertEquals(0xAABBCCL, parseHex("#abc"))
         assertNull(parseHex("#12345"))
     }
@@ -253,8 +261,14 @@ class CalendarLogicTest {
         assertFalse(isValidEmail("ann@example"))
         assertFalse(isValidEmail("ann example.com"))
         assertTrue(isHttpUrl("https://meet.example.com/abc"))
+        // The platform's API takes http as well as https.
+        assertTrue(isHttpUrl(" http://meet.example.com "))
+        assertTrue(isHttpUrl("HTTPS://Meet.Example.com/j/1?pwd=x"))
         assertFalse(isHttpUrl("meet.example.com"))
         assertFalse(isHttpUrl("https://"))
+        assertFalse(isHttpUrl("https://meet example.com"))
+        assertFalse(isHttpUrl("mailto:ann@example.com"))
+        assertFalse(isHttpUrl("ftp://files.example.com"))
     }
 
     @Test

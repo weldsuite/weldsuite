@@ -18,60 +18,19 @@
         }
       }
     },
-    "agenda.calendarCount": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld calendar"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld calendars"
-                }
-              }
-            }
-          }
-        },
-        "nl": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld agenda"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld agenda’s"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "agenda.emptyDescription": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Events from the next two weeks will show up here."
+            "value": "No events scheduled in this period."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Items van de komende twee weken verschijnen hier."
+            "value": "Geen evenementen gepland in deze periode."
           }
         }
       }
@@ -82,13 +41,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nothing scheduled"
+            "value": "No upcoming events"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Niets gepland"
+            "value": "Geen aankomende evenementen"
           }
         }
       }
@@ -120,13 +79,13 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld item"
+                  "value": "%lld evenement"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld items"
+                  "value": "%lld evenementen"
                 }
               }
             }
@@ -140,47 +99,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New event"
+            "value": "New Event"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nieuw item"
-          }
-        }
-      }
-    },
-    "agenda.next7Days": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Next 7 days"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Komende 7 dagen"
-          }
-        }
-      }
-    },
-    "agenda.now": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Now"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nu"
+            "value": "Nieuw evenement"
           }
         }
       }
@@ -191,30 +116,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenda"
+            "value": "Schedule"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
             "value": "Agenda"
-          }
-        }
-      }
-    },
-    "agenda.today": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Today"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vandaag"
           }
         }
       }
@@ -259,7 +167,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colour"
+            "value": "Color"
           }
         },
         "nl": {
@@ -270,19 +178,172 @@
         }
       }
     },
-    "calendars.colorOption": {
+    "calendars.colorNames.amber": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colour %@"
+            "value": "Amber"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kleur %@"
+            "value": "Amber"
+          }
+        }
+      }
+    },
+    "calendars.colorNames.blue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blue"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blauw"
+          }
+        }
+      }
+    },
+    "calendars.colorNames.cyan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cyan"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cyaan"
+          }
+        }
+      }
+    },
+    "calendars.colorNames.green": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Green"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Groen"
+          }
+        }
+      }
+    },
+    "calendars.colorNames.indigo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indigo"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indigo"
+          }
+        }
+      }
+    },
+    "calendars.colorNames.orange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orange"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oranje"
+          }
+        }
+      }
+    },
+    "calendars.colorNames.pink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pink"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roze"
+          }
+        }
+      }
+    },
+    "calendars.colorNames.red": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Red"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rood"
+          }
+        }
+      }
+    },
+    "calendars.colorNames.teal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teal"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blauwgroen"
+          }
+        }
+      }
+    },
+    "calendars.colorNames.violet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Violet"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Violet"
           }
         }
       }
@@ -300,57 +361,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Kon de agenda niet aanmaken"
-          }
-        }
-      }
-    },
-    "calendars.defaultBadge": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Default"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standaard"
-          }
-        }
-      }
-    },
-    "calendars.descriptionLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Description"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Omschrijving"
-          }
-        }
-      }
-    },
-    "calendars.descriptionPlaceholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "What is this calendar for? (optional)"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Waar is deze agenda voor? (optioneel)"
           }
         }
       }
@@ -406,6 +416,23 @@
         }
       }
     },
+    "calendars.mine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My Calendars"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mijn agenda’s"
+          }
+        }
+      }
+    },
     "calendars.nameLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -429,30 +456,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Calendar name"
+            "value": "e.g., Work, Personal"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Naam van de agenda"
-          }
-        }
-      }
-    },
-    "calendars.nameRequired": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A name is required"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Een naam is verplicht"
+            "value": "bijv. Werk, Persoonlijk"
           }
         }
       }
@@ -463,13 +473,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New calendar"
+            "value": "Create Calendar"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nieuwe agenda"
+            "value": "Agenda aanmaken"
           }
         }
       }
@@ -480,30 +490,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shared with me"
+            "value": "Shared with Me"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Met mij gedeeld"
-          }
-        }
-      }
-    },
-    "calendars.show": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show %@"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ tonen"
+            "value": "Gedeeld met mij"
           }
         }
       }
@@ -521,40 +514,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Agenda’s"
-          }
-        }
-      }
-    },
-    "calendars.visibilityHint": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hidden calendars stay out of the agenda and the month grid."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verborgen agenda’s blijven buiten de agenda en het maandoverzicht."
-          }
-        }
-      }
-    },
-    "calendars.workspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Werkruimte"
           }
         }
       }
@@ -610,60 +569,53 @@
         }
       }
     },
-    "event.attendeeAnswers": {
+    "event.addAttendees": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Going: %1$lld, maybe: %2$lld, not going: %3$lld, not answered: %4$lld"
+            "value": "Add attendees"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Komen: %1$lld, misschien: %2$lld, komen niet: %3$lld, geen antwoord: %4$lld"
+            "value": "Deelnemers toevoegen"
           }
         }
       }
     },
-    "event.attendeeCount": {
+    "event.addDescription": {
       "extractionState": "manual",
       "localizations": {
         "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld guest"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld guests"
-                }
-              }
-            }
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add description..."
           }
         },
         "nl": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld gast"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld gasten"
-                }
-              }
-            }
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omschrijving toevoegen..."
+          }
+        }
+      }
+    },
+    "event.attendees": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attendees"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deelnemers"
           }
         }
       }
@@ -674,13 +626,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scheduled automatically"
+            "value": "Auto-scheduled"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatisch ingepland"
+            "value": "Automatisch gepland"
           }
         }
       }
@@ -719,19 +671,53 @@
         }
       }
     },
+    "event.created": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Created"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aangemaakt"
+          }
+        }
+      }
+    },
+    "event.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete event"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evenement verwijderen"
+          }
+        }
+      }
+    },
     "event.deleteAndNotify": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Delete and email guests"
+            "value": "Delete and notify"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwijderen en gasten mailen"
+            "value": "Verwijderen en op de hoogte stellen"
           }
         }
       }
@@ -742,13 +728,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This can’t be undone. Do you want to email the guests that it’s off?"
+            "value": "Are you sure you want to delete this event? This action cannot be undone."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dit kan niet ongedaan worden gemaakt. Wil je de gasten mailen dat het niet doorgaat?"
+            "value": "Weet je zeker dat je dit evenement wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt."
           }
         }
       }
@@ -765,7 +751,7 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kon het item niet verwijderen"
+            "value": "Kon het evenement niet verwijderen"
           }
         }
       }
@@ -776,13 +762,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This can’t be undone."
+            "value": "\"%@\" will be deleted. This cannot be undone."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dit kan niet ongedaan worden gemaakt."
+            "value": "\"%@\" wordt verwijderd. Dit kan niet ongedaan worden gemaakt."
           }
         }
       }
@@ -793,13 +779,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Delete without emailing"
+            "value": "Delete without notifying"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwijderen zonder mail"
+            "value": "Verwijderen zonder melding"
           }
         }
       }
@@ -810,30 +796,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Delete this event?"
+            "value": "Delete event?"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dit item verwijderen?"
-          }
-        }
-      }
-    },
-    "event.description": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Description"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Omschrijving"
+            "value": "Evenement verwijderen?"
           }
         }
       }
@@ -850,7 +819,7 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Item"
+            "value": "Evenement"
           }
         }
       }
@@ -872,57 +841,6 @@
         }
       }
     },
-    "event.durationHours": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lldh"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld u"
-          }
-        }
-      }
-    },
-    "event.durationHoursMinutes": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lldh %2$lldm"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld u %2$lld min"
-          }
-        }
-      }
-    },
-    "event.durationMinutes": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lldm"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld min"
-          }
-        }
-      }
-    },
     "event.edit": {
       "extractionState": "manual",
       "localizations": {
@@ -935,24 +853,7 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Item bewerken"
-          }
-        }
-      }
-    },
-    "event.joinMeeting": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Join meeting"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deelnemen"
+            "value": "Evenement bewerken"
           }
         }
       }
@@ -974,19 +875,19 @@
         }
       }
     },
-    "event.meetingLink": {
+    "event.meeting": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Meeting link"
+            "value": "Meeting"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vergaderlink"
+            "value": "Vergadering"
           }
         }
       }
@@ -1003,24 +904,24 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dit item bestaat niet meer."
+            "value": "Dit evenement bestaat niet meer."
           }
         }
       }
     },
-    "event.notes": {
+    "event.priority": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Notes"
+            "value": "Priority"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Notities"
+            "value": "Prioriteit"
           }
         }
       }
@@ -1065,13 +966,64 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Repeats"
+            "value": "Repeat"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Herhaalt"
+            "value": "Herhalen"
+          }
+        }
+      }
+    },
+    "event.setLocation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Location"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locatie instellen"
+          }
+        }
+      }
+    },
+    "event.setPriority": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Priority"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioriteit instellen"
+          }
+        }
+      }
+    },
+    "event.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
           }
         }
       }
@@ -1093,53 +1045,19 @@
         }
       }
     },
-    "event.taskClosed": {
+    "event.type": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Closed"
+            "value": "Type"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afgesloten"
-          }
-        }
-      }
-    },
-    "event.timezone": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Time zone"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tijdzone"
-          }
-        }
-      }
-    },
-    "event.timezoneShown": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scheduled in %@. Times show in your phone’s time zone."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gepland in %@. Tijden staan in de tijdzone van je telefoon."
+            "value": "Type"
           }
         }
       }
@@ -1178,13 +1096,30 @@
         }
       }
     },
+    "eventForm.addGuests": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add guests"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gasten toevoegen"
+          }
+        }
+      }
+    },
     "eventForm.allDayLabel": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All day"
+            "value": "All day event"
           }
         },
         "nl": {
@@ -1258,24 +1193,7 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Een item kan hooguit 100 gasten hebben"
-          }
-        }
-      }
-    },
-    "eventForm.attendeesHint": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Guests get an email invitation."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gasten krijgen een uitnodiging per e-mail."
+            "value": "Een evenement kan hooguit 100 gasten hebben"
           }
         }
       }
@@ -1326,7 +1244,7 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kon het item niet aanmaken"
+            "value": "Kon het evenement niet aanmaken"
           }
         }
       }
@@ -1354,13 +1272,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add more detail (optional)"
+            "value": "Add description"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Voeg meer detail toe (optioneel)"
+            "value": "Omschrijving toevoegen"
           }
         }
       }
@@ -1371,13 +1289,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit event"
+            "value": "Edit Event"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Item bewerken"
+            "value": "Evenement bewerken"
           }
         }
       }
@@ -1388,13 +1306,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The end time must be after the start time."
+            "value": "End must be after start"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "De eindtijd moet na de begintijd liggen."
+            "value": "Het einde moet na het begin liggen"
           }
         }
       }
@@ -1405,13 +1323,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ends"
+            "value": "End"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eindigt"
+            "value": "Einde"
           }
         }
       }
@@ -1439,13 +1357,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where? (optional)"
+            "value": "Add location"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Waar? (optioneel)"
+            "value": "Locatie toevoegen"
           }
         }
       }
@@ -1456,13 +1374,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enter a link that starts with http:// or https://"
+            "value": "Enter a valid URL, starting with http:// or https://"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vul een link in die begint met http:// of https://"
+            "value": "Vul een geldige URL in, beginnend met http:// of https://"
           }
         }
       }
@@ -1473,13 +1391,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Meeting link"
+            "value": "Meeting URL"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vergaderlink"
+            "value": "Vergader-URL"
           }
         }
       }
@@ -1490,13 +1408,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://…"
+            "value": "https://example.com/meeting"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://…"
+            "value": "https://voorbeeld.nl/vergadering"
           }
         }
       }
@@ -1507,13 +1425,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New event"
+            "value": "New Event"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nieuw item"
+            "value": "Nieuw evenement"
           }
         }
       }
@@ -1530,7 +1448,7 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Je hebt een agenda nodig die je mag bewerken voordat je items toevoegt."
+            "value": "Je hebt een agenda nodig die je mag bewerken voordat je evenementen toevoegt."
           }
         }
       }
@@ -1541,13 +1459,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Email guests about this change"
+            "value": "Send update email to all participants"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gasten per e-mail informeren over deze wijziging"
+            "value": "Wijzigingsmail sturen naar alle deelnemers"
           }
         }
       }
@@ -1643,13 +1561,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Starts"
+            "value": "Start"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Begint"
+            "value": "Begin"
           }
         }
       }
@@ -1677,13 +1595,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Create event"
+            "value": "Create"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Item aanmaken"
+            "value": "Aanmaken"
           }
         }
       }
@@ -1694,30 +1612,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Save changes"
+            "value": "Update"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wijzigingen opslaan"
-          }
-        }
-      }
-    },
-    "eventForm.timeZoneNote": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Times are in your phone’s time zone (%@)."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tijden staan in de tijdzone van je telefoon (%@)."
+            "value": "Bijwerken"
           }
         }
       }
@@ -1745,13 +1646,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "What is it?"
+            "value": "Event title"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Waar gaat het over?"
+            "value": "Naam van evenement"
           }
         }
       }
@@ -1762,13 +1663,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A title is required"
+            "value": "Title is required"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Een titel is verplicht"
+            "value": "Titel is verplicht"
           }
         }
       }
@@ -1802,7 +1703,24 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kon het item niet opslaan"
+            "value": "Kon het evenement niet opslaan"
+          }
+        }
+      }
+    },
+    "eventForm.virtualLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Virtual meeting"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Virtuele vergadering"
           }
         }
       }
@@ -1836,7 +1754,7 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Telefoongesprek"
+            "value": "Oproep"
           }
         }
       }
@@ -1898,13 +1816,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reminder"
+            "value": "Task"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Herinnering"
+            "value": "Taak"
           }
         }
       }
@@ -1938,7 +1856,7 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tik op de plus om een item toe te voegen."
+            "value": "Tik op de plus om een evenement toe te voegen."
           }
         }
       }
@@ -1973,57 +1891,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Vorige maand"
-          }
-        }
-      }
-    },
-    "permission.edit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Can edit"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mag bewerken"
-          }
-        }
-      }
-    },
-    "permission.manage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Can manage"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mag beheren"
-          }
-        }
-      }
-    },
-    "permission.view": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Can view"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mag bekijken"
           }
         }
       }
@@ -2556,6 +2423,125 @@
         }
       }
     },
+    "schedule.earlier": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Earlier"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eerder"
+          }
+        }
+      }
+    },
+    "schedule.later": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Later"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Later"
+          }
+        }
+      }
+    },
+    "schedule.nextWeek": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Week"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volgende week"
+          }
+        }
+      }
+    },
+    "schedule.thisWeek": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Week"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deze week"
+          }
+        }
+      }
+    },
+    "schedule.today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Today"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vandaag"
+          }
+        }
+      }
+    },
+    "schedule.tomorrow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tomorrow"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Morgen"
+          }
+        }
+      }
+    },
+    "schedule.yesterday": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yesterday"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gisteren"
+          }
+        }
+      }
+    },
     "settings.contactSupport": {
       "extractionState": "manual",
       "localizations": {
@@ -2687,7 +2673,7 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Onder voorbehoud"
+            "value": "Voorlopig"
           }
         }
       }
@@ -2698,7 +2684,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenda"
+            "value": "Schedule"
           }
         },
         "nl": {

@@ -1,8 +1,12 @@
 package com.weldsuite.weldcalendar.ui
 
 import android.text.format.DateFormat
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,16 +15,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.AlertDialog
-import org.weldsuite.ui.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -30,10 +36,8 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
-import org.weldsuite.ui.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -56,9 +60,12 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.weldsuite.weldcalendar.CalendarAccess
@@ -77,14 +84,15 @@ import com.weldsuite.weldcalendar.R
 import com.weldsuite.weldcalendar.RepeatPreset
 import com.weldsuite.weldcalendar.guestProblem
 import com.weldsuite.weldcalendar.problemsOf
-import com.weldsuite.weldcalendar.typeColor
 import kotlinx.coroutines.launch
 import org.weldsuite.core.LoadState
 import org.weldsuite.core.apiErrorMessage
 import org.weldsuite.core.R as CoreR
+import org.weldsuite.ui.Button
 import org.weldsuite.ui.CenteredProgress
 import org.weldsuite.ui.LoadErrorState
 import org.weldsuite.ui.MessageScreen
+import org.weldsuite.ui.OutlinedButton
 import org.weldsuite.ui.Tokens
 import org.weldsuite.ui.tagged
 import java.time.Instant
@@ -98,7 +106,8 @@ private enum class PickerKind { START_DATE, START_TIME, END_DATE, END_TIME }
 
 /**
  * A new event ([eventId] null, starting on [day] when the month tab handed
- * one over) or an edit. Only calendars the person may write to are offered.
+ * one over) or an edit, with the platform's event dialog's fields in its
+ * order. Only calendars the person may write to are offered.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -182,6 +191,8 @@ private fun EventForm(
     modifier: Modifier,
 ) {
     var draft by remember(initial) { mutableStateOf(initial) }
+    // The platform's "Virtual meeting" switch: the link field shows while it's on, and turning it off clears the link.
+    var virtual by remember(initial) { mutableStateOf(initial.meetingUrl.isNotBlank()) }
     var showProblems by remember { mutableStateOf(false) }
     var picker by remember { mutableStateOf<PickerKind?>(null) }
     var saving by remember { mutableStateOf(false) }
@@ -201,181 +212,191 @@ private fun EventForm(
             .verticalScroll(rememberScrollState())
             .imePadding()
             .padding(Tokens.Spacing.l),
-        verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
+        verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.l),
     ) {
-        OutlinedTextField(
-            value = draft.title,
-            onValueChange = { draft = draft.copy(title = it) },
-            label = { Text(stringResource(R.string.weldcalendar_event_form_title_label)) },
-            placeholder = { Text(stringResource(R.string.weldcalendar_event_form_title_placeholder)) },
-            isError = showProblems && problems.titleMissing,
-            supportingText = if (showProblems && problems.titleMissing) {
-                { Text(stringResource(R.string.weldcalendar_event_form_title_required)) }
-            } else {
-                null
-            },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next),
-            modifier = Modifier.fillMaxWidth().focusRequester(titleFocus).tagged("event-title"),
-        )
-
-        ChoiceField(
-            label = stringResource(R.string.weldcalendar_event_form_calendar_label),
-            options = calendars,
-            selected = calendars.firstOrNull { it.id == draft.calendarId },
-            text = { it?.name ?: stringResource(R.string.weldcalendar_common_not_set) },
-            leading = { ColorDot(it?.color) },
-            tag = "event-calendar",
-            onSelect = { draft = draft.copy(calendarId = it.id) },
-        )
-
-        ChoiceField(
-            label = stringResource(R.string.weldcalendar_event_form_type_label),
-            options = EventType.entries,
-            selected = draft.type,
-            text = { typeLabel(it ?: EventType.OTHER) },
-            leading = { ColorDot(typeColor(it ?: EventType.OTHER)) },
-            tag = "event-type",
-            onSelect = { draft = draft.copy(type = it) },
-        )
-
-        ListItem(
-            headlineContent = { Text(stringResource(R.string.weldcalendar_event_form_all_day_label)) },
-            trailingContent = {
-                Switch(
-                    checked = draft.allDay,
-                    onCheckedChange = { draft = DraftTimes.allDay(draft, it) },
-                    modifier = Modifier.tagged("event-all-day"),
+        if (calendars.size > 1) {
+            FormField(stringResource(R.string.weldcalendar_event_form_calendar_label)) {
+                ChoiceField(
+                    options = calendars,
+                    selected = calendars.firstOrNull { it.id == draft.calendarId },
+                    text = { it?.name ?: stringResource(R.string.weldcalendar_common_not_set) },
+                    leading = { ColorDot(it?.color) },
+                    tag = "event-calendar",
+                    onSelect = { draft = draft.copy(calendarId = it.id) },
                 )
-            },
-        )
-
-        DateTimeRow(
-            label = stringResource(R.string.weldcalendar_event_form_starts_label),
-            value = draft.start,
-            allDay = draft.allDay,
-            error = false,
-            tag = "event-start",
-            onDate = { picker = PickerKind.START_DATE },
-            onTime = { picker = PickerKind.START_TIME },
-        )
-        DateTimeRow(
-            label = stringResource(R.string.weldcalendar_event_form_ends_label),
-            value = draft.end,
-            allDay = draft.allDay,
-            error = showProblems && problems.endBeforeStart,
-            tag = "event-end",
-            onDate = { picker = PickerKind.END_DATE },
-            onTime = { picker = PickerKind.END_TIME },
-        )
-        if (showProblems && problems.endBeforeStart) {
-            Text(stringResource(R.string.weldcalendar_event_form_end_before_start), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-        }
-        Text(
-            stringResource(R.string.weldcalendar_event_form_time_zone_note, zone.id),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        RepeatField(draft.recurrenceRule) { draft = draft.copy(recurrenceRule = it) }
-
-        OutlinedTextField(
-            value = draft.location,
-            onValueChange = { draft = draft.copy(location = it) },
-            label = { Text(stringResource(R.string.weldcalendar_event_form_location_label)) },
-            placeholder = { Text(stringResource(R.string.weldcalendar_event_form_location_placeholder)) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().tagged("event-location"),
-        )
-        OutlinedTextField(
-            value = draft.meetingUrl,
-            onValueChange = { draft = draft.copy(meetingUrl = it) },
-            label = { Text(stringResource(R.string.weldcalendar_event_form_meeting_url_label)) },
-            placeholder = { Text(stringResource(R.string.weldcalendar_event_form_meeting_url_placeholder)) },
-            isError = showProblems && problems.badMeetingUrl,
-            supportingText = if (showProblems && problems.badMeetingUrl) {
-                { Text(stringResource(R.string.weldcalendar_event_form_meeting_url_invalid)) }
-            } else {
-                null
-            },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
-            modifier = Modifier.fillMaxWidth().tagged("event-meeting-url"),
-        )
-
-        Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m)) {
-            ChoiceField(
-                label = stringResource(R.string.weldcalendar_event_form_status_label),
-                options = EventStatus.entries,
-                selected = draft.status,
-                text = { statusLabel(it ?: EventStatus.CONFIRMED) },
-                tag = "event-status",
-                onSelect = { draft = draft.copy(status = it) },
-                modifier = Modifier.weight(1f),
-            )
-            ChoiceField(
-                label = stringResource(R.string.weldcalendar_event_form_priority_label),
-                options = EventPriority.entries,
-                selected = draft.priority,
-                text = { priorityLabel(it ?: EventPriority.NORMAL) },
-                tag = "event-priority",
-                onSelect = { draft = draft.copy(priority = it) },
-                modifier = Modifier.weight(1f),
-            )
-        }
-
-        GuestsField(draft.guests) { draft = draft.copy(guests = it) }
-
-        OutlinedTextField(
-            value = draft.description,
-            onValueChange = { draft = draft.copy(description = it) },
-            label = { Text(stringResource(R.string.weldcalendar_event_form_description_label)) },
-            placeholder = { Text(stringResource(R.string.weldcalendar_event_form_description_placeholder)) },
-            minLines = 3,
-            modifier = Modifier.fillMaxWidth().tagged("event-description"),
-        )
-
-        if (original != null && (original.guests.isNotEmpty() || draft.guests.isNotEmpty())) {
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.weldcalendar_event_form_notify_label)) },
-                trailingContent = {
-                    Switch(
-                        checked = draft.notifyGuests,
-                        onCheckedChange = { draft = draft.copy(notifyGuests = it) },
-                        modifier = Modifier.tagged("event-notify"),
-                    )
-                },
-            )
-        }
-
-        Button(
-            onClick = {
-                if (!problems.isEmpty) {
-                    showProblems = true
-                    return@Button
-                }
-                saving = true
-                scope.launch {
-                    runCatching {
-                        if (original == null) repository.create(draft, zone) else repository.update(original, draft, zone)
-                    }
-                        .onSuccess { onDone() }
-                        .onFailure { error ->
-                            saving = false
-                            notify(failureText(failed, context.getString(apiErrorMessage(error))))
-                        }
-                }
-            },
-            enabled = !saving,
-            modifier = Modifier.fillMaxWidth().height(48.dp).tagged("event-submit"),
-        ) {
-            if (saving) {
-                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-            } else {
-                Text(stringResource(if (original == null) R.string.weldcalendar_event_form_submit_create else R.string.weldcalendar_event_form_submit_save))
             }
         }
-        Spacer(Modifier.height(Tokens.Spacing.xl))
+
+        FormField(stringResource(R.string.weldcalendar_event_form_title_label)) {
+            OutlinedTextField(
+                value = draft.title,
+                onValueChange = { draft = draft.copy(title = it) },
+                placeholder = { Text(stringResource(R.string.weldcalendar_event_form_title_placeholder)) },
+                isError = showProblems && problems.titleMissing,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next),
+                modifier = Modifier.fillMaxWidth().focusRequester(titleFocus).tagged("event-title"),
+            )
+            if (showProblems && problems.titleMissing) FieldError(stringResource(R.string.weldcalendar_event_form_title_required))
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m)) {
+            FormField(stringResource(R.string.weldcalendar_event_form_type_label), Modifier.weight(1f)) {
+                ChoiceField(
+                    options = EventType.entries,
+                    selected = draft.type,
+                    text = { typeLabel(it ?: EventType.OTHER) },
+                    tag = "event-type",
+                    onSelect = { draft = draft.copy(type = it) },
+                )
+            }
+            FormField(stringResource(R.string.weldcalendar_event_form_priority_label), Modifier.weight(1f)) {
+                ChoiceField(
+                    options = EventPriority.entries,
+                    selected = draft.priority,
+                    text = { priorityLabel(it ?: EventPriority.NORMAL) },
+                    tag = "event-priority",
+                    onSelect = { draft = draft.copy(priority = it) },
+                )
+            }
+        }
+
+        SwitchRow(
+            label = stringResource(R.string.weldcalendar_event_form_all_day_label),
+            checked = draft.allDay,
+            tag = "event-all-day",
+            onChange = { draft = DraftTimes.allDay(draft, it) },
+        )
+
+        FormField(stringResource(R.string.weldcalendar_event_form_starts_label)) {
+            DateTimeRow(
+                value = draft.start,
+                allDay = draft.allDay,
+                error = false,
+                tag = "event-start",
+                onDate = { picker = PickerKind.START_DATE },
+                onTime = { picker = PickerKind.START_TIME },
+            )
+        }
+        FormField(stringResource(R.string.weldcalendar_event_form_ends_label)) {
+            DateTimeRow(
+                value = draft.end,
+                allDay = draft.allDay,
+                error = showProblems && problems.endBeforeStart,
+                tag = "event-end",
+                onDate = { picker = PickerKind.END_DATE },
+                onTime = { picker = PickerKind.END_TIME },
+            )
+            if (showProblems && problems.endBeforeStart) FieldError(stringResource(R.string.weldcalendar_event_form_end_before_start))
+        }
+
+        FormField(stringResource(R.string.weldcalendar_event_form_repeat_label)) {
+            RepeatField(draft.recurrenceRule) { draft = draft.copy(recurrenceRule = it) }
+        }
+
+        FormField(stringResource(R.string.weldcalendar_event_form_location_label)) {
+            OutlinedTextField(
+                value = draft.location,
+                onValueChange = { draft = draft.copy(location = it) },
+                placeholder = { Text(stringResource(R.string.weldcalendar_event_form_location_placeholder)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().tagged("event-location"),
+            )
+        }
+
+        SwitchRow(
+            label = stringResource(R.string.weldcalendar_event_form_virtual_label),
+            checked = virtual,
+            tag = "event-virtual",
+            onChange = { on ->
+                virtual = on
+                if (!on) draft = draft.copy(meetingUrl = "")
+            },
+        )
+        if (virtual) {
+            FormField(stringResource(R.string.weldcalendar_event_form_meeting_url_label)) {
+                OutlinedTextField(
+                    value = draft.meetingUrl,
+                    onValueChange = { draft = draft.copy(meetingUrl = it) },
+                    placeholder = { Text(stringResource(R.string.weldcalendar_event_form_meeting_url_placeholder)) },
+                    isError = showProblems && problems.badMeetingUrl,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
+                    modifier = Modifier.fillMaxWidth().tagged("event-meeting-url"),
+                )
+                if (showProblems && problems.badMeetingUrl) FieldError(stringResource(R.string.weldcalendar_event_form_meeting_url_invalid))
+            }
+        }
+
+        FormField(stringResource(R.string.weldcalendar_event_form_attendees_label)) {
+            GuestsField(draft.guests) { draft = draft.copy(guests = it) }
+        }
+
+        FormField(stringResource(R.string.weldcalendar_event_form_description_label)) {
+            OutlinedTextField(
+                value = draft.description,
+                onValueChange = { draft = draft.copy(description = it) },
+                placeholder = { Text(stringResource(R.string.weldcalendar_event_form_description_placeholder)) },
+                minLines = 3,
+                modifier = Modifier.fillMaxWidth().tagged("event-description"),
+            )
+        }
+
+        // The platform offers the status once the event exists.
+        if (original != null) {
+            FormField(stringResource(R.string.weldcalendar_event_form_status_label)) {
+                ChoiceField(
+                    options = EventStatus.entries,
+                    selected = draft.status,
+                    text = { statusLabel(it ?: EventStatus.CONFIRMED) },
+                    tag = "event-status",
+                    onSelect = { draft = draft.copy(status = it) },
+                )
+            }
+        }
+
+        if (original != null && (original.guests.isNotEmpty() || draft.guests.isNotEmpty())) {
+            SwitchRow(
+                label = stringResource(R.string.weldcalendar_event_form_notify_label),
+                checked = draft.notifyGuests,
+                tag = "event-notify",
+                onChange = { draft = draft.copy(notifyGuests = it) },
+            )
+        }
+
+        Row(Modifier.padding(top = Tokens.Spacing.s), horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
+            OutlinedButton(onClick = onDone, enabled = !saving, modifier = Modifier.weight(1f).height(44.dp)) {
+                Text(stringResource(CoreR.string.core_common_cancel))
+            }
+            Button(
+                onClick = {
+                    if (!problems.isEmpty) {
+                        showProblems = true
+                        return@Button
+                    }
+                    saving = true
+                    scope.launch {
+                        runCatching {
+                            if (original == null) repository.create(draft, zone) else repository.update(original, draft, zone)
+                        }
+                            .onSuccess { onDone() }
+                            .onFailure { error ->
+                                saving = false
+                                notify(failureText(failed, context.getString(apiErrorMessage(error))))
+                            }
+                    }
+                },
+                enabled = !saving,
+                modifier = Modifier.weight(1f).height(44.dp).tagged("event-submit"),
+            ) {
+                if (saving) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                } else {
+                    Text(stringResource(if (original == null) R.string.weldcalendar_event_form_submit_create else R.string.weldcalendar_event_form_submit_save))
+                }
+            }
+        }
+        Spacer(Modifier.height(Tokens.Spacing.l))
     }
 
     when (picker) {
@@ -399,11 +420,38 @@ private fun EventForm(
     }
 }
 
-/** A dropdown of [options], Material's exposed menu. */
+/** A field as the platform's forms lay it out: the label above, the control under it. */
+@Composable
+private fun FormField(label: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
+        Text(label, style = MaterialTheme.typography.labelLarge)
+        content()
+    }
+}
+
+/** A field's validation message, in the destructive colour. */
+@Composable
+private fun FieldError(text: String) {
+    Text(text, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+}
+
+/** A switch with its label after it, as the platform's dialog puts "All day event" and "Virtual meeting". */
+@Composable
+private fun SwitchRow(label: String, checked: Boolean, tag: String, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onChange(!checked) },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.m),
+    ) {
+        Switch(checked = checked, onCheckedChange = onChange, modifier = Modifier.semantics { contentDescription = label }.tagged(tag))
+        Text(label, style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+/** A select, as Material's exposed menu: the value in a field, the options under it. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun <T> ChoiceField(
-    label: String,
     options: List<T>,
     selected: T?,
     text: @Composable (T?) -> String,
@@ -418,7 +466,6 @@ private fun <T> ChoiceField(
             value = text(selected),
             onValueChange = {},
             readOnly = true,
-            label = { Text(label) },
             leadingIcon = leading?.let { draw -> { draw(selected) } },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = open) },
             singleLine = true,
@@ -449,7 +496,6 @@ private fun RepeatField(rule: String, onChange: (String) -> Unit) {
         RepeatPreset.entries.forEach { add(it.rule) }
     }
     ChoiceField(
-        label = stringResource(R.string.weldcalendar_event_form_repeat_label),
         options = options,
         selected = rule,
         text = { option ->
@@ -461,10 +507,9 @@ private fun RepeatField(rule: String, onChange: (String) -> Unit) {
     )
 }
 
-/** A date button and, unless all day, a time button. */
+/** The platform's date-time field: an outline date button and, unless all day, an outline time button. */
 @Composable
 private fun DateTimeRow(
-    label: String,
     value: LocalDateTime,
     allDay: Boolean,
     error: Boolean,
@@ -472,23 +517,16 @@ private fun DateTimeRow(
     onDate: () -> Unit,
     onTime: () -> Unit,
 ) {
-    val colors = if (error) {
-        androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-    } else {
-        androidx.compose.material3.ButtonDefaults.outlinedButtonColors()
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.xs)) {
-        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
-            OutlinedButton(onClick = onDate, colors = colors, modifier = Modifier.weight(1f).tagged("$tag-date")) {
-                Text(dateText(value.toLocalDate(), "EEEdMMMyyyy"))
-            }
-            if (!allDay) {
-                OutlinedButton(onClick = onTime, colors = colors, modifier = Modifier.width(128.dp).tagged("$tag-time")) {
-                    Icon(Icons.Outlined.Schedule, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(Tokens.Spacing.xs))
-                    Text(timeText(value.atZone(ZoneId.systemDefault()).toInstant()))
-                }
+    val colors = ButtonDefaults.outlinedButtonColors(
+        contentColor = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
+        OutlinedButton(onClick = onDate, colors = colors, modifier = Modifier.weight(1f).tagged("$tag-date")) {
+            Text(dateText(value.toLocalDate(), "EEEdMMMyyyy"), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
+        }
+        if (!allDay) {
+            OutlinedButton(onClick = onTime, colors = colors, modifier = Modifier.widthIn(min = 104.dp).tagged("$tag-time")) {
+                Text(timeText(value.atZone(ZoneId.systemDefault()).toInstant()), maxLines = 1)
             }
         }
     }
@@ -535,9 +573,14 @@ private fun TimeDialog(initial: LocalTime, onDismiss: () -> Unit, onPick: (Local
     )
 }
 
-/** The guest list: who's on it, with their answer, and a field to add one by address. */
+/**
+ * The platform's guest field: the guests as muted chips with a remove
+ * button, and "Add guests", which opens a field to type an address in.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun GuestsField(guests: List<Guest>, onChange: (List<Guest>) -> Unit) {
+    var adding by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
     var problem by remember { mutableStateOf<GuestProblem?>(null) }
     val add: () -> Unit = {
@@ -550,53 +593,70 @@ private fun GuestsField(guests: List<Guest>, onChange: (List<Guest>) -> Unit) {
             problem = null
         }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.xs)) {
-        Text(stringResource(R.string.weldcalendar_event_form_attendees_label), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        guests.forEach { guest ->
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().tagged("guest-${guest.email}")) {
-                Column(Modifier.weight(1f)) {
-                    Text(guest.label, maxLines = 1)
-                    if (guest.name != null) Text(guest.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                }
-                if (guest.status != null) {
-                    org.weldsuite.ui.StatusBadge(responseLabel(guest.response), responseColor(guest.response))
-                }
-                IconButton(onClick = { onChange(guests - guest) }) {
-                    Icon(Icons.Outlined.Close, stringResource(R.string.weldcalendar_event_form_remove_attendee, guest.label))
-                }
+    Column(verticalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
+        if (guests.isNotEmpty()) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                guests.forEach { guest -> GuestChip(guest) { onChange(guests - guest) } }
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
-            OutlinedTextField(
-                value = email,
-                onValueChange = {
-                    email = it
-                    problem = null
-                },
-                placeholder = { Text(stringResource(R.string.weldcalendar_event_form_attendee_email_placeholder)) },
-                isError = problem != null,
-                supportingText = problem?.let { issue ->
-                    {
-                        Text(
-                            stringResource(
-                                when (issue) {
-                                    GuestProblem.INVALID -> R.string.weldcalendar_event_form_attendee_invalid
-                                    GuestProblem.DUPLICATE -> R.string.weldcalendar_event_form_attendee_duplicate
-                                    GuestProblem.LIMIT -> R.string.weldcalendar_event_form_attendee_limit
-                                },
-                            ),
-                        )
-                    }
-                },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrectEnabled = false, imeAction = ImeAction.Done),
-                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { add() }),
-                modifier = Modifier.weight(1f).tagged("attendee-email"),
+        if (adding) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s)) {
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = {
+                        email = it
+                        problem = null
+                    },
+                    placeholder = { Text(stringResource(R.string.weldcalendar_event_form_attendee_email_placeholder)) },
+                    isError = problem != null,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrectEnabled = false, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { add() }),
+                    modifier = Modifier.weight(1f).tagged("attendee-email"),
+                )
+                TextButton(onClick = add, enabled = email.isNotBlank(), modifier = Modifier.tagged("attendee-add")) {
+                    Text(stringResource(R.string.weldcalendar_event_form_add_attendee))
+                }
+            }
+            problem?.let { issue ->
+                FieldError(
+                    stringResource(
+                        when (issue) {
+                            GuestProblem.INVALID -> R.string.weldcalendar_event_form_attendee_invalid
+                            GuestProblem.DUPLICATE -> R.string.weldcalendar_event_form_attendee_duplicate
+                            GuestProblem.LIMIT -> R.string.weldcalendar_event_form_attendee_limit
+                        },
+                    ),
+                )
+            }
+        } else {
+            OutlinedButton(onClick = { adding = true }, modifier = Modifier.tagged("attendees-open")) {
+                Icon(Icons.Filled.Add, null, Modifier.size(14.dp))
+                Spacer(Modifier.size(Tokens.Spacing.xs))
+                Text(stringResource(R.string.weldcalendar_event_form_add_guests), style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
+}
+
+/** One guest, as the platform's dialog lists them: the name (or address) on the muted fill, with an x. */
+@Composable
+private fun GuestChip(guest: Guest, onRemove: () -> Unit) {
+    Row(
+        Modifier
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(Tokens.Radius.small))
+            .padding(start = Tokens.Spacing.s)
+            .tagged("guest-${guest.email}"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(guest.label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp))
+        IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
+            Icon(
+                Icons.Outlined.Close,
+                stringResource(R.string.weldcalendar_event_form_remove_attendee, guest.label),
+                Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            TextButton(onClick = add, enabled = email.isNotBlank(), modifier = Modifier.tagged("attendee-add")) {
-                Text(stringResource(R.string.weldcalendar_event_form_add_attendee))
-            }
         }
-        Text(stringResource(R.string.weldcalendar_event_form_attendees_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
