@@ -1919,6 +1919,13 @@
       "when": 1795821200580,
       "tag": "0273_weldbooks_invoice_quote_and_reminders",
       "breakpoints": true
+    },
+    {
+      "idx": 274,
+      "version": "7",
+      "when": 1795826129151,
+      "tag": "0274_weldbooks_payment_connections",
+      "breakpoints": true
     }
   ]
 }

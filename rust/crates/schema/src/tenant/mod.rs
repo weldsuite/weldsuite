@@ -5,6 +5,7 @@ pub mod accounting_bank_account_settings;
 pub mod accounting_contacts;
 pub mod accounting_dimension_values;
 pub mod accounting_entity_settings;
+pub mod accounting_payment_connections;
 pub mod accounts;
 pub mod active_timers;
 pub mod activity_logs;
@@ -535,6 +536,9 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         ),
         crate::snapshot::table::<accounting_entity_settings::Entity>(
             &accounting_entity_settings::DDL,
+        ),
+        crate::snapshot::table::<accounting_payment_connections::Entity>(
+            &accounting_payment_connections::DDL,
         ),
         crate::snapshot::table::<accounts::Entity>(&accounts::DDL),
         crate::snapshot::table::<active_timers::Entity>(&active_timers::DDL),
@@ -1148,6 +1152,9 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
         }
         "accounting_entity_settings" => {
             json(Box::pin(accounting_entity_settings::Entity::find().all(db)).await?)
+        }
+        "accounting_payment_connections" => {
+            json(Box::pin(accounting_payment_connections::Entity::find().all(db)).await?)
         }
         "accounts" => json(Box::pin(accounts::Entity::find().all(db)).await?),
         "active_timers" => json(Box::pin(active_timers::Entity::find().all(db)).await?),
