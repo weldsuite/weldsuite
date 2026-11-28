@@ -172,7 +172,10 @@ jobs:
           releaseFiles: ${{ env.BUNDLE }}
           mappingFile: ${{ env.MAPPING }}
           track: internal
-          status: completed
+          # WeldCalendar, WeldDesk and WeldHR are still draft apps in Play
+          # Console (never published), and a draft app takes only draft
+          # releases. Move an app to `completed` here once it is published.
+          status: ${{ (inputs.app == 'weldcalendar' || inputs.app == 'welddesk' || inputs.app == 'weldhr') && 'draft' || 'completed' }}
 
       - name: Summary
         env:
@@ -184,7 +187,7 @@ jobs:
             echo ""
             echo "- The signed \`.aab\` and its R8 mapping are attached to this run."
             if [ "$UPLOAD" = "true" ]; then
-              echo "- Uploaded to the Play **internal testing** track. Promoting it is a manual step in Play Console."
+              echo "- Uploaded to the Play **internal testing** track (a draft release while the app is a draft app). Promoting it is a manual step in Play Console."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
