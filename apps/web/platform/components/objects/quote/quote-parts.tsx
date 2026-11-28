@@ -94,7 +94,7 @@ function QuoteOnlineLink({ quoteId, sent }: Readonly<{ quoteId: string; sent: bo
     <PanelSection title={copy.quoteTitle}>
       <div className="space-y-2" data-testid="quote-online-link">
         <p className="text-[13px] text-muted-foreground">{url ? copy.quoteActive : copy.quoteNone}</p>
-        {url ? <CopyButton value={url} label={copy.copy} copiedLabel={copy.copied} failedLabel={copy.copyFailed} /> : null}
+        {url ? <CopyButton value={url} label={copy.copy} showLabel copiedLabel={copy.copied} failedLabel={copy.copyFailed} /> : null}
       </div>
     </PanelSection>
   );

@@ -1,0 +1,2430 @@
+openapi: 3.0.3
+info:
+  title: WeldBooks API (native apps)
+  version: 1.0.0
+  description: |
+    What the native WeldBooks apps call. Hand-written; the Rust server is the
+    source of truth: change both together, and see "Changing the contract"
+    in apps/mobile-shared/README.md for what apps already on phones can read.
+
+    Checked against the server, one test file per crate that serves the
+    routes (rust/modules/books, books-banking, books-purchases,
+    books-reports, books-sales, books-sales-tax and books-tax, each in
+    tests/openapi_contract.rs).
+
+    Every request carries `Authorization: Bearer <WeldID access token>`,
+    names its workspace in `X-Weld-Workspace` and its company in
+    `X-Accounting-Entity-Id` (the workspace default without it).
+
+    Not here, called directly by the apps: the storage upload broker
+    (`/api/storage/generate-upload-url`, the upload itself,
+    `/api/storage/confirm-upload`, `/api/storage/private/<key>`) and the
+    printable invoice (`GET /api/invoices/{id}/pdf`, HTML).
+servers:
+  - url: https://app.weldsuite.eu
+paths:
+  /api/accounting-entities:
+    get:
+      operationId: listAccountingEntities
+      summary: The companies with WeldBooks on that the caller can see.
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountingEntityList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createAccountingEntity
+      summary: Create a company and seed its chart of accounts, tax rates and number sequences.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntityInput'
+      responses:
+        '201':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountingEntityResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/accounting-entities/jurisdictions:
+    get:
+      operationId: listJurisdictions
+      summary: The supported countries with their features and words.
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JurisdictionList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/accounting-entities/{id}:
+    get:
+      operationId: getAccountingEntity
+      summary: One company.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountingEntityResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: updateAccountingEntity
+      summary: Change the name, tax ids, bank details or address of a company.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntityUpdate'
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountingEntityResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/gl-accounts:
+    get:
+      operationId: listGlAccounts
+      summary: The chart of accounts of the current company.
+      parameters:
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlAccountList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/accounting-dashboard:
+    get:
+      operationId: getAccountingDashboard
+      summary: The key figures of the current company.
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/accounting-reports/profit-loss:
+    get:
+      operationId: getProfitLoss
+      summary: Revenue, expenses and profit over a period.
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfitLossResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/accounting-reports/balance-sheet:
+    get:
+      operationId: getBalanceSheet
+      summary: Assets, liabilities and equity today.
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceSheetResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/vat-returns:
+    get:
+      operationId: listVatReturns
+      summary: The Dutch VAT returns of the current company, newest first.
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VatReturnList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/vat-returns/{id}:
+    get:
+      operationId: getVatReturn
+      summary: One VAT return.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VatReturnResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/vat-returns/{id}/file:
+    post:
+      operationId: fileVatReturn
+      summary: File the return with the tax authority.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VatFilingResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/invoices:
+    get:
+      operationId: listInvoices
+      summary: Invoices and credit notes, newest first.
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: contactId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createInvoice
+      summary: 'Create a draft invoice; it gets its number now.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvoiceInput'
+      responses:
+        '201':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedRecordResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/invoices/{id}:
+    get:
+      operationId: getInvoice
+      summary: One invoice with its lines.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteInvoice
+      summary: Delete a draft.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletedMessageResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/invoices/{id}/finalize:
+    post:
+      operationId: finalizeInvoice
+      summary: Book a draft. Refused while the company lacks invoice fields.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinalizedInvoiceResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/invoices/{id}/send:
+    patch:
+      operationId: sendInvoice
+      summary: Mark as sent, booking a draft first.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/invoices/{id}/status:
+    patch:
+      operationId: setInvoiceStatus
+      summary: Cancel a draft or write a booked invoice off.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvoiceStatusInput'
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/invoices/{id}/record-payment:
+    post:
+      operationId: recordInvoicePayment
+      summary: Record money received against a booked invoice.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvoicePaymentInput'
+      responses:
+        '201':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordedPaymentResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/invoices/{id}/duplicate:
+    post:
+      operationId: duplicateInvoice
+      summary: Copy an invoice to a new draft.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedRecordResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/invoices/{id}/credit-note:
+    post:
+      operationId: createCreditNote
+      summary: A draft credit note reversing a booked invoice.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedRecordResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/payments:
+    post:
+      operationId: createPayment
+      summary: Record a payment, here money paid on a bill.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentInput'
+      responses:
+        '201':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedRecordResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/sales-tax/calculate:
+    post:
+      operationId: calculateSalesTax
+      summary: 'The tax of a document as it would be booked; nothing is saved.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SalesTaxInput'
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesTaxPreviewResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/bills:
+    get:
+      operationId: listBills
+      summary: Bills, newest first.
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createBill
+      summary: Create a draft bill.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BillInput'
+      responses:
+        '201':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedRecordResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/bills/{id}:
+    get:
+      operationId: getBill
+      summary: One bill with its lines.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteBill
+      summary: Delete a draft bill.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Done.
+        default:
+          $ref: '#/components/responses/Error'
+  /api/bills/{id}/approve:
+    patch:
+      operationId: approveBill
+      summary: Approve and book a bill.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/bills/{id}/reject:
+    patch:
+      operationId: rejectBill
+      summary: 'Reject a bill; it is cancelled.'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BillRejectInput'
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/bills/from-document/{id}:
+    post:
+      operationId: billFromDocument
+      summary: A bill form filled in from a read document.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillPrefillResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/accounting-documents:
+    post:
+      operationId: createAccountingDocument
+      summary: Register an uploaded file (a receipt) as a document.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentInput'
+      responses:
+        '201':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedRecordResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/accounting-documents/{id}:
+    get:
+      operationId: getAccountingDocument
+      summary: One document, with the key of its file.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountingDocumentResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/accounting-documents/{id}/process:
+    post:
+      operationId: processAccountingDocument
+      summary: Read the document with OCR. Costs AI credits.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessedDocumentResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/accounting-contacts:
+    get:
+      operationId: listAccountingContacts
+      summary: Customers and suppliers, newest first.
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: role
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createAccountingContact
+      summary: Create a customer or supplier.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactInput'
+      responses:
+        '201':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/accounting-contacts/{id}:
+    get:
+      operationId: getAccountingContact
+      summary: One contact.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteAccountingContact
+      summary: Delete a contact nothing refers to.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Done.
+        default:
+          $ref: '#/components/responses/Error'
+  /api/accounting-contacts/{id}/balance:
+    get:
+      operationId: getContactBalance
+      summary: What the contact owes and is owed.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactBalanceResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/accounting-contacts/{id}/invoices:
+    get:
+      operationId: listContactInvoices
+      summary: The contact’s invoices, newest first.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceArray'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/accounting-contacts/{id}/bills:
+    get:
+      operationId: listContactBills
+      summary: The contact’s bills, newest first.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillArray'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/bank-accounts:
+    get:
+      operationId: listBankAccounts
+      summary: The bank accounts of the current company.
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BankAccountList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/bank-accounts/{id}:
+    get:
+      operationId: getBankAccount
+      summary: One bank account.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BankAccountResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/bank-transactions:
+    get:
+      operationId: listBankTransactions
+      summary: Bank statement lines, newest first.
+      parameters:
+        - name: bankAccountId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BankTransactionList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/bank-transactions/{id}/suggestions:
+    get:
+      operationId: listMatchSuggestions
+      summary: What a bank line may pay, best first.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchSuggestionList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/bank-transactions/{id}/reconcile:
+    post:
+      operationId: reconcileTransaction
+      summary: Match a bank line to an invoice or bill.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileInput'
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileResultResponse'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+  responses:
+    Error:
+      description: An error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorBody'
+    ErrorBody:
+      type: object
+      description: 'The standard `{ code, message, details? }`; a validation failure sends `issues` and `name` instead, so neither code nor message is required.'
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          $ref: '#/components/schemas/ErrorDetails'
+    ErrorDetails:
+      type: object
+      description: 'What some refusals add: `ENTITY_INVOICE_FIELDS_MISSING` (finalise) names the company fields that are missing.'
+      properties:
+        code:
+          type: string
+        missingFields:
+          type: array
+          items:
+            type: string
+    Pagination:
+      type: object
+      required: [totalCount, hasMore]
+      properties:
+        totalCount:
+          type: integer
+        hasMore:
+          type: boolean
+        cursor:
+          type: string
+          nullable: true
+    PostalAddress:
+      type: object
+      description: An address as books stores it, every part optional.
+      properties:
+        line1:
+          type: string
+        line2:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        postalCode:
+          type: string
+        country:
+          type: string
+        county:
+          type: string
+    CreatedRecord:
+      type: object
+      description: The id of what was created.
+      required: [id]
+      properties:
+        id:
+          type: string
+    CreatedRecordResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/CreatedRecord'
+    EntityTaxIdentifiers:
+      type: object
+      properties:
+        vatNumber:
+          type: string
+        registrationNumber:
+          type: string
+        einOrSsn:
+          type: string
+    EntityBankDetails:
+      type: object
+      properties:
+        iban:
+          type: string
+        bic:
+          type: string
+        accountNumber:
+          type: string
+        routingNumber:
+          type: string
+        bankName:
+          type: string
+    AccountingEntity:
+      type: object
+      description: 'A company (legal entity) with WeldBooks on: every accounting route is scoped to one.'
+      required: [id, name, jurisdictionCode, baseCurrency]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        legalName:
+          type: string
+          nullable: true
+        jurisdictionCode:
+          type: string
+        baseCurrency:
+          type: string
+        locale:
+          type: string
+          nullable: true
+        timezone:
+          type: string
+          nullable: true
+        entityType:
+          type: string
+          nullable: true
+        taxClassification:
+          type: string
+          nullable: true
+        dba:
+          type: string
+          nullable: true
+        taxIdentifiers:
+          allOf:
+            - $ref: '#/components/schemas/EntityTaxIdentifiers'
+          nullable: true
+        bankDetails:
+          allOf:
+            - $ref: '#/components/schemas/EntityBankDetails'
+          nullable: true
+        address:
+          allOf:
+            - $ref: '#/components/schemas/PostalAddress'
+          nullable: true
+        fiscalYearStart:
+          type: integer
+          nullable: true
+        isDefault:
+          type: boolean
+          nullable: true
+        isActive:
+          type: boolean
+          nullable: true
+    AccountingEntityList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccountingEntity'
+    AccountingEntityResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/AccountingEntity'
+    EntityInput:
+      type: object
+      required: [name, jurisdictionCode]
+      properties:
+        name:
+          type: string
+        legalName:
+          type: string
+        jurisdictionCode:
+          type: string
+        baseCurrency:
+          type: string
+        entityType:
+          type: string
+        taxClassification:
+          type: string
+        dba:
+          type: string
+        taxIdentifiers:
+          $ref: '#/components/schemas/EntityTaxIdentifiers'
+        bankDetails:
+          $ref: '#/components/schemas/EntityBankDetails'
+        address:
+          $ref: '#/components/schemas/PostalAddress'
+        isDefault:
+          type: boolean
+        seedDefaults:
+          type: boolean
+    EntityUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        taxIdentifiers:
+          $ref: '#/components/schemas/EntityTaxIdentifiers'
+        bankDetails:
+          $ref: '#/components/schemas/EntityBankDetails'
+        address:
+          $ref: '#/components/schemas/PostalAddress'
+    JurisdictionFeatures:
+      type: object
+      required: [vatReturn, icp, xafExport, smallBusinessScheme, gstReturn, salesTax, form1099, brTaxReturn, fiscalDocuments, spedEcd]
+      properties:
+        vatReturn:
+          type: boolean
+        icp:
+          type: boolean
+        xafExport:
+          type: boolean
+        smallBusinessScheme:
+          type: boolean
+        gstReturn:
+          type: boolean
+        salesTax:
+          type: boolean
+        form1099:
+          type: boolean
+        brTaxReturn:
+          type: boolean
+        fiscalDocuments:
+          type: boolean
+        spedEcd:
+          type: boolean
+    JurisdictionTerminology:
+      type: object
+      description: 'Codes of the words that differ per country (`vat`, `sales_tax`, `credit_memo`, ...); the apps translate them.'
+      required: [tax, taxId, registrationId, supplier, creditNote]
+      properties:
+        tax:
+          type: string
+        taxId:
+          type: string
+        registrationId:
+          type: string
+        supplier:
+          type: string
+        creditNote:
+          type: string
+    UsTaxClassification:
+      type: object
+      required: [value, form, formLabel]
+      properties:
+        value:
+          type: string
+        form:
+          type: string
+        formLabel:
+          type: string
+    UsEntityType:
+      type: object
+      required: [type, label, defaultClassification, classifications]
+      properties:
+        type:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+        minOwners:
+          type: integer
+        defaultClassification:
+          type: string
+        classifications:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsTaxClassification'
+    Jurisdiction:
+      type: object
+      required: [code, name, defaultLocale, defaultCurrency, features, terminology, invoiceRequiredFields]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        defaultLocale:
+          type: string
+        defaultCurrency:
+          type: string
+        features:
+          $ref: '#/components/schemas/JurisdictionFeatures'
+        terminology:
+          $ref: '#/components/schemas/JurisdictionTerminology'
+        invoiceRequiredFields:
+          type: array
+          items:
+            type: string
+        entityTypes:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsEntityType'
+    JurisdictionList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Jurisdiction'
+    GlAccount:
+      type: object
+      required: [id, code, name, type]
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        isActive:
+          type: boolean
+          nullable: true
+    GlAccountList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlAccount'
+    DashboardAmounts:
+      type: object
+      description: Decimal strings.
+      required: [month, year]
+      properties:
+        month:
+          type: string
+        year:
+          type: string
+    DashboardBalances:
+      type: object
+      required: [outstanding, outstandingCount, overdue, overdueCount]
+      properties:
+        outstanding:
+          type: string
+        outstandingCount:
+          type: integer
+        overdue:
+          type: string
+        overdueCount:
+          type: integer
+    DashboardBankAccount:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        iban:
+          type: string
+          nullable: true
+        currentBalance:
+          type: string
+          nullable: true
+        currency:
+          type: string
+          nullable: true
+    Dashboard:
+      type: object
+      required: [currency, revenue, expenses, profit, receivables, payables, pendingDocuments, bankAccounts]
+      properties:
+        currency:
+          type: string
+        revenue:
+          $ref: '#/components/schemas/DashboardAmounts'
+        expenses:
+          $ref: '#/components/schemas/DashboardAmounts'
+        profit:
+          $ref: '#/components/schemas/DashboardAmounts'
+        receivables:
+          $ref: '#/components/schemas/DashboardBalances'
+        payables:
+          $ref: '#/components/schemas/DashboardBalances'
+        pendingDocuments:
+          type: integer
+        bankAccounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardBankAccount'
+    DashboardResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Dashboard'
+    ReportPeriod:
+      type: object
+      required: [from, to]
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+    ProfitLoss:
+      type: object
+      required: [period, totalRevenue, totalExpenses, netProfit]
+      properties:
+        period:
+          $ref: '#/components/schemas/ReportPeriod'
+        totalRevenue:
+          type: string
+        totalExpenses:
+          type: string
+        netProfit:
+          type: string
+    ProfitLossResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ProfitLoss'
+    BalanceSheetRow:
+      type: object
+      description: 'An account and its balance; the calculated equity rows have no account id.'
+      required: [accountCode, accountName, balance]
+      properties:
+        accountId:
+          type: string
+          nullable: true
+        accountCode:
+          type: string
+        accountName:
+          type: string
+        balance:
+          type: string
+    BalanceSheet:
+      type: object
+      required: [assets, liabilities, equity, totalAssets, totalLiabilities, totalEquity, totalLiabilitiesAndEquity]
+      properties:
+        assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceSheetRow'
+        liabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceSheetRow'
+        equity:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceSheetRow'
+        totalAssets:
+          type: string
+        totalLiabilities:
+          type: string
+        totalEquity:
+          type: string
+        totalLiabilitiesAndEquity:
+          type: string
+    BalanceSheetResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/BalanceSheet'
+    VatRubrieken:
+      type: object
+      description: The Dutch return boxes (rubrieken), as numbers.
+      properties:
+        r1a:
+          type: number
+          format: double
+        r1b:
+          type: number
+          format: double
+        r2a:
+          type: number
+          format: double
+        r3a:
+          type: number
+          format: double
+        r3b:
+          type: number
+          format: double
+        r4a:
+          type: number
+          format: double
+        r4b:
+          type: number
+          format: double
+        r5a:
+          type: number
+          format: double
+        r5b:
+          type: number
+          format: double
+        r5c:
+          type: number
+          format: double
+    VatReturn:
+      type: object
+      required: [id, periodStart, periodEnd, status]
+      properties:
+        id:
+          type: string
+        periodType:
+          type: string
+        periodStart:
+          type: string
+        periodEnd:
+          type: string
+        periodLabel:
+          type: string
+          nullable: true
+        status:
+          type: string
+        rubrieken:
+          allOf:
+            - $ref: '#/components/schemas/VatRubrieken'
+          nullable: true
+        filedAt:
+          type: string
+          nullable: true
+        filingReference:
+          type: string
+          nullable: true
+    VatReturnList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/VatReturn'
+    VatReturnResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/VatReturn'
+    VatFiling:
+      type: object
+      required: [id, status]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        kenmerk:
+          type: string
+        simulated:
+          type: boolean
+        message:
+          type: string
+    VatFilingResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/VatFiling'
+    DocumentItem:
+      type: object
+      description: A line of an invoice or bill. Quantities, prices and rates are decimal strings.
+      required: [id, description, unitPrice]
+      properties:
+        id:
+          type: string
+        description:
+          type: string
+        quantity:
+          type: string
+          nullable: true
+        unitPrice:
+          type: string
+        taxRate:
+          type: string
+          nullable: true
+        taxAmount:
+          type: string
+          nullable: true
+        lineTotal:
+          type: string
+          nullable: true
+        taxCode:
+          type: string
+          nullable: true
+        accrueUseTax:
+          type: boolean
+          nullable: true
+        sortOrder:
+          type: integer
+          nullable: true
+    LineInput:
+      type: object
+      description: 'A line as the apps send it: every amount a decimal string.'
+      required: [description, unitPrice]
+      properties:
+        description:
+          type: string
+        quantity:
+          type: string
+        unitPrice:
+          type: string
+        taxRate:
+          type: string
+        taxRateId:
+          type: string
+        taxCode:
+          type: string
+        accrueUseTax:
+          type: boolean
+        accountId:
+          type: string
+        sortOrder:
+          type: integer
+    TaxBreakdownRow:
+      type: object
+      description: Tax per rate (VAT, GST), per tax component and treatment (BR), or per jurisdiction and line (US). Amounts are numbers.
+      properties:
+        taxRateName:
+          type: string
+        taxRate:
+          type: number
+          format: double
+        taxableAmount:
+          type: number
+          format: double
+        taxAmount:
+          type: number
+          format: double
+        jurisdictionCode:
+          type: string
+        jurisdictionName:
+          type: string
+        jurisdictionLevel:
+          type: string
+        stateCode:
+          type: string
+        exemptAmount:
+          type: number
+          format: double
+        nonTaxableAmount:
+          type: number
+          format: double
+        exemptReason:
+          type: string
+        taxCode:
+          type: string
+        kind:
+          type: string
+        component:
+          type: string
+        treatment:
+          type: string
+    Invoice:
+      type: object
+      description: 'An invoice or credit note; lists leave out `items`. Money is decimal strings, dates ISO timestamps.'
+      required: [id, type, status, contactId, issueDate, dueDate]
+      properties:
+        id:
+          type: string
+        invoiceNumber:
+          type: string
+          nullable: true
+        type:
+          type: string
+        status:
+          type: string
+        contactId:
+          type: string
+        contactName:
+          type: string
+          nullable: true
+        contactEmail:
+          type: string
+          nullable: true
+        issueDate:
+          type: string
+        dueDate:
+          type: string
+        currency:
+          type: string
+          nullable: true
+        subtotal:
+          type: string
+          nullable: true
+        taxTotal:
+          type: string
+          nullable: true
+        total:
+          type: string
+          nullable: true
+        amountPaid:
+          type: string
+          nullable: true
+        balanceDue:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        reference:
+          type: string
+          nullable: true
+        billingAddress:
+          allOf:
+            - $ref: '#/components/schemas/PostalAddress'
+          nullable: true
+        shippingAddress:
+          allOf:
+            - $ref: '#/components/schemas/PostalAddress'
+          nullable: true
+        taxBreakdown:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/TaxBreakdownRow'
+        taxWarnings:
+          type: array
+          nullable: true
+          items:
+            type: string
+        creditNoteForInvoiceId:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentItem'
+    InvoiceList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Invoice'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    InvoiceArray:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Invoice'
+    InvoiceResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Invoice'
+    InvoiceInput:
+      type: object
+      required: [contactId, issueDate, dueDate, items]
+      properties:
+        contactId:
+          type: string
+        contactName:
+          type: string
+        contactEmail:
+          type: string
+        issueDate:
+          type: string
+        dueDate:
+          type: string
+        currency:
+          type: string
+        notes:
+          type: string
+        reference:
+          type: string
+        billingAddress:
+          $ref: '#/components/schemas/PostalAddress'
+        shippingAddress:
+          $ref: '#/components/schemas/PostalAddress'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LineInput'
+    FinalizedInvoice:
+      type: object
+      required: [invoiceId, status]
+      properties:
+        invoiceId:
+          type: string
+        status:
+          type: string
+        journalEntryId:
+          type: string
+          nullable: true
+    FinalizedInvoiceResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/FinalizedInvoice'
+    InvoiceStatusInput:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [cancelled, uncollectible]
+    InvoicePaymentInput:
+      type: object
+      required: [amount, date]
+      properties:
+        amount:
+          type: string
+        date:
+          type: string
+        paymentMethod:
+          type: string
+        reference:
+          type: string
+        checkNumber:
+          type: string
+        depositTo:
+          type: string
+          enum: [undeposited_funds, bank]
+    RecordedPayment:
+      type: object
+      required: [paymentId]
+      properties:
+        paymentId:
+          type: string
+        amountPaid:
+          type: string
+          nullable: true
+        balanceDue:
+          type: string
+          nullable: true
+        status:
+          type: string
+          nullable: true
+    RecordedPaymentResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/RecordedPayment'
+    DeletedMessage:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+    DeletedMessageResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/DeletedMessage'
+    PaymentInput:
+      type: object
+      required: [type, amount, date]
+      properties:
+        type:
+          type: string
+          enum: [received, sent]
+        amount:
+          type: string
+        date:
+          type: string
+        invoiceId:
+          type: string
+        billId:
+          type: string
+        contactId:
+          type: string
+        paymentMethod:
+          type: string
+        checkNumber:
+          type: string
+        reference:
+          type: string
+    SalesTaxLine:
+      type: object
+      required: [unitPrice]
+      properties:
+        id:
+          type: string
+        description:
+          type: string
+        quantity:
+          type: string
+        unitPrice:
+          type: string
+        taxRate:
+          type: string
+        taxCode:
+          type: string
+        accrueUseTax:
+          type: boolean
+    SalesTaxInput:
+      type: object
+      required: [items]
+      properties:
+        kind:
+          type: string
+          enum: [invoice, estimate, credit_memo, bill]
+        contactId:
+          type: string
+        issueDate:
+          type: string
+        currency:
+          type: string
+        billingAddress:
+          $ref: '#/components/schemas/PostalAddress'
+        shippingAddress:
+          $ref: '#/components/schemas/PostalAddress'
+        deliveryAddress:
+          $ref: '#/components/schemas/PostalAddress'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesTaxLine'
+    SalesTaxPreview:
+      type: object
+      required: [warnings, addressIncomplete, subtotal, taxTotal, total, taxBreakdown]
+      properties:
+        engine:
+          type: string
+          nullable: true
+        warnings:
+          type: array
+          items:
+            type: string
+        shipToState:
+          type: string
+          nullable: true
+        shipToPostalCode:
+          type: string
+          nullable: true
+        addressIncomplete:
+          type: boolean
+        subtotal:
+          type: string
+        taxTotal:
+          type: string
+        total:
+          type: string
+        taxBreakdown:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/TaxBreakdownRow'
+    SalesTaxPreviewResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/SalesTaxPreview'
+    Bill:
+      type: object
+      description: 'A bill (quick expenses are bills too); lists leave out `items`.'
+      required: [id, status, contactId, issueDate, dueDate]
+      properties:
+        id:
+          type: string
+        billNumber:
+          type: string
+          nullable: true
+        status:
+          type: string
+        approvalStatus:
+          type: string
+          nullable: true
+        contactId:
+          type: string
+        contactName:
+          type: string
+          nullable: true
+        issueDate:
+          type: string
+        dueDate:
+          type: string
+        currency:
+          type: string
+          nullable: true
+        subtotal:
+          type: string
+          nullable: true
+        taxTotal:
+          type: string
+          nullable: true
+        total:
+          type: string
+          nullable: true
+        amountPaid:
+          type: string
+          nullable: true
+        balanceDue:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        reference:
+          type: string
+          nullable: true
+        externalReference:
+          type: string
+          nullable: true
+        sourceDocumentId:
+          type: string
+          nullable: true
+        deliveryAddress:
+          allOf:
+            - $ref: '#/components/schemas/PostalAddress'
+          nullable: true
+        taxBreakdown:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/TaxBreakdownRow'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentItem'
+    BillList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Bill'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    BillArray:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Bill'
+    BillResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Bill'
+    BillInput:
+      type: object
+      required: [contactId, issueDate, dueDate]
+      properties:
+        contactId:
+          type: string
+        contactName:
+          type: string
+        billNumber:
+          type: string
+        issueDate:
+          type: string
+        dueDate:
+          type: string
+        currency:
+          type: string
+        notes:
+          type: string
+        reference:
+          type: string
+        externalReference:
+          type: string
+        sourceDocumentId:
+          type: string
+        deliveryAddress:
+          $ref: '#/components/schemas/PostalAddress'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LineInput'
+    BillRejectInput:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+    PrefillItem:
+      type: object
+      required: [description, quantity, unitPrice]
+      properties:
+        description:
+          type: string
+        quantity:
+          type: string
+        unitPrice:
+          type: string
+        taxRate:
+          type: string
+          nullable: true
+        sortOrder:
+          type: integer
+    BillPrefill:
+      type: object
+      description: A bill form filled in from a read receipt.
+      required: [items, sourceDocumentId]
+      properties:
+        contactName:
+          type: string
+          nullable: true
+        externalReference:
+          type: string
+          nullable: true
+        issueDate:
+          type: string
+          nullable: true
+        dueDate:
+          type: string
+          nullable: true
+        currency:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrefillItem'
+        subtotal:
+          type: number
+          format: double
+          nullable: true
+        taxTotal:
+          type: number
+          format: double
+          nullable: true
+        total:
+          type: number
+          format: double
+          nullable: true
+        sourceDocumentId:
+          type: string
+        matchedContactId:
+          type: string
+          nullable: true
+    BillPrefillResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/BillPrefill'
+    DocumentInput:
+      type: object
+      required: [fileName, fileKey]
+      properties:
+        type:
+          type: string
+          enum: [purchase_invoice, receipt, bank_statement, contract, expense_report, tax_form, other]
+        fileName:
+          type: string
+        originalFileName:
+          type: string
+        fileKey:
+          type: string
+        mimeType:
+          type: string
+        source:
+          type: string
+          enum: [upload, email, scan, api]
+    AccountingDocument:
+      type: object
+      required: [id, fileKey]
+      properties:
+        id:
+          type: string
+        fileName:
+          type: string
+        fileKey:
+          type: string
+        mimeType:
+          type: string
+          nullable: true
+        status:
+          type: string
+    AccountingDocumentResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/AccountingDocument'
+    ProcessedDocument:
+      type: object
+      required: [id, status]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        matchedContactId:
+          type: string
+          nullable: true
+    ProcessedDocumentResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ProcessedDocument'
+    ContactPerson:
+      type: object
+      required: [personId, name]
+      properties:
+        personId:
+          type: string
+        name:
+          type: string
+        firstName:
+          type: string
+          nullable: true
+        lastName:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+    AccountingContact:
+      type: object
+      description: 'A customer or supplier: a WeldCRM company or person with an accounting role.'
+      required: [id, name, role]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          nullable: true
+        role:
+          type: string
+        companyName:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        vatNumber:
+          type: string
+          nullable: true
+        contactPerson:
+          allOf:
+            - $ref: '#/components/schemas/ContactPerson'
+          nullable: true
+        billingAddress:
+          allOf:
+            - $ref: '#/components/schemas/PostalAddress'
+          nullable: true
+        shippingAddress:
+          allOf:
+            - $ref: '#/components/schemas/PostalAddress'
+          nullable: true
+        is1099Vendor:
+          type: boolean
+          nullable: true
+        tinType:
+          type: string
+          nullable: true
+        tinLast4:
+          type: string
+          nullable: true
+    ContactList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccountingContact'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    ContactResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/AccountingContact'
+    ContactInput:
+      type: object
+      required: [fullName]
+      properties:
+        kind:
+          type: string
+          enum: [company, person]
+        fullName:
+          type: string
+        companyName:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        vatNumber:
+          type: string
+        role:
+          type: string
+          enum: [customer, supplier, both, none]
+        billingAddress:
+          $ref: '#/components/schemas/PostalAddress'
+    BalanceSide:
+      type: object
+      required: [totalOutstanding, totalOverdue]
+      properties:
+        totalOutstanding:
+          type: string
+        totalOverdue:
+          type: string
+    ContactBalance:
+      type: object
+      required: [receivable, payable]
+      properties:
+        receivable:
+          $ref: '#/components/schemas/BalanceSide'
+        payable:
+          $ref: '#/components/schemas/BalanceSide'
+    ContactBalanceResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ContactBalance'
+    BankAccount:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        iban:
+          type: string
+          nullable: true
+        bankName:
+          type: string
+          nullable: true
+        accountType:
+          type: string
+          nullable: true
+        routingNumber:
+          type: string
+          nullable: true
+        accountNumberLast4:
+          type: string
+          nullable: true
+        currency:
+          type: string
+          nullable: true
+        currentBalance:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+          nullable: true
+        lastImportDate:
+          type: string
+          nullable: true
+    BankAccountList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BankAccount'
+    BankAccountResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/BankAccount'
+    BankTransaction:
+      type: object
+      description: 'A bank statement line; a negative amount is money out.'
+      required: [id, bankAccountId, date, amount, status]
+      properties:
+        id:
+          type: string
+        bankAccountId:
+          type: string
+        date:
+          type: string
+        description:
+          type: string
+          nullable: true
+        amount:
+          type: string
+        status:
+          type: string
+        counterpartyName:
+          type: string
+          nullable: true
+        reference:
+          type: string
+          nullable: true
+        runningBalance:
+          type: string
+          nullable: true
+    BankTransactionList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BankTransaction'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    MatchSuggestion:
+      type: object
+      description: A document a bank line may pay, best first. `type` is invoice, bill, payment, deposit or rule.
+      required: [type, id, amount, confidence]
+      properties:
+        type:
+          type: string
+        id:
+          type: string
+        number:
+          type: string
+          nullable: true
+        contactName:
+          type: string
+          nullable: true
+        amount:
+          type: string
+        confidence:
+          type: number
+          format: double
+    MatchSuggestionList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MatchSuggestion'
+    ReconcileInput:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [invoice, bill, manual]
+        entityId:
+          type: string
+        categoryAccountId:
+          type: string
+    ReconcileResult:
+      type: object
+      required: [id, status]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+    ReconcileResultResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ReconcileResult'
+security:
+  - bearer: []

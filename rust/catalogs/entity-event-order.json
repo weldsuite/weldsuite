@@ -332,5 +332,6 @@
   "form_folder",
   "form_theme",
   "form_integration",
-  "form_invitation"
+  "form_invitation",
+  "form_domain"
 ]

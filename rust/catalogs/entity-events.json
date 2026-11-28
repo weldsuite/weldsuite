@@ -484,6 +484,13 @@
     "generated",
     "filed"
   ],
+  "form_domain": [
+    "created",
+    "updated",
+    "deleted",
+    "verified",
+    "failed"
+  ],
   "form_folder": [
     "created",
     "updated",

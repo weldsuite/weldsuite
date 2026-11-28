@@ -191,16 +191,26 @@ async fn send_workspace_mail_read_push(
 
 /// The active WeldMail device tokens, by user in first-seen order.
 async fn weldmail_tokens(db: &PgPool) -> Result<Vec<(String, Vec<String>)>, DbErr> {
-    let rows: Vec<(String, String)> = device_tokens::Entity::find()
+    let rows: Vec<(String, String, String)> = device_tokens::Entity::find()
         .select_only()
-        .columns([device_tokens::Column::UserId, device_tokens::Column::Token])
+        .columns([
+            device_tokens::Column::UserId,
+            device_tokens::Column::Token,
+            device_tokens::Column::TokenType,
+        ])
         .filter(device_tokens::Column::AppCode.eq("weldmail"))
         .filter(device_tokens::Column::IsActive.is_null())
         .into_tuple()
         .all(&orm(db))
         .await?;
     let mut by_user: Vec<(String, Vec<String>)> = Vec::new();
-    for (user, token) in rows {
+    for (user, token, token_type) in rows {
+        // Expo tokens only: Expo calls a native (`apns`/`fcm`) or call token
+        // invalid, and it would be deactivated. The native apps refresh their
+        // unread count when they open.
+        if !reaches_expo(&token_type) {
+            continue;
+        }
         match by_user.iter_mut().find(|(u, _)| *u == user) {
             Some((_, tokens)) => tokens.push(token),
             None => by_user.push((user, vec![token])),
@@ -209,9 +219,30 @@ async fn weldmail_tokens(db: &PgPool) -> Result<Vec<(String, Vec<String>)>, DbEr
     Ok(by_user)
 }
 
+/// Whether a token takes the read-state push through Expo: `expo` and a type
+/// this server doesn't know, as the notifications push routes them.
+fn reaches_expo(token_type: &str) -> bool {
+    !weldsuite_notifications::is_native_token_type(token_type)
+        && !weldsuite_notifications::is_call_token_type(token_type)
+}
+
 /// The member's unread inbox count across the mailboxes they may open.
 async fn inbox_unread(db: &PgPool, user_id: &str) -> Result<i64, DbErr> {
     let accounts = accessible_account_ids(db, user_id).await?;
     let stats = message_stats(db, &accounts).await?;
     Ok(stats["inboxUnread"].as_i64().unwrap_or(0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reaches_expo;
+
+    #[test]
+    fn only_expo_tokens_take_the_read_push() {
+        assert!(reaches_expo("expo"));
+        assert!(reaches_expo("a-type-from-later"));
+        for native_or_call in ["apns", "fcm", "voip", "expo_call", "fcm_call"] {
+            assert!(!reaches_expo(native_or_call), "{native_or_call}");
+        }
+    }
 }

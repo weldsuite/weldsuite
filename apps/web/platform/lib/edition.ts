@@ -385,6 +385,13 @@ export const EDITION_FEATURES = [
    * marks on bookings. Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
    */
   'books-questions',
+  /**
+   * WeldForms on a workspace's own domains (`/api/forms/domains`): form links
+   * on forms.acme.com, with a certificate from the install's cert-manager.
+   * Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES` and Global
+   * hides the Custom domains section of WeldForms' settings.
+   */
+  'forms-custom-domains',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

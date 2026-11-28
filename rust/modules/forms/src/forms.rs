@@ -20,7 +20,7 @@ use weldsuite_schema::tenant::{
 
 use crate::access::{Grants, Relation, form_permissions};
 use crate::common::{
-    Ctx, Env, Fail, FormsResult, forms_error, forms_error_with, instant, int, js_slice, not_found,
+    Ctx, Fail, FormsResult, forms_error, forms_error_with, instant, int, js_slice, not_found,
     opt_text, parse_ms, public_form_url, row_json, rows_json, text,
 };
 use crate::members::{bare_ref, member_ref, member_refs};
@@ -32,7 +32,8 @@ use crate::public_cache::{drop_public_cache, refresh_public_cache};
 // ---------------------------------------------------------------------------
 
 /// `toSummary(ctx, row, owner)`.
-pub(crate) fn to_summary(env: &Env, row: &Value, owner: &Value) -> Value {
+/// `base` is the workspace's link base ([`crate::domains::base_of`]).
+pub(crate) fn to_summary(base: &str, row: &Value, owner: &Value) -> Value {
     let settings = FormSettings::parse(&row["settings"]);
     let layout = row["definition"]["presentation"]["layout"]
         .as_str()
@@ -45,7 +46,7 @@ pub(crate) fn to_summary(env: &Env, row: &Value, owner: &Value) -> Value {
         "folderId": row["folderId"],
         "layout": layout,
         "publicId": public_id,
-        "publicUrl": public_form_url(env, public_id.as_deref()),
+        "publicUrl": public_form_url(base, public_id.as_deref()),
         "access": row["access"],
         "respondentMode": settings.respondent_mode,
         "owner": owner,
@@ -98,7 +99,8 @@ pub(crate) async fn detail_of(
             .transpose()?,
         None => None,
     };
-    let mut detail = to_summary(ctx.env(), row, &owner);
+    let base = crate::domains::base_of(ctx).await;
+    let mut detail = to_summary(&base, row, &owner);
     if let Value::Object(fields) = &mut detail {
         fields.insert(
             "definition".to_owned(),
@@ -261,6 +263,7 @@ pub(crate) async fn list_forms(
     )
     .await?;
     let next = offset + i64::try_from(rows.len()).unwrap_or_default();
+    let base = crate::domains::base_of(ctx).await;
     let summaries = rows
         .iter()
         .map(|row| {
@@ -269,7 +272,7 @@ pub(crate) async fn list_forms(
                 .get(owner_id)
                 .cloned()
                 .unwrap_or_else(|| bare_ref(owner_id));
-            to_summary(ctx.env(), row, &owner)
+            to_summary(&base, row, &owner)
         })
         .collect();
     Ok((summaries, total, (next < total).then(|| next.to_string())))

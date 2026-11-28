@@ -39,6 +39,7 @@ mod common;
 mod counters;
 mod creator_access;
 mod crypto;
+mod domains;
 mod export;
 mod folders_themes;
 mod forms;
@@ -83,13 +84,16 @@ use weldsuite_ports::{
 };
 
 pub use common::{ENV_KEYS, env_from_process};
+pub use domains::sweep_domains;
 pub use model::starter_templates;
 pub use process::{
     JobsProcessRuns, PROCESS_RESPONSE_JOB, ProcessContext, ProcessResponseJob,
     ProcessResponseParams, ProcessRuns, ProcessStep, RequestProcessRuns, StepKind, StepResult,
     process_steps,
 };
-pub use routes::{FORMS_PORTAL_KEY_HEADER, RESPONDENT_IP_HEADER, public_router, router};
+pub use routes::{
+    FORMS_HOST_HEADER, FORMS_PORTAL_KEY_HEADER, RESPONDENT_IP_HEADER, public_router, router,
+};
 pub use sweeps::{run_digest_sweep, run_reminders_sweep};
 
 /// One workspace's tenant database, as [`TenantResolver`] opens it.
@@ -142,6 +146,9 @@ pub struct FormsState {
     /// The install's AI (the AI routes); `None` with AI off. A request's own
     /// `Ai` (conformance) wins.
     pub ai: Option<weldsuite_ai::Ai>,
+    /// Custom form domains through cert-manager (`FORMS_CUSTOM_DOMAINS`);
+    /// `None`: not offered on this install.
+    pub domains: Option<Arc<weldsuite_custom_domains::CertManagerHosts>>,
 }
 
 impl std::fmt::Debug for FormsState {
@@ -153,6 +160,7 @@ impl std::fmt::Debug for FormsState {
             .field("jobs", &self.jobs.is_some())
             .field("mail", &self.mail.is_some())
             .field("tenants", &self.tenants.is_some())
+            .field("domains", &self.domains.is_some())
             .finish_non_exhaustive()
     }
 }

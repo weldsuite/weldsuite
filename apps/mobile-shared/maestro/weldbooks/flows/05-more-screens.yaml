@@ -1,0 +1,99 @@
+appId: ${APP_ID || "com.weldsuite.weldbooks.dev"}
+name: Reports, banking, VAT, contacts and settings open
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- tapOn:
+    id: tab-more
+- tapOn:
+    id: more-contacts
+- assertVisible: "Search contacts"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - back
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "More"
+- tapOn:
+    id: more-profit-loss
+- assertVisible: "Net profit|Net loss"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - back
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "More"
+- tapOn:
+    id: more-balance-sheet
+- waitForAnimationToEnd
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - back
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "More"
+- tapOn:
+    id: more-bank
+- waitForAnimationToEnd
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - back
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "More"
+# Only a Dutch company files VAT returns here.
+- runFlow:
+    when:
+      visible:
+        id: more-vat
+    commands:
+      - tapOn:
+          id: more-vat
+      - assertVisible: "All years"
+      - runFlow:
+          when:
+            platform: Android
+          commands:
+            - back
+      - runFlow:
+          when:
+            platform: iOS
+          commands:
+            - tapOn: "More"
+- tapOn:
+    id: more-reconciliation
+- extendedWaitUntil:
+    visible: "Unmatched|No bank accounts.*"
+    timeout: 10000
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - back
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "More"
+- scrollUntilVisible:
+    element:
+      id: more-settings
+- tapOn:
+    id: more-settings
+- assertVisible: "Base currency"

@@ -617,6 +617,16 @@ export interface FormSupportEventData {
   enabled?: boolean;
 }
 
+/** A WeldForms custom domain: never its ownership token. */
+export interface FormDomainEventData {
+  id: string;
+  hostname: string;
+  isPrimary: boolean;
+  status: string;
+  sslStatus: string | null;
+  homeFormPublicId: string | null;
+}
+
 /** A personal invitation: who, for which form, and whether it was a reminder. */
 export interface FormInvitationEventData {
   id: string;
@@ -958,6 +968,7 @@ export interface EntityEventData {
   form_theme: FormSupportEventData;
   form_integration: FormSupportEventData;
   form_invitation: FormInvitationEventData;
+  form_domain: FormDomainEventData;
 
   // WeldPanel
   panel_project: PanelProjectEventData;

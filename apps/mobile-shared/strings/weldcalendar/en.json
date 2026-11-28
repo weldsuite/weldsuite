@@ -1,0 +1,207 @@
+{
+  "appName": "WeldCalendar",
+  "auth": {
+    "subtitle": "Your calendar, wherever you are"
+  },
+  "common": {
+    "create": "Create",
+    "notSet": "Not set",
+    "dash": "—"
+  },
+  "eventType": {
+    "meeting": "Meeting",
+    "call": "Call",
+    "appointment": "Appointment",
+    "event": "Event",
+    "reminder": "Reminder",
+    "other": "Other"
+  },
+  "status": {
+    "confirmed": "Confirmed",
+    "tentative": "Tentative",
+    "cancelled": "Cancelled"
+  },
+  "priority": {
+    "low": "Low",
+    "normal": "Normal",
+    "high": "High",
+    "urgent": "Urgent"
+  },
+  "permission": {
+    "view": "Can view",
+    "edit": "Can edit",
+    "manage": "Can manage"
+  },
+  "response": {
+    "accepted": "Going",
+    "declined": "Not going",
+    "tentative": "Maybe",
+    "pending": "Not answered"
+  },
+  "tabs": {
+    "agenda": "Agenda",
+    "month": "Month",
+    "calendars": "Calendars",
+    "more": "More"
+  },
+  "agenda": {
+    "title": "Agenda",
+    "today": "Today",
+    "next7Days": "Next 7 days",
+    "newEvent": "New event",
+    "emptyTitle": "Nothing scheduled",
+    "emptyDescription": "Events from the next two weeks will show up here.",
+    "allDay": "All day",
+    "now": "Now",
+    "eventCount": {
+      "one": "{count} event",
+      "other": "{count} events"
+    },
+    "calendarCount": {
+      "one": "{count} calendar",
+      "other": "{count} calendars"
+    }
+  },
+  "month": {
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month",
+    "noEventsTitle": "Nothing on this day",
+    "noEventsDescription": "Tap the plus to add an event."
+  },
+  "calendars": {
+    "title": "Calendars",
+    "workspace": "Workspace",
+    "shared": "Shared with me",
+    "newCalendar": "New calendar",
+    "nameLabel": "Name",
+    "namePlaceholder": "Calendar name",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "What is this calendar for? (optional)",
+    "colorLabel": "Colour",
+    "colorOption": "Colour {number}",
+    "nameRequired": "A name is required",
+    "createFailed": "Couldn’t create the calendar",
+    "defaultBadge": "Default",
+    "visibilityHint": "Hidden calendars stay out of the agenda and the month grid.",
+    "show": "Show {name}",
+    "emptyTitle": "No calendars yet",
+    "emptyDescription": "Create one to start scheduling.",
+    "ensureFailed": "Couldn’t set up your default calendar"
+  },
+  "event": {
+    "detailTitle": "Event",
+    "notFound": "That event no longer exists.",
+    "edit": "Edit event",
+    "deleteFailed": "Couldn’t delete the event",
+    "deleteTitle": "Delete this event?",
+    "deleteMessage": "This can’t be undone.",
+    "deleteAttendeesMessage": "This can’t be undone. Do you want to email the guests that it’s off?",
+    "deleteAndNotify": "Delete and email guests",
+    "deleteQuietly": "Delete without emailing",
+    "details": "Details",
+    "description": "Description",
+    "notes": "Notes",
+    "timezone": "Time zone",
+    "timezoneShown": "Scheduled in {zone}. Times show in your phone’s time zone.",
+    "when": "When",
+    "calendar": "Calendar",
+    "location": "Location",
+    "meetingLink": "Meeting link",
+    "joinMeeting": "Join meeting",
+    "repeats": "Repeats",
+    "attendeeCount": {
+      "one": "{count} guest",
+      "other": "{count} guests"
+    },
+    "attendeeAnswers": "Going: {acceptedCount}, maybe: {tentativeCount}, not going: {declinedCount}, not answered: {pendingCount}",
+    "task": "Task",
+    "taskClosed": "Closed",
+    "autoScheduled": "Scheduled automatically",
+    "autoScheduledHint": "Placed by WeldSuite from a linked task or activity.",
+    "readOnly": "View only",
+    "readOnlyHint": "This calendar is shared with you for viewing.",
+    "durationHoursMinutes": "{hourCount}h {minuteCount}m",
+    "durationHours": "{hourCount}h",
+    "durationMinutes": "{minuteCount}m"
+  },
+  "eventForm": {
+    "newTitle": "New event",
+    "editTitle": "Edit event",
+    "titleLabel": "Title",
+    "titlePlaceholder": "What is it?",
+    "titleRequired": "A title is required",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "Add more detail (optional)",
+    "calendarLabel": "Calendar",
+    "typeLabel": "Type",
+    "allDayLabel": "All day",
+    "startsLabel": "Starts",
+    "endsLabel": "Ends",
+    "timeZoneNote": "Times are in your phone’s time zone ({zone}).",
+    "locationLabel": "Location",
+    "locationPlaceholder": "Where? (optional)",
+    "meetingUrlLabel": "Meeting link",
+    "meetingUrlPlaceholder": "https://…",
+    "meetingUrlInvalid": "Enter a link that starts with http:// or https://",
+    "statusLabel": "Status",
+    "priorityLabel": "Priority",
+    "repeatLabel": "Repeat",
+    "attendeesLabel": "Guests",
+    "attendeesHint": "Guests get an email invitation.",
+    "attendeeEmailPlaceholder": "Email address",
+    "addAttendee": "Add guest",
+    "removeAttendee": "Remove {name}",
+    "attendeeInvalid": "Enter a valid email address",
+    "attendeeDuplicate": "That guest is already on the list",
+    "attendeeLimit": "An event can have at most 100 guests",
+    "notifyLabel": "Email guests about this change",
+    "submitCreate": "Create event",
+    "submitSave": "Save changes",
+    "noWritableCalendar": "You need a calendar you can edit before adding events.",
+    "endBeforeStart": "The end time must be after the start time.",
+    "pickDate": "Pick a date",
+    "pickTime": "Pick a time",
+    "createFailed": "Couldn’t create the event",
+    "updateFailed": "Couldn’t save the event"
+  },
+  "repeat": {
+    "none": "Doesn’t repeat",
+    "daily": "Every day",
+    "weekdays": "Every weekday",
+    "weekly": "Every week",
+    "monthly": "Every month",
+    "yearly": "Every year",
+    "everyDays": {
+      "one": "Every day",
+      "other": "Every {count} days"
+    },
+    "everyWeeks": {
+      "one": "Every week",
+      "other": "Every {count} weeks"
+    },
+    "everyMonths": {
+      "one": "Every month",
+      "other": "Every {count} months"
+    },
+    "everyYears": {
+      "one": "Every year",
+      "other": "Every {count} years"
+    },
+    "onDays": "{rule} on {days}",
+    "until": "{rule}, until {date}",
+    "times": {
+      "one": "once",
+      "other": "{count} times"
+    },
+    "withLimit": "{rule}, {limit}",
+    "custom": "Repeats on a custom schedule",
+    "keepCustom": "Keep the current schedule"
+  },
+  "settings": {
+    "title": "More",
+    "privacy": "Privacy",
+    "privacyPolicy": "Privacy policy",
+    "terms": "Terms of service",
+    "contactSupport": "Contact support"
+  }
+}

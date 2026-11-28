@@ -36,6 +36,7 @@ url = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
 tower = { workspace = true }
+weldsuite-kit = { workspace = true, features = ["openapi-contract"] }
 
 [lints]
 workspace = true

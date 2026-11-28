@@ -1,0 +1,39 @@
+appId: ${APP_ID || "com.weldsuite.weldcalendar.dev"}
+name: Create and delete an event
+tags: [smoke, writes]
+---
+# Creates a one-hour event (default start: the next whole hour) on the
+# default calendar, opens it and deletes it again.
+- runFlow: ../subflows/login.yaml
+- evalScript: ${output.title = 'E2E event ' + Date.now()}
+- tapOn:
+    id: new-event
+- extendedWaitUntil:
+    visible:
+      id: event-title
+    timeout: 10000
+- tapOn:
+    id: event-title
+- inputText: ${output.title}
+- hideKeyboard
+- tapOn:
+    id: event-submit
+- extendedWaitUntil:
+    visible: ${output.title}
+    timeout: 15000
+
+- tapOn: ${output.title}
+- extendedWaitUntil:
+    visible:
+      id: event-when
+    timeout: 10000
+- tapOn:
+    id: event-delete
+- extendedWaitUntil:
+    visible: "Delete this event?"
+    timeout: 10000
+- tapOn:
+    id: event-delete-confirm
+- extendedWaitUntil:
+    notVisible: ${output.title}
+    timeout: 15000

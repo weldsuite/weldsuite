@@ -2,12 +2,15 @@
 //
 // What every native WeldSuite iOS app shares:
 //
-// - `CoreAPI`, `WeldPassAPI`: clients generated at build time by
+// - `CoreAPI` and one API target per app (`WeldPassAPI`, `WeldChatAPI`, …):
+//   clients generated at build time by
 //   swift-openapi-generator from the OpenAPI files in
 //   `apps/mobile-shared/openapi` (copied in by `pnpm mobile:generate`).
 // - `WeldCore`: the server and its `/config.json`, WeldID sign-in, the
-//   workspace, the API transport, the Keychain and the app lock.
-// - `WeldUI`: the design tokens and the screens around an app (`SessionGate`).
+//   workspace, the API transport, the Keychain, the app lock, the realtime
+//   socket and push registration.
+// - `WeldUI`: the design tokens, the screens around an app (`SessionGate`)
+//   and the components the apps share.
 
 import PackageDescription
 
@@ -18,6 +21,12 @@ let package = Package(
     products: [
         .library(name: "CoreAPI", targets: ["CoreAPI"]),
         .library(name: "WeldPassAPI", targets: ["WeldPassAPI"]),
+        .library(name: "WeldBooksAPI", targets: ["WeldBooksAPI"]),
+        .library(name: "WeldMailAPI", targets: ["WeldMailAPI"]),
+        .library(name: "WeldCalendarAPI", targets: ["WeldCalendarAPI"]),
+        .library(name: "WeldChatAPI", targets: ["WeldChatAPI"]),
+        .library(name: "WeldDeskAPI", targets: ["WeldDeskAPI"]),
+        .library(name: "WeldHRAPI", targets: ["WeldHRAPI"]),
         .library(name: "WeldCore", targets: ["WeldCore"]),
         .library(name: "WeldUI", targets: ["WeldUI"]),
     ],
@@ -36,6 +45,36 @@ let package = Package(
         ),
         .target(
             name: "WeldPassAPI",
+            dependencies: [.product(name: "OpenAPIRuntime", package: "swift-openapi-runtime")],
+            plugins: [.plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator")]
+        ),
+        .target(
+            name: "WeldBooksAPI",
+            dependencies: [.product(name: "OpenAPIRuntime", package: "swift-openapi-runtime")],
+            plugins: [.plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator")]
+        ),
+        .target(
+            name: "WeldMailAPI",
+            dependencies: [.product(name: "OpenAPIRuntime", package: "swift-openapi-runtime")],
+            plugins: [.plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator")]
+        ),
+        .target(
+            name: "WeldCalendarAPI",
+            dependencies: [.product(name: "OpenAPIRuntime", package: "swift-openapi-runtime")],
+            plugins: [.plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator")]
+        ),
+        .target(
+            name: "WeldChatAPI",
+            dependencies: [.product(name: "OpenAPIRuntime", package: "swift-openapi-runtime")],
+            plugins: [.plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator")]
+        ),
+        .target(
+            name: "WeldDeskAPI",
+            dependencies: [.product(name: "OpenAPIRuntime", package: "swift-openapi-runtime")],
+            plugins: [.plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator")]
+        ),
+        .target(
+            name: "WeldHRAPI",
             dependencies: [.product(name: "OpenAPIRuntime", package: "swift-openapi-runtime")],
             plugins: [.plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator")]
         ),

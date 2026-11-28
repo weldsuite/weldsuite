@@ -1,0 +1,22 @@
+# The scanner opens straight on the camera; close it to get to the choices
+# (gallery, PDF). Android: the system camera app, left with Back. iOS: the
+# document camera's Cancel.
+appId: ${APP_ID || "com.weldsuite.weldbooks.dev"}
+---
+- waitForAnimationToEnd
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - back
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn:
+          text: "Cancel"
+          optional: true
+- extendedWaitUntil:
+    visible:
+      id: scan-gallery
+    timeout: 10000

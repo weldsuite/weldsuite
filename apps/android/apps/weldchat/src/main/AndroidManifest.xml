@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Voice messages, and calls (LiveKit, ADR CHAT-008). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- The ring over the lock screen (ADR CHAT-005); Android 14+ grants it to calling apps. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- A call keeps going in the background in a phone-call foreground service. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+
+    <!-- No backup: the data stays on the server, the session keys in the Keystore. -->
+    <application
+        android:name=".WeldChatApplication"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/weldchat_app_name"
+        android:localeConfig="@xml/locales_config"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.WeldChat"
+        tools:targetApi="tiramisu">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- weldchat://channel/<id>, …/dm/<id>, …/user/<id>, …/thread/<id>, …/search, …/records, as the Expo app's router answered. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="weldchat" />
+                <data android:host="channel" />
+                <data android:host="dm" />
+                <data android:host="user" />
+                <data android:host="thread" />
+                <data android:host="search" />
+                <data android:host="records" />
+                <data android:host="drafts" />
+                <data android:host="later" />
+                <data android:host="settings" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            AppAuth's redirect activity claims the whole weldchat:// scheme; narrowed
+            to its own weldchat://sso-callback so the links above open the app, not a chooser.
+        -->
+        <activity
+            android:name="net.openid.appauth.RedirectUriReceiverActivity"
+            android:exported="true"
+            tools:node="replace">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="sso-callback"
+                    android:scheme="weldchat" />
+            </intent-filter>
+        </activity>
+
+        <!-- Decline on the ringing call notification, also with the app closed. -->
+        <receiver
+            android:name=".calls.CallActionReceiver"
+            android:exported="false" />
+
+        <!-- Keeps a joined call (audio, camera) alive in the background. -->
+        <service
+            android:name=".calls.CallForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall|microphone|camera" />
+
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+    </application>
+</manifest>

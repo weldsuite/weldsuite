@@ -5,6 +5,12 @@ import SwiftUI
 public enum Tokens {
     public enum Brand {
         public static let weldpass = Color(light: 0x4F46E5, dark: 0x818CF8)
+        public static let weldbooks = Color(light: 0x0E9F6E, dark: 0x34D399)
+        public static let weldmail = Color(light: 0xE4572E, dark: 0xFB8A6B)
+        public static let weldcalendar = Color(light: 0xE5375E, dark: 0xFF7A98)
+        public static let weldchat = Color(light: 0x00A35A, dark: 0x3DD68C)
+        public static let welddesk = Color(light: 0x1D7FE0, dark: 0x60A5FA)
+        public static let weldhr = Color(light: 0x0F8A80, dark: 0x2DD4BF)
     }
     public enum Status {
         public static let danger = Color(light: 0xDC2626, dark: 0xF87171)

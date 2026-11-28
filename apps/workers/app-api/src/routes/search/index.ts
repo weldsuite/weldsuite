@@ -28,6 +28,7 @@ import { error } from '@weldsuite/worker-kit/response';
 import { runSearch, getPermittedTypes, type PermissionLike } from '../../services/search';
 import { understandQuery, applyPermittedTypes } from '../../services/search/query-understanding';
 import { resolveAiMetering } from '@weldsuite/core-domain/ai-billing';
+import { getEntityAccess } from '@weldsuite/core-domain/legal-entities';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -87,6 +88,8 @@ app.post('/', zValidator('json', searchInputSchema), async (c) => {
       lexicalTerm: parsed.lexicalTerm,
       // Spreadsheets are visible per person (WeldDrive sharing), not per workspace.
       userId: c.get('userId') ?? null,
+      // Invoices and bills only in the legal entities the member may read them in.
+      entityAccess: () => getEntityAccess(c),
     });
 
     return c.json({

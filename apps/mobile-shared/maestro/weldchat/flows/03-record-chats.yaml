@@ -1,0 +1,39 @@
+appId: ${APP_ID || "com.weldsuite.weldchat.dev"}
+name: Record chats screen
+tags: [smoke]
+---
+# Read-only: the record chats screen (chats on companies, people, tasks,
+# projects and domains) with each filter, a type picked from the title menu
+# and a search. Works whatever the workspace holds: an empty list shows the
+# filter's empty text.
+- runFlow: ../subflows/login.yaml
+- openLink: weldchat://records
+- extendedWaitUntil:
+    visible:
+      id: records-type
+    timeout: 15000
+- assertVisible:
+    id: records-search
+- tapOn:
+    id: records-filter-unread
+- tapOn:
+    id: records-filter-mentions
+- tapOn:
+    id: records-filter-all
+# The title is the type menu.
+- tapOn:
+    id: records-type
+- tapOn: "Companies"
+- assertVisible: "Companies"
+- tapOn:
+    id: records-type
+- tapOn: "All record chats"
+- assertVisible: "Record chats"
+- tapOn:
+    id: records-filter-following
+- tapOn:
+    id: records-search
+- inputText: "zzz-no-such-record"
+- extendedWaitUntil:
+    visible: "No record chats match .*zzz-no-such-record.*"
+    timeout: 15000

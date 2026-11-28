@@ -188,6 +188,8 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   // chats, the VAT return check, a suggested lock date, review marks on
   // bookings).
   'books-questions',
+  // WeldForms on a workspace's own domains (`/api/forms/domains`, cert-manager).
+  'forms-custom-domains',
 ];
 
 const mod = (

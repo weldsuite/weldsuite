@@ -2,8 +2,12 @@
 //! federated search behind Cmd+K. Each permitted record type is matched with
 //! `LIKE` against its own columns in the tenant database and scored by rule
 //! (exact 1.0, prefix 0.9, substring 0.6; e-mail columns 1.0 / 0.7 / 0.3).
-//! Types the caller may not read are left out, not refused.
+//! Types the caller may not read are left out, not refused. WeldBooks'
+//! invoices and bills belong to a legal entity, and are found only in the
+//! entities the caller may read them in (ADR SEC-015,
+//! [`Searcher::readable_entities`]).
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::body::Bytes;
@@ -22,8 +26,11 @@ use weldsuite_core_domain::drive_access::{
 use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
-use weldsuite_legal_entities::EntityScopeCondition;
-use weldsuite_permissions::{Permissions, has_any_app_permission};
+use weldsuite_legal_entities::{
+    EntityAccess, EntityScopeCondition, LegalEntityApp, can_see_entity, default_entity_id_for,
+    entity_role_id, load_entity_access, permissions_in_entity,
+};
+use weldsuite_permissions::{Permissions, ResolvedPermissions, has_any_app_permission};
 use weldsuite_ports::DynCache;
 use weldsuite_schema::tenant::enums::{HostDomainRegistrationStatus, HostDomainStatus};
 use weldsuite_schema::tenant::{
@@ -654,15 +661,23 @@ async fn search_orders(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
     ranked(db, rows, best_score(&columns, term), then, term.limit).await
 }
 
-/// Invoices by number or contact.
-async fn search_invoices(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+/// Invoices by number or contact, of the legal entities `entities` names
+/// (`None`: every entity; see [`Searcher::readable_entities`]).
+async fn search_invoices(
+    db: &PgPool,
+    term: &Term,
+    entities: Option<&[String]>,
+) -> Result<Vec<Value>, DbErr> {
     use invoices::Column as C;
+    if entities.is_some_and(<[String]>::is_empty) {
+        return Ok(Vec::new());
+    }
     let columns = [
         (col(C::InvoiceNumber), Scored::Text),
         (col(C::ContactName), Scored::Text),
         (col(C::ContactEmail), Scored::Email),
     ];
-    let rows = invoices::Entity::find()
+    let mut rows = invoices::Entity::find()
         .select_only()
         .column_as(C::Id, "id")
         .column_as(C::InvoiceNumber, "invoiceNumber")
@@ -670,18 +685,29 @@ async fn search_invoices(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> 
         .column_as(C::Status, "status")
         .filter(C::DeletedAt.is_null())
         .filter(any_like(&columns, &term.contains));
+    if let Some(entities) = entities {
+        rows = rows.filter(C::EntityId.is_in(entities.iter().map(String::as_str)));
+    }
     let then = [col(C::UpdatedAt), col(C::Id)];
     ranked(db, rows, best_score(&columns, term), then, term.limit).await
 }
 
-/// Bills by number or contact.
-async fn search_bills(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+/// Bills by number or contact, of the legal entities `entities` names
+/// (`None`: every entity; see [`Searcher::readable_entities`]).
+async fn search_bills(
+    db: &PgPool,
+    term: &Term,
+    entities: Option<&[String]>,
+) -> Result<Vec<Value>, DbErr> {
     use bills::Column as C;
+    if entities.is_some_and(<[String]>::is_empty) {
+        return Ok(Vec::new());
+    }
     let columns = [
         (col(C::BillNumber), Scored::Text),
         (col(C::ContactName), Scored::Text),
     ];
-    let rows = bills::Entity::find()
+    let mut rows = bills::Entity::find()
         .select_only()
         .column_as(C::Id, "id")
         .column_as(C::BillNumber, "billNumber")
@@ -689,6 +715,9 @@ async fn search_bills(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
         .column_as(C::Status, "status")
         .filter(C::DeletedAt.is_null())
         .filter(any_like(&columns, &term.contains));
+    if let Some(entities) = entities {
+        rows = rows.filter(C::EntityId.is_in(entities.iter().map(String::as_str)));
+    }
     let then = [col(C::UpdatedAt), col(C::Id)];
     ranked(db, rows, best_score(&columns, term), then, term.limit).await
 }
@@ -1291,8 +1320,9 @@ fn group(kind: SearchType, rows: &[Value], limit: usize, commerce: bool) -> Valu
 
 /// Who is searching (`SearchCaller`): the user (`None`: no one, so the types
 /// that are visible per person return nothing), a permission check against
-/// the same any-app subject that gates the types themselves, and the caller's
-/// WeldDrive visibility, loaded once for every Drive-backed type of a search.
+/// the same any-app subject that gates the types themselves, the caller's
+/// WeldDrive visibility, loaded once for every Drive-backed type of a search,
+/// and their per-entity access, loaded once for WeldBooks' types.
 struct Searcher<'a> {
     user_id: Option<&'a str>,
     /// The caller's workspace permissions, for the entities they see.
@@ -1300,7 +1330,15 @@ struct Searcher<'a> {
     can: &'a (dyn Fn(&str) -> bool + Sync),
     drive: Drive,
     /// The legal entities whose records the caller may see, loaded once.
-    entities: Option<EntityScopeCondition>,
+    scope: Option<EntityScopeCondition>,
+    /// The caller's workspace permissions, before any entity role (`None`:
+    /// none resolved, so no entity is readable).
+    workspace: Option<&'a ResolvedPermissions>,
+    /// The per-entity access snapshot, once loaded.
+    entities: Option<Arc<EntityAccess>>,
+    /// The permissions inside each entity where the caller has an entity
+    /// role, once resolved.
+    in_entity: HashMap<String, ResolvedPermissions>,
 }
 
 /// The caller's WeldDrive visibility, as far as it has been loaded.
@@ -1311,17 +1349,66 @@ enum Drive {
     Limited(VisibleFiles),
 }
 
-impl Searcher<'_> {
+impl<'a> Searcher<'a> {
+    /// A searcher for `user_id` with `permissions`, nothing loaded yet.
+    fn new(
+        user_id: Option<&'a str>,
+        permissions: Option<&'a Permissions>,
+        can: &'a (dyn Fn(&str) -> bool + Sync),
+    ) -> Self {
+        Self {
+            user_id,
+            permissions,
+            can,
+            drive: Drive::Unloaded,
+            scope: None,
+            workspace: permissions.map(Permissions::resolved),
+            entities: None,
+            in_entity: HashMap::new(),
+        }
+    }
+
     /// Which legal entities' records this caller may be shown, for any
     /// entity-owned type (`search_scope::entity_scope`).
     async fn entity_scope(&mut self, db: &PgPool) -> Result<EntityScopeCondition, DbErr> {
-        if self.entities.is_none() {
-            self.entities = Some(entity_scope(db, self.user_id, self.permissions).await?);
+        if self.scope.is_none() {
+            self.scope = Some(entity_scope(db, self.user_id, self.permissions).await?);
         }
-        Ok(self
-            .entities
-            .clone()
-            .unwrap_or(EntityScopeCondition::Nothing))
+        Ok(self.scope.clone().unwrap_or(EntityScopeCondition::Nothing))
+    }
+
+    /// [`Self::entity_scope`] narrowed to the entities where the caller may
+    /// read `permission` with the role they act with there
+    /// ([`Self::readable_entities`], as for invoices and bills). Rows without
+    /// an entity count as the default entity's, so they stay only when the
+    /// default entity is readable.
+    async fn readable_scope(
+        &mut self,
+        db: &PgPool,
+        permission: &str,
+    ) -> Result<EntityScopeCondition, DbErr> {
+        let scope = self.entity_scope(db).await?;
+        let Some(readable) = self.readable_entities(db, permission).await? else {
+            return Ok(scope);
+        };
+        let default = default_entity_id_for(db, Some(LegalEntityApp::Weldbooks)).await?;
+        let default_readable = default
+            .as_deref()
+            .is_some_and(|id| readable.iter().any(|entity| entity == id));
+        Ok(match scope {
+            EntityScopeCondition::Nothing => EntityScopeCondition::Nothing,
+            EntityScopeCondition::All => EntityScopeCondition::In {
+                ids: readable,
+                include_unassigned: default_readable,
+            },
+            EntityScopeCondition::In {
+                ids,
+                include_unassigned,
+            } => EntityScopeCondition::In {
+                ids: ids.into_iter().filter(|id| readable.contains(id)).collect(),
+                include_unassigned: include_unassigned && default_readable,
+            },
+        })
     }
 
     /// `visibleFilesCondition` for this caller (`None`: an admin sees every file).
@@ -1337,6 +1424,73 @@ impl Searcher<'_> {
             Drive::Limited(visible) => Some(visible.clone()),
             Drive::Unloaded | Drive::Admin => None,
         })
+    }
+
+    /// The legal entities whose records the caller may find with `permission`
+    /// (WeldBooks' invoices and bills): the entities they see
+    /// ([`can_see_entity`]: the open ones, the restricted ones they are listed
+    /// on, every one for the owner), each with the role they act with there
+    /// ([`permissions_in_entity`]: their entity role, or the workspace role).
+    /// `None` when that is every entity, so no filter is needed.
+    async fn readable_entities(
+        &mut self,
+        db: &PgPool,
+        permission: &str,
+    ) -> Result<Option<Vec<String>>, DbErr> {
+        let Some(workspace) = self.workspace else {
+            return Ok(Some(Vec::new()));
+        };
+        if self.entities.is_none() {
+            let user_id = self.user_id.unwrap_or_default();
+            let access = load_entity_access(db, user_id, workspace.clone()).await?;
+            self.entities = Some(Arc::new(access));
+        }
+        let Some(access) = self.entities.clone() else {
+            return Ok(Some(Vec::new()));
+        };
+        // The same access in every entity: the workspace role, which let the
+        // type through, applies everywhere.
+        if access.uniform {
+            return Ok(None);
+        }
+        let mut readable = Vec::new();
+        let mut hidden = false;
+        for id in access.entity_ids() {
+            if can_see_entity(&access, Some(id))
+                && self.reads_in_entity(db, &access, id, permission).await?
+            {
+                readable.push(id.to_owned());
+            } else {
+                hidden = true;
+            }
+        }
+        Ok(hidden.then_some(readable))
+    }
+
+    /// Whether `permission` holds inside an entity the caller sees, with the
+    /// role they act with there.
+    async fn reads_in_entity(
+        &mut self,
+        db: &PgPool,
+        access: &EntityAccess,
+        entity_id: &str,
+        permission: &str,
+    ) -> Result<bool, DbErr> {
+        if entity_role_id(access, Some(entity_id)).is_none() {
+            return Ok(has_any_app_permission(
+                &access.workspace_permissions,
+                &[permission],
+                None,
+            ));
+        }
+        if !self.in_entity.contains_key(entity_id) {
+            let resolved = permissions_in_entity(db, access, entity_id).await?;
+            self.in_entity.insert(entity_id.to_owned(), resolved);
+        }
+        Ok(self
+            .in_entity
+            .get(entity_id)
+            .is_some_and(|resolved| has_any_app_permission(resolved, &[permission], None)))
     }
 }
 
@@ -1394,8 +1548,14 @@ async fn search_rows(
         SearchType::KnowledgePage => search_knowledge_pages(db, &term).await,
         SearchType::Product => search_products(db, &term).await,
         SearchType::Order => search_orders(db, &term).await,
-        SearchType::Invoice => search_invoices(db, &term).await,
-        SearchType::Bill => search_bills(db, &term).await,
+        SearchType::Invoice => {
+            let entities = who.readable_entities(db, kind.permission()).await?;
+            search_invoices(db, &term, entities.as_deref()).await
+        }
+        SearchType::Bill => {
+            let entities = who.readable_entities(db, kind.permission()).await?;
+            search_bills(db, &term, entities.as_deref()).await
+        }
         SearchType::Project => search_projects(db, &term).await,
         SearchType::Domain => search_domains(db, &term).await,
         SearchType::Task => search_tasks(db, q, &term).await,
@@ -1420,14 +1580,14 @@ async fn search_rows(
         SearchType::ChatChannel => search_chat_channels(db, q, limit, who).await,
         SearchType::Agent => search_agents(db, q, limit, who).await,
         SearchType::BankTransaction => {
-            let scope = who.entity_scope(db).await?;
+            let scope = who.readable_scope(db, kind.permission()).await?;
             search_bank_transactions(db, &escaped_term(q, limit), &scope).await
         }
         SearchType::AccountingContact => {
             search_accounting_contacts(db, &escaped_term(q, limit)).await
         }
         SearchType::AccountingDocument => {
-            let scope = who.entity_scope(db).await?;
+            let scope = who.readable_scope(db, kind.permission()).await?;
             search_accounting_documents(db, &escaped_term(q, limit), &scope).await
         }
     }
@@ -2080,13 +2240,11 @@ pub(crate) async fn search(
                     has_any_app_permission(permissions.resolved(), &[key], None)
                 })
             };
-            let mut who = Searcher {
-                user_id: caller.user_id.as_deref().filter(|id| !id.is_empty()),
-                permissions: caller.permissions.as_ref(),
-                can: &can,
-                drive: Drive::Unloaded,
-                entities: None,
-            };
+            let mut who = Searcher::new(
+                caller.user_id.as_deref().filter(|id| !id.is_empty()),
+                caller.permissions.as_ref(),
+                &can,
+            );
             for kind in &filtered {
                 let rows = search_rows(&caller.db, *kind, term, input.limit, &mut who).await?;
                 groups.push((
@@ -2563,13 +2721,7 @@ mod books_tests {
         permissions: Option<&Permissions>,
     ) -> EntityScopeCondition {
         let can = |_: &str| true;
-        let mut who = Searcher {
-            user_id: user,
-            permissions,
-            can: &can,
-            drive: Drive::Unloaded,
-            entities: None,
-        };
+        let mut who = Searcher::new(user, permissions, &can);
         who.entity_scope(db).await.expect("scope")
     }
 

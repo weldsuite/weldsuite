@@ -41,6 +41,7 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
+weldsuite-kit = { workspace = true, features = ["openapi-contract"] }
 
 [lints]
 workspace = true

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the app shares through its FileProvider: nothing else of its storage. -->
+<paths>
+    <cache-path
+        name="attachments"
+        path="mail-attachments/" />
+    <cache-path
+        name="camera"
+        path="camera/" />
+</paths>

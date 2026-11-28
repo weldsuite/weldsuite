@@ -1,0 +1,103 @@
+{
+  "appName": "WeldDesk",
+  "auth": {
+    "subtitle": "Support on the go"
+  },
+  "common": {
+    "dash": "—"
+  },
+  "tabs": {
+    "inbox": "Inbox",
+    "settings": "Settings"
+  },
+  "inbox": {
+    "title": "Inbox",
+    "open": "Open",
+    "closed": "Closed",
+    "all": "All",
+    "mine": "Mine",
+    "unassigned": "Unassigned",
+    "emptyOpen": "No open conversations",
+    "emptyClosed": "No closed conversations",
+    "emptyHint": "Visitor chat and support email land here.",
+    "loadError": "Could not load conversations.",
+    "loadMoreError": "Could not load more conversations.",
+    "waiting": "Waiting",
+    "noSubject": "Conversation",
+    "newest": "Newest",
+    "oldest": "Oldest",
+    "waitingLongest": "Waiting longest",
+    "sortHint": "Sort: {sort}. Tap to change.",
+    "searchPlaceholder": "Search name, email, #number, messages",
+    "searchClear": "Clear search",
+    "noResults": "No conversations match your search",
+    "noResultsHint": "Try a different name, email, number or word."
+  },
+  "channel": {
+    "messenger": "Chat",
+    "email": "Email",
+    "phone": "Phone",
+    "whatsapp": "WhatsApp",
+    "sms": "SMS",
+    "api": "API",
+    "portal": "Help center"
+  },
+  "conversation": {
+    "title": "Conversation",
+    "replyPlaceholder": "Write a reply…",
+    "notePlaceholder": "Add an internal note…",
+    "send": "Send",
+    "reply": "Reply",
+    "note": "Note",
+    "close": "Close",
+    "reopen": "Reopen",
+    "loadError": "Could not load this conversation.",
+    "sendError": "Could not send your message.",
+    "manageError": "Could not update the conversation.",
+    "emptyThread": "No messages yet.",
+    "visitor": "Visitor",
+    "agent": "You",
+    "bot": "Bot",
+    "system": "System",
+    "closedEvent": "Conversation closed",
+    "reopenedEvent": "Conversation reopened",
+    "assignedEvent": "Assigned",
+    "unassignedEvent": "Unassigned",
+    "ratedEvent": "Customer rated this {rating}/5",
+    "typing": "{name} is typing…",
+    "typingFallback": "Visitor",
+    "visitorOnline": "Online",
+    "assignee": "Assignee:",
+    "unassignedLabel": "Unassigned",
+    "assignToMe": "Assign to me",
+    "changeAssignee": "Assign to…",
+    "unassign": "Unassign",
+    "assignedToYou": "You",
+    "assignTitle": "Assign conversation",
+    "searchMembers": "Search team members",
+    "noMembers": "No team members found.",
+    "membersError": "Could not load team members.",
+    "assignError": "Could not update the assignee.",
+    "attachment": "Attachment",
+    "attachmentOpenError": "Could not open this attachment.",
+    "attach": "Attach",
+    "takePhoto": "Take photo",
+    "choosePhoto": "Choose photo",
+    "chooseFile": "Choose file",
+    "removeAttachment": "Remove {name}",
+    "uploading": "Uploading…",
+    "uploadError": "Could not upload {name}.",
+    "uploadTooLarge": "{name} is larger than 10 MB.",
+    "uploadTypeNotAllowed": "{name} can’t be attached: images, PDFs, text and Office files only.",
+    "uploadUnavailable": "Attachments aren’t available on this server.",
+    "tooManyAttachments": "A reply can have at most 10 attachments."
+  },
+  "settings": {
+    "title": "Settings",
+    "channels": "Channels",
+    "channelsHint": "Chat widget, support email, and the help center are configured in WeldDesk on the web."
+  },
+  "notifications": {
+    "channel": "Helpdesk notifications"
+  }
+}

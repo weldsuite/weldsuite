@@ -48,6 +48,12 @@ data:
   # "true" once pay.${DOMAIN} points at the ingress load balancer and the
   # server serves /public/weldbooks (ADR BOOKS-014).
   PAY_PORTAL_ENABLED: "false"
+  # WeldForms on workspaces' own host names (apps/eu/values/weldsuite.yaml,
+  # formsPortal.customDomains): they CNAME to forms.${DOMAIN}, so nothing new
+  # points at the load balancer. FORMS_APEX_ADDRESSES its addresses, for apex
+  # domains.
+  FORMS_CUSTOM_DOMAINS: "false"
+  FORMS_APEX_ADDRESSES: "[]"
   # Zitadel (auth.${DOMAIN}): the WeldSuite project's id (the tokens'
   # audience) and the platform's web application's client id (PKCE). Made in
   # Zitadel's console after its first start (README, step 7).

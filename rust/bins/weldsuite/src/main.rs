@@ -39,6 +39,7 @@ mod cron;
 mod desk_http;
 mod doctor;
 mod edition;
+mod forms_domains;
 mod infra;
 mod mail_cli;
 mod migrate;
@@ -115,6 +116,17 @@ fn main() -> ExitCode {
             weldsuite_notifications::platform_origin(|name| std::env::var(name).ok())
     {
         weldsuite_notifications::set_push_server(&origin);
+    }
+    // The native apps' pushes go straight to APNs and FCM with the server's
+    // keys (`APNS_*`, `FCM_SERVICE_ACCOUNT`). Not in conformance builds:
+    // Global's workers send every push through Expo.
+    if !cfg!(feature = "conformance") {
+        let native = weldsuite_notifications::NativePush::from_env(|name| std::env::var(name).ok());
+        let http = native
+            .is_configured()
+            .then(routes::shared_outbound)
+            .flatten();
+        weldsuite_notifications::set_native_push(native.with_http(http));
     }
     // ADR OPS-026: on the EU edition a service outside the EU is called for
     // a workspace only once its admin switched it on (serve, consume and

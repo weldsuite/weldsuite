@@ -317,6 +317,16 @@ formsPortal:
       - secretName: weldsuite-forms-tls
         hosts:
           - forms.${DOMAIN}
+  # Form links on workspaces' own host names (forms.acme.com): customers point
+  # a CNAME at forms.${DOMAIN}, which already reaches the load balancer, and
+  # the server makes a letsencrypt Certificate (HTTP-01 through Traefik) and
+  # an Ingress to this portal per host name, as for shop domains. On with
+  # FORMS_CUSTOM_DOMAINS: "true" in the cluster's settings, with
+  # FORMS_APEX_ADDRESSES the load balancer's addresses for apex domains.
+  customDomains:
+    enabled: ${FORMS_CUSTOM_DOMAINS:=false}
+    cnameTarget: forms.${DOMAIN}
+    apexAddresses: ${FORMS_APEX_ADDRESSES:=[]}
 
 # WeldCommerce's online stores (weldsuite-documentation/plans/weldcommerce-storefronts.md):
 # every shop host goes to the server's storefront edge (port 8791, the

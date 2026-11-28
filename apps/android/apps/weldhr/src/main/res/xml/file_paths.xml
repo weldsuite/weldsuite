@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Receipt photos the camera takes (ReceiptFiles.cameraUri). -->
+    <cache-path name="camera" path="camera/" />
+    <!-- Receipts, payslips and annual statements opened in the phone's viewer (HrRepository.download). -->
+    <cache-path name="documents" path="weldhr-documents/" />
+</paths>

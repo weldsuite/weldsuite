@@ -164,10 +164,28 @@ pub const TABLES: &[Table] = &[
     moves("form_abuse_reports", WORKSPACE),
     moves("form_invitation_registry", WORKSPACE_OR_ORG),
     moves("form_link_registry", WORKSPACE_OR_ORG),
+    stays(
+        "forms_custom_domains",
+        "WeldForms custom domains are EU and self-hosted only: Global has none",
+    ),
     moves("helpcenter_domain_registry", WORKSPACE),
     stays("iceberg_namespace_properties", LAKEHOUSE),
     stays("iceberg_tables", LAKEHOUSE),
     moves("mail_account_registry", WORKSPACE),
+    stays(
+        "mail_dmarc_pool_daily",
+        "this install's own sending addresses in DMARC reports (MAIL-015): Global has none",
+    ),
+    stays(
+        "mail_dmarc_report_log",
+        "the DMARC reports this install received (MAIL-015): Global has none",
+    ),
+    stays(
+        "mail_domain_registry",
+        "Global has none (MAIL-015 came after the flip): `weldsuite mail \
+         backfill-domain-registry` files the moved workspaces' verified domains \
+         after the tenants step",
+    ),
     stays(
         "mail_threat_indicators",
         "Global's shared threat list; this install keeps its own",

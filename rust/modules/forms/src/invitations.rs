@@ -577,6 +577,7 @@ pub(crate) async fn create_invitations(
     }
 
     let public_id = text(form, "publicId");
+    let base = crate::domains::base_of(ctx).await;
     let mails: Vec<InviteMail> = fresh
         .iter()
         .zip(&tokens)
@@ -584,7 +585,7 @@ pub(crate) async fn create_invitations(
             email: candidate.email.clone(),
             name: candidate.name.clone(),
             locale: locale.clone(),
-            url: invitation_url(ctx.env(), public_id, token),
+            url: invitation_url(&base, public_id, token),
             subject: input.subject.clone(),
             message: input.message.clone(),
         })
@@ -886,6 +887,7 @@ async fn remind_batch(
     }
     let settings = settings_of(form);
     let public_id = text(form, "publicId");
+    let base = crate::domains::base_of(ctx).await;
     let mut sent_to = HashSet::new();
     for (sender, group) in &groups {
         let mails: Vec<InviteMail> = group
@@ -894,7 +896,7 @@ async fn remind_batch(
                 email: text(row, "email").to_owned(),
                 name: opt_text(row, "name"),
                 locale: text(row, "locale").to_owned(),
-                url: invitation_url(ctx.env(), public_id, token),
+                url: invitation_url(&base, public_id, token),
                 subject: opt_text(row, "subject"),
                 message: opt_text(row, "message"),
             })

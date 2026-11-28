@@ -54,6 +54,45 @@ const METHODS: &[&str] = &["get", "put", "post", "delete", "patch", "head", "opt
 pub const CHECKED_IN: &[(&str, &[&str])] = &[
     ("weldpass", &["modules/pass/tests/openapi_contract.rs"]),
     (
+        "weldbooks",
+        &[
+            "modules/books/tests/openapi_contract.rs",
+            "modules/books-banking/tests/openapi_contract.rs",
+            "modules/books-purchases/tests/openapi_contract.rs",
+            "modules/books-reports/tests/openapi_contract.rs",
+            "modules/books-sales/tests/openapi_contract.rs",
+            "modules/books-sales-tax/tests/openapi_contract.rs",
+            "modules/books-tax/tests/openapi_contract.rs",
+        ],
+    ),
+    (
+        "weldmail",
+        &[
+            "modules/mail/tests/openapi_contract.rs",
+            "modules/crm/tests/weldmail_openapi_contract.rs",
+        ],
+    ),
+    (
+        "weldcalendar",
+        &["modules/calendar/tests/openapi_contract.rs"],
+    ),
+    (
+        "weldchat",
+        &[
+            "modules/chat/tests/openapi_contract.rs",
+            "modules/core-team/tests/openapi_contract_weldchat.rs",
+            "modules/core-platform/tests/openapi_contract_weldchat.rs",
+        ],
+    ),
+    (
+        "welddesk",
+        &[
+            "modules/desk/tests/openapi_contract.rs",
+            "modules/core-team/tests/openapi_contract_welddesk.rs",
+        ],
+    ),
+    ("weldhr", &["modules/hr/tests/openapi_contract.rs"]),
+    (
         "core",
         &[
             "bins/weldsuite/src/server.rs",

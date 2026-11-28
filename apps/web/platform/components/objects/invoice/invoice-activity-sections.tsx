@@ -270,7 +270,7 @@ export function OnlineLinkCard({ invoice }: Readonly<{ invoice: InvoiceWithTax }
           </p>
           <div className="flex flex-wrap items-center gap-2">
             {link ? (
-              <CopyButton value={link} label={copy.copy} copiedLabel={copy.copied} failedLabel={copy.copyFailed} />
+              <CopyButton value={link} label={copy.copy} showLabel copiedLabel={copy.copied} failedLabel={copy.copyFailed} />
             ) : null}
             {canUpdate ? (
               <Button type="button" variant="outline" size="sm" onClick={() => setConfirmOpen(true)}>

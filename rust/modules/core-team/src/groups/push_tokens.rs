@@ -4,15 +4,23 @@
 //! plumbing for every signed-in member, and no entity events.
 //!
 //! - `GET /`: the caller's active tokens, masked to their last 12 characters.
-//! - `POST /`: register (re-activates a deactivated token).
-//! - `POST /test`: send a test push to the caller's WeldChat devices through
-//!   Expo, deactivating the tokens Expo calls invalid.
+//! - `POST /`: register (re-activates a deactivated token). Token types:
+//!   `expo` (the React Native apps), `apns` and `fcm` (the native apps), and
+//!   the call tokens `voip`, `expo_call` and `fcm_call` (`<deviceId>:call`).
+//! - `POST /test`: send a test push to the caller's WeldChat devices: Expo
+//!   tokens through Expo, the native apps' `apns` and `fcm` tokens straight
+//!   to Apple and Google (`weldsuite_notifications::send_native_alert`),
+//!   deactivating the tokens they call invalid. Call tokens get none.
 //! - `DELETE /?deviceId=`: deactivate a device's push and call tokens.
 //!
 //! Expo's push API is reached through [`ExpoGateway`], a request extension:
-//! the Kubernetes editions have none yet (a test push then fails as when
-//! Expo can't be reached), conformance builds send it through the test's
-//! fetch stub.
+//! the Kubernetes editions have none yet (an Expo test push then fails as
+//! when Expo can't be reached), conformance builds send it through the
+//! test's fetch stub. The native senders use the request's
+//! [`OutboundHttp`] when it brings one (conformance), else the server's
+//! native push client and keys (`weldsuite_notifications::set_native_push`);
+//! a sender without its key answers its tokens as not configured and leaves
+//! them active.
 
 use std::sync::Arc;
 
@@ -25,13 +33,16 @@ use http::HeaderMap;
 use sea_orm::ActiveValue::Set;
 use sea_orm::sea_query::{Expr, OnConflict};
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QuerySelect};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use time::PrimitiveDateTime;
 use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{ApiError, Data, generate_id};
+use weldsuite_notifications::{
+    NativeAlert, NativeOutcome, is_call_token_type, is_native_token_type, send_native_alert,
+};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_ports::BoxFuture;
+use weldsuite_ports::{BoxFuture, OutboundHttp};
 use weldsuite_schema::tenant::device_tokens as tokens;
 
 use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer, validate, validate_query};
@@ -47,9 +58,13 @@ where
 
 /// `@weldsuite/notifications`' `CALL_DEVICE_SUFFIX`.
 const CALL_DEVICE_SUFFIX: &str = ":call";
-/// Call tokens ring a phone; they are never for ordinary pushes.
-const CALL_TOKEN_TYPES: [&str; 2] = ["voip", "expo_call"];
+/// What `tokenType` may be. The call tokens
+/// (`weldsuite_notifications::CALL_TOKEN_TYPES`) ring a phone and are never
+/// for ordinary pushes.
+const TOKEN_TYPES: [&str; 6] = ["expo", "fcm", "apns", "voip", "expo_call", "fcm_call"];
 const EXPO_PUSH_URL: &str = "https://exp.host/--/api/v2/push/send";
+const TEST_TITLE: &str = "WeldChat test";
+const TEST_BODY: &str = "If you see this, push delivery works.";
 const MAX_PER_REQUEST: usize = 100;
 
 /// One HTTP POST to Expo's push API: the status and body, or why it could
@@ -159,12 +174,7 @@ async fn register(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
                     .string(fields, "deviceId", true, Some(1), None)
                     .unwrap_or_default(),
                 token_type: issues
-                    .choice(
-                        fields,
-                        "tokenType",
-                        Presence::Optional,
-                        &["expo", "fcm", "apns", "voip", "expo_call"],
-                    )
+                    .choice(fields, "tokenType", Presence::Optional, &TOKEN_TYPES)
                     .into_option()
                     .unwrap_or_else(|| "expo".to_owned()),
                 app_code: issues
@@ -273,12 +283,28 @@ async fn unregister(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 // ── POST /test ──────────────────────────────────────────────────────────────
 
-async fn test(caller: Caller, expo: Option<Extension<ExpoGateway>>) -> Response {
+async fn test(
+    caller: Caller,
+    expo: Option<Extension<ExpoGateway>>,
+    http: Option<Extension<OutboundHttp>>,
+) -> Response {
     let expo = expo.map(|Extension(gateway)| gateway);
-    answer(send_test(&caller, expo.as_ref()).await)
+    let http = http.map(|Extension(http)| http);
+    answer(send_test(&caller, expo.as_ref(), http.as_ref()).await)
 }
 
-async fn send_test(caller: &Caller, expo: Option<&ExpoGateway>) -> TeamResult<Response> {
+/// A native app's token: the token, its app code and type.
+struct NativeToken {
+    token: String,
+    app_code: String,
+    token_type: String,
+}
+
+async fn send_test(
+    caller: &Caller,
+    expo: Option<&ExpoGateway>,
+    http: Option<&OutboundHttp>,
+) -> TeamResult<Response> {
     const FAILED: &str = "Failed to send test push";
     let rows: Vec<(String, String, String)> = tokens::Entity::find()
         .select_only()
@@ -296,9 +322,19 @@ async fn send_test(caller: &Caller, expo: Option<&ExpoGateway>) -> TeamResult<Re
         .map_err(|error| TeamError::internal(FAILED, error))?;
 
     // One Expo request per app: mixing EAS projects fails a whole batch.
+    // The native apps' tokens go straight to Apple and Google, one by one.
     let mut by_app: Vec<(String, Vec<String>)> = Vec::new();
+    let mut native: Vec<NativeToken> = Vec::new();
     for (token, app_code, token_type) in rows {
-        if CALL_TOKEN_TYPES.contains(&token_type.as_str()) || token.is_empty() {
+        if is_call_token_type(&token_type) || token.is_empty() {
+            continue;
+        }
+        if is_native_token_type(&token_type) {
+            native.push(NativeToken {
+                token,
+                app_code,
+                token_type,
+            });
             continue;
         }
         match by_app.iter_mut().find(|(app, _)| *app == app_code) {
@@ -306,7 +342,7 @@ async fn send_test(caller: &Caller, expo: Option<&ExpoGateway>) -> TeamResult<Re
             None => by_app.push((app_code, vec![token])),
         }
     }
-    if by_app.is_empty() {
+    if by_app.is_empty() && native.is_empty() {
         return Err(TeamError::api(ApiError::bad_request(
             "No active WeldChat push token registered for this account. Open WeldChat, grant notification permission, then try again.",
         )));
@@ -320,26 +356,35 @@ async fn send_test(caller: &Caller, expo: Option<&ExpoGateway>) -> TeamResult<Re
             .map(|to| {
                 json!({
                     "to": to,
-                    "title": "WeldChat test",
-                    "body": "If you see this, push delivery works.",
+                    "title": TEST_TITLE,
+                    "body": TEST_BODY,
                     "sound": "default",
                     "priority": "high",
                     "channelId": "chat",
-                    "data": {
-                        "notificationType": "push_test",
-                        "actionUrl": "",
-                        "entityType": "",
-                        "entityId": "",
-                    },
+                    "data": test_data(),
                 })
             })
             .collect();
-        let sent = send_expo_push(expo, messages)
-            .await
-            .map_err(|error| TeamError::internal(FAILED, error))?;
+        let count = messages.len();
+        let sent = match send_expo_push(expo, messages).await {
+            Ok(sent) => sent,
+            // Only Expo to try: its failure is the answer.
+            Err(error) if native.is_empty() => return Err(TeamError::internal(FAILED, error)),
+            // The native tokens still get theirs.
+            Err(error) => {
+                tracing::error!(%error, "push-tokens: Expo test push failed");
+                ExpoResult {
+                    tickets: vec![json!({ "status": "error", "message": error }); count],
+                    invalid_tokens: Vec::new(),
+                }
+            }
+        };
         tickets.extend(sent.tickets);
         invalid.extend(sent.invalid_tokens);
     }
+    let (native_tickets, native_invalid) = send_native_tests(&native, http).await;
+    tickets.extend(native_tickets);
+    invalid.extend(native_invalid);
 
     let invalid: Vec<String> = invalid.into_iter().filter(|t| !t.is_empty()).collect();
     if !invalid.is_empty() {
@@ -352,7 +397,47 @@ async fn send_test(caller: &Caller, expo: Option<&ExpoGateway>) -> TeamResult<Re
             .await
             .map_err(|error| TeamError::internal(FAILED, error))?;
     }
+    test_answer(&tickets)
+}
 
+/// The test push to each native token: its tickets, and the tokens Apple
+/// or Google call dead.
+async fn send_native_tests(
+    native: &[NativeToken],
+    http: Option<&OutboundHttp>,
+) -> (Vec<Value>, Vec<String>) {
+    let data = test_data_map();
+    let alert = NativeAlert {
+        title: TEST_TITLE,
+        body: TEST_BODY,
+        thread_id: "weldchat",
+        high_priority: true,
+        android_channel: Some("chat"),
+        data: &data,
+        badge: None,
+    };
+    let mut tickets = Vec::new();
+    let mut invalid = Vec::new();
+    for device in native {
+        let outcome = send_native_alert(
+            http,
+            &device.token_type,
+            &device.token,
+            &device.app_code,
+            &alert,
+        )
+        .await;
+        tickets.push(native_ticket(&outcome));
+        if outcome == NativeOutcome::InvalidToken {
+            invalid.push(device.token.clone());
+        }
+    }
+    (tickets, invalid)
+}
+
+/// What the test answers: the tickets counted, or 500 with the first
+/// failure's reason when none was delivered.
+fn test_answer(tickets: &[Value]) -> TeamResult<Response> {
     let ok = tickets.iter().filter(|t| t["status"] == "ok").count();
     let failed: Vec<&Value> = tickets.iter().filter(|t| t["status"] == "error").collect();
     if ok == 0 {
@@ -378,6 +463,39 @@ async fn send_test(caller: &Caller, expo: Option<&ExpoGateway>) -> TeamResult<Re
 /// A non-empty string, as `x || …` keeps it.
 fn truthy_text(value: &Value) -> Option<String> {
     value.as_str().filter(|s| !s.is_empty()).map(str::to_owned)
+}
+
+/// The test push's data.
+fn test_data_map() -> Map<String, Value> {
+    let mut data = Map::new();
+    data.insert("notificationType".to_owned(), json!("push_test"));
+    for key in ["actionUrl", "entityType", "entityId"] {
+        data.insert(key.to_owned(), json!(""));
+    }
+    data
+}
+
+fn test_data() -> Value {
+    Value::Object(test_data_map())
+}
+
+/// A native push's outcome as an Expo ticket, so the answer counts and
+/// explains them alike.
+fn native_ticket(outcome: &NativeOutcome) -> Value {
+    match outcome {
+        NativeOutcome::Sent => json!({ "status": "ok" }),
+        NativeOutcome::InvalidToken => json!({
+            "status": "error",
+            "message": "The push service no longer knows this device. Re-open the app to re-register.",
+            "details": { "error": "DeviceNotRegistered" },
+        }),
+        NativeOutcome::NotConfigured(what) => json!({
+            "status": "error",
+            "message": format!("{what} on this server"),
+            "details": { "error": "NotConfigured" },
+        }),
+        NativeOutcome::Failed(reason) => json!({ "status": "error", "message": reason }),
+    }
 }
 
 // ── Expo's push API (`@weldsuite/notifications` `sendExpoPush`) ─────────────
@@ -527,6 +645,31 @@ mod tests {
         assert!(is_expo_push_token("ExpoPushToken[x]"));
         assert!(!is_expo_push_token("ExponentPushToken[]"));
         assert!(!is_expo_push_token("fcm:abc"));
+    }
+
+    #[test]
+    fn native_outcomes_read_as_tickets() {
+        assert_eq!(native_ticket(&NativeOutcome::Sent)["status"], "ok");
+        let dead = native_ticket(&NativeOutcome::InvalidToken);
+        assert_eq!(dead["details"]["error"], "DeviceNotRegistered");
+        let skipped = native_ticket(&NativeOutcome::NotConfigured(
+            "FCM is not configured (FCM_SERVICE_ACCOUNT)",
+        ));
+        assert_eq!(skipped["status"], "error");
+        assert_eq!(
+            skipped["message"],
+            "FCM is not configured (FCM_SERVICE_ACCOUNT) on this server"
+        );
+        assert_eq!(
+            native_ticket(&NativeOutcome::Failed("FCM HTTP 503".to_owned()))["message"],
+            "FCM HTTP 503"
+        );
+        assert!(TOKEN_TYPES.contains(&"fcm_call"));
+        assert!(
+            weldsuite_notifications::CALL_TOKEN_TYPES
+                .iter()
+                .all(|kind| TOKEN_TYPES.contains(kind))
+        );
     }
 
     #[test]

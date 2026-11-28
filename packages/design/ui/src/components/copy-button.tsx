@@ -1,30 +1,33 @@
-'use client';
-
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Copy, TriangleAlert } from 'lucide-react';
-import { Button, type buttonVariants } from '@weldsuite/ui/components/button';
-import { cn } from '@weldsuite/ui/lib/utils';
+import * as React from 'react';
+import { Check, Copy, X } from 'lucide-react';
 import type { VariantProps } from 'class-variance-authority';
 
+import { Button, type buttonVariants } from '@weldsuite/ui/components/button';
+import { cn } from '@weldsuite/ui/lib/utils';
+
 export interface CopyButtonProps {
-  /** The text that goes on the clipboard. */
+  /** The text written to the clipboard. */
   value: string;
-  /** Visible text of the button, e.g. "Copy link". Left out, the button is icon-only and `ariaLabel` names it. */
-  label?: string;
-  /** Names an icon-only button for assistive technology, e.g. "Copy the payment link". */
-  ariaLabel?: string;
-  /** Said and shown after a copy, e.g. "Copied". */
+  /** Names what is copied ("Copy CNAME value"): several bare "Copy" buttons are indistinguishable to screen readers. */
+  label: string;
+  /** Shows `label` as the button's text next to the icon ("Copy link") instead of an icon-only button. */
+  showLabel?: boolean;
+  /** Feedback shown and announced after a successful copy. */
   copiedLabel: string;
-  /** Said and shown when the clipboard refused, e.g. "Copy failed". */
+  /** Feedback shown and announced when the clipboard is unavailable or denied. */
   failedLabel: string;
+  /** Defaults to `ghost` for an icon-only button and `outline` with `showLabel`. */
   variant?: VariantProps<typeof buttonVariants>['variant'];
+  /** Defaults to `icon-xs` for an icon-only button and `sm` with `showLabel`. */
   size?: VariantProps<typeof buttonVariants>['size'];
   className?: string;
-  /** How long the confirmation stays, in milliseconds. */
+  /** Feedback stays this long, in milliseconds. */
   feedbackMs?: number;
 }
 
 type CopyState = 'idle' | 'copied' | 'failed';
+
+const ICONS: Record<CopyState, typeof Copy> = { idle: Copy, copied: Check, failed: X };
 
 /** The legacy path for a page the browser does not give the async clipboard (an insecure context). */
 function legacyCopy(text: string): boolean {
@@ -43,88 +46,85 @@ function legacyCopy(text: string): boolean {
 }
 
 /**
- * Copies a text to the clipboard and says so. The confirmation is a
- * `role="status"` bubble next to the button (not inside it, so a screen reader
- * announces it) and is shown for both outcomes, in words and with an icon. The
- * button is never disabled while it shows: copying again is harmless, and a
- * disabled button would drop keyboard focus. It holds no translations.
+ * A button that copies `value` with the Async Clipboard API (falling back to
+ * the legacy copy command where the browser does not offer it). The
+ * confirmation bubble is a sibling `<output>` (role status, a live region; a button's
+ * children are presentational, so a region inside it is not reliably
+ * announced). It shows both outcomes, fades with opacity so it stays in the
+ * accessibility tree, and the button is never disabled while feedback shows.
+ * It holds no translations.
  */
 export function CopyButton({
   value,
   label,
-  ariaLabel,
+  showLabel = false,
   copiedLabel,
   failedLabel,
-  variant = 'outline',
-  size = 'sm',
+  variant,
+  size,
   className,
   feedbackMs = 2000,
 }: Readonly<CopyButtonProps>) {
-  const [state, setState] = useState<CopyState>('idle');
-  const [announced, setAnnounced] = useState('');
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const lastMessage = useRef('');
+  const [state, setState] = React.useState<CopyState>('idle');
+  const [message, setMessage] = React.useState('');
+  const timer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const lastMessage = React.useRef('');
 
-  useEffect(() => () => clearTimeout(timer.current), []);
+  React.useEffect(() => () => clearTimeout(timer.current), []);
 
-  const report = useCallback(
-    (ok: boolean) => {
-      clearTimeout(timer.current);
-      setState(ok ? 'copied' : 'failed');
-      let message = ok ? copiedLabel : failedLabel;
-      // A screen reader skips a message identical to the one before: a no-break space makes it differ.
-      if (message === lastMessage.current) message += ' ';
-      lastMessage.current = message;
-      setAnnounced(message);
-      timer.current = setTimeout(() => {
-        setState('idle');
-        setAnnounced('');
-      }, feedbackMs);
-    },
-    [copiedLabel, failedLabel, feedbackMs],
-  );
+  const report = (next: Exclude<CopyState, 'idle'>) => {
+    clearTimeout(timer.current);
+    let text = next === 'copied' ? copiedLabel : failedLabel;
+    // VoiceOver skips a message identical to the previous one; a no-break space makes it differ.
+    if (text === lastMessage.current) text += ' ';
+    lastMessage.current = text;
+    setState(next);
+    setMessage(text);
+    timer.current = setTimeout(() => {
+      setState('idle');
+      setMessage('');
+    }, feedbackMs);
+  };
 
   const copy = async () => {
     if (!value) return;
     try {
       if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
       else if (!legacyCopy(value)) throw new Error('copy failed');
-      report(true);
+      report('copied');
     } catch {
       try {
-        report(legacyCopy(value));
+        report(legacyCopy(value) ? 'copied' : 'failed');
       } catch {
-        report(false);
+        report('failed');
       }
     }
   };
 
-  const Icon = state === 'copied' ? Check : state === 'failed' ? TriangleAlert : Copy;
+  const Icon = ICONS[state];
+
   return (
-    <span className={cn('relative inline-flex items-center gap-2', className)}>
+    <span className={cn('relative inline-flex', className)}>
       <Button
         type="button"
-        variant={variant}
-        size={size}
-        aria-label={label ? undefined : ariaLabel}
-        data-copied={state === 'copied' ? '' : undefined}
-        data-failed={state === 'failed' ? '' : undefined}
+        variant={variant ?? (showLabel ? 'outline' : 'ghost')}
+        size={size ?? (showLabel ? 'sm' : 'icon-xs')}
         className="min-h-6 min-w-6"
+        aria-label={showLabel ? undefined : label}
         onClick={() => void copy()}
       >
         <Icon aria-hidden="true" />
-        {label}
+        {showLabel ? label : null}
       </Button>
-      <span
-        role="status"
+      <output
         className={cn(
-          'text-xs transition-opacity motion-reduce:transition-none',
-          state === 'failed' ? 'text-destructive' : 'text-muted-foreground',
+          'pointer-events-none absolute end-0 top-full z-10 mt-1 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md transition-opacity motion-reduce:transition-none',
+          state === 'failed' && 'text-destructive',
           state === 'idle' ? 'opacity-0' : 'opacity-100',
         )}
       >
-        {announced}
-      </span>
+        {message}
+      </output>
     </span>
   );
 }

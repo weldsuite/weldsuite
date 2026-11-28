@@ -290,7 +290,7 @@ function Sent({ delivery, documentNumber, onClose }: Readonly<{ delivery: EmailD
           <Label htmlFor="sent-link">{copy.linkLabel}</Label>
           <div className="flex flex-wrap items-center gap-2">
             <Input id="sent-link" readOnly value={delivery.link} className="min-w-0 flex-1 basis-56" onFocus={(event) => event.currentTarget.select()} />
-            <CopyButton value={delivery.link} label={copy.copyLink} copiedLabel={copy.linkCopied} failedLabel={copy.copyFailed} />
+            <CopyButton value={delivery.link} label={copy.copyLink} showLabel copiedLabel={copy.linkCopied} failedLabel={copy.copyFailed} />
           </div>
         </div>
       ) : (

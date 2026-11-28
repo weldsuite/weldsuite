@@ -122,6 +122,11 @@ formsPortal:
   enabled: true
   ingress:
     enabled: true
+  # Form links on workspaces' own host names: a third kind in the
+  # custom-domains policy, whose Ingresses route to the portal's Service.
+  customDomains:
+    enabled: true
+    cnameTarget: forms.example.org
 payPortal:
   enabled: true
   ingress:

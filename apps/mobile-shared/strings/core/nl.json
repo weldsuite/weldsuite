@@ -4,7 +4,18 @@
     "tryAgain": "Opnieuw proberen",
     "continue": "Doorgaan",
     "signOut": "Uitloggen",
-    "loading": "Laden…"
+    "loading": "Laden…",
+    "save": "Opslaan",
+    "delete": "Verwijderen",
+    "edit": "Bewerken",
+    "done": "Klaar",
+    "close": "Sluiten",
+    "add": "Toevoegen",
+    "search": "Zoeken",
+    "today": "Vandaag",
+    "yesterday": "Gisteren",
+    "tomorrow": "Morgen",
+    "none": "Geen"
   },
   "signIn": {
     "button": "Inloggen",
@@ -37,5 +48,41 @@
     "title": "{app} bijwerken",
     "description": "Deze versie van {app} werkt niet meer met je server. Werk de app bij om verder te gaan.",
     "button": "Open de store"
+  },
+  "errors": {
+    "generic": "Er ging iets mis. Probeer het opnieuw.",
+    "offline": "Je bent offline. Maak verbinding met internet en probeer het opnieuw.",
+    "forbidden": "Je hebt hier geen toegang toe. Vraag het een beheerder van de werkruimte.",
+    "notFound": "Dit bestaat niet meer.",
+    "loadFailed": "Dit kon niet worden geladen."
+  },
+  "settings": {
+    "title": "Instellingen",
+    "account": "Account",
+    "workspace": "Werkruimte",
+    "switchWorkspace": "Andere werkruimte",
+    "server": "Server",
+    "security": "Beveiliging",
+    "lock": "Vergrendelen met {method}",
+    "lockDescription": "{app} vraagt om {method} als je de app opent, en opnieuw na een minuut op de achtergrond.",
+    "passcode": "Toegangscode",
+    "appearance": "Weergave",
+    "system": "Systeem",
+    "light": "Licht",
+    "dark": "Donker",
+    "language": "Taal",
+    "notifications": "Meldingen",
+    "notificationsOn": "Aan",
+    "notificationsOff": "Meldingen staan uit voor {app}. Zet ze aan in de instellingen van je telefoon.",
+    "openSettings": "Instellingen openen",
+    "signOut": "Uitloggen",
+    "signOutTitle": "Uitloggen bij {app}?",
+    "signOutMessage": "Je moet opnieuw inloggen om {app} op deze telefoon te gebruiken.",
+    "version": "Versie {version}",
+    "deleteAccount": "Account verwijderen",
+    "deleteAccountTitle": "Je account verwijderen?",
+    "deleteAccountMessage": "Je account, je profiel en je toegang tot alle werkruimtes worden definitief verwijderd. Je rondt dit af op je accountpagina.",
+    "deleteAccountContinue": "Naar mijn account",
+    "deleteAccountUnavailable": "Je server biedt dit niet in de app. Vraag de beheerder om je account te verwijderen."
   }
 }

@@ -577,8 +577,16 @@ config:
 #                                team id and the .p8 PEM), for Apple's VoIP push that makes CallKit
 #                                ring on the lock screen; all three or none (optional; unset: an
 #                                iPhone gets the ordinary "Incoming call" notification, no CallKit
-#                                ring. Android's ring needs none of them)
-#   CALL_RING_SECRET             WeldChat: signs the ring token an incoming-call push carries, with
+#                                ring. Android's ring needs none of them). The key also
+#                                sends the native iOS apps' notifications as APNs alerts to
+#                                each app's bundle id (com.weldsuite.<app code>); unset: their
+#                                apns tokens are skipped
+#   FCM_SERVICE_ACCOUNT          the native Android apps' notifications and WeldChat's Android
+#                                call ring over FCM HTTP v1: the JSON key file of a service
+#                                account of the Firebase project every app is in, with the
+#                                Firebase Cloud Messaging API Admin role (optional; unset: their
+#                                fcm and fcm_call tokens are skipped)
+#   CALL_RING_SECRET            WeldChat: signs the ring token an incoming-call push carries, with
 #                                which the lock-screen or CallKit Decline ends the ring at
 #                                /public/chat-calls/decline without a session; any random value
 #                                (`openssl rand -hex 32`) (optional; unset: no token is sent and that
@@ -948,6 +956,40 @@ formsPortal:
         paths:
           - path: /
             pathType: Prefix
+  # Form links on a workspace's own host names (forms.acme.com), through the
+  # same machinery as WeldPanel's collector domains and WeldCommerce's shop
+  # domains (ADR PANEL-014, rust/crates/custom-domains): once a host name's
+  # ownership TXT record (_weldforms.<host>) and its CNAME to cnameTarget (or,
+  # for an apex, A/AAAA records to apexAddresses) resolve, the server (and
+  # the forms-domains job, every 10 minutes) creates a cert-manager
+  # Certificate (HTTP-01 through the ingress controller) and an Ingress
+  # sending every path of it to this portal, in the release's namespace;
+  # removing the domain deletes both (objects weldforms-*, component
+  # forms-domain). The portal names the host to the server, which serves only
+  # that workspace's forms there. The server's and forms-domains' pods then
+  # get the service-account token, bound to the custom-domains Role
+  # (templates/custom-domains.yaml). Needs cert-manager and formsPortal.enabled.
+  customDomains:
+    enabled: false
+    # What customers point their CNAME at: a name of the install's own that
+    # resolves to the ingress load balancer, normally the portal's own host
+    # (forms.example.org). Host names under its parent domain and the
+    # platform's are refused. Required with enabled.
+    cnameTarget: ""
+    # The ingress load balancer's public addresses, for apex domains. Empty:
+    # only CNAMEs count, so an apex can't be added.
+    apexAddresses: []
+    issuerRef:
+      name: letsencrypt
+      kind: ClusterIssuer
+    # The Ingresses' class; empty: formsPortal.ingress.className, else
+    # ingress.className (or the cluster's default class).
+    ingressClassName: ""
+    # The DNS-over-HTTPS endpoint the records are looked up at; empty:
+    # Cloudflare's.
+    dnsResolver: ""
+    admissionPolicy:
+      enabled: true
     tls: []
 
 # WeldBooks' public document page (ADR BOOKS-014): a Node container
@@ -1762,6 +1804,14 @@ cron:
     # CNAME checks, then the Certificate and Ingress once they resolve. Runs
     # whenever storefront custom domains are on, whatever this says.
     storefront-hosts:
+      enabled: false
+      schedule: "*/10 * * * *"
+      activeDeadlineSeconds: 540
+    # WeldForms: the custom form domains still pending (formsPortal.customDomains),
+    # checked from the master database alone: TXT and CNAME checks, then the
+    # Certificate and Ingress once they resolve. Runs whenever form domains
+    # are on, whatever this says.
+    forms-domains:
       enabled: false
       schedule: "*/10 * * * *"
       activeDeadlineSeconds: 540

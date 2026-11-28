@@ -34,6 +34,8 @@ time = { workspace = true, features = ["macros", "parsing", "formatting"] }
 [dev-dependencies]
 quick-xml = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }
+weldsuite-auth = { workspace = true }
+weldsuite-kit = { workspace = true, features = ["openapi-contract"] }
 
 [lints]
 workspace = true

@@ -4629,6 +4629,11 @@
     "form_integration.deleted",
     "form_invitation.sent",
     "form_invitation.completed",
-    "form_invitation.revoked"
+    "form_invitation.revoked",
+    "form_domain.created",
+    "form_domain.updated",
+    "form_domain.deleted",
+    "form_domain.verified",
+    "form_domain.failed"
   ]
 }

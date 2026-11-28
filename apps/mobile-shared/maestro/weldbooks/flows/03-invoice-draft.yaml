@@ -1,0 +1,62 @@
+appId: ${APP_ID || "com.weldsuite.weldbooks.dev"}
+name: Create a draft invoice and delete it
+tags: [smoke, writes]
+---
+- runFlow: ../subflows/login.yaml
+- tapOn:
+    id: tab-invoices
+- tapOn:
+    id: invoices-new
+- extendedWaitUntil:
+    visible:
+      id: invoice-customer
+    timeout: 10000
+
+# Without a priced line the form refuses.
+- scrollUntilVisible:
+    element:
+      id: create-invoice
+- tapOn:
+    id: create-invoice
+- assertVisible: "Add at least one item with a description and price"
+
+- scrollUntilVisible:
+    element:
+      id: invoice-customer
+    direction: UP
+- tapOn:
+    id: invoice-customer
+- inputText: "E2E Customer"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: line-description-0
+- tapOn:
+    id: line-description-0
+- inputText: "Consulting"
+- hideKeyboard
+- tapOn:
+    id: line-price-0
+- inputText: "100"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: create-invoice
+- tapOn:
+    id: create-invoice
+- extendedWaitUntil:
+    visible: "€121.00"
+    timeout: 15000
+- assertVisible: "Draft"
+
+- tapOn:
+    id: invoice-actions
+- tapOn: "Delete draft"
+- extendedWaitUntil:
+    visible: "Delete this draft?"
+    timeout: 10000
+- tapOn:
+    id: confirm
+- extendedWaitUntil:
+    notVisible: "Delete this draft?"
+    timeout: 15000

@@ -1,0 +1,13 @@
+appId: ${APP_ID || "com.weldsuite.weldbooks.dev"}
+name: Home loads after sign-in
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- assertVisible:
+    id: kpi-outstanding
+- assertVisible:
+    id: action-invoice
+- assertVisible:
+    id: action-expense
+- assertVisible:
+    id: action-reports
