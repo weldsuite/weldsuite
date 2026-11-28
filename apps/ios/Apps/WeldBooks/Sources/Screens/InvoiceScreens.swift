@@ -392,7 +392,7 @@ private struct InvoiceBodyView: View {
     }
 }
 
-/ MARK: - Document
+// MARK: - Document
 
 /// The printable invoice (HTML from the server), with sharing as a PDF.
 struct InvoiceDocumentView: View {

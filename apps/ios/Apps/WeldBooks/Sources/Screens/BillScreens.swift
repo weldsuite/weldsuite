@@ -533,7 +533,7 @@ private struct BillBodyView: View {
     }
 }
 
-/ MARK: - New bill
+// MARK: - New bill
 
 private enum BillOcrState {
     case idle, loading, ready, failed
