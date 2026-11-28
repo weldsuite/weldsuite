@@ -79,9 +79,9 @@ export function MessagesView({ config, messenger, onNewConversation, onOpenConve
             onClick={onClose}
             aria-label="Close"
             data-testid="close-button"
-            className="absolute right-3 rounded-xl p-1.5 text-gray-500 hover:bg-gray-100"
+            className="absolute right-2 rounded-xl p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
           >
-            <X className="h-5 w-5" />
+            <X className="h-[18px] w-[18px]" />
           </button>
         )}
       </header>
