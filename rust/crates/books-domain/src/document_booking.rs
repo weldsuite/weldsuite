@@ -167,6 +167,7 @@ pub fn days_between(a: &str, b: &str) -> Option<i64> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "tests")]
 mod tests {
     use serde_json::json;
 

@@ -361,6 +361,7 @@ pub fn credit_transfer_xml(file: &CreditTransferFile) -> Result<String, SepaErro
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "tests")]
 mod tests {
     use super::*;
 
