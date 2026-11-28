@@ -2494,10 +2494,19 @@ mod db_tests {
     {
         let Some(db) = pool() else { return };
         // A contact has no entity: its question shows in every entity, so it is
-        // removed again, and any left by an aborted run before.
+        // removed again, and any left by an aborted run or another crate's test
+        // in the shared database before (with the rows that point at them).
         for _ in 0..2 {
-            sqlx::query("delete from chat_messages where channel_id in (select id from chat_channels where entity_type = 'accounting_contact')")
-                .execute(&db).await.expect("clean");
+            for sql in [
+                "delete from chat_message_reads where channel_id in (select id from chat_channels where entity_type = 'accounting_contact')",
+                "delete from chat_bookmarks where channel_id in (select id from chat_channels where entity_type = 'accounting_contact')",
+                "delete from chat_reminders where channel_id in (select id from chat_channels where entity_type = 'accounting_contact')",
+                "delete from chat_calls where channel_id in (select id from chat_channels where entity_type = 'accounting_contact')",
+                "delete from chat_channel_members where channel_id in (select id from chat_channels where entity_type = 'accounting_contact')",
+                "delete from chat_messages where channel_id in (select id from chat_channels where entity_type = 'accounting_contact')",
+            ] {
+                sqlx::query(sql).execute(&db).await.expect("clean");
+            }
             sqlx::query("delete from chat_channels where entity_type = 'accounting_contact'")
                 .execute(&db)
                 .await
